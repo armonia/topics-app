@@ -15,6 +15,9 @@
  *                                                  outside the root, quarantine a leftover the
  *                                                  GC only lists, restore a quarantined one
  *                                                  (`dryRun` = preview)
+ *   POST   /api/worktrees/register               → a worktree another tool made (hook token)
+ *   GET    /api/worktrees/placement?repo=|project= → where a creator puts one (hook token)
+ *   POST   /api/worktrees/unregister             → forget one whose folder is gone (hook token)
  *
  * Every successful mutation broadcasts a `worktree:<verb>` envelope. The
  * create endpoint emits `worktree:new` synchronously with the row in
@@ -36,9 +39,39 @@ import { purgeWorktreeFromUiState } from "../services/ui-state-purge";
 import { unwatchGitDir } from "../git-watcher";
 import { unwatchProjectFiles } from "../file-watcher";
 import { stripCtrl } from "../lib/strip-ctrl";
-import { posix, win32 } from "node:path";
 import { RELOCATE_ACTIONS, type RelocateAction, type WorktreePlanPayload } from "../../shared/worktree-plan";
 import type { RelocateService } from "../boot/worktree-relocate-wiring";
+import { isAbsoluteServerPath } from "../lib/absolute-path";
+import { bearerMatches, isLoopbackHostRequest } from "../lib/hook-auth";
+import { placementFor, placementForProject, registerWorktree, forgetWorktree, type RegisterDeps } from "../services/worktree-register";
+
+/** The three routes of the registration door. */
+const REGISTRATION_PATHS = new Set(["/api/worktrees/register", "/api/worktrees/placement", "/api/worktrees/unregister"]);
+
+type RequestIdentity = ReturnType<NonNullable<AppContext["requestIdentity"]>>;
+
+/**
+ * WHO MAY USE THE REGISTRATION DOOR: a process on this machine holding the hook
+ * token, and nobody else.
+ *
+ * The token is `claude-hooks/hook-token`, not the daemon token: the daemon token
+ * opens every protected route of the server, the hook token opens only the hook
+ * ingest and these three routes, and it is the file the hook script already
+ * reads. A worktree lives on the machine of the server that registers it (B4),
+ * so a caller from elsewhere has no business here: the Host must be this machine.
+ * A delegated node credential or a guest is refused before the token is looked at.
+ */
+export function authorizeRegistration(
+  req: Request,
+  identity: RequestIdentity,
+  token: string | null,
+): { status: 401 | 403; error: string } | null {
+  if (identity?.delegatedAuthorizationId) return { status: 403, error: "a delegated credential cannot register worktrees" };
+  if (identity?.role === "guest") return { status: 403, error: "not available to a guest" };
+  if (!isLoopbackHostRequest(req)) return { status: 403, error: "worktree registration is localhost-only" };
+  if (!bearerMatches(req, token)) return { status: 401, error: "invalid hook token" };
+  return null;
+}
 
 const ALLOWED_MODES = new Set(["branch", "reuse", "detached"]);
 const ALLOWED_STATUSES = new Set(["pending", "ready", "error"]);
@@ -65,6 +98,10 @@ export interface WorktreesRouterOpts {
   planGc?: (opts: { weigh: boolean }) => Promise<WorktreePlanPayload | null>;
   /** Adopt, move or remove a worktree made outside the root, by hand. */
   relocate?: RelocateService;
+  /** The registration door: its effects and the token that opens it. Absent = 501. */
+  registration?: { deps: () => RegisterDeps; token: () => string | null };
+  /** Path rules for the routes that take a path; defaults to the running platform. */
+  platform?: NodeJS.Platform;
 }
 
 export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts = {}): RouteHandler {
@@ -152,9 +189,9 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
       const body = await readJSON(req);
       const path = stripCtrl(body?.path);
       const action = stripCtrl(body?.action) as RelocateAction;
-      // Absolute in either flavour: a Windows host sends `C:\\...`. Only a folder git lists
+      // Absolute in this host's flavour (a Windows host sends `C:\\...`). Only a folder git lists
       // for a known project is ever acted on, so the form of the path decides nothing else.
-      if (!path || !(posix.isAbsolute(path) || win32.isAbsolute(path))) return errorResponse(400, "path must be an absolute path");
+      if (!path || !isAbsoluteServerPath(path, opts.platform)) return errorResponse(400, "path must be an absolute path");
       if (!(RELOCATE_ACTIONS as readonly string[]).includes(action)) {
         return errorResponse(400, `action must be one of: ${RELOCATE_ACTIONS.join(", ")}`);
       }
@@ -168,6 +205,36 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
         else if (row) emit(action === "adopt" ? "worktree:new" : "worktree:updated", row);
       }
       return json(result);
+    }
+
+    // The registration door: register, placement, unregister. Auth first, always.
+    if (REGISTRATION_PATHS.has(pathname)) {
+      if (!opts.registration) return errorResponse(501, "worktree registration not available on this host");
+      const denied = authorizeRegistration(req, ctx.requestIdentity?.(req) ?? null, opts.registration.token());
+      if (denied) return errorResponse(denied.status, denied.error);
+      const deps = opts.registration.deps();
+      if (method === "GET" && pathname === "/api/worktrees/placement") {
+        const project = url.searchParams.get("project");
+        const r = project !== null ? placementForProject(deps, project) : placementFor(deps, url.searchParams.get("repo"));
+        return json(r.body, r.status);
+      }
+      if (method !== "POST") return errorResponse(405, "method not allowed");
+      const body = await readJSON(req);
+      if (!body || typeof body !== "object") return errorResponse(400, "body must be a JSON object");
+      if (pathname === "/api/worktrees/unregister") {
+        const r = forgetWorktree(deps, body.path);
+        if (r.status === 200 && r.body.removed && r.body.id) emit("worktree:deleted", { id: r.body.id });
+        return json(r.body, r.status);
+      }
+      if (pathname === "/api/worktrees/register") {
+        const r = await registerWorktree(deps, body);
+        if (r.status === 200 && r.body.created) {
+          const row = worktreeStore.get(r.body.id);
+          if (row) emit("worktree:new", row);
+        }
+        return json(r.body, r.status);
+      }
+      return errorResponse(405, "method not allowed");
     }
 
     // POST /api/worktrees/gc — una passata del GC, adesso.

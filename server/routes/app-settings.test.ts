@@ -14,7 +14,7 @@
  * esattamente il caso limite: nessun nome è accettabile, e il messaggio deve
  * dirlo invece di elencare un insieme vuoto.
  *
- * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-05, BROWSER-STORE-REAP-08, WORKTREE-STD-08
+ * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-05, BROWSER-STORE-REAP-08, WORKTREE-STD-15
  */
 
 import { describe, expect, test, beforeAll, afterAll, beforeEach, spyOn } from "bun:test";
@@ -426,6 +426,14 @@ describe("worktree settings (worktree-standard T1)", () => {
     expect(bad.status).toBe(400);
     expect(bad.body.errors[0].field).toBe("cargoTargetMode");
     expect((await put({ gcForeign: "all" })).status).toBe(400);
+  });
+
+  test("claude_worktree_hooks: off or topics, nothing else (WORKTREE-STD-13)", async () => {
+    expect((await put({ claudeWorktreeHooks: "off" })).status).toBe(200);
+    expect(getAppSettings().claudeWorktreeHooks).toBe("off");
+    expect((await put({ claudeWorktreeHooks: "all" })).status).toBe(400);
+    expect((await put({ claudeWorktreeHooks: null })).status).toBe(200);
+    expect(getAppSettings().claudeWorktreeHooks).toBeNull();
   });
 });
 

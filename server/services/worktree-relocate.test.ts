@@ -5,7 +5,7 @@
  * under `mkdtemp`; the row store is a fake that records what it is asked.
  *
  * @covers WORKTREE-STD-07
- * @covers WORKTREE-STD-08
+ * @covers WORKTREE-STD-15
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

@@ -129,7 +129,7 @@ async function checkWith(deps: RelocateDeps, action: RelocateAction, facts: Relo
   const warnings: RelocateWarning[] = [];
   let to: string | null = null;
 
-  const roots = [deps.root(), ...(deps.extraRoots?.() ?? [])].map(canonicalPath);
+  const roots = [deps.root(), ...(deps.extraRoots?.() ?? [])].map((r) => canonicalPath(r));
   const present = existsSync(from);
   if (roots.some((r) => isInsideDir(from, r))) refusals.push("inside-root");
   else if (!present) refusals.push("missing");
@@ -248,7 +248,7 @@ async function remove(deps: RelocateDeps, check: RelocateCheckPayload, f: Reloca
 // ─── Inside the root: quarantine and restore ──────────────────────────────
 
 /** The roots, resolved: a path is compared to them only in its canonical form. */
-const rootsOf = (deps: RelocateDeps): string[] => [deps.root(), ...(deps.extraRoots?.() ?? [])].map(canonicalPath);
+const rootsOf = (deps: RelocateDeps): string[] => [deps.root(), ...(deps.extraRoots?.() ?? [])].map((p) => canonicalPath(p));
 
 /** Whether a by-hand `quarantine` or `restore` may run on this path, and the root it acts in. */
 async function checkInsideRoot(

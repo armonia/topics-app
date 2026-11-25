@@ -1,6 +1,6 @@
 /**
  * @covers WORKTREE-STD-01
- * @covers WORKTREE-STD-08
+ * @covers WORKTREE-STD-15
  *
  * The worktree root typed in Settings is normalised or refused.
  */

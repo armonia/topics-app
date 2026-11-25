@@ -15,6 +15,7 @@
  *   a row whose HEAD is still on its stored branch -> the branch's own status (squash lands included)
  *   (a checkout adopted on `feat` and later detached, with commits on top, is judged
  *   by its HEAD: the stored branch says nothing about what the folder holds now)
+ *   HEAD kept by an archive ref     -> merged (either namespace: the GC's refs or the hook's tags)
  *   otherwise                       -> HEAD is an ancestor of the published main?
  *   git cannot tell                 -> unmerged (whoever could not look keeps)
  */
@@ -22,6 +23,7 @@ import { existsSync } from "node:fs";
 import type { GitRunner } from "./own-commits";
 import { commitIsIn } from "./own-commits";
 import { branchStatusFromRepo, publishedMainRef } from "./branch-status";
+import { alreadyArchived } from "./worktree-archive";
 
 export interface HeadStatusRow {
   absPath: string;
@@ -48,6 +50,7 @@ export async function headStatusOfCheckout(
     if (s === "merged") return "merged";
     if (s === "unmerged") return "unmerged";
   }
+  if (await alreadyArchived(repoPath, sha, git).catch(() => false)) return "merged";
   const main = await publishedMainRef(repoPath, git);
   return (await commitIsIn(repoPath, sha, main, { runGit: git })) === true ? "merged" : "unmerged";
 }

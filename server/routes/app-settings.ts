@@ -15,6 +15,7 @@ import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   CARGO_TARGET_MODES,
+  CLAUDE_WORKTREE_HOOK_MODES,
   DEFAULT_WORKTREE_ABANDON_DAYS,
   DEFAULT_WORKTREE_QUARANTINE_DAYS,
   DEFAULT_WORKTREE_DISK_FLOOR_GB,
@@ -185,6 +186,7 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   cargoTargetMode: { kind: "string", allow: new Set<string>(CARGO_TARGET_MODES) },
   gcForeign: { kind: "string", allow: new Set<string>(GC_FOREIGN_MODES) },
   worktreeAbandonDays: { kind: "int", clamp: (n) => clampInto(n, WORKTREE_ABANDON_DAYS_RANGE, DEFAULT_WORKTREE_ABANDON_DAYS) },
+  claudeWorktreeHooks: { kind: "string", allow: new Set<string>(CLAUDE_WORKTREE_HOOK_MODES) },
   worktreeQuarantineDays: { kind: "int", clamp: (n) => clampInto(n, WORKTREE_QUARANTINE_DAYS_RANGE, DEFAULT_WORKTREE_QUARANTINE_DAYS) },
 };
 
@@ -267,16 +269,6 @@ function parsePatch(body: Record<string, unknown>): {
   return { patch, errors };
 }
 
-/** Genera un token URL-safe a 128-bit (22 caratteri Base64url). */
-function generateToken(): string {
-  // 16 byte → 128 bit di entropia: non deducibile per tentativi.
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
 /**
  * What the root check reads of this machine: its home, its temp folder and the
  * disk. The server passes nothing and gets the real ones; a test names its own,
@@ -291,6 +283,53 @@ interface RootCheckHost {
 const folderHoldsSomething = (abs: string): boolean => {
   try { return readdirSync(abs).some((n) => n !== ".DS_Store"); } catch { return false; }
 };
+
+/**
+ * The whole validation of a settings patch: every field by its rule, and the
+ * worktree root judged against THIS machine. Shared with the worktree policy a
+ * primary sends its node, so both doors refuse the same values and a node judges
+ * the root against its own home, temp folder and disk, never the primary's.
+ *
+ * THE SERVER DECIDES WHERE THE CLEANUP MAY LOOK. Every subfolder of the root is
+ * judged by the GC, so a root that holds anything but Topics' worktrees (the
+ * home, a parent of it, a folder of projects, a folder of documents) is refused
+ * with its reason: on 24/11/2026 a GC pass over the wrong folder removed 30 real
+ * ones. A root inside a repository nests checkouts in it (watchers and indexers
+ * walk each one): refused too.
+ */
+export function validateSettingsPatch(
+  body: Record<string, unknown>,
+  projects: ReadonlyArray<{ path?: string | null }>,
+  host: RootCheckHost = {},
+): { patch: Partial<AppSettings>; errors: ValidationError[] } {
+  const { patch, errors } = parsePatch(body);
+  const rawRoot = body.worktreeRoot;
+  if (typeof rawRoot === "string" && rawRoot.trim() !== "") {
+    const verdict = worktreeRootRefusal(rawRoot, {
+      projectPaths: projects.map((p) => p.path).filter((p): p is string => !!p),
+      nonEmpty: host.nonEmpty ?? folderHoldsSomething,
+      isTopicsRoot: (abs) => hasRootSentinel(abs) || resolve(abs) === resolve(defaultWorktreeRootDir()),
+    }, { home: host.home, osTmp: host.osTmp });
+    for (let i = errors.length - 1; i >= 0; i--) if (errors[i]!.field === "worktreeRoot") errors.splice(i, 1);
+    if ("refusal" in verdict) {
+      errors.push({ field: "worktreeRoot", code: verdict.refusal, message: ROOT_REFUSAL_TEXT[verdict.refusal] });
+    } else {
+      // What is stored is exactly the path that was judged.
+      patch.worktreeRoot = verdict.root;
+    }
+  }
+  return { patch, errors };
+}
+
+/** Genera un token URL-safe a 128-bit (22 caratteri Base64url). */
+function generateToken(): string {
+  // 16 byte → 128 bit di entropia: non deducibile per tentativi.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
 
 export function createAppSettingsRouter(ctx: AppContext, host: RootCheckHost = {}): RouteHandler {
   const { json } = ctx;
@@ -345,28 +384,7 @@ export function createAppSettingsRouter(ctx: AppContext, host: RootCheckHost = {
       if (!parsed || typeof parsed !== "object") {
         return json({ ok: false, error: "Body must be an object" }, 400);
       }
-      const { patch, errors } = parsePatch(parsed as Record<string, unknown>);
-      // THE SERVER DECIDES WHERE THE CLEANUP MAY LOOK. Every subfolder of the
-      // root is judged by the GC, so a root that holds anything but Topics'
-      // worktrees (the home, a parent of it, a folder of projects, a folder of
-      // documents) is refused here with its reason: on 24/11/2026 a GC pass over
-      // the wrong folder removed 30 real ones. A root inside a repository nests
-      // checkouts in it (watchers and indexers walk each one): refused too.
-      const rawRoot = (parsed as Record<string, unknown>).worktreeRoot;
-      if (typeof rawRoot === "string" && rawRoot.trim() !== "") {
-        const verdict = worktreeRootRefusal(rawRoot, {
-          projectPaths: (ctx.projectStore?.list?.() ?? []).map((p) => p.path).filter(Boolean),
-          nonEmpty: host.nonEmpty ?? folderHoldsSomething,
-          isTopicsRoot: (abs) => hasRootSentinel(abs) || resolve(abs) === resolve(defaultWorktreeRootDir()),
-        }, { home: host.home, osTmp: host.osTmp });
-        for (let i = errors.length - 1; i >= 0; i--) if (errors[i]!.field === "worktreeRoot") errors.splice(i, 1);
-        if ("refusal" in verdict) {
-          errors.push({ field: "worktreeRoot", code: verdict.refusal, message: ROOT_REFUSAL_TEXT[verdict.refusal] });
-        } else {
-          // What is stored is exactly the path that was judged.
-          patch.worktreeRoot = verdict.root;
-        }
-      }
+      const { patch, errors } = validateSettingsPatch(parsed as Record<string, unknown>, ctx.projectStore?.list?.() ?? [], host);
       if (errors.length > 0) {
         return json({ ok: false, errors }, 400);
       }

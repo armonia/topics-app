@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
 import { WorktreesPreview } from './WorktreesPreview';
+import { WorktreesMachines } from './WorktreesMachines';
 import { ApiError, appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
 import {
   DEFAULT_CARGO_TARGET_MODE,
@@ -161,6 +162,8 @@ export function WorktreesSection() {
           onChange={(v) => { void patch({ gcForeign: v as 'off' | 'merged' }); }}
         />
       </div>
+
+      <WorktreesMachines />
 
       <WorktreesPreview />
     </div>

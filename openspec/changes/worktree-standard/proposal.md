@@ -12,7 +12,10 @@ Oggi le worktree di Topics nascono ovunque (`~/.topics/worktrees`, `$TMPDIR`, le
 - **Accorpa / separa** per i repo fratelli: `projects.parent_id` + `merge_mode`, board e sidebar mostrano il figlio sotto il padre; nessuna riga di `tasks` riscritta.
 - **Adotta / sposta** le worktree fuori radice, con anteprima, solo se pulite e senza sessione viva.
 
-Sette tracce, in ordine; il dettaglio e le barre in `tasks.md` e `specs/acceptance.md`, i requisiti in `specs/worktree/spec.md` (WORKTREE-STD-01..07).
+- **Worktree fatti da altri (addendum cross-macchina)**: una porta di registrazione aperta dal solo token degli hook (`POST /api/worktrees/register`, `GET /placement`, `POST /unregister`), il creatore in `worktrees.source`, marcatore v2, lock per creatore (`claude-code:` tolto solo a sessione finita e niente da perdere), GC che legge i due archivi; le regole di percorso provate anche per Windows.
+- **Worktree di ogni macchina (T12)**: il nodo riferisce un riepilogo a ogni heartbeat (`machines.worktree_summary`), il primario manda la policy (`PUT /api/nodes/worktree-policy`, stessi validatori di `app_settings`) e chiede la passata o la sua anteprima, il nodo esegue col suo GC; mai un `rm` da remoto, credenziale delegata rifiutata, nodo vecchio saltato. Il bundle di `sync_repo` non resta più sul primario.
+
+Sette tracce più T8, T12 e T13 dell'addendum; il dettaglio e le barre in `tasks.md` e `specs/acceptance.md`, i requisiti in `specs/worktree/spec.md` (WORKTREE-STD-01..12).
 
 ## Barra
 Ogni traccia ha il suo comando che esce non-zero (elenco in `tasks.md`); in complesso: `bun test` dei file nuovi di ogni traccia esce 0, `bun scripts/worktree-orphans.ts --check` esce 0 sulla macchina vera dopo il GC (nessun fantasma, orfano non registrato o riga senza cartella; scansione sotto i 2 s), lo scenario e2e di accorpa/separa con video esce 0, e ciò che è verde resta verde (`worktree-manager`, `worktree-gc*`, `task-automerge*`, `project-path-resolver`, `tasks` dalla CI della PR).

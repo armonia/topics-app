@@ -4,7 +4,7 @@
  * decisions themselves are tested on real git in `worktree-relocate.test.ts`.
  *
  * @covers WORKTREE-STD-07
- * @covers WORKTREE-STD-08
+ * @covers WORKTREE-STD-15
  */
 import { describe, expect, test } from "bun:test";
 import { createWorktreesRouter } from "./worktrees";
@@ -15,7 +15,7 @@ const check = (over: Partial<RelocateCheckPayload> = {}): RelocateCheckPayload =
   action: "move", from: "/x/wt", to: "/r/p/wt", projectId: "p", projectName: "p", rowId: "w1", ok: true, refusals: [], warnings: [], ...over,
 });
 
-function build(result: RelocateResultPayload, sent: unknown[]) {
+function build(result: RelocateResultPayload, sent: unknown[], platform?: NodeJS.Platform) {
   const ctx = {
     json: (body: unknown, status = 200) => new Response(JSON.stringify(body), { status }),
     readJSON: async (req: Request) => req.json(),
@@ -27,6 +27,7 @@ function build(result: RelocateResultPayload, sent: unknown[]) {
   } as unknown as AppContext;
   const calls: string[] = [];
   const router = createWorktreesRouter(ctx, {
+    platform,
     planGc: async ({ weigh }) => ({ entries: [], foreignCount: weigh ? 2 : 1, scanMs: 0, overCap: [] }),
     relocate: {
       check: async (a, p) => { calls.push(`check:${a}:${p}`); return check({ action: a }); },
@@ -47,8 +48,8 @@ describe("worktree relocation routes", () => {
     expect((await post({ path: "/x/wt", action: "burn" }))!.status).toBe(400);
   });
 
-  test("a Windows absolute path is accepted and handed to the check as is", async () => {
-    const { post, calls } = build({ ok: true, check: check() }, []);
+  test("on a Windows host a Windows absolute path is accepted and handed to the check as is", async () => {
+    const { post, calls } = build({ ok: true, check: check() }, [], "win32");
     const res = await post({ path: "C:\\Users\\ann\\wt", action: "remove", dryRun: true });
     expect(res!.status).toBe(200);
     expect(calls).toEqual(["check:remove:C:\\Users\\ann\\wt"]);

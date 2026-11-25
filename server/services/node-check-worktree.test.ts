@@ -1,6 +1,13 @@
 /**
  * @covers LAND-04
  *
+ * The checkouts of this file live in `{worktree root}/_scratch/node-checks` (WORKTREE-STD-02), so the cut
+ * release that must not block the land (LAND-19) and the boot sweep that must empty the folder (LAND-20)
+ * are proved where the standard put them:
+ *
+ * @covers WORKTREE-STD-02+LAND-19
+ * @covers WORKTREE-STD-02+LAND-20
+ *
  * A node check checkout cut mid-release must not block the land (card 8e9c2873).
  *
  * @covers LAND-19

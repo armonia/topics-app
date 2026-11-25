@@ -1,6 +1,7 @@
 import { canonicalProjectPath } from "../lib/canonical-project-path";
 import { isInsideDir } from "../lib/path-containment";
 import { worktreeRootDir } from "../services/worktree-manager";
+import { readOwnerMarker } from "../services/worktree-owner";
 import { existsSync, readdirSync, statSync } from "fs";
 import { basename, join } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
@@ -41,11 +42,17 @@ export function createProjectBinding(ctx: AppContext) {
       ?? projectStore.list().find((p) => canonicalProjectPath(p.path) === projectDir)
       ?? null;
     if (!project) return { error: `no Topics project at ${projectDir}` };
-    // Under Topics' own root (a Claude worktree nested inside a Topics one) the
-    // path would read as Topics' and the sweep and delete would treat it so:
-    // the guard that keeps an adopted folder safe decides on the path alone.
-    if (isInsideDir(absPath, worktreeRootDir())) return { error: `worktree ${absPath} is inside Topics' worktree root` };
+    // Under Topics' own root the path reads as Topics' and the sweep and delete
+    // treat it so. That is right for a checkout somebody registered (a row) or
+    // that a creator of the standard marked (the Claude Code hook writes the
+    // owner marker): a session started there is adopted onto that row. Anything
+    // else under the root is a stray folder, and adopting it would hand it to
+    // the GC on the strength of its path alone.
     const existing = worktreeStore.getByAbsPath(absPath);
+    const marker = existing ? null : readOwnerMarker(absPath);
+    if (isInsideDir(absPath, worktreeRootDir()) && !existing && !marker) {
+      return { error: `worktree ${absPath} is inside Topics' worktree root and nobody registered or marked it` };
+    }
     if (existing) {
       if (existing.projectId !== project.id) return { error: `worktree ${absPath} already belongs to another project` };
       if (existing.status !== "ready") worktreeStore.update(existing.id, { status: "ready" });
@@ -55,7 +62,10 @@ export function createProjectBinding(ctx: AppContext) {
     const stem = (adminName || basename(absPath)).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^[^a-z]+/, "").slice(0, 56) || "adopted";
     let name = stem;
     for (let i = 2; taken.has(name); i++) name = `${stem}-${i}`;
-    const row = worktreeStore.create({ projectId: project.id, name, branchName: branch, baseRef: branch, mode: "reuse", absPath });
+    const origin = marker?.creator && marker.creator !== "topics"
+      ? { source: marker.creator, sessionRef: marker.session?.transcript ?? marker.session?.id ?? null }
+      : { source: "adopted" as const };
+    const row = worktreeStore.create({ projectId: project.id, name, branchName: branch, baseRef: branch, mode: "reuse", absPath, ...origin });
     worktreeStore.update(row.id, { status: "ready" });
     return { id: row.id };
   }

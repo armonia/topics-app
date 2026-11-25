@@ -3,6 +3,7 @@ import type { ToolGrant, DiscordDetailLevel, AgentRuntime } from '../../../share
 import type { DirectEndpointInput, DirectEndpointView } from '../../../shared/direct-endpoints';
 import type { CalendarAgenda } from '../../../shared/calendar';
 import type { RelocateAction, RelocateCheckPayload, RelocateResultPayload, WorktreePlanPayload } from '../../../shared/worktree-plan';
+import type { MachineWorktreeLine } from '../../../shared/worktree-summary';
 import type { McpFleetStatus } from '../../../shared/session-environment';
 import type { SessionEnvironment } from '../../../shared/session-environment';
 import type { ProfileStats, DiscordPresenceStatus, DiscordActivity as DiscordActivityPreview } from '../../../shared/types';
@@ -277,6 +278,8 @@ export interface AppBehaviorSettings {
   gcForeign: 'off' | 'merged' | null;
   /** Days of silence before an unmerged branch's worktree counts as stale. `null` = 7. */
   worktreeAbandonDays: number | null;
+  /** `off` | `topics`: the worktree hooks in the Claude sessions Topics launches. `null` = topics. */
+  claudeWorktreeHooks: 'off' | 'topics' | null;
   worktreeQuarantineDays: number | null;
 }
 
@@ -725,5 +728,10 @@ export const worktreesApi = {
   },
   async relocate(path: string, action: RelocateAction): Promise<RelocateResultPayload> {
     return request<RelocateResultPayload>('/worktrees/relocate', { method: 'POST', body: JSON.stringify({ path, action }) });
+  },
+  /** One line per machine: this one measured here, the nodes from their last report. */
+  async perMachine(): Promise<MachineWorktreeLine[]> {
+    const r = await request<{ machines: MachineWorktreeLine[] }>('/machines/worktrees');
+    return r.machines;
   },
 };

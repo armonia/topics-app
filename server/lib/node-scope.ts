@@ -24,6 +24,9 @@
  *    GET /api/system/machine-security.
  *  - `routes/machine-readout.ts`: GET /api/system/machine-readout.
  *  - `routes/machines-overview.ts`: GET /api/system/machine-metrics.
+ *  - `services/node-client.ts` again, for the worktrees of the node (`routes/nodes-worktrees.ts`):
+ *    `worktreeSummary` (GET /api/nodes/worktrees), `putWorktreePolicy`
+ *    (PUT /api/nodes/worktree-policy), `worktreeGc` (POST /api/nodes/worktrees/gc).
  *
  * The model proxy and the tunnel are not here on purpose: the proxy is the
  * node calling its primary with a model token, and the tunnel is a transport,
@@ -41,6 +44,9 @@ const EXACT = new Set([
   "GET /api/system/machine-metrics",
   "GET /api/system/machine-security",
   "GET /api/system/machine-readout",
+  "GET /api/nodes/worktrees",
+  "PUT /api/nodes/worktree-policy",
+  "POST /api/nodes/worktrees/gc",
 ]);
 const RUN = /^\/api\/nodes\/runs\/[^/]+$/;
 const RUN_BUNDLE = /^\/api\/nodes\/runs\/[^/]+\/bundle$/;

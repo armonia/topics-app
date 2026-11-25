@@ -186,6 +186,11 @@ test.describe("Accorpa e separa un progetto figlio", () => {
   });
 
   test("WORKTREE-STD-06: accorpa mostra le card del figlio nel padre, separa le toglie, nessuna riga cambia", async ({ page, request }, testInfo) => {
+    // The two meetings this one test films, each in ONE annotation (spec-flow D19): the board grouped
+    // by project folds two lanes into one (KANBAN-107), and the sidebar's project row of the merged
+    // child leaves the tree and comes back (TOPIC-09).
+    testInfo.annotations.push({ type: "spec", description: "WORKTREE-STD-06 KANBAN-107" });
+    testInfo.annotations.push({ type: "spec", description: "WORKTREE-STD-06 TOPIC-09" });
     const before = await rowsOf(request, CHILD_BOARD);
     expect(JSON.parse(before)).toHaveLength(3);
 

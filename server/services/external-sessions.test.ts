@@ -1,6 +1,6 @@
 /**
  * @covers KANBAN-20
- * @covers WORKTREE-STD-08
+ * @covers WORKTREE-STD-15
  */
 import { describe, test, expect } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

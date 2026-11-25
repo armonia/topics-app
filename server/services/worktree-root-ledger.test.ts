@@ -4,7 +4,7 @@
  * and the roots Topics used before, read off its rows and its database. Real
  * folders under `mkdtemp`.
  *
- * @covers WORKTREE-STD-08
+ * @covers WORKTREE-STD-15
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

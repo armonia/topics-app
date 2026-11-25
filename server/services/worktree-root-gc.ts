@@ -30,9 +30,10 @@ import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import { join, relative, isAbsolute, sep, basename, dirname } from "node:path";
 import type { GitRunner } from "./own-commits";
 import {
-  canonicalPath, listRepoWorktrees, lockedByTopics, readOwnerMarker, unlockOwned, worktreeAdminDir,
-  type ListedWorktree,
+  canonicalPath, isClaudeCodeLock, listRepoWorktrees, lockedByTopics, readOwnerMarker, unlockOwned, worktreeAdminDir,
+  type ListedWorktree, type WorktreeCreator,
 } from "./worktree-owner";
+import { ARCHIVE_REF_PREFIX } from "./worktree-archive";
 import { folderOwned, quarantineFolder, surelyAbsent, type QuarantinedFolder } from "./worktree-root-ledger";
 import { isInsideDir } from "../lib/path-containment";
 
@@ -148,6 +149,12 @@ export interface RootFacts {
   ageMs: number;
   /** A known project could be named for it (needed to register an orphan). */
   projectKnown: boolean;
+  /**
+   * A v2 owner marker (it names its creator) for a known project: the checkout
+   * was made on purpose by a creator that follows the standard (the Claude Code
+   * hook), so it is registered at once instead of after 24 h.
+   */
+  creatorMarked?: boolean;
   /** Topics wrote the marker for this folder: the only proof that lets a ghost be moved or an orphan be registered. */
   owned?: boolean;
   /** git lost the registration of this worktree (its admin folder is gone). */
@@ -182,6 +189,7 @@ export function classifyRootEntry(f: RootFacts): RootVerdict {
     // A checkout somebody made by hand in the root: a row would hand it to the sweep, whose
     // `git worktree remove --force` takes its ignored files (a `.env`) with it. Listed only.
     if (!f.owned) return { cls: "orphan", action: "inventory", reason: "a checkout with no Topics marker (made by hand or by another tool): listed only, never registered or removed" };
+    if (f.creatorMarked) return { cls: "orphan", action: "register", reason: "made by a registered creator (v2 marker): registered at once, then judged" };
     // A fresh folder with no row may be a create in flight: it is not claimed before a day has passed.
     return f.ageMs < MIN_REMOVAL_AGE_MS
       ? { cls: "orphan", action: "wait", reason: "git knows this checkout but no row does, younger than 24 h" }
@@ -227,6 +235,8 @@ export interface RootPlanInput {
   folderPresent: (absPath: string) => boolean;
   liveInside: (absPath: string) => boolean;
   projectOf: (entry: RootEntry) => string | null;
+  /** The folder carries a v2 owner marker naming its creator (see `RootFacts.creatorMarked`). */
+  creatorMarked?: (entry: RootEntry) => boolean;
   now: number;
   /** `{root}/{slug}` folders that are checkouts: listed, never descended into. */
   checkouts?: readonly string[];
@@ -238,7 +248,7 @@ export interface RootPlanInput {
 /** Pure: every row and every folder of the root, classified. */
 export function planRoot(input: RootPlanInput): RootPlanEntry[] {
   const out: RootPlanEntry[] = [];
-  const roots = [input.root, ...(input.extraRoots ?? [])].map(canonicalPath);
+  const roots = [input.root, ...(input.extraRoots ?? [])].map((r) => canonicalPath(r));
   const ours = (abs: string) => roots.some((r) => isInsideDir(abs, r));
   const byPath = new Map(input.rows.map((r) => [canonicalPath(r.absPath), r]));
   const scannedByPath = new Map(input.scanned.map((e) => [canonicalPath(e.absPath), e]));
@@ -263,6 +273,7 @@ export function planRoot(input: RootPlanInput): RootPlanEntry[] {
       hasRow: false, folderPresent: true, inRoot: true, hasDotGit: e.hasDotGit,
       standaloneRepo: e.standaloneRepo === true || input.repoPaths.has(abs), inGitList: input.listed.has(abs),
       isSymlink: e.isSymlink, liveInside: input.liveInside(e.absPath) || input.liveInside(abs), ageMs: e.ageMs, projectKnown: projectId !== null,
+      creatorMarked: projectId !== null && (input.creatorMarked?.(e) ?? false),
       owned: e.owned === true, registrationLost: e.registrationLost === true,
     });
     out.push({ ...v, absPath: abs, projectId, rowId: null, bytes: null });
@@ -359,26 +370,59 @@ export function projectOfFolder(
   return bySlug.length === 1 ? bySlug[0]!.id : null;
 }
 
+/** The folder's marker is a v2 one (it names its creator) for one of the known projects. */
+export function hasCreatorMarker(entry: RootEntry, projects: readonly KnownProject[]): boolean {
+  const m = readOwnerMarker(entry.absPath);
+  return !!m?.creator && projects.some((p) => p.id === m.projectId);
+}
+
 /**
- * Unlock-and-prune: git forgets the worktrees whose folder is gone. A lock Topics
- * took stops `git worktree prune` from forgetting one, so when no row claims the
- * entry its own lock is lifted first; a foreign lock is left alone.
+ * Unlock-and-prune: git forgets the worktrees whose folder is gone. A lock stops
+ * `git worktree prune` from forgetting one, so it is lifted first: Topics' own
+ * when no row claims the entry (a row's is lifted by the sweep's removal), and
+ * the Claude Code hook's `claude-code:` one whose folder surely went without the
+ * remove hook, row or no row: nothing on the disk is left to protect, and the
+ * sweep cannot lift it (the marker it would read sat in the folder), so without
+ * this git keeps a «missing but locked» entry forever, the row is never closed
+ * and the same name can never be created again. Any other lock is left alone.
+ * `lifted` collects the paths whose lock was lifted.
  */
 export async function pruneKnownRepos(
   git: GitRunner,
   byRepo: ReadonlyMap<string, ListedWorktree[]>,
   rowPaths: ReadonlySet<string>,
+  lifted?: Set<string>,
 ): Promise<number> {
   let pruned = 0;
   for (const [repo, list] of byRepo) {
     for (const w of list) {
+      const abs = canonicalPath(w.path);
+      if (isClaudeCodeLock(w) && surelyAbsent(w.path)) {
+        if (await liftVanishedClaudeCodeLock(git, repo, w).catch(() => false)) { pruned++; lifted?.add(abs); }
+        continue;
+      }
+      if (rowPaths.has(abs)) continue;
       // git never flags a LOCKED worktree as prunable, so a vanished folder is read off the disk.
-      if (!lockedByTopics(w) || !(w.prunable || !existsSync(w.path)) || rowPaths.has(canonicalPath(w.path))) continue;
-      if (await unlockOwned(git, repo, w.path).catch(() => false)) pruned++;
+      if (lockedByTopics(w) && (w.prunable || !existsSync(w.path))) {
+        if (await unlockOwned(git, repo, w.path).catch(() => false)) { pruned++; lifted?.add(abs); }
+      }
     }
     await git(repo, ["worktree", "prune"]).catch(() => undefined);
   }
   return pruned;
+}
+
+/**
+ * The folder is gone, so there is no tree to lose: the commits stay on the
+ * branch. A detached HEAD has no branch, and pruning drops the only ref to it:
+ * its commit is pinned under the archive ref first, or the lock stays.
+ */
+async function liftVanishedClaudeCodeLock(git: GitRunner, repo: string, w: ListedWorktree): Promise<boolean> {
+  if (w.detached && w.head) {
+    const pin = await git(repo, ["update-ref", `${ARCHIVE_REF_PREFIX}lost-${w.head}`, w.head]);
+    if (pin.code !== 0) return false;
+  }
+  return unlockOwned(git, repo, w.path, isClaudeCodeLock);
 }
 
 /**
@@ -423,7 +467,7 @@ export function nameForAdopted(folderName: string, taken: ReadonlySet<string>): 
 }
 
 export interface RegisterStore {
-  create(input: { projectId: string; name: string; branchName: string | null; baseRef: string | null; mode: "branch" | "reuse" | "detached"; absPath: string }): { id: string };
+  create(input: { projectId: string; name: string; branchName: string | null; baseRef: string | null; mode: "branch" | "reuse" | "detached"; absPath: string; source?: WorktreeCreator; sessionRef?: string | null }): { id: string };
   update(id: string, patch: { status: "ready" }): unknown;
   listNamesForProject(projectId: string): Set<string>;
 }
@@ -440,7 +484,12 @@ export function registerOrphan(
   const detached = listedEntry ? listedEntry.detached || !listedEntry.branch : !branch;
   const mode: "branch" | "reuse" | "detached" = detached ? "detached" : branch!.startsWith("topics/") ? "branch" : "reuse";
   const name = nameForAdopted(basename(entry.absPath), store.listNamesForProject(projectId));
-  const row = store.create({ projectId, name, branchName: detached ? null : branch, baseRef: detached ? null : branch, mode, absPath: entry.absPath });
+  // Who made it and for which session, when its marker says so (v2); a v1 marker or none: Topics' own.
+  const marker = readOwnerMarker(entry.absPath);
+  const origin = marker?.creator && marker.creator !== "topics"
+    ? { source: marker.creator, sessionRef: marker.session?.transcript ?? marker.session?.id ?? null }
+    : {};
+  const row = store.create({ projectId, name, branchName: detached ? null : branch, baseRef: detached ? null : branch, mode, absPath: entry.absPath, ...origin });
   store.update(row.id, { status: "ready" });
   return row;
 }

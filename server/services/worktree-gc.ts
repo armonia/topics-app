@@ -34,6 +34,8 @@
  * va, il branch resta, il lavoro è al sicuro dove è sempre stato.
  */
 
+import { MIN_REMOVAL_AGE_MS } from "./worktree-root-gc";
+
 export type WorktreeReapAction = "reap" | "archive-then-free" | "free-checkout" | "commit-residue" | "abandon" | "keep";
 
 export interface WorktreeReapDecision {
@@ -323,6 +325,23 @@ export interface GcWorktree {
   absPath: string;
   branchName: string | null;
   mode: "branch" | "reuse" | "detached";
+  /** Who made the checkout; absent = Topics. */
+  source?: string;
+  /** When the row was written (ISO). */
+  createdAt?: string;
+}
+
+/**
+ * A checkout another tool made (the registration door, a v2 marker) is left
+ * alone for a day after its row is written: Topics sees neither that tool's
+ * process nor its intentions, and a fresh checkout is clean and on main, which
+ * is exactly what the sweep removes. Same floor as an unregistered orphan.
+ * A date that does not parse reads as fresh.
+ */
+export function registeredLately(wt: Pick<GcWorktree, "source" | "createdAt">, now: number = Date.now()): boolean {
+  if (!wt.source || wt.source === "topics") return false;
+  const born = Date.parse(wt.createdAt ?? "");
+  return !Number.isFinite(born) || now - born < MIN_REMOVAL_AGE_MS;
 }
 
 /** Branch state read from the PROJECT repo (robust to a removed worktree dir). */
@@ -644,6 +663,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       if (deps.liveInside?.(wt)) { keep("sessione viva nella cartella"); continue; }
       if (deps.foreign?.(wt)) { keep("cartella fuori dai worktree di Topics"); continue; }
       if (deps.lockedByOthers?.(wt)) { keep("worktree bloccato da un altro (git worktree lock)"); continue; }
+      if (registeredLately(wt)) { keep("made by another tool less than 24 h ago"); continue; }
 
       const t = deps.resolveTask(wt.id);
       const taskId = t.taskId;
