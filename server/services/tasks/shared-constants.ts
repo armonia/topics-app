@@ -82,7 +82,6 @@ export function commentAsksHuman(content: string | null | undefined): boolean {
   return questionAsksHuman(parsed);
 }
 
-
 /**
  * L'effort di board accetta anche `auto`, come il modello.
  *
