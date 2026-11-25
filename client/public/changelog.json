@@ -1,7 +1,30 @@
 [
   {
-    "version": "2.4.98",
+    "version": "2.4.99",
     "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "count the cells on screen, not the ones the layout remembers",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "a closed row takes no fill under the pointer",
+          "en": "",
+          "scope": "sidebar",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.4.98",
+    "date": "2026-11-24",
     "sections": {
       "new": [
         {

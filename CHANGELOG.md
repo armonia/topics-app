@@ -2,7 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.4.98 — 2026-11-25
+## 2.4.99 — 2026-11-25
+
+### Correzioni
+- **split** · count the cells on screen, not the ones the layout remembers
+- **sidebar** · a closed row takes no fill under the pointer
+
+## 2.4.98 — 2026-11-24
 
 ### Novità
 - **split** · a row of the column splits like a tab, one landing for every pane drop
