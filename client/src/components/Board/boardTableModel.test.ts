@@ -82,9 +82,9 @@ describe('nextTableSort', () => {
 });
 
 describe('tableLayout', () => {
-  test('one more column on the global board (the project), and the extras share one breakpoint', () => {
-    const count = (grid: string) => grid.split(':grid-cols-[')[1]!.split('_').length;
-    expect(count(tableLayout(true).grid)).toBe(count(tableLayout(false).grid) + 1);
+  test('one more column on the global board (the project, at every width), and the extras share one breakpoint', () => {
+    const count = (grid: string, wide: boolean) => grid.split(wide ? ':grid-cols-[' : 'grid-cols-[')[1]!.split(']')[0]!.split('_').length;
+    for (const wide of [false, true]) expect(count(tableLayout(true).grid, wide)).toBe(count(tableLayout(false).grid, wide) + 1);
     expect(tableLayout(true).extra).toContain('@3xl:');
     expect(tableLayout(false).extra).toContain('@2xl:');
   });
