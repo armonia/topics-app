@@ -443,6 +443,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             // The overflow's switch and the board-wide "this Mac only" mark.
             dispatchOverflow: typeof body?.dispatchOverflow === "boolean" ? body.dispatchOverflow : undefined,
             dispatchStayLocal: typeof body?.dispatchStayLocal === "boolean" ? body.dispatchStayLocal : undefined,
+            backlogTriage: typeof body?.backlogTriage === "boolean" ? body.backlogTriage : undefined,
             dispatchFanOut: typeof body?.dispatchFanOut === "number" ? body.dispatchFanOut : undefined,
             // I QUATTRO CHE LA ROTTA NON INOLTRAVA. Esistono nel servizio, nella
             // tabella e nel tipo, e due di loro li LEGGE il dispatcher a ogni

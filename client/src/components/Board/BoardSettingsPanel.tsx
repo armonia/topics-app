@@ -130,6 +130,19 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
         />
       </label>
+      <label
+        className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
+        title={tr('board.settings.backlogTriageTitle')}
+      >
+        <span>{tr('board.settings.backlogTriage')}</span>
+        <input
+          type="checkbox"
+          data-testid="board-backlog-triage"
+          checked={!!s.backlogTriage}
+          onChange={(e) => patch({ backlogTriage: e.target.checked })}
+          className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
+        />
+      </label>
       <div className="flex items-center justify-between gap-2">
         <span>{tr('board.settings.effort')}</span>
         <div className="flex gap-0.5">
