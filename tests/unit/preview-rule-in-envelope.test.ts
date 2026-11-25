@@ -67,7 +67,7 @@ describe("PREVIEW_RULE nell'envelope dell'agente", () => {
   });
 
   test("promoteReviewPreview non scrive piu' il paragrafo operativo nel thread", () => {
-    const tasks = src("server/services/tasks/shared.ts");
+    const tasks = src("server/services/tasks/shared-previews.ts");
     // Cerca il corpo di promoteReviewPreview tra la sua firma e la funzione
     // successiva.
     const fnStart = tasks.indexOf("function promoteReviewPreview(");

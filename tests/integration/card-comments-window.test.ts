@@ -33,7 +33,7 @@ import * as fs from "node:fs";
 import path from "node:path";
 import { PROJECT_ROOT } from "./helpers";
 
-const TASKS_TS = fs.readFileSync(path.join(PROJECT_ROOT, "server/services/tasks/shared.ts"), "utf-8");
+const TASKS_TS = fs.readFileSync(path.join(PROJECT_ROOT, "server/services/tasks/shared-card-read.ts"), "utf-8");
 
 /**
  * I tre pezzi della finestra, estratti dal sorgente invece che ricopiati.
@@ -180,7 +180,7 @@ describe("il testo del contesto: server e client d'accordo", () => {
   };
 
   test('il server ne manda almeno quanti il client ne rende prima di piegare', () => {
-    const server = leggi('server/services/tasks/shared.ts', /const CARD_CONTEXT_CHARS = (\d+);/);
+    const server = leggi('server/services/tasks/shared-card-read.ts', /const CARD_CONTEXT_CHARS = (\d+);/);
     // LA SOGLIA DELLA RIGA DI CONTESTO, che e' quella che governa il mio
     // messaggio quando compare sotto la risposta dell'agente.
     const contesto = leggi('client/src/components/Board/constants.ts', /RICHIESTA_PIEGA_CHARS = (\d+);/);
@@ -188,7 +188,7 @@ describe("il testo del contesto: server e client d'accordo", () => {
   });
 
   test('e copre anche la soglia della parola principale', () => {
-    const server = leggi('server/services/tasks/shared.ts', /const CARD_CONTEXT_CHARS = (\d+);/);
+    const server = leggi('server/services/tasks/shared-card-read.ts', /const CARD_CONTEXT_CHARS = (\d+);/);
     // Un commento che oggi e' contesto domani puo' essere la parola in cima
     // (basta che l'agente non risponda piu'): se il taglio del server stesse
     // sotto anche a questa, il pieghevole aprirebbe sul vuoto in quel caso.

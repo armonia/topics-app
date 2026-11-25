@@ -129,7 +129,7 @@ const READERS = new Set([
 ]);
 const PASSAGES = new Set([
   "server/providers/topic-provider-resolver.ts", "server/lib/session-control-core.ts", "server/routes/fork.ts",
-  "server/utils.ts", "server/services/tasks.ts", "server/services/tasks/shared.ts", "server/services/tasks/status.ts",
+  "server/utils.ts", "server/services/tasks.ts", "server/services/tasks/shared.ts", "server/services/tasks/shared-task-mapping.ts", "server/services/tasks/status.ts",
   "server/routes/topics.ts", "server/routes/topics-update.ts", "server/routes/tasks-board.ts",
   "server/services/task-dispatcher-types.ts", // dispatcher contract types, moved out of task-dispatcher.ts
   "server/routes/task-patch.ts", "server/routes/chat.ts", "server/routes/chat-provider.ts", "server/services/task-shapes.ts", "server/boot/dispatcher.ts",
