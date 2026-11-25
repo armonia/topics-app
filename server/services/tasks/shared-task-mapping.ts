@@ -20,7 +20,7 @@ import type { SharedPreviews } from "./shared-previews";
 import type { SharedCardRead } from "./shared-card-read";
 
 
-export function createSharedTaskMapping(db: Database, opts: ServiceOpts, { heavyInFlight, idParam, liveCardGaps, now, readGlobalDispatch, tasksHaveStage }: SharedCore, { previewImagesFor, previewOf, rejectedPaths }: SharedPreviews, { awaitingAnswerFor, cardCommentsFor, drawsCardComments, labelsFor, rankQueue, resolveSubtaskWork, topicsHasEffort, topicsHasModel }: SharedCardRead) {
+export function createSharedTaskMapping(db: Database, _opts: ServiceOpts, { heavyInFlight, idParam, liveCardGaps, now, readGlobalDispatch, tasksHaveStage }: SharedCore, { previewImagesFor, previewOf, rejectedPaths }: SharedPreviews, { awaitingAnswerFor, cardCommentsFor, drawsCardComments, labelsFor, rankQueue, resolveSubtaskWork, topicsHasEffort, topicsHasModel }: SharedCardRead) {
 
 
 function buildBatch(rows: readonly any[], opts: { reasonsOnly?: boolean } = {}): TaskBatch {
