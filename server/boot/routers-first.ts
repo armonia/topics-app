@@ -166,7 +166,6 @@ export function bootRoutersFirst(scope: AfterTracker) {
 
   const dashboardRouter = createDashboardRouter(ctx);
 
-  const usageRouter = createUsageRouter(ctx);
 
   // The usage hub's quotas, Mac and services, read by ONE reader while a window
   // is connected and pushed as `hub:live` (server/lib/hub-live.ts).
@@ -183,6 +182,7 @@ export function bootRoutersFirst(scope: AfterTracker) {
   hubLive.start();
 
   const hubRouter = createHubRouter(ctx, { live: hubLive, waiting });
+  const usageRouter = createUsageRouter(ctx, { waiting });
 
   const authRouter = createAuthRouter(ctx, {
     onCapabilityRevoked: async (capabilityId) => {
