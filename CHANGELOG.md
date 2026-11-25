@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.106 — 2026-11-25
+
+### Correzioni
+- **ci-governor** · a starving runner keeps its turn, a real message wakes it
+
 ## 2.4.105 — 2026-11-25
 
 ### Correzioni
