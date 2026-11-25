@@ -585,6 +585,8 @@
       ]
     },
 
+    "server/routes/chat-handler.ts": 811,
+
     "server/routes/chat.outage-direct-answer.test.ts": 1159,
 
     "server/routes/chat.ts": 1113,
@@ -748,6 +750,11 @@
   },
 
   "exceptions": {
+    "server/routes/chat-handler.ts": {
+      "why": "Entered main over the threshold before this gate could refuse it (card f3c5a186); to be split in its own card.",
+      "expires": "2026-12-31"
+    },
+
     "server/providers/native/auth.ts": {
       "why": "Entered main over the threshold before this gate could refuse it (card f3c5a186); to be split in its own card.",
       "expires": "2026-12-31"
