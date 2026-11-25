@@ -19,7 +19,7 @@
  * simple and one more dependency on a path this central is paid for forever.
  */
 
-import { getAccessToken, recoverAfter401 } from "./auth";
+import { AllAccountsExhaustedError, switchAccountAfterExhaustion, getAccessToken, recoverAfter401 } from "./auth";
 import { claudeCliUserAgent } from "./cli-user-agent";
 import {
   ApiHeadersTimeoutError, ApiHttpError, ApiStreamError, ApiTransportError, parseRetryAfter, retryRound,
@@ -1008,6 +1008,10 @@ export async function runAgentTurn(
     // start. Without this, the raw `OAUTH_REFRESH_FAILED` text reached the
     // chat instead of telling the person what to do.
     const detail = err instanceof Error ? err.message : String(err);
+    if (err instanceof AllAccountsExhaustedError) {
+      handler.onError(detail);
+      return { turnEnd: { end: "error", cause: "rate-limit", detail }, text: "", usage: zeroUsage };
+    }
     const msg = `sessione Claude scaduta: ${detail}. Fai \`claude\` → /login, poi riprova`;
     handler.onError(msg);
     return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: zeroUsage };
@@ -1095,6 +1099,7 @@ export async function runAgentTurn(
         renewToken: recoverAfter401,
         onRetry: (info) => handler.onRetry?.(info),
         onSaturated: () => saturationHold(auth.token),
+        onAccountExhausted: switchAccountAfterExhaustion,
       });
       // The API answered: an outage hold is over, as when a claude-code child
       // streams (`claude/api-outage.ts`); it walls this runtime's chats too.

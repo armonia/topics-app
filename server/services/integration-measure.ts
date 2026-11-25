@@ -13,11 +13,11 @@
  * pull request.
  */
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CheckRun, ReviewCheck } from "../../shared/board";
 import type { IntegrationMeasure } from "./integration-queue";
 import { INTEGRATION_BRANCH_PREFIX } from "./own-commits";
+import { ensureScratchDir } from "./worktree-scratch";
 
 export interface GitResult { code: number; out: string; err: string }
 
@@ -38,7 +38,8 @@ export interface IntegrationMeasureDeps {
   rerunFailed?: (cwd: string, sha: string) => Promise<boolean>;
   /** The failing rows as the agent reads them (`formatChecksComment`). */
   describeRed(runs: CheckRun[], commit: string): string;
-  tmpRoot?: string;
+  /** Folder the throwaway checkout is made in. Default `{worktree root}/_scratch/integrazione`. */
+  scratchRoot?: string;
 }
 
 export interface IntegrationCard { taskId: string; commit: string }
@@ -74,7 +75,7 @@ export async function measureIntegration(
   }
   await deps.git(repoPath, ["worktree", "prune"]);
 
-  const dir = mkdtempSync(join(deps.tmpRoot ?? tmpdir(), "topics-integrazione-"));
+  const dir = mkdtempSync(join(deps.scratchRoot ?? ensureScratchDir("integrazione"), "topics-integrazione-"));
   const added = await deps.git(repoPath, ["worktree", "add", "--detach", "--quiet", dir, base]);
   if (added.code !== 0) {
     rmSync(dir, { recursive: true, force: true });

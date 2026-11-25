@@ -1,3 +1,10 @@
+/**
+ * The keyed listener registry is the push bus under the viewer count and the
+ * other client stores: a key reaches only its own listeners, and an empty key
+ * is dropped.
+ *
+ * @covers VIEWCNT-02
+ */
 import { describe, expect, test } from 'bun:test';
 import { createKeyedListeners } from './keyedListeners';
 

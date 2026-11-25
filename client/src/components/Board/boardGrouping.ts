@@ -55,10 +55,19 @@ export function effectiveLevels(first: GroupKey, second: GroupKey, view: DetailL
   return allowed(second) && second !== one ? [one, second] : [one];
 }
 
-export function groupValue(task: BoardTask, key: GroupKey, personName: string | null = null): string {
+/**
+ * The board id a project's cards are grouped under: a child merged into a parent
+ * (`accorpa`) shares the parent's lane, anyone else keeps their own. The map is
+ * child board id to parent board id, and holds only the merging links.
+ */
+export function laneProjectOf(projectId: string, parentOf?: ReadonlyMap<string, string>): string {
+  return parentOf?.get(projectId) ?? projectId;
+}
+
+export function groupValue(task: BoardTask, key: GroupKey, personName: string | null = null, parentOf?: ReadonlyMap<string, string>): string {
   switch (key) {
     case 'none': return NO_VALUE;
-    case 'project': return task.projectId || NO_VALUE;
+    case 'project': return task.projectId ? laneProjectOf(task.projectId, parentOf) : NO_VALUE;
     case 'status': return task.status;
     case 'assignee': return task.assignedTo?.trim() || NO_VALUE;
     case 'owner': return cardOwner(task, personName).key;
@@ -88,6 +97,8 @@ export interface GroupContext {
   keepEmptyProject?: string | null;
   /** The person using the app, so `owner` can tell their cards from the rest. */
   personName?: string | null;
+  /** Child board id to parent board id for the projects merged into another (accorpa): one lane for the family. */
+  projectParent?: ReadonlyMap<string, string>;
 }
 
 const BY_NAME = new Intl.Collator('en', { sensitivity: 'base' });
@@ -110,11 +121,12 @@ function build(tasks: readonly BoardTask[], levels: readonly GroupKey[], ctx: Gr
   if (!level || level === 'none') return [];
   const buckets = new Map<string, BoardTask[]>();
   for (const task of tasks) {
-    const value = groupValue(task, level, ctx.personName ?? null);
+    const value = groupValue(task, level, ctx.personName ?? null, ctx.projectParent);
     const list = buckets.get(value);
     if (list) list.push(task); else buckets.set(value, [task]);
   }
-  if (level === 'project' && !parent && ctx.keepEmptyProject && !buckets.has(ctx.keepEmptyProject)) buckets.set(ctx.keepEmptyProject, []);
+  const keepLane = ctx.keepEmptyProject ? laneProjectOf(ctx.keepEmptyProject, ctx.projectParent) : null;
+  if (level === 'project' && !parent && keepLane && !buckets.has(keepLane)) buckets.set(keepLane, []);
   const nodes = [...buckets].map(([key, list]): GroupNode => {
     const path = parent ? `${parent}${PATH_SEPARATOR}${key}` : key;
     return {

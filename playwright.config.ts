@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import { E2E_BASE } from "./tests/e2e/helpers/test-server";
 import { CHROMIUM_LAUNCH } from "./tests/e2e/helpers/remote-gpu";
+import { suiteStorageState } from "./tests/e2e/helpers/tabs-position";
 
 // Two-tier E2E: the PR gate runs a fast, deterministic subset; the full suite —
 // including slow/perf/network/two-window/reload-persistence specs — runs nightly
@@ -304,11 +305,8 @@ export default defineConfig({
     actionTimeout: 15_000,
 
     baseURL: E2E_BASE,
-    // The board hides Done by default (a board of live work); the suite reads cards in
-    // Done, so a test starts with the column shown. board-group-density checks the default.
-    // Same for the origin preset: a board opens on «My work», which hides cards in progress
-    // and the agents' cards; the suite starts on «All» and board-origin-filters checks the default.
-    storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "topics.board.showDone", value: "true" }, { name: "topics.board.preset", value: "all" }] }] },
+    // Board filters and tab options the suite starts with: see suiteStorageState.
+    storageState: suiteStorageState(),
     video: EVIDENCE && VIDEO ? "on" : "retain-on-failure",
     // `E2E_SHOT=1`: uno screenshot alla fine di OGNI test, non solo sui rossi. Serve alle
     // ANTEPRIME delle card della living-doc: senza, la card mostra un rettangolo grigio col nome
@@ -661,6 +659,9 @@ export default defineConfig({
         // The Board's origin filters, owner chips and Workflow view, shot on the engine the desktop app ships in.
         "**/board-origin-filters.spec.ts",
         "**/board-frenato.spec.ts",
+        // The columns row's scrollbar band and its end room: the overlay scrollbar and the flex
+        // padding-end are WKWebView behaviour, so the bars are measured on the shell's engine.
+        "**/board-columns-scroll-edges.spec.ts",
         // The hub's status signals in the bell, the diary's kinds and the services' groups, same reason as the bell.
         "**/hub-status-signals.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone

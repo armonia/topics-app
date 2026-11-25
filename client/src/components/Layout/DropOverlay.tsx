@@ -1,6 +1,13 @@
 import type React from 'react';
 import type { EdgeZone } from '../../lib/dropZone';
-import { dropRegionStyle, centerRegionStyle, fullRowZoneStyle, rowGapZoneStyle } from '../../lib/dropFeedback';
+import { dropRegionStyle, centerRegionStyle, dropLabelStyle, fullRowZoneStyle, rowGapZoneStyle } from '../../lib/dropFeedback';
+import { draggedTitle } from '../../lib/dragPreview';
+
+/** The name of what lands, inside its footprint (SPLIT-02). */
+function DropLabel() {
+  const title = draggedTitle();
+  return title ? <span data-drop-label style={dropLabelStyle()}>{title}</span> : null;
+}
 
 /**
  * The shared drop-feedback primitives. Stateless by design: the parent's
@@ -27,17 +34,15 @@ export function SplitRegion({
   gutterInset?: number;
   topInset?: number;
 }) {
-  return <div data-grid-split-overlay={zone} style={dropRegionStyle(zone, { fullWidth, gutterInset, topInset })} />;
+  return <div data-grid-split-overlay={zone} style={dropRegionStyle(zone, { fullWidth, gutterInset, topInset })}><DropLabel /></div>;
 }
 
 /**
- * The center-merge preview: inset rounded fill covering the pane interior —
- * "this drop goes INTO the pane" (adds as a tab). Painted when a drag hovers
- * the cell's center zone; before this, a merge hover over the pane body gave
- * no feedback at all and read as a dead zone.
+ * The centre preview: an outline of the cell, "the pane shows here". Painted
+ * when a drag hovers the cell's centre zone.
  */
 export function CenterRegion() {
-  return <div data-grid-split-overlay="center" style={centerRegionStyle()} />;
+  return <div data-grid-split-overlay="center" style={centerRegionStyle()}><DropLabel /></div>;
 }
 
 /**

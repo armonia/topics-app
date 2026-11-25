@@ -22,14 +22,19 @@
  *     every gate, as it is for the SQL census.
  * The control in every case is a local card beside the remote one.
  *
+ * Clause 1 meets the worktree standard: the floor a full disk is measured against is the machine's
+ * setting (`worktree_disk_floor_gb`, WORKTREE-STD-01), and the last test feeds the REAL verdict with a
+ * raised and a lowered floor to a card that runs elsewhere.
+ *
  * @covers KANBAN-76
+ * @covers KANBAN-76+WORKTREE-STD-01
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { MachineBudgetSample } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
-import type { MemoryFloorHold, ResourceFloorVerdict } from "./dispatch-capacity";
+import { DISPATCH_MEM_FLOOR_GB, dispatchResourceVerdict, type MemoryFloorHold, type ResourceFloorVerdict } from "./dispatch-capacity";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
 
@@ -212,6 +217,25 @@ describe("i cancelli del Mac trattengono solo le card che girano sul Mac", () =>
     expect(h.created).toEqual([]);
     expect(h.task("cloud").status).toBe("todo");
     expect(h.task("locale").status).toBe("todo");
+  });
+
+  it("il pavimento di disco è l'impostazione della macchina, e vale anche per la card cloud", async () => {
+    const memory = { measurable: true, latestGB: DISPATCH_MEM_FLOOR_GB + 8, heldGB: DISPATCH_MEM_FLOOR_GB + 8, coveredMs: 120_000 };
+    // 20 GB free: under a floor of 30 the real verdict is "disk", over a floor of 15 it is open.
+    const raised = dispatchResourceVerdict("/x", () => 20, () => memory, true, undefined, [], 30);
+    const lowered = dispatchResourceVerdict("/x", () => 20, () => memory, true, undefined, [], 15);
+    expect([raised.kind, lowered.kind]).toEqual(["disk", null]);
+
+    const held = harness({ floor: raised });
+    held.seed("cloud", CLOUD);
+    await dispatch(held);
+    expect(held.created).toEqual([]);
+    expect(held.task("cloud").status).toBe("todo");
+
+    const open = harness({ floor: lowered });
+    open.seed("cloud", CLOUD);
+    await dispatch(open);
+    expect(open.created).toEqual(["cloud"]);
   });
 
   it("il budget per risorse ferma la coda locale, non le card cloud", async () => {

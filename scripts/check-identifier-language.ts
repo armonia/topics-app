@@ -86,6 +86,12 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // unsubscribe: the name every subscribe/unsubscribe pair in the client stores uses (`client/src/lib/keyedListeners.ts`); the dictionary lacks it.
+  "unsubscribe",
+  // symlink: the filesystem term for a symbolic link (`server/services/worktree-root-gc.ts` tells a linked checkout from a folder); the dictionary lacks it.
+  "symlink",
+  // submodule, submodules: the git term for a nested repository (`server/services/worktree-relocate.ts` refuses to move a checkout that has them initialized).
+  "submodule", "submodules",
   // ufw, netstat, softwareupdate, xprotect, powershell, gocryptfs, autopatch, tcp: the names of the OS tools and
   // services the machine security probes read (`server/lib/machine-security.ts`, `server/lib/machine-exposure.ts`).
   "ufw", "netstat", "softwareupdate", "xprotect", "powershell", "gocryptfs", "autopatch", "tcp",
@@ -478,7 +484,7 @@ export const PROJECT_WORDS = new Set([
   "truthy", "falsy", "boolean", "enum", "enums", "middleware", "callback",
   "callbacks", "timestamp", "timestamps", "throttle", "debounce", "memoize",
   "hydrate", "rehydrate", "unmount", "remount", "prefetch", "refetch", "rerender",
-  "resnapshot",
+  "resnapshot", "unsubscribe",
   "teardown", "backoff", "changeset", "workspace", "workspaces", "toolbar",
   "tooltip", "dropdown", "popover", "checkbox", "placeholder", "viewport",
   "scrollbar", "sidebar", "keyframe", "keyframes", "flex", "grid", "svg", "png",

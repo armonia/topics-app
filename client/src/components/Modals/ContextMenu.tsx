@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useT } from '../../hooks/useT';
-import { PenLine, Palette, Archive, ArchiveRestore, Pin, PinOff, ExternalLink, Link2, Square, X, type LucideIcon } from 'lucide-react';
+import { PenLine, Palette, Archive, ArchiveRestore, Pin, PinOff, ExternalLink, Link2, Square, X, PanelRight, PanelLeft, PanelBottom, PanelTop, LayoutPanelLeft, ChevronRight, type LucideIcon } from 'lucide-react';
+import type { SplitSide } from '@/lib/splitCommands';
 import { useTopicLoading } from '@/state/signals';
 import type { Topic, UpdateTopicRequest } from '@/types';
 import { POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
@@ -38,11 +39,21 @@ interface ContextMenuProps {
    *  command revealed by hover is a command that does not exist. This menu
    *  opens on a long press, so this is where the finger finds it. */
   onStopStreaming?: () => void;
+  /** Opens the chat beside what is on screen, on that side (lib/splitCommands).
+   *  Absent where no split is drawn (the phone). */
+  onSplit?: (side: SplitSide) => void;
 }
 
-type SubMenu = 'none' | 'rename' | 'color' | 'confirm-delete';
+type SubMenu = 'none' | 'rename' | 'color' | 'confirm-delete' | 'layout';
 
-export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned, onTogglePin, unpinAlsoArchives, onPopOut, onStopStreaming }: ContextMenuProps) {
+const OPEN_SIDES: Array<{ side: SplitSide; icon: LucideIcon; key: string }> = [
+  { side: 'right', icon: PanelRight, key: 'tab.menu.openRight' },
+  { side: 'left', icon: PanelLeft, key: 'tab.menu.openLeft' },
+  { side: 'down', icon: PanelBottom, key: 'tab.menu.openDown' },
+  { side: 'up', icon: PanelTop, key: 'tab.menu.openUp' },
+];
+
+export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned, onTogglePin, unpinAlsoArchives, onPopOut, onStopStreaming, onSplit }: ContextMenuProps) {
   const tr = useT();
   const streaming = useTopicLoading(topic.id);
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
@@ -119,6 +130,9 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
               onClick={() => { onPopOut(); onClose(); }}
             />
           )}
+          {onSplit && (
+            <MenuItem icon={LayoutPanelLeft} label={tr('tab.menu.layout')} trailing={ChevronRight} onClick={() => setSubMenu('layout')} />
+          )}
           {!topic.isGlobalOrchestrator && <>
             <div className="border-t border-app-border my-1" />
             {/* NON È UN CESTINO, e per tre anni lo ha detto: `Trash2` in rosso,
@@ -140,6 +154,15 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
               }}
             />
           </>}
+        </>
+      )}
+
+      {subMenu === 'layout' && onSplit && (
+        <>
+          <div className="px-3 pt-2 pb-1 text-mini font-semibold text-app-text-muted">{tr('tab.menu.layout')}</div>
+          {OPEN_SIDES.map(({ side, icon, key }) => (
+            <MenuItem key={side} icon={icon} label={tr(key)} onClick={() => { onSplit(side); onClose(); }} />
+          ))}
         </>
       )}
 
@@ -214,7 +237,7 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
   );
 }
 
-function MenuItem({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean }) {
+function MenuItem({ icon: Icon, label, onClick, danger, trailing: Trailing }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean; trailing?: LucideIcon }) {
   return (
     <button
       role="menuitem"
@@ -227,6 +250,7 @@ function MenuItem({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; la
           distanza. */}
       <Icon size={14} className={danger ? undefined : 'text-app-text-tertiary'} />
       {label}
+      {Trailing && <Trailing size={14} className="ml-auto text-app-text-tertiary" />}
     </button>
   );
 }

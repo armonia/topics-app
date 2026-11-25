@@ -522,6 +522,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             tasks: svc.list({
               scope: "project", projectId, status: asTaskStatus(status), rootsOnly: true,
               includeOrphanSubtasks: true,
+              // The parent's board also shows the projects merged into it (accorpa).
+              includeChildBoards: true,
               labels: parseLabelsParam(params.get("labels")),
               archived,
             }),
@@ -799,7 +801,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       try {
         const tasks = svc.list({ scope: "project", projectId: bDupes.projectId });
         const scope = includeDone ? tasks : tasks.filter((t) => t.status !== "done");
-        const groups = findDuplicateGroups(scope.map((t) => ({ id: t.id, text: t.text, createdAt: t.createdAt })));
+        const groups = findDuplicateGroups(
+          scope.map((t) => ({ id: t.id, text: t.text, description: t.descriptionPreview, createdAt: t.createdAt })),
+        );
         return json({
           groups: groups.map((g) => ({
             survivor: { id: g.survivor.id, text: g.survivor.text },

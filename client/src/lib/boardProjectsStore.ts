@@ -19,8 +19,9 @@
  * stesso istante.
  */
 import { useMemo, useSyncExternalStore } from 'react';
-import { boardApi, type BoardProjectRef } from './board';
+import { boardApi, type BoardProjectRef, type BoardFamilyLink } from './board';
 import { unregisteredProjectName } from '../../../shared/project-name';
+import { subscribeFrames } from './wsFrameBus';
 
 let projects: BoardProjectRef[] | null = null;
 /** La cartella dove nascerà un progetto creato per nome: dedotta dal server,
@@ -29,6 +30,8 @@ let newProjectDir: string | null = null;
 /** Registered projects the picker does not offer (hidden folders): only their
  *  name and icon, so a lane or a chip heads them the way the Plan does. */
 let labelOnly: BoardProjectRef[] = [];
+/** The projects that sit under another one (accorpa / separa), in board ids. */
+let families: BoardFamilyLink[] = [];
 let inflight: Promise<BoardProjectRef[] | null> | null = null;
 /** Projects created while the index was still `null`: they join the first
  *  answer instead of becoming the index themselves (see `addBoardProject`). */
@@ -85,6 +88,7 @@ async function fetchOnce(): Promise<BoardProjectRef[] | null> {
       addedBeforeIndex = [];
       newProjectDir = res.newProjectDir ?? null;
       labelOnly = res.labelOnly ?? [];
+      families = res.families ?? [];
       lastFailAt = 0;
     } catch {
       // «NON LO SO» RESTA null, e non diventa una lista vuota.
@@ -168,7 +172,42 @@ function armRecovery(): void {
   window.addEventListener('focus', recover);
 }
 
+const EMPTY_FAMILIES: BoardFamilyLink[] = [];
+const getFamilies = (): BoardFamilyLink[] => families;
+const getNoFamilies = (): BoardFamilyLink[] => EMPTY_FAMILIES;
+
+/** The family links, reactive. Empty until the index answers, and when nobody has a parent. */
+export function useBoardFamilies(enabled = true): BoardFamilyLink[] {
+  return useSyncExternalStore(enabled ? subscribeBoardProjects : noopSubscribe, enabled ? getFamilies : getNoFamilies, getNoFamilies);
+}
+
+/**
+ * Re-reads only the family links. The index is deliberately loaded once per
+ * document, but an accorpa / separa change moves cards between boards, so it
+ * has to reach every open surface: it is announced by `project:updated`.
+ */
+let familyRefresh: Promise<void> | null = null;
+export function refreshBoardFamilies(): Promise<void> {
+  if (familyRefresh) return familyRefresh;
+  familyRefresh = (async () => {
+    try {
+      const res = await boardApi.projects();
+      families = res.families ?? [];
+      publish();
+    } catch { /* the links stay as they were; the next frame tries again */ } finally { familyRefresh = null; }
+  })();
+  return familyRefresh;
+}
+
+let familyFramesArmed = false;
+function armFamilyFrames(): void {
+  if (familyFramesArmed) return;
+  familyFramesArmed = true;
+  subscribeFrames(() => { if (projects !== null) void refreshBoardFamilies(); }, { types: ['project:updated', 'project:archived', 'project:deleted'] });
+}
+
 export function subscribeBoardProjects(cb: () => void): () => void {
+  armFamilyFrames();
   listeners.add(cb);
   armRecovery();
   // Un montaggio è già un ritentativo: se l'indice non c'è e l'ultimo tentativo

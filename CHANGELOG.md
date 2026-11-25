@@ -2,6 +2,72 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.101 — 2026-11-25
+
+### Sotto il cofano
+- Disk budget: fix deadcode-prod/untraced-tests gates, make legacy transcript readers gz-aware
+
+## 2.4.100 — 2026-11-25
+
+### Correzioni
+- **sidebar** · a project's tabs show open or closed, and a row opens its own sub-agents
+
+## 2.4.99 — 2026-11-25
+
+### Correzioni
+- **split** · count the cells on screen, not the ones the layout remembers
+- **sidebar** · a closed row takes no fill under the pointer
+
+## 2.4.98 — 2026-11-24
+
+### Novità
+- **split** · a row of the column splits like a tab, one landing for every pane drop
+- **split** · the drop footprint names what lands, the centre is an outline, nothing animates
+- **split** · every side and 'even out' from every sheet, and a row opens beside
+- **split** · a split cell says what it holds and who has the focus, and the split answers the keyboard
+- **split** · a project row maps the splits inside its window
+
+### Correzioni
+- **split** · the column's toggle sits on the head of the first cell only
+- **split** · an empty chat in a short narrow cell keeps its greeting under the title
+- **split** · a narrow cell's empty field stays one line
+- **split** · a closed row dropped on the centre of the pool opens there
+- **split** · keep the lights inset line and count the project row's map
+
+### Sotto il cofano
+- **split** · the split redesign change, from what is measured broken today
+- **split** · American names the identifier gate knows, ceilings follow PanelGrid down
+- **split** · the seven split scenarios, done the way a person does them
+- **split** · the change is done, its seven requirements join the layout spec
+- **split** · the narrow-cell check waits on frames and the divider, not on the clock
+- **split** · the narrow-cell scenario is SPLIT-03b
+- **split** · hand the focus to a divider after the last chat took it
+
+## 2.4.97 — 2026-11-24
+
+### Novità
+- **sidebar** · tabs live in one place, with three states for every kind
+
+### Correzioni
+- **sidebar** · three states inside project windows, gates green, suite on the old layout
+
+### Sotto il cofano
+- an open row's circle closes its tab, the stop test and the target-size audit read it
+- Le anteprime accanto al bordo sfumato si caricano da sole: Chromium perde la distanza di caricamento pigro sotto la maschera della riga, e la card saltava di altezza al primo swipe (board-preview-cap rosso 4 su 4)
+
+## 2.4.96 — 2026-11-24
+
+### Correzioni
+- bring main's any budget and identifier gate back to green
+
+### Sotto il cofano
+- table view, bare empty columns, one column per project, scroll edges
+- the detail slider follows a drag (mouse, pen, finger)
+- Rossi della CI: celle contate dopo il resize, due any arrivati da main
+- name the requirement the keyed listener registry test covers
+- Rossi ereditati da main: requisito del registro di ascolto, parole fuori dizionario
+- keep the live AI bridge out of the suite
+
 ## 2.4.95 — 2026-11-24
 
 ### Correzioni
@@ -12,7 +78,17 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.4.94 — 2026-11-24
 
+### Correzioni
+- never let an isolated spawn_agent fall back to the remote fast path
+
 ### Sotto il cofano
+- memory stores: read an agent's deposit from its workspace, readable store names, one grouped problem for unreceived project memories
+- Share one keyed listener registry across the client stores
+- Share the CLI binary resolver across claude, codex, kimi and muse
+- dup: jscpd ratchet on exact duplicated lines, wired into gates:fast
+- Remove internal duplication in files route, grants query, message thread writes and pending actions
+- Duplicate detection: description as secondary signal, commit hashes as anchors
+- Share the incremental JSONL scanner between the claude and codex transcript titles
 - client-bundle job cap above the sum of its step caps, so it never ends cancelled
 - long-session growth budget in its own push-only job, so a judged tree still gets it
 - a judged push still runs the growth job
@@ -122,7 +198,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Server fisso: tetto sui job CI in parallelo di tutti i repo (ci-governor)
 - Nodo cloud: guardia per le sessioni logind bloccate in closing, ssh condiviso dal Mac
 - Land pre-push probe: run the hook through sh on Windows
+- Compress aging agent transcripts; opt-in media expiry (debt G5)
 - disk-budget-check e' un ingresso di produzione (job launchd notturno), non uno script di sviluppo
+- Fix new Italian comment lines flagged by check:comment-language
 - Codice morto in produzione di nuovo a 596: il budget disco gira da launchd
 - ci-governor: il turno va a chi aspetta da piu' tempo (prima prendevano sempre gli stessi due runner e la CI di topics-app restava in coda)
 - the nightly disk-budget check ships, so its two server modules are production code

@@ -28,6 +28,7 @@ import { undo as undoUndo, redo as undoRedo, isTextInputFocused, isRawKeySurface
 import { cancelLatestPendingClose } from '../contexts/PendingActionContext';
 import { isProjectPaneId, getProjectPathFromPaneId, sessionKeyForPaneId, type ClosedTabRecord } from '../state/pane/adapters';
 import { OPEN_ADD_PALETTE_EVENT } from '../components/Shared/PaneAddMenu';
+import { arrowDirection, cellBoxesOnScreen, neighborCell } from '../components/Layout/splitKeyboard';
 import type { ZoomScope } from '../components/Layout/zoomScope';
 import { paneZoomActions } from '../state/paneZoom';
 import { NEXT_WAITING_EVENT } from '../state/waitingQueue';
@@ -452,6 +453,23 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         };
         window.dispatchEvent(new CustomEvent(TOGGLE_PANE_ZOOM_EVENT, { cancelable: true, detail }));
         return;
+      }
+
+      // ⌘⌥ + arrows — THE CELL BESIDE (SPLIT-06). Chosen by what is on screen,
+      // not by the order of the model: the cell whose centre lies that way. At
+      // the edge of the layout the chord passes through untouched. Ctrl+Alt on
+      // the ctrl path steps aside for a terminal and an editor, like ⌘E.
+      const focusDir = isMod && e.altKey && !e.shiftKey ? arrowDirection(e.key) : null;
+      if (focusDir && (e.metaKey || !isRawKeySurfaceFocused(e.target))) {
+        const cells = cellBoxesOnScreen();
+        const from = focusedPanelIdRef.current;
+        const fromId = from && cells.some((c) => c.id === from) ? from : cells[0]?.id;
+        const next = fromId ? neighborCell(cells, fromId, focusDir) : null;
+        if (next) {
+          e.preventDefault();
+          setFocusedPanelId(next);
+          return;
+        }
       }
 
       // ⌘J — THE NEXT CHAT WAITING FOR YOU (CHAT-WAIT-03). The chord announces

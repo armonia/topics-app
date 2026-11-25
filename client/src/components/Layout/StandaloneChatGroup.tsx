@@ -6,6 +6,7 @@ import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType,
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
 import { TabSheet, TAB_SHEET_ANCHOR_ATTR } from '../Shared/TabSheet';
+import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import { openTabSheet } from '../../state/tabSheet';
 import { openContextMenuAt, useLongPress } from '../../hooks/useLongPress';
 import { ChatPanel } from './ChatPanel';
@@ -16,7 +17,7 @@ import { loadBoard, loadBrowser, loadAutomations, loadAgents, loadSystem, loadAc
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { AutomationsPhoneBell, AutomationsPhoneGlyph } from '../Sidebar/AutomationsRow';
 import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
-import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_ACTION_BOX, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
+import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_ACTION_BOX, ROW_INSET, TAB_LABEL, TAB_LABEL_TYPE } from '../../lib/selectionStyles';
 import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
@@ -29,6 +30,7 @@ import {
   getProjectPathFromPaneId,
   getBrowserContextFromPaneId,
   isDraftPaneId,
+  pinKeyFromPaneId,
 } from '../../state/pane/adapters';
 import { persistBrowserPaneUrl, persistBrowserPaneTitle, setBrowserPaneUserTitle, useBrowserPaneFacts } from '../../state/pane/browserPaneUrl';
 import { browserTabLabel } from '../../lib/browserTabLabel';
@@ -51,6 +53,8 @@ import { FindPaneContext, openFind, useHasFinder } from '../../state/findRegistr
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { PaneEventLevel, StagedPane } from './PaneStage';
 import type { ZoomScope } from './zoomScope';
+import { CellHeaderCommands } from './CellHeader';
+import { FOCUSED_CELL_EDGE, startCellTitleDrag } from './cellTitleDrag';
 import { paneShellOrder } from './paneShellOrder';
 import { conversationViewKey } from '../../state/composerHandoff';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
@@ -132,6 +136,12 @@ interface StandaloneChatGroupProps {
    * superficie che ha davvero due riquadri affiancati da distinguere.
    */
   mobile?: boolean;
+  /**
+   * The strip of tabs is drawn on top (desktop). Off when the sidebar column
+   * holds the tabs (`lib/tabsPlacement.ts`): the row keeps the name of the
+   * surface in front, the same row the phone draws.
+   */
+  tabStrip?: boolean;
   panelInitialTab?: Record<string, PanelTab>;
   onPanelInitialTabConsumed?: (topicId: string) => void;
   // App-level quick-create. May resolve to the new DRAFT pane id (string) —
@@ -192,6 +202,9 @@ interface StandaloneChatGroupProps {
   // can be pinned/unpinned like its sidebar row. App-level only.
   onToggleFissato?: (pinKey: string) => void;
   isFissato?: (pinKey: string) => boolean;
+  /** View setting: a pinned tab can be closed. Off (the default) its tab has
+   *  no close command, the same rule the close funnel applies. */
+  pinnedClosable?: boolean;
   /**
    * DOES THIS CELL OCCUPY A RECTANGLE IN THE LAYOUT? Defaults to `true`,
    * because a surface mounted outside a grid has one by definition.
@@ -223,7 +236,7 @@ export function StandaloneChatGroup({
   onFocusPanel, onClosePanel, onClosePanelImmediate,
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped,
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-  onToggleSidebar, mobile = false, panelInitialTab, onPanelInitialTabConsumed,
+  onToggleSidebar, mobile = false, tabStrip = true, panelInitialTab, onPanelInitialTabConsumed,
   onNewChat, stopSession,
   pendingProjectPane, onPendingProjectPaneConsumed,
   onNewChatInProject, pendingProjectFocus, onPendingProjectFocusConsumed,
@@ -239,6 +252,7 @@ export function StandaloneChatGroup({
   gridItemKey = 'standalone',
   onUnsolo, onAcceptSoloDrop, onMergeIntoCell, onPersistReorder,
   onToggleFissato, isFissato,
+  pinnedClosable = true,
   hasBox = true,
   onToggleZoom, canZoom, isZoomed,
 }: StandaloneChatGroupProps) {
@@ -522,6 +536,13 @@ export function StandaloneChatGroup({
   // same commands as its tab, the chat settings included, minus the layout.
   const titleLongPress = useLongPress(openContextMenuAt, { enabled: mobile });
   const titleSheetKey = surfaceInFront ? `title:${surfaceInFront.id}` : null;
+  // Inside a split the title of a cell with the tabs at the side says which
+  // cell has the focus and drags like the tab in front (SPLIT-03): the grid
+  // hands `onResetLayout` only while it is split.
+  const inSplit = !mobile && !tabStrip && !!onResetLayout;
+  const cellLit = inSplit && !!focusedPanelId && validatedOrderedIds.includes(focusedPanelId);
+  // The room under the traffic lights, on the toggle cell only (the header below says why).
+  const lightsInset = onToggleSidebar ? { paddingLeft: `var(${CONTENT_CHROME_INSET_PROPERTY}, 0px)` } : undefined;
 
   // Cross-group drop: accept a tab dragged from another group (solo or project).
   // When a tab is dropped onto another group's tab bar:
@@ -706,6 +727,26 @@ export function StandaloneChatGroup({
     groupSize: validatedOrderedIds.length,
   });
 
+  // Pinned tabs with no close command while pins do not close: the strip says
+  // the same thing the close funnel enforces (usePanelLifecycle).
+  const pinnedTabIds = pinnedClosable || !isFissato
+    ? undefined
+    : new Set(validatedOrderedIds.filter((id) => isFissato(pinKeyFromPaneId(id))));
+
+  // Split-cell "+ New Chat": app-level creation appends the draft to the MAIN
+  // standalone pool, so when this group is a solo cell re-target the fresh
+  // draft into the cell, the same routing as terminals/browsers in
+  // usePaneLifecycle.handleAddPane. Shared by the strip's "+" and the title's.
+  const newChatInCell = onNewChat ? () => {
+    const res = onNewChat();
+    const targetPrimary = primaryFromSoloCellKey(gridItemKey);
+    if (res instanceof Promise && targetPrimary && onMergeIntoCell) {
+      void res.then((created) => {
+        if (typeof created === 'string') onMergeIntoCell(created, targetPrimary);
+      });
+    }
+  } : undefined;
+
   // Tab bar rendered inline in header
   const renameChat = (tid: string, name: string) => { void onUpdateTopic(tid, { name }); };
   const renameBrowser = (id: string, name: string) => setBrowserPaneUserTitle(id, name);
@@ -737,15 +778,7 @@ export function StandaloneChatGroup({
       // MAIN standalone pool, so when this group is a solo cell re-target the
       // fresh draft into the cell — same routing as terminals/browsers in
       // usePaneLifecycle.handleAddPane.
-      onNewChat={onNewChat ? () => {
-        const res = onNewChat();
-        const targetPrimary = primaryFromSoloCellKey(gridItemKey);
-        if (res instanceof Promise && targetPrimary && onMergeIntoCell) {
-          void res.then((created) => {
-            if (typeof created === 'string') onMergeIntoCell(created, targetPrimary);
-          });
-        }
-      } : undefined}
+      onNewChat={newChatInCell}
       onReorderPanes={handleReorderPanes}
       onCrossGroupDrop={onAcceptSoloDrop ? handleCrossGroupDrop : undefined}
       onContextRingClick={handleToggleContext}
@@ -784,6 +817,7 @@ export function StandaloneChatGroup({
       onPinPane={handlePinPane}
       onToggleFissato={onToggleFissato}
       isFissato={isFissato}
+      nonClosablePaneIds={pinnedTabIds}
       tabNotifications={tabNotifications}
       hasLeftOverlay={!!onToggleSidebar}
     />
@@ -997,6 +1031,8 @@ export function StandaloneChatGroup({
     <>
       <div
         data-split-card
+        // The pane ⌘⌥ + arrows focuses when it walks into this cell (SPLIT-06).
+        data-focus-pane={activePaneId ?? undefined}
         // DOVE CADRA': `into`, perche' il rilascio aggiunge la pane a QUESTO
         // gruppo. Acceso solo per un drag che la griglia ignora e questo
         // gestore accetta: vedi `handleStandaloneDragOver`.
@@ -1026,10 +1062,11 @@ export function StandaloneChatGroup({
             is what keeps the strip clear of the lights on every frame. */}
         <div
           className={`${CHROME_BAR} pr-0 select-none app-drag-region ${onToggleSidebar ? 'content-chrome-inset' : ''}`}
-          style={onToggleSidebar ? { paddingLeft: `var(${CONTENT_CHROME_INSET_PROPERTY}, 0px)` } : undefined}
+          style={cellLit ? { ...lightsInset, ...FOCUSED_CELL_EDGE } : lightsInset}
+          data-cell-lit={inSplit ? String(cellLit) : undefined}
           {...DRAG_REGION}
         >
-          {mobile ? (
+          {mobile || !tabStrip ? (
             // The surface's name instead of the strip. Same type as the tab
             // that was here (`TAB_LABEL`) and the same reserve on the left the
             // strip kept clear of the command: the row empties, it does not
@@ -1055,15 +1092,41 @@ export function StandaloneChatGroup({
                 <TopicColorDot color={topics[surfaceInFront.topicId]?.color} className="mr-2" />
               )}
               {automationsInFront && <AutomationsPhoneGlyph />}
-              <span className={`truncate ${TAB_LABEL}`}>{titleSurface}</span>
-              <MobileFindButton paneId={activePaneId} />
-              {automationsInFront && <AutomationsPhoneBell />}
+              <span
+                className={`truncate ${inSplit && !cellLit ? `${TAB_LABEL_TYPE} text-app-text-muted` : TAB_LABEL} ${inSplit ? 'app-no-drag cursor-grab' : ''}`}
+                draggable={inSplit && !!surfaceInFront}
+                {...(inSplit ? NO_DRAG_REGION : {})}
+                onDragStart={inSplit && surfaceInFront ? (e) => startCellTitleDrag(e, surfaceInFront, gridItemKey, titleSurface, !!isZoomed) : undefined}
+                data-testid={inSplit ? 'cell-title-handle' : undefined}
+              >{titleSurface}</span>
+              {/* The phone's find and bell: on a desktop ⌘F and the view's own
+                  bell are already there. */}
+              {mobile && <MobileFindButton paneId={activePaneId} />}
+              {mobile && automationsInFront && <AutomationsPhoneBell />}
+              {/* The strip's "+", kept where the strip went: it adds INTO this
+                  cell, which the header's "+" cannot. */}
+              {!mobile && (inSplit || newChatInCell || availableTypes.length > 0) && (
+                <div className="ml-auto mr-1.5 flex items-center gap-0.5 app-no-drag" {...NO_DRAG_REGION}>
+                  {inSplit && activePaneId && (
+                    <CellHeaderCommands paneId={activePaneId} canZoom={canZoom} isZoomed={isZoomed} onToggleZoom={onToggleZoom} onReattach={handleUnsolo} />
+                  )}
+                  {(newChatInCell || availableTypes.length > 0) && <PaneAddMenu
+                    scope="standalone"
+                    onNewChat={newChatInCell}
+                    onAddPane={handleAddPane}
+                    availableTypes={availableTypes}
+                    noElectronDrag
+                  />}
+                </div>
+              )}
               {surfaceInFront && titleSheetKey && (
                 <TabSheet
                   sheetKey={titleSheetKey}
-                  // The pane's own requests are answered by its tab, wherever
-                  // that is mounted; the title answers only its own gesture.
-                  listenToPane={false}
+                  // On a desktop without the strip this title is the only
+                  // surface of the pane in the window, so it answers the
+                  // browser's own requests (⌘L, the dots, a blank page): no tab
+                  // is mounted to do it. On the phone another surface does.
+                  listenToPane={!mobile}
                   target={{
                     pane: surfaceInFront,
                     label: titleSurface,
@@ -1076,6 +1139,21 @@ export function StandaloneChatGroup({
                       onSettings: handleSettings, onStopStreaming: handleStopStreaming,
                       onRenameChat: renameChat, onRenameBrowser: renameBrowser,
                       onToggleFissato, isFissato,
+                      nonClosablePaneIds: pinnedTabIds,
+                      // A desktop with the tabs at the side: this title is the
+                      // only door to the cell's layout, so its sheet carries
+                      // what the strip's did (split, detach, zoom, move to a
+                      // group, pop out). The phone draws no splits.
+                      ...(mobile ? {} : {
+                        onSplitRight: onSplitPane && groupCanSplit ? handleSplitRight : undefined,
+                        onSplitDown: onSplitPane && groupCanSplit ? handleSplitDown : undefined,
+                        onToggleZoom, canZoom, isZoomed, onResetLayout,
+                        canMoveToSpace: true,
+                        onPopOut: handlePopOut,
+                        onPopOutGroup: () => handlePopOutGroup(panes.filter(p => p.type === 'chat' && p.topicId).map(p => p.topicId!)),
+                        onDetach: handleUnsolo ? undefined : (onSplitPane && groupCanSplit ? handleDetach : undefined),
+                        onReattach: handleUnsolo,
+                      }),
                     },
                   }}
                 />

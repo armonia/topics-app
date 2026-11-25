@@ -345,6 +345,15 @@
         "scripts/canonicalizza-progetti.ts",
         "scripts/migrate-uuid-board-ids.ts",
         "scripts/*.test.ts",             // run by `bun test ./scripts` in test:unit
+        "scripts/git-hooks/*.test.ts",   // idem: `bun test ./scripts` walks the folder, the hook scripts have no other caller
+        // `bun scripts/backfill-project-parents.ts [--db <path>] [--apply]` - the
+        // manual door of the project-family backfill the server also runs at boot.
+        // Dry run unless `--apply`; run by hand, imported by nobody.
+        "scripts/backfill-project-parents.ts",
+        // `bun scripts/worktree-hook-probe.ts [--keep]` - asks the real Claude Code
+        // to make a worktree through the hook script (worktree-standard, T10).
+        // Spends a few tokens of a real session: by hand, never in CI.
+        "scripts/worktree-hook-probe.ts",
         // Everything else under scripts/ stays a PROJECT file only (see the
         // `project` list below). Listing the folder here — with or without `!` —
         // would re-grant the amnesty this narrowing exists to remove: any dead
@@ -411,7 +420,13 @@
         // (scripts/launchd/com.armonia.topics-disk-budget-check.plist.in), and
         // scripts/ is outside the production graph.
         "!server/lib/disk-budget.ts!",
-        "!server/lib/log-retention.ts!"
+        "!server/lib/log-retention.ts!",
+        // The `--check` and `--projects` halves of `bun run worktrees:orphans`
+        // (scripts/worktree-orphans.ts), a command run by hand or by the bar of
+        // the worktree-standard change: production code with no caller in the
+        // server, for the same reason as the disk budget above.
+        "!server/services/worktree-root-check.ts!",
+        "!server/services/project-worktree-check.ts!"
       ],
       // `ws` e `@types/ws` sono USATE, da `tests/e2e/helpers/node-websocket.ts`,
       // che da' alle spec un WebSocket anche su Node 20 (dove non e' globale: la
@@ -436,7 +451,7 @@
       // stryker.config.mjs), never imported; knip reads `testRunner: "bun"` and looks for an
       // official `@stryker-mutator/bun-runner` that does not exist. `@stryker-mutator/core` is
       // only its `stryker` binary, run through `bun --bun stryker` which knip does not parse.
-      "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7", "@hughescr/stryker-bun-runner", "@stryker-mutator/bun-runner", "@stryker-mutator/core"], // typescript7: alias del TS nativo, gli script lo usano per percorso
+      "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7", "@hughescr/stryker-bun-runner", "@stryker-mutator/bun-runner", "@stryker-mutator/core", "jscpd"], // jscpd: run by scripts/check-dup.ts through its binary path; typescript7: alias del TS nativo, gli script lo usano per percorso
 
       // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo
       // check dava falsi positivi a raffica: un export usato SOLO da uno spec

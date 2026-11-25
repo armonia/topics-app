@@ -160,7 +160,8 @@ export interface BoardLitCard {
 export function boardLitCards(
   rows: AttentionRows,
   cards: readonly BoardCardRef[] | null | undefined,
-  projectId: string | null,
+  /** One board, several (a parent plus the projects merged into it), or null for every board. */
+  projectId: string | readonly string[] | null,
 ): BoardLitCard[] {
   const byId = new Map<string, BoardCardRef>();
   for (const c of cards ?? []) byId.set(c.id, c);
@@ -170,7 +171,7 @@ export function boardLitCards(
     const id = subject.slice(TASK_SUBJECT_PREFIX.length);
     const known = byId.get(id);
     const project = row.projectId ?? known?.projectId ?? null;
-    if (projectId !== null && project !== projectId) continue;
+    if (projectId !== null && !(typeof projectId === 'string' ? project === projectId : project !== null && projectId.includes(project))) continue;
     const attention = attentionOf(rows, subject);
     if (!attention.lit) continue;
     out.push({ id, projectId: project, title: row.cardTitle ?? known?.text ?? id, reason: trayLitReason(row.reason), attention });

@@ -6,7 +6,7 @@
  *   GET    /api/projects?path=<abs>             → lookup-or-null (200 with body=null on miss)
  *   GET    /api/projects/:id                    → single
  *   POST   /api/projects                        → create (auto-generates slug from name when omitted)
- *   PATCH  /api/projects/:id                    → update (name, color, icon)
+ *   PATCH  /api/projects/:id                    → update (name, color, icon, parentId + mergeMode = accorpa / separa)
  *   POST   /api/projects/:id/archive            → set archived=1
  *   POST   /api/projects/:id/restore            → set archived=0
  *   DELETE /api/projects/:id                    → row delete (refuses if any worktree exists)
@@ -22,7 +22,8 @@
  * surfaces 400/404/409 with clear messages.
  */
 import type { AppContext, RouteHandler } from "../types";
-import { SlugConflictError, ProjectInUseError } from "../services/project-store";
+import { SlugConflictError, ProjectInUseError, ParentRefusedError } from "../services/project-store";
+import { isMergeMode, type MergeMode } from "../../shared/project-family";
 import { unwatchGitDir } from "../git-watcher";
 import { unwatchProjectFiles } from "../file-watcher";
 import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";
@@ -31,6 +32,8 @@ import { resolveProjectIcon, ICON_CONTENT_TYPE } from "../lib/project-icon";
 import { knownProjectDirs } from "../services/known-project-dirs";
 import { createProjectIconWatch } from "../services/project-icon-watch";
 import { isInsideDir } from "../lib/path-containment";
+import { canonicalProjectFor } from "../services/project-path-resolver";
+import { worktreeRootDir } from "../services/worktree-manager";
 import { osservatoreDaDispositivo, vedeProgetto, visibilitaDi } from "../lib/project-visibility";
 import { resolveOsOpenPath, fsProbe } from "../lib/os-open-path";
 import { installationOrgId, actingPersonId } from "../lib/orgs";
@@ -387,6 +390,18 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
         return errorResponse(400, CLIENT_PROJECT_PATH_ERROR);
       }
 
+      // A worktree (or a symlink alias of the repo) is never a project of its
+      // own: answer with the project that already owns the repository instead of
+      // opening a second board for it. Idempotent, so a client that "adds" the
+      // folder it is working in simply gets the project it belongs to.
+      {
+        const owner = canonicalProjectFor(path, projectStore.list(), {
+          worktreeOwner: (abs) => ctx.worktreeStore.getByAbsPath(abs)?.projectId ?? null,
+          worktreeRoot: worktreeRootDir(),
+        });
+        if (owner && owner.path !== path && visibile(req, owner)) return json(owner, 200);
+      }
+
       let slug = stripCtrl(body.slug);
       if (!slug) slug = projectStore.slugify(name);
       if (!SLUG_REGEX.test(slug)) {
@@ -520,7 +535,34 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
             }
             patch.orgId = body.orgId;
           }
-          const project = projectStore.update(idParams.id, patch);
+          // Accorpa / separa: where the project sits in a family and whether it
+          // shares the parent's board. Cards never move (only `projects` changes),
+          // so this is safe to flip back and forth.
+          let familyChange: { parentId?: string | null; mergeMode?: MergeMode } | null = null;
+          if (body.parentId !== undefined || body.mergeMode !== undefined) {
+            familyChange = {};
+            if (body.parentId !== undefined) {
+              if (body.parentId !== null && typeof body.parentId !== "string") return errorResponse(400, "parentId must be a project id or null");
+              if (typeof body.parentId === "string") {
+                const wanted = projectStore.get(body.parentId);
+                if (!wanted || !visibile(req, wanted)) return errorResponse(404, "Parent project not found");
+              }
+              familyChange.parentId = body.parentId;
+            }
+            if (body.mergeMode !== undefined) {
+              if (!isMergeMode(body.mergeMode)) return errorResponse(400, "mergeMode must be accorpa or separa");
+              familyChange.mergeMode = body.mergeMode;
+            }
+            if (!projectStore.get(idParams.id)) return errorResponse(404, "Project not found");
+            try { projectStore.setFamily(idParams.id, familyChange); }
+            catch (err) {
+              if (err instanceof ParentRefusedError) return errorResponse(409, `cannot change the family: ${err.reason}`);
+              throw err;
+            }
+          }
+          const project = Object.keys(patch).length || !familyChange
+            ? projectStore.update(idParams.id, patch)
+            : projectStore.get(idParams.id);
           if (!project) return errorResponse(404, "Project not found");
           emit("project:updated", project);
           return json(project);
