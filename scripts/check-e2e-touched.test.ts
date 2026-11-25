@@ -179,8 +179,12 @@ describe("changedFiles on the pull request checkout (run 34969697363: 32 files c
   /** The fetch line of the CI step, with the GitHub expressions filled in. */
   function ciFetchArgs(baseRef: string, sha: string): string[] {
     const config = readFileSync(join(import.meta.dir, "../.github/workflows/ci.yml"), "utf8");
-    const line = config.split("\n").map((l) => l.trim()).find((l) => l.startsWith("git fetch") && l.includes("github.base_ref"));
-    if (!line) throw new Error("no `git fetch ... github.base_ref` line in ci.yml");
+    // The fetch of the e2e-touched step, the one that writes origin/<base>: ci.yml has other
+    // `git fetch ... github.base_ref` lines (the design system gate's, 25/11), and taking the
+    // first one tested a fetch this script never runs after.
+    const line = config.split("\n").map((l) => l.trim())
+      .find((l) => l.startsWith("git fetch") && l.includes("github.base_ref") && l.includes("refs/remotes/origin/"));
+    if (!line) throw new Error("no `git fetch ... github.base_ref ...:refs/remotes/origin/...` line in ci.yml");
     const filled = line.replaceAll("${{ github.base_ref }}", baseRef).replaceAll("${{ github.sha }}", sha);
     return filled.split(/\s+/).slice(1).map((a) => a.replace(/^"|"$/g, ""));
   }
