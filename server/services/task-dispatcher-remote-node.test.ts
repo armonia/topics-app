@@ -39,7 +39,7 @@ import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./t
 import { createNodeBranchPlanter } from "./node-branch-plant";
 import { createDeliveryCapture, type DeliveryCapture, type DeliveryRef } from "./task-delivery-capture";
 import type { TaskFile } from "../../shared/task-labels";
-import type { NodeRunReport } from "./node-client";
+import { NodeError, type NodeRunReport } from "./node-client";
 
 import { wakeBreaker } from "./wake-breaker";
 import { hangBreaker } from "./task-dispatcher-remote-node";
@@ -518,6 +518,38 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     buried = true;
 
     expect(trace).toEqual(["hook", "create", "hook", "cancel:run-1", "create"]);
+  });
+
+  it("la corsa vecchia che il nodo non ha più (404) non è un errore da scrivere; un rifiuto vero sì", async () => {
+    // 25/11: every re-dispatch of a buried run logged a NodeError stack for a run the node had already dropped.
+    for (const [failure, logged] of [
+      [new NodeError("not_found", "cancel run answered 404: run not found", 404), false],
+      [new Error("offline"), true],
+    ] as const) {
+      // The dead polls of the previous round open the node's breakers, as in beforeEach.
+      wakeBreaker.success(MACHINE);
+      hangBreaker.success(MACHINE);
+      const logs: string[] = [];
+      const cancelled: string[] = [];
+      let runs = 0;
+      let buried = false;
+      const h = harness({
+        createRun: async () => { runs += 1; return { runId: `run-${runs}` }; },
+        cancelRun: async (runId) => { cancelled.push(runId); throw failure; },
+        readRun: (runId) =>
+          runId === "run-1" && !buried
+            ? Promise.reject(Object.assign(new Error("giu"), { reason: "unreachable" }))
+            : Promise.resolve(report()),
+      }, { log: (msg) => { logs.push(msg); } });
+      h.seed();
+      await dispatch(h);
+      await poll(h, NODE_DEAD_POLLS);
+      buried = true;
+
+      expect(cancelled).toEqual(["run-1"]);
+      expect(runs).toBe(2);
+      expect(logs.some((m) => m.includes("non si è cancellata"))).toBe(logged);
+    }
   });
 
   it("hooks.json con uno script che esce non zero: il motivo sullo stderr arriva sulla card", async () => {
