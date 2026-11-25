@@ -537,7 +537,7 @@ export const SETTINGS_COPY_EN: SettingsCopy = {
     fallbackReply: 'the appellant',
   },
   compliance: {
-    scopes: { nocera: 'Consorzio di Nocera', sarim: 'SARIM', topics: 'Topics' },
+    scopes: { nocera: 'Consorzio di Nocera', orbit: 'ORBIT', topics: 'Topics' },
     groups: {
       documents: 'Documents and archive · from the sector package',
       personal: 'Personal data and security',

@@ -5,7 +5,8 @@
  */
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceVerdict, effectiveDispatchCap, freeDiskGB, parseVmStat, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, probeVm, type MemoryFloorHold } from "./dispatch-capacity";
+import { DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceVerdict, effectiveDispatchCap, freeDiskGB, parseVmStat, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, probeVm, type MemoryFloorHold } from "./dispatch-capacity";
+import { DEFAULT_WORKTREE_DISK_FLOOR_GB as DISPATCH_DISK_FLOOR_GB } from "../../shared/worktree-settings";
 import type { HeldMemory } from "./mem-signal";
 
 /** A full 2-minute window whose lowest reading is `gb`; `null` = memory not measurable here. */

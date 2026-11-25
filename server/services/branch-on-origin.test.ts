@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { carriedBranch, ensureBranchOnOrigin, isPlainBranchName, pushRefusalReason } from "./branch-on-origin";
+import { bundleBranch, bundleBranchForNode, carriedBranch, carriedRef, ensureBranchOnOrigin, isPlainBranchName, plantCarriedBranch, pushRefusalReason } from "./branch-on-origin";
 import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { nodeRunBaseBranch } from "../routes/nodes";
 
@@ -105,6 +105,44 @@ describe("il ramo della card su origin", () => {
     expect(nodeRunBaseBranch("topics/endless-calf")).toBe("topics/endless-calf");
     expect(nodeRunBaseBranch("--upload-pack=x")).toBeUndefined();
     expect(nodeRunBaseBranch(42)).toBeUndefined();
+  });
+});
+
+describe("il ramo della card verso un nodo che non vede origin", () => {
+  test("un ramo che c'è solo su origin parte lo stesso come bundle, e qui non resta niente", async () => {
+    // Born on the other machine and pushed: this checkout never had it (or pruned it after a land).
+    sh(["fetch", "-q", "origin"], pc);
+    sh(["switch", "-q", "-c", "topics/burly-verbena", "origin/main"], pc);
+    const tip = commit(pc, "g.txt", "solo su origin");
+    sh(["push", "-q", "origin", "topics/burly-verbena"], pc);
+    sh(["switch", "-q", "main"], pc);
+    expect(await ensureBranchOnOrigin(mac, "topics/burly-verbena")).toEqual({ ok: true });
+
+    // ed621d32 (25/11): without a local ref there was nothing to pack.
+    expect(await bundleBranch(mac, "topics/burly-verbena")).toBeNull();
+    const bytes = await bundleBranchForNode(mac, "topics/burly-verbena");
+    expect(bytes).not.toBeNull();
+
+    // The node plants it with no access to origin's branch.
+    const node = join(root, "node");
+    sh(["clone", "-q", origin, node]);
+    expect(await plantCarriedBranch(node, "topics/burly-verbena", bytes!)).toEqual({ ok: true });
+    expect(sh(["rev-parse", carriedRef("topics/burly-verbena")], node)).toBe(tip);
+
+    // The borrowed ref is gone: the checkout looks as it did before.
+    expect(() => sh(["rev-parse", "--verify", "-q", "refs/heads/topics/burly-verbena"], mac)).toThrow();
+  });
+
+  test("un ramo locale si impacchetta come prima, e resta", async () => {
+    const bytes = await bundleBranchForNode(mac, "topics/endless-calf");
+    expect(bytes).not.toBeNull();
+    expect(sh(["rev-parse", "--verify", "-q", "refs/heads/topics/endless-calf"], mac)).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  test("un ramo che non c'è da nessuna parte: null, senza ref lasciati", async () => {
+    expect(await bundleBranchForNode(mac, "topics/mai-esistito")).toBeNull();
+    expect(await bundleBranchForNode(mac, "--force")).toBeNull();
+    expect(await bundleBranchForNode(null, "topics/endless-calf")).toBeNull();
   });
 });
 

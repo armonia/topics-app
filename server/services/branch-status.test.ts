@@ -12,7 +12,7 @@ import {
   worktreeDiffStat,
   branchContentWasOnMain,
 } from "./branch-status";
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
@@ -84,6 +84,23 @@ describe("branchStatusFromRepo", () => {
     writeFileSync(join(repo, "package.json"), '{"version":"9.9.9"}\n');
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "bump");
 
+    // noise-only, the only copy: a lockfile and an asset under a nested public/
+    git(repo, "checkout", "-q", "-b", "lockonly", base);
+    writeFileSync(join(repo, "bun.lock"), "relocked by the agent\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "relock");
+    git(repo, "checkout", "-q", "-b", "assetonly", base);
+    mkdirSync(join(repo, "site", "public"), { recursive: true });
+    writeFileSync(join(repo, "site", "public", "hero.svg"), "<svg/>\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "hero");
+
+    // noise-only, squash-landed: main carries the same lockfile byte for byte
+    git(repo, "checkout", "-q", "-b", "lockonmain", base);
+    writeFileSync(join(repo, "Cargo.lock"), "landed relock\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "relock landed");
+    git(repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "Cargo.lock"), "landed relock\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "squash of relock landed");
+
     // ancestor: points at main's tip
     git(repo, "checkout", "-q", "-b", "ancestor", "main");
 
@@ -104,8 +121,18 @@ describe("branchStatusFromRepo", () => {
   test("genuine unlanded work → unmerged (kept, not reaped)", async () => {
     expect(await branchStatusFromRepo(repo, "unlanded")).toBe("unmerged");
   });
-  test("noise-only diff (version bump) → merged", async () => {
-    expect(await branchStatusFromRepo(repo, "noiseonly")).toBe("merged");
+  // Noise is ignored next to source changes; ALONE it is the branch's whole work.
+  // Judged "merged", the GC reaped such a branch and `branch -D` left its commit
+  // on no ref at all (a relock, an asset under site/public/).
+  test("noise-only diff whose content is not on main (version bump) → unmerged", async () => {
+    expect(await branchStatusFromRepo(repo, "noiseonly")).toBe("unmerged");
+  });
+  test("a lockfile or a nested public/ asset as the only change, not on main → unmerged", async () => {
+    expect(await branchStatusFromRepo(repo, "lockonly")).toBe("unmerged");
+    expect(await branchStatusFromRepo(repo, "assetonly")).toBe("unmerged");
+  });
+  test("noise-only diff already on main byte for byte (squash-landed relock) → merged", async () => {
+    expect(await branchStatusFromRepo(repo, "lockonmain")).toBe("merged");
   });
   test("missing branch → gone", async () => {
     expect(await branchStatusFromRepo(repo, "does-not-exist")).toBe("gone");

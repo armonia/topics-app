@@ -72,6 +72,7 @@ import { readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./
 import { resolveAgentRuntime } from "./app-settings";
 import { topicSessionKeyMatchesSql } from "./agent-census";
 import { topicsHome } from "./daemon-state";
+import { worktreeCargoEnv } from "./worktree-for-agent";
 
 /** Cosa sa lo spawn del topic che sta per far partire. */
 export type DispatchBinding = {
@@ -517,6 +518,9 @@ export function applyJobQuota(db: Database, sessionKey: string, env: Record<stri
   const congelato = resolveJobQuotaEnv(db, sessionKey);
   if (!congelato) return null;
   Object.assign(env, congelato);
+  // One Rust build directory per project (`worktree-for-agent.ts`): `target/` is
+  // the one weight a worktree clone does not share.
+  Object.assign(env, worktreeCargoEnv(db, sessionKey));
   claimChannelRoot(db);
   const jobs = Number(congelato.CARGO_BUILD_JOBS);
   writeLiveQuota(sessionKey, jobs);

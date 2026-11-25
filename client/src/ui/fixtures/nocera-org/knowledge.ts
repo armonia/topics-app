@@ -2,7 +2,7 @@
  * The documents the Consorzio works with, as «Conoscenza» shows them: the
  * laws and rules behind its repetitive work, the Consorzio's own papers, and
  * the internal procedures the agents wrote from the closed cards. Same shape
- * as `../sarim-org/knowledge.ts`, whose types it reuses.
+ * as `../orbit-org/knowledge.ts`, whose types it reuses.
  *
  * Where the words come from. A `quote` is a short passage copied, to the
  * character, from a page read on 9/11/2026: the Libro dell'anno 2025 (the PDF allow-italian: quotes the words on screen
@@ -25,7 +25,7 @@
  * CO-2386, VP-2395, VP-2399, RC-2404, RC-2416, FT-2412, CT-2390, CT-2398,
  * CT-2400, CT-2403, CT-2404.
  */
-import type { KnowledgeCollectionDef, KnowledgeDoc, KnowledgeQuestion } from '../sarim-org/knowledge';
+import type { KnowledgeCollectionDef, KnowledgeDoc, KnowledgeQuestion } from '../orbit-org/knowledge';
 
 /* ---------- collections ---------- */
 

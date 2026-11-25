@@ -18,7 +18,7 @@ import { useEffect, useMemo } from 'react';
 import { boardTabCounts, type StatusCount } from '../../lib/boardTabCounts';
 import { useBoardTasks, useBoardTasksLoaded } from '../../lib/boardTasksStore';
 import { estimatesByProject, summarizeRunning, type RunningSummary } from '../../../../shared/task-countdown';
-import { useBoardProjects } from '../../lib/boardProjectsStore';
+import { useBoardFamilies, useBoardProjects } from '../../lib/boardProjectsStore';
 import { rollupAttention, useAttentionRows } from '../../state/attention';
 import { boardLitCards } from '../../state/attentionRollups';
 import { trayLitGroups, type TrayGroup } from '../../../../shared/tray-board';
@@ -67,6 +67,20 @@ function useBoardProjectId(projectPath?: string): string | null {
   );
 }
 
+/**
+ * The board ids behind a project tab: its own, plus the projects merged into it
+ * (accorpa), whose cards the board shows. A string while there is nothing merged,
+ * so every caller that compares ids keeps its fast path.
+ */
+function useBoardFamilyIds(projectId: string | null): string | readonly string[] | null {
+  const families = useBoardFamilies(!!projectId);
+  return useMemo(() => {
+    if (!projectId) return projectId;
+    const merged = families.filter((l) => l.mode === 'accorpa' && l.parentProjectId === projectId).map((l) => l.projectId);
+    return merged.length === 0 ? projectId : [projectId, ...merged];
+  }, [families, projectId]);
+}
+
 export interface BoardAttention {
   tier: AttentionTier | null;
   count: number;
@@ -86,25 +100,27 @@ const NOTHING_LIT: BoardAttention = { tier: null, count: 0, groups: [] };
 export function useBoardAttention(projectPath?: string): BoardAttention {
   const rows = useAttentionRows();
   const tasks = useBoardTasks();
-  const projectId = useBoardProjectId(projectPath);
+  const ownId = useBoardProjectId(projectPath);
+  const projectId = useBoardFamilyIds(ownId);
   return useMemo(() => {
-    if (projectPath && !projectId) return NOTHING_LIT;
+    if (projectPath && !ownId) return NOTHING_LIT;
     const lit = boardLitCards(rows, tasks, projectId);
     const { tier, count } = rollupAttention(lit.map((c) => c.attention));
     return { tier, count, groups: trayLitGroups(lit.map((c) => ({ ...c, projectId: c.projectId ?? '' }))) };
-  }, [rows, tasks, projectId, projectPath]);
+  }, [rows, tasks, projectId, ownId, projectPath]);
 }
 
 export function useBoardTabCounts(projectPath?: string): StatusCount[] {
   const tasks = useBoardTasks();
-  const projectId = useBoardProjectId(projectPath);
+  const ownId = useBoardProjectId(projectPath);
+  const projectId = useBoardFamilyIds(ownId);
   const live = useMemo(
     // Finché il percorso non è risolto in un board id NON si conta: mostrare
     // intanto il totale di TUTTI i progetti sarebbe un numero sbagliato che si
     // corregge da solo dopo un giro — e nel frattempo è indistinguibile da uno
     // giusto. Meglio niente per un istante che una cifra che mente.
-    () => (projectPath && !projectId ? [] : boardTabCounts(tasks, projectId)),
-    [tasks, projectId, projectPath],
+    () => (projectPath && !ownId ? [] : boardTabCounts(tasks, projectId)),
+    [tasks, projectId, ownId, projectPath],
   );
   // Live only once BOTH inputs exist: the feed, and — for a project tab — its
   // board id. Before that the live value is an empty list that means «not yet»,
@@ -123,10 +139,12 @@ export function useBoardTabCounts(projectPath?: string): StatusCount[] {
  */
 export function useBoardRunning(projectPath?: string): RunningSummary {
   const tasks = useBoardTasks();
-  const projectId = useBoardProjectId(projectPath);
+  const ownId = useBoardProjectId(projectPath);
+  const projectId = useBoardFamilyIds(ownId);
   return useMemo(() => {
-    if (projectPath && !projectId) return summarizeRunning([], new Map());
-    const running = tasks.filter((t) => t.status === 'in_progress' && !t.parentTaskId && (!projectId || t.projectId === projectId));
+    if (projectPath && !ownId) return summarizeRunning([], new Map());
+    const inBoard = (id: string) => !projectId || (typeof projectId === 'string' ? id === projectId : projectId.includes(id));
+    const running = tasks.filter((t) => t.status === 'in_progress' && !t.parentTaskId && inBoard(t.projectId));
     return summarizeRunning(running, estimatesByProject(tasks));
-  }, [tasks, projectId, projectPath]);
+  }, [tasks, projectId, ownId, projectPath]);
 }

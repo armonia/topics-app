@@ -12,11 +12,13 @@
  * potatura non poteva nemmeno vederli.
  *
  * @covers WORKTREE-06
+ * @covers WORKTREE-STD-01
  */
 import { describe, test, expect } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { worktreeRootDir } from "./worktree-manager";
+import { defaultWorktreeRootDir } from "./worktree-root";
 
 describe("radice dei worktree", () => {
   test("con TOPICS_HOME, i worktree stanno DENTRO quella casa", () => {
@@ -39,5 +41,33 @@ describe("radice dei worktree", () => {
     for (const casa of ["/tmp/a", "/tmp/b/c", "/var/folders/x/.topics-home"]) {  // allow-shared-tmp: e' un DATO, non una cartella — worktreeRootDir e' puro calcolo su stringhe e non tocca il disco
       expect(worktreeRootDir({ TOPICS_HOME: casa }).startsWith(casa + "/")).toBe(true);
     }
+  });
+});
+
+describe("worktree root, order of precedence (worktree-standard T1)", () => {
+  const home = { TOPICS_HOME: "/h" }; // allow-shared-tmp: a string, never touched on disk
+  const chosen = "/data/worktrees-chosen";
+
+  test("env TOPICS_WORKTREES_DIR wins over the setting", () => {
+    expect(worktreeRootDir({ ...home, TOPICS_WORKTREES_DIR: "/env/root" }, chosen)).toBe("/env/root");
+  });
+
+  test("the setting wins over the default", () => {
+    expect(worktreeRootDir(home, chosen)).toBe(chosen);
+  });
+
+  test("an empty or missing setting is the default", () => {
+    expect(worktreeRootDir(home, "")).toBe(join("/h", "worktrees"));
+    expect(worktreeRootDir(home, "   ")).toBe(join("/h", "worktrees"));
+    expect(worktreeRootDir(home, null)).toBe(join("/h", "worktrees"));
+  });
+
+  test("an empty env value falls through to the setting", () => {
+    expect(worktreeRootDir({ ...home, TOPICS_WORKTREES_DIR: "" }, chosen)).toBe(chosen);
+  });
+
+  test("the default root ignores the setting", () => {
+    expect(defaultWorktreeRootDir(home)).toBe(join("/h", "worktrees"));
+    expect(defaultWorktreeRootDir({ ...home, TOPICS_WORKTREES_DIR: "/env/root" })).toBe("/env/root");
   });
 });
