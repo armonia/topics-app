@@ -37,9 +37,10 @@ import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { mkdirSync, writeFileSync } from "fs";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const BASE = E2E_BASE;
 // Una directory VERA: le pane interne di un progetto ci fanno cd dentro, e un

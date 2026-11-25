@@ -97,9 +97,20 @@ function walkFiles(dir: string): string[] {
   });
 }
 
-/** Gzips every `.jsonl` under `agentsRoot` older than the configured cutoff, in place: the original is removed only after its `.gz` is written. */
+/**
+ * Gzips every `.jsonl` under `agentsRoot/<agent>/sessions` older than the configured
+ * cutoff, in place: the original is removed only after its `.gz` is written.
+ * Only the `sessions` folders: the rest of `agentsRoot` is each agent's own
+ * workspace (state, fixtures, outreach lists) that scripts read back as plain
+ * JSONL. On 2026-11-25 the live folder had no `sessions` folder at all and 29
+ * workspace `.jsonl` files past the cutoff: walking the whole folder would have
+ * compressed exactly those, and walked 29 GB of media and browser profiles to do it.
+ */
 function compressExpiredTranscripts(agentsRoot: string, env: NodeJS.ProcessEnv): string[] {
-  const files: TranscriptFileStat[] = walkFiles(agentsRoot)
+  let agents: string[] = [];
+  try { agents = readdirSync(agentsRoot); } catch { /* no agents folder, nothing to compress */ }
+  const files: TranscriptFileStat[] = agents
+    .flatMap((agent) => walkFiles(join(agentsRoot, agent, "sessions")))
     .filter((path) => path.endsWith(".jsonl") || path.endsWith(".jsonl.gz"))
     .map((path) => ({ id: path, mtimeMs: statSync(path).mtimeMs, compressed: path.endsWith(".gz") }));
   const compressDays = transcriptCompressDays(env);

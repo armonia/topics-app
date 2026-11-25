@@ -2,6 +2,28 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.106 — 2026-11-25
+
+### Correzioni
+- **ci-governor** · a starving runner keeps its turn, a real message wakes it
+
+## 2.4.105 — 2026-11-25
+
+### Correzioni
+- **layout** · a project's window shows only its title, which is its tab
+- **layout** · no "+" on a project's title, its row in the column has it
+
+### Sotto il cofano
+- Il cancello degli intrecci torna nella CI ora che spec-flow 0.7.0 è su npm
+
+## 2.4.104 — 2026-11-25
+
+### Sotto il cofano
+- Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio
+- La compressione notturna tocca solo i transcript delle sessioni, non il lavoro degli agenti
+- E2E-VIDEO-01: dichiara il requisito dei video e2e e il @covers del test
+- Sul Mac la cartella temporanea dei test sta in /tmp: i socket non passano più 104 caratteri
+
 ## 2.4.103 — 2026-11-25
 
 ### Sotto il cofano
@@ -10,10 +32,15 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Split tasks/shared.ts: baselines and unused type exports
 - Land guard: a card's own branches include its spawned children and worktree branch
 - Main verde: covers del test usage-limit e baseline dopo i land della notte
+- E2E clips sized to the viewport, not Playwright's 800x500
 - Test di contratto: leggono i moduli di shared/board.ts dopo lo split
+- Node deliveries emit task-deliver so the retrospective hook sees them
+- Re-measure the pre-review gate: failures are the 401 auth env, same on the parent commit
+- Re-measure the pre-review gate after bun install restored jscpd
 - Sub-agent no-news replies on a later turn no longer wake the parent
 - seed-before-navigation uses /manifest.json, not /favicon.ico
 - Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290
+- e2e-video-size test: spawn the running bun binary so it also works on Windows
 - La spazzata del land-push spinge main una volta per repo, e ripete un rifiuto solo se cambia
 - Una corsa vecchia che il nodo non ha più non si scrive come errore
 - Un transcript troppo grande per cercarci un fork si dice una volta, non a ogni giro

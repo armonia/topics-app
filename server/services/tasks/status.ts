@@ -1133,13 +1133,24 @@ deferForWait(this: TaskService, { taskId, reason, minutes, by, source }): Task {
       try { this.addComment({ taskId, author: by ?? "agent", content: note }); } catch { /* dedupe/best-effort */ }
       // Back to todo, slot freed (topic/agent cleared), chip `waiting`, and a
       // deferral window that keeps it out of the claim until it elapses.
+      // The slot is freed and the topic link with it: the worktree's branch, if
+      // it carries commits, is the only thread back to that work (a rerun
+      // otherwise starts from main without it, card f3c5a186). A card that
+      // never had a worktree keeps whatever `prior_branch` it had.
+      let ownBranch: string | null = null;
+      try {
+        const root = row.assigned_topic_id
+          ? _opts.repoRootFor?.({ taskId, projectId: row.project_id as string | undefined, assignedTopicId: row.assigned_topic_id as string })
+          : null;
+        ownBranch = root ? (_opts.branchAheadOf?.(root) ?? null) : null;
+      } catch { /* best-effort: the wait itself must not fail */ }
       db.prepare(
         `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL, ${rimborso}
             status = 'todo', dispatch_state = 'waiting', dispatch_error = ?,
-            dispatch_deferred_until = ?,
+            dispatch_deferred_until = ?, prior_branch = COALESCE(?, prior_branch),
             wait_streak = ?, wait_reason = ?, wait_since = ?, updated_at = ?
           WHERE id = ?`,
-      ).run(note, new Date(Date.parse(ts) + mins * 60_000).toISOString(), streak, chiave || null, since, ts, taskId);
+      ).run(note, new Date(Date.parse(ts) + mins * 60_000).toISOString(), ownBranch, streak, chiave || null, since, ts, taskId);
       if (row.status !== "todo") logStatus(taskId, row.status, "todo", by ?? "agent");
       markReopened(taskId, row.status, "todo", "agent", by ?? "agent");
       return rowToTask(getTaskRow(taskId));
