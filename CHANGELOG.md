@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.100 — 2026-11-25
+
+### Correzioni
+- **sidebar** · a project's tabs show open or closed, and a row opens its own sub-agents
+
 ## 2.4.99 — 2026-11-25
 
 ### Correzioni

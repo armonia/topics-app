@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.4.100",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a project's tabs show open or closed, and a row opens its own sub-agents",
+          "scope": "sidebar"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.99",
     "date": "2026-11-25",
     "sections": {
