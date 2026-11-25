@@ -558,7 +558,7 @@ export function StandaloneChatGroup({
   const projectInTitle = !mobile && !tabStrip && !!surfaceInFront && isProjectPaneId(surfaceInFront.id);
   const [titleSlot, setTitleSlot] = useState<HTMLDivElement | null>(null);
   // Inside the project, a browser in front puts ITS tab on this row in place of
-  // the project's (25/11: «non vedo la tab del browser»): the window draws it
+  // the project's (25/11: the browser's tab was nowhere): the window draws it
   // into `titleTabSlot` and says so through `setProjectTitleTaken`.
   const [titleTabSlot, setTitleTabSlot] = useState<HTMLDivElement | null>(null);
   const [projectTitleTaken, setProjectTitleTaken] = useState(false);

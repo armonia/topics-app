@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 export const ISLAND_RADIUS = 10;
 
 /**
- * THE PAGE AS AN ISLAND (25/11, «Isola, 4 angoli»).
+ * THE PAGE AS AN ISLAND (25/11, "an island, four corners").
  *
  * With the tabs at the side the project's sections are islands on the window's
  * ground (`SECTION_ISLAND`), and the browser beside them was a square slab
