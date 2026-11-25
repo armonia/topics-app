@@ -1492,7 +1492,9 @@ pub(crate) fn browser_open_inner(
         #[cfg(target_os = "windows")]
         let known = wv.url().ok().map(|u| u.to_string()).or_else(|| last_pane_url(&label));
         let current = reused_view_url(known, &url);
-        browser_set_bounds(app, id, x, y, width, height, None)?;
+        // No radius and no island here: the client sends both with its next
+        // bounds, as it always did for the radius.
+        browser_set_bounds(app, id, x, y, width, height, None, None)?;
         return Ok(BrowserOpenAnswer { reused: true, url: current });
     }
     // Parenta la webview alla finestra che OSPITA la pane, non a `main` per
