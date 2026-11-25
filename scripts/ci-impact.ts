@@ -113,12 +113,12 @@ export function scopeE2e(
   return { kind: "reduced", files: [...picked].map((f) => basename(f)).sort(), reason: `${picked.size} specs from ${changed.length} changed files` };
 }
 
-function readSpecs(): { file: string; text: string }[] {
-  const dir = "tests/e2e";
+function readSpecs(cwd: string): { file: string; text: string }[] {
+  const dir = join(cwd, "tests/e2e");
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => f.endsWith(".spec.ts"))
-    .map((f) => ({ file: `${dir}/${f}`, text: readFileSync(join(dir, f), "utf8") }));
+    .map((f) => ({ file: `tests/e2e/${f}`, text: readFileSync(join(dir, f), "utf8") }));
 }
 
 /** The spec files named by `playwright test --list --reporter=json`. */
@@ -143,18 +143,18 @@ export interface Impact {
   reduced: boolean;
 }
 
-export function impactOf(base: string): Impact {
-  const diff = changedFiles(base);
+export function impactOf(base: string, cwd: string = process.cwd()): Impact {
+  const diff = changedFiles(base, cwd);
   if (!diff) {
     const reason = "no merge base with the base branch";
     return { e2e: { kind: "full", reason }, unit: { kind: "full", reason }, reduced: false };
   }
-  const read = (f: string) => (existsSync(f) ? readFileSync(f, "utf8") : null);
+  const read = (f: string) => (existsSync(join(cwd, f)) ? readFileSync(join(cwd, f), "utf8") : null);
   // `changedFiles` of check-e2e-touched drops docs; test-touched keeps its own list.
-  const e2e = scopeE2e(diff.files, readSpecs(), read);
+  const e2e = scopeE2e(diff.files, readSpecs(cwd), read);
   let unit: Impact["unit"];
   try {
-    const s = selectForBase(base);
+    const s = selectForBase(base, cwd);
     unit = s.kind === "full" ? { kind: "full", reason: s.reason } : { kind: "tests", tests: s.tests };
   } catch (e) {
     unit = { kind: "full", reason: `selection failed: ${(e as Error).message}` };

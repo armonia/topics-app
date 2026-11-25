@@ -65,25 +65,27 @@ function redsOf(run: Run): Red[] {
 }
 
 /** What a pull request with this diff would have run, in the two kinds. */
-function replay(run: Run): { e2e: Set<string> | "full"; unit: Set<string> | "full"; why: string } {
+function replay(run: Run): { e2e: Set<string> | "full"; unit: Set<string> | "full"; why: { e2e: string; unit: string } } {
   const dir = mkdtempSync(join(tmpdir(), "impact-measure-"));
   try {
     sh(["git", "fetch", "--quiet", REPO_URL, run.headSha]);
     sh(["git", "worktree", "add", "--detach", "--quiet", dir, run.headSha]);
     const base = sh(["git", "rev-parse", `${run.headSha}^1`], dir).trim();
     sh(["git", "fetch", "--quiet", REPO_URL, base], dir);
+    // selectSpecs reads the changed sources relative to the working directory.
     const here = process.cwd();
     process.chdir(dir);
+    let impact: ReturnType<typeof impactOf>;
     try {
-      const impact = impactOf(base);
-      return {
-        e2e: impact.e2e.kind === "full" ? "full" : new Set(impact.e2e.files),
-        unit: impact.unit.kind === "full" ? "full" : new Set(impact.unit.tests),
-        why: impact.e2e.reason,
-      };
+      impact = impactOf(base, dir);
     } finally {
       process.chdir(here);
     }
+    return {
+      e2e: impact.e2e.kind === "full" ? "full" : new Set(impact.e2e.files),
+      unit: impact.unit.kind === "full" ? "full" : new Set(impact.unit.tests),
+      why: { e2e: impact.e2e.reason, unit: impact.unit.kind === "full" ? impact.unit.reason : "" },
+    };
   } finally {
     Bun.spawnSync(["git", "worktree", "remove", "--force", dir]);
     rmSync(dir, { recursive: true, force: true });
@@ -133,7 +135,7 @@ for (const [id, list] of reds) {
     let verdict: string;
     if (scope === "full") {
       full++;
-      verdict = `full tier (${r!.why})`;
+      verdict = `full tier (${r!.why[red.kind]})`;
     } else if (scope?.has(red.file)) {
       caught++;
       verdict = "in the reduced plan";
