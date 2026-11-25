@@ -198,3 +198,12 @@ barra dei menu.
   ogni superficie e da ogni sorgente (bordo = dividi, centro = apri qui, bordo della superficie
   = riga intera), l'anteprima è l'impronta col nome, una cella divisa dice cosa contiene e chi
   ha il fuoco, tutto si fa anche da menu e da tastiera.
+- 25/11 «se premo la chiusura di una tab non sembra succedere nulla e non riesco a distinguere
+  i due stati» e «dovrei vedere con sfondo solo le tab effettivamente aperte» → anche dentro un
+  progetto (albero o fascia di una fissata) la riga aperta ha lo sfondo e la chiusa no; la fascia
+  di una fissata non dipinge un riquadro sotto le sue righe.
+- 25/11 «l'accordion sotto agenti non dovrebbe essere una riga sotto la tab ma direttamente la
+  tab stessa» → i sotto-agenti si aprono dal chevron della riga che li ha lanciati, senza una
+  riga d'intestazione in più.
+- 25/11 «stai attento a tab di un progetto, non sembrano avere spaziature corretta» → le righe
+  dentro un progetto hanno lo stesso passo e lo stesso rientro, nell'albero e nella fascia.

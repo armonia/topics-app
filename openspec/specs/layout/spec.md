@@ -4437,6 +4437,10 @@ come prima. Una chat chiusa DENTRO una finestra di progetto SHALL restare sotto
 il suo progetto come riga chiusa, non archiviata. Una chat chiusa il cui record
 esce dalla pila delle chiuse (50) SHALL essere archiviata, così sta
 nell'archivio e non sparisce fra i due.
+Le tab di una finestra di progetto, nell'albero e nella fascia di una fissata,
+SHALL avere gli stessi due aspetti: aperta con lo sfondo, chiusa senza; la
+fascia SHALL NOT dipingere un riquadro sotto le sue righe, e le sue righe SHALL
+avere lo stesso passo di quelle dell'albero.
 Una riga chiusa SHALL restare senza sfondo anche sotto il puntatore: lo
 sfondo dice «aperta», e nessuno stato della riga chiusa lo prende in prestito.
 
@@ -4444,6 +4448,12 @@ sfondo dice «aperta», e nessuno stato della riga chiusa lo prende in prestito.
 - **GIVEN** una chat aperta dentro la finestra del suo progetto, con le opzioni di default
 - **WHEN** l'utente preme il cerchio della sua riga
 - **THEN** la riga resta sotto il progetto con il cerchio che archivia, e la chat non è archiviata
+
+#### Scenario: dentro una fissata, solo le tab aperte hanno lo sfondo
+- **GIVEN** un progetto fissato con due chat aperte, la sua fascia aperta
+- **THEN** la fascia non ha sfondo, le due righe sono `open` con lo sfondo e distano 6px
+- **WHEN** l'utente preme il cerchio della seconda
+- **THEN** la riga diventa `closed` senza sfondo, la prima resta con lo sfondo e la chat non è archiviata
 
 #### Scenario: chiudi, riapri, archivia
 - **GIVEN** due chat aperte, con le opzioni di default
