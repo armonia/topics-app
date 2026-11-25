@@ -426,8 +426,9 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       return "la consegna non ha nessun check misurato (checks nullo) su una board che ne dichiara: non atterra finché la barra non gira sul suo commit";
     }
     // A partial bar (say gates measured, the unit job never) is the same hole: the card cannot land on it.
-    // In `after` mode the `github-ci:*` rows are written once the land is done, so they cannot be expected yet.
-    const expected = ciPhase.boardCiMode(projectId) === "after" ? declared.filter((d) => !d.cmd.startsWith("github-ci:")) : declared;
+    // With a CI phase the `github-ci:*` rows are not on the card at land time: in `after` mode they are written once
+    // the land is done, in `before` mode the queue measured the integration commit and lands on its green.
+    const expected = ciPhase.boardCiMode(projectId) !== "off" ? declared.filter((d) => !d.cmd.startsWith("github-ci:")) : declared;
     const missing = rows.length ? expected.filter((d) => !rows.some((r) => r.cmd === d.cmd)) : [];
     return missing.length
       ? `la barra della board non è stata misurata per intero (mancano: ${missing.map((m) => m.name).join(", ")}): non atterra finché non gira`
