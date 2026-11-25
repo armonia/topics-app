@@ -901,14 +901,18 @@ export async function waitForProjectPaneType(
  * `preview` is deliberately absent from the caller's shape: the client only
  * persists a preview pane while it heads its group, and a seed is asserting
  * "this tab is open", not how it got there.
+ *
+ * `chatTopicIds`: chats open beside them, in the same write (a second PUT to
+ * the same key would replace the first).
  */
 export async function seedProjectInnerPanes(
   request: APIRequestContext,
   projectPath: string,
-  panes: Array<{ id: string; type: string; title: string }>,
+  panes: Array<{ id: string; type: string; title: string; url?: string; titleSource?: "user" | "auto" }>,
+  chatTopicIds: string[] = [],
 ): Promise<void> {
   await request.put(`${BASE}/api/ui-state/${projectPanesKey(appProjectPath(projectPath))}`, {
-    data: { nonChatPanes: [...panes], openChatTopicIds: [] },
+    data: { nonChatPanes: [...panes], openChatTopicIds: [...chatTopicIds] },
     ignoreHTTPSErrors: true,
   });
 }

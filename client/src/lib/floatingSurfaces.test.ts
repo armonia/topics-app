@@ -48,6 +48,7 @@ const NOT_A_FLOATING_SURFACE: Record<string, string> = {
   'components/Layout/PaneStage.tsx': 'moves a mounted pane into its cell, nothing opens',
   'components/Sidebar/PinnedTiles.tsx': 'the drag ghost under the pointer',
   'components/Shared/SidebarUpdateBanner.tsx': 'a status row portalled into its slot, in flow',
+  'components/Layout/GroupLayout.tsx': "the front browser's tab portalled into the title row, in flow",
   'components/Browser/SelectElementOverlay.tsx': 'the highlight box that follows the picked element',
   'components/Browser/RemoteBrowserPanel.tsx': 'the screencast pane; its dialog is ForgetSiteDialog (ConfirmDialog)',
 };
