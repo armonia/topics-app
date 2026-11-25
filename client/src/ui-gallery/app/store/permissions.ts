@@ -1,12 +1,12 @@
 /**
  * What the current person may do: their role's permissions, with the changes
  * made in Settings applied on top (a switch in «Squadra e permessi» really
- * changes what that role sees), and in SARIM the levels set by team or by
+ * changes what that role sees), and in ORBIT the levels set by team or by
  * person (`access-grants.ts`).
  */
 import type { Permission, Persona } from '../../../ui/fixtures/org/people';
 import { PERSONAS, ROLES, DEFAULT_PERSONA } from '../../../ui/fixtures/org/people';
-import { world } from '../../sarim/world';
+import { world } from '../../orbit/world';
 import { withAccess } from './access-grants';
 import type { DemoState } from './state';
 
@@ -37,7 +37,7 @@ export function rolePermissions(state: DemoState, roleId: string): Set<Permissio
   return out;
 }
 
-/** What the person's role gives, with the levels set by hand for their team or for them on top (SARIM; the other edition has none). */
+/** What the person's role gives, with the levels set by hand for their team or for them on top (ORBIT; the other edition has none). */
 export function canDo(state: DemoState, persona: Persona, perm: Permission): boolean {
   return withAccess(state, persona, perm, rolePermissions(state, persona.role).has(perm));
 }

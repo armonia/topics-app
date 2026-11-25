@@ -1,6 +1,6 @@
 /**
  * scripts/ui-app/walk-runner.mjs - the engine of the guided walks
- * (`ui-app-walk.mjs` for app.html, `ui-sarim-walk.mjs` for sarim.html): opens
+ * (`ui-app-walk.mjs` for app.html, `ui-orbit-walk.mjs` for orbit.html): opens
  * the built preview in headless WebKit at 1440x900 with a fresh state, runs
  * the steps one after the other and stops on the first one that lands wrong.
  *
@@ -42,7 +42,7 @@ export const POINTER = () => {
 
 /**
  * Runs a walk. `script` names it in the messages, `entry` is the page
- * (`app` or `sarim`), `start` the first address with its `startScreen`,
+ * (`app` or `orbit`), `start` the first address with its `startScreen`,
  * `startWhat` the line printed for it, `done` the closing line on success.
  */
 export async function runWalk({ script, entry = "app", start, startScreen, startWhat, steps, done }) {
