@@ -19,7 +19,7 @@
   * @covers PREVENV-01
  */
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readDispatcherSource } from "../helpers/dispatcher-source";
 
@@ -67,13 +67,19 @@ describe("PREVIEW_RULE nell'envelope dell'agente", () => {
   });
 
   test("promoteReviewPreview non scrive piu' il paragrafo operativo nel thread", () => {
-    const tasks = src("server/services/tasks/shared-previews.ts");
+    // The barrel `shared.ts` is split into `shared-*.ts` modules: read the one that
+    // defines the function, and only that one (another module does contain the checked phrase).
+    const dir = resolve(ROOT, "server/services/tasks");
+    const tasks = readdirSync(dir)
+      .filter((f) => /^shared(-[a-z-]+)?\.ts$/.test(f))
+      .map((f) => readFileSync(resolve(dir, f), "utf8"))
+      .find((text) => text.includes("function promoteReviewPreview(")) ?? "";
     // Cerca il corpo di promoteReviewPreview tra la sua firma e la funzione
     // successiva.
     const fnStart = tasks.indexOf("function promoteReviewPreview(");
     expect(fnStart).toBeGreaterThan(-1);
-    const fnEnd = tasks.indexOf("\n  function ", fnStart + 1);
-    const fnBody = tasks.slice(fnStart, fnEnd > fnStart ? fnEnd : undefined);
+    const next = tasks.slice(fnStart + 1).search(/\n\s*function /);
+    const fnBody = tasks.slice(fnStart, next >= 0 ? fnStart + 1 + next : undefined);
     // Il testo operativo «Consegna SENZA anteprima» non deve piu' comparire
     // come stringa scritta nel thread.
     expect(fnBody).not.toContain("Consegna SENZA anteprima");
