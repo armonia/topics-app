@@ -10,6 +10,8 @@
  * «only the dominating session carries the badge» is red.
  *
  * Video on: the recording is the proof.
+ *
+ * @covers USAGE-29
  */
 import { expect, test, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";

@@ -1,3 +1,6 @@
+/**
+ * @covers USAGE-29
+ */
 import { describe, expect, test } from "bun:test";
 import { aggregateSessions as aggregate, modelFactor, addLine, type SessionTotals } from "./top-sessions";
 
