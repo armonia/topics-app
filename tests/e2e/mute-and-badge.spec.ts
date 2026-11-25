@@ -22,9 +22,10 @@ import { markSeenNow, runChatTurn } from "./helpers/attention";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const TS = Date.now();
 const BASE = E2E_BASE;

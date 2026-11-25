@@ -163,12 +163,29 @@ describe('findForkContinuation', () => {
     expect(found!.matched).toBe(1);
   });
 
-  it('scarta i candidati troppo grandi da scansionare', async () => {
+  it('scarta i candidati troppo grandi da scansionare, e lo dice una volta finché il file non cambia', async () => {
     const parent = write('11111111-aaaa.jsonl', [user('u1', 'a')], 60);
-    write('22222222-bbbb.jsonl', [user('u1', 'a'), asst('a2', 'coda')], 5);
-    const { found } = await findForkContinuation({
-      currentPath: parent, consumedBytes: statSync(parent).size, maxScanBytes: 10,
-    });
-    expect(found).toBeNull();
+    const big = write('22222222-bbbb.jsonl', [user('u1', 'a'), asst('a2', 'coda')], 5);
+    const warned: string[] = [];
+    const warn = console.warn;
+    console.warn = (msg: string) => { warned.push(String(msg)); };
+    try {
+      const seen = new Map<string, number>();
+      const sweep = async () => {
+        const { found, rejected } = await findForkContinuation({
+          currentPath: parent, consumedBytes: statSync(parent).size, maxScanBytes: 10,
+          skip: (p, m) => seen.get(p) === m,
+        });
+        for (const r of rejected) seen.set(r.path, r.mtimeMs);
+        return found;
+      };
+      expect(await sweep()).toBeNull();
+      expect(await sweep()).toBeNull();
+      expect(warned.filter((w) => w.includes('candidato saltato'))).toHaveLength(1);
+      // The file changes: it is looked at, and said, again.
+      utimesSync(big, new Date(), new Date(Date.now() + 1000));
+      expect(await sweep()).toBeNull();
+      expect(warned.filter((w) => w.includes('candidato saltato'))).toHaveLength(2);
+    } finally { console.warn = warn; }
   });
 });

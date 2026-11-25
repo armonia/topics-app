@@ -37,9 +37,10 @@ import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
 import { feedRounds, seedRunningCard, type RunningCard } from "./helpers/session-seed";
 import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
+import { videoAt } from "./video-evidence";
 
 hermetic(test);
-test.use({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", locale: "it-IT", video: "on" });
+test.use({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", locale: "it-IT", video: videoAt("on", { width: 1440, height: 900 }) });
 test.describe.configure({ mode: "serial", timeout: 150_000 });
 
 const SHOTS = process.env.CONSUMPTION_SHOTS ?? "";

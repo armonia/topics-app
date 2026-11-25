@@ -2,6 +2,7 @@
 import { READ_ONLY_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { bridgeAuthHeaders, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
 import type { ParsedArgs } from "./topics-http";
+import { waitForLoginExit } from "./login-wait";
 
 export async function callOpenBrowserPane(
   args: ParsedArgs,
@@ -57,6 +58,81 @@ export async function callOpenBrowserPane(
     // there IS something to say, so a plain open keeps its plain result shape.
     ...(typeof body.warning === "string" && body.warning ? { warning: body.warning } : {}),
   };
+}
+
+/** One call waits at most this long; the agent calls again with `resume` to keep waiting. */
+const LOGIN_SLICE_MS = 4 * 60_000;
+const LOGIN_CAP_MS = 30 * 60_000;
+const LOGIN_POLL_MS = 5_000;
+
+export interface RequestLoginArgs {
+  url?: unknown;
+  name?: unknown;
+  detached?: unknown;
+  resume?: unknown;
+}
+
+/** One tab name per login request (the host), so open_browser_pane never reuses an older tab. */
+function defaultLoginTabName(url: string): string {
+  try {
+    return `Login ${new URL(url).host}`;
+  } catch {
+    return "Login";
+  }
+}
+
+/**
+ * request_login: open the login page in its own tab, raise it (detached window
+ * when asked) and wait for the person to get past the wall. Credentials are
+ * never touched: the person types them. Returns one of
+ * `logged_in` / `waiting` (call again with `resume`) / `needs_input` (30 min cap).
+ */
+export async function callRequestLogin(
+  args: ParsedArgs,
+  toolArgs: RequestLoginArgs,
+  fetchImpl: typeof fetch = fetch,
+  sleep?: (ms: number) => Promise<void>,
+): Promise<string> {
+  const resume = toolArgs.resume && typeof toolArgs.resume === "object"
+    ? (toolArgs.resume as { contextId?: unknown; startUrl?: unknown; deadline?: unknown })
+    : null;
+  let contextId: string;
+  let startUrl: string;
+  let deadline: number;
+  if (resume && typeof resume.contextId === "string" && typeof resume.startUrl === "string" && typeof resume.deadline === "number") {
+    ({ contextId, startUrl, deadline } = { contextId: resume.contextId, startUrl: resume.startUrl, deadline: resume.deadline });
+  } else {
+    if (typeof toolArgs.url !== "string" || !toolArgs.url) throw new Error("request_login: 'url' (string) is required");
+    const name = typeof toolArgs.name === "string" && toolArgs.name.trim() ? toolArgs.name.trim() : defaultLoginTabName(toolArgs.url);
+    // A NEW tab, always: a fresh name per login keeps the agent's own work tabs untouched.
+    const opened = await callOpenBrowserPane(args, { url: toolArgs.url, name }, fetchImpl);
+    if (!opened.contextId) throw new Error("request_login: the pane opened without a contextId, cannot track the login");
+    contextId = opened.contextId;
+    startUrl = opened.url;
+    deadline = Date.now() + LOGIN_CAP_MS;
+    await httpJson(
+      args, "POST", `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/focus-pane`,
+      { contextId, loginRequest: true, detached: toolArgs.detached === true }, fetchImpl,
+    );
+  }
+
+  const sliceEnd = Math.min(deadline, Date.now() + LOGIN_SLICE_MS);
+  const result = await waitForLoginExit({
+    startUrl,
+    timeoutMs: sliceEnd - Date.now(),
+    intervalMs: LOGIN_POLL_MS,
+    sleep,
+    readUrl: async () => {
+      const raw = await callBrowserBridge(args, { contextId }, "status", fetchImpl);
+      const url = (JSON.parse(raw) as { url?: unknown }).url;
+      return typeof url === "string" ? url : null;
+    },
+  });
+  if (result.status === "logged_in") return `logged_in: the page left the login and is now at ${result.url} [contextId: ${contextId}]`;
+  if (Date.now() >= deadline) {
+    return `needs_input: nobody finished the login within 30 minutes; the tab is still open at ${result.url} [contextId: ${contextId}]. Move the card to needs_input and stop.`;
+  }
+  return `waiting: still on the login page. Call request_login again with resume=${JSON.stringify({ contextId, startUrl, deadline })} to keep waiting.`;
 }
 
 export async function callCloseBrowserPane(

@@ -12,12 +12,13 @@ import { hermetic } from "./fixtures/hermetic";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { projectLayoutKey, projectPanesKey } from "../../shared/project-keys";
 import { openProjectFromSidebar, projectWindow } from "./helpers/project-window";
+import { videoAt } from "./video-evidence";
 
 hermetic(test);
 
 test.use({
   viewport: { width: 1800, height: 900 },
-  video: "on",
+  video: videoAt("on", { width: 1800, height: 900 }),
   contextOptions: { reducedMotion: "reduce" },
 });
 test.describe.configure({ mode: "serial" });
@@ -135,7 +136,7 @@ async function seedDensityGrid(
     ignoreHTTPSErrors: true,
   });
 
-  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
   const hostGroupId = `density-host-${STAMP}`;
   const mainGroupId = `density-main-${STAMP}`;
   await page.evaluate(({ layoutKey, panesKey, layout, tabState }) => {

@@ -4068,7 +4068,7 @@ const IT: Dict = {
   'app.tabsPosition': 'Tab',
   'app.tabsPosition.side': 'Di lato',
   'app.tabsPosition.top': 'In alto',
-  'app.tabsPosition.sideHint': 'Nella sidebar; chiusa la sidebar, tornano in alto',
+  'app.tabsPosition.sideHint': 'Nella sidebar, anche chiusa: in alto solo il titolo',
   'app.closeArchives': 'Chiudere una tab la archivia',
   'app.closeArchives.hint': 'Spento: chiusa, resta in lista senza sfondo',
   'app.pinnedClosable': 'Le fissate si possono chiudere',

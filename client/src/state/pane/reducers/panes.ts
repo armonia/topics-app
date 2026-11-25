@@ -405,7 +405,7 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // server WS, cross-tab storage, or the 500ms GET fallback — all
       // untrusted. `sanitizeSnapshot` returns null if the root shape is
       // unusable, or a safe subset with scrollOffset/focusedPaneId scrubbed.
-      const clean = sanitizeSnapshot(action.payload.snapshot);
+      const clean = sanitizeSnapshot(action.payload.snapshot, { keepDrafts: action.payload.ownDrafts === true });
       if (!clean) break;
       // LWW gate — compare SERVER seq against SERVER seq. Without a numeric
       // server_seq we can't decide if the snapshot is newer than local state,

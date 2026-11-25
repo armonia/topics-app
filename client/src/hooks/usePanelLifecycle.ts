@@ -31,6 +31,7 @@
  */
 
 import { findEmptyDraftPane, forgetDraft, isDraftDisposable, draftTextKey } from '../state/draftPane';
+import { clearPendingFirstSend, savePendingFirstSend } from '../state/pendingFirstSend';
 import { carryFirstBubble, draftSessionKey, stageFirstBubble, withdrawFirstBubble } from '../state/firstSend';
 import { notePromotion } from '../state/composerHandoff';
 import {
@@ -116,6 +117,7 @@ import { useReconnectCatchUp } from './useReconnectCatchUp';
 import { shouldFillFromBroadcast } from './liveTurn';
 import { tabAckReleasesIntent } from '../lib/tabLink';
 import { focusBrowserContextLive } from '../lib/focusBrowserContext';
+import { handleLoginRequestLive } from '../lib/loginRequest';
 import {
   armFocusIntent,
   liveFocusIntent,
@@ -1973,6 +1975,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
   }, [onWSMessage, openPanelsRef, setOpenPanels, setFocusedPanelId]);
 
+  // request_login: the agent hit a login wall. The tab comes forward and the
+  // window is raised (detached when asked) so the person notices it.
+  useEffect(() => {
+    return onWSMessage((msg) => {
+      if (msg.type !== 'browser:login-request' || !msg.contextId) return;
+      void handleLoginRequestLive({
+        contextId: msg.contextId,
+        url: msg.url,
+        detached: msg.detached,
+        topicId: msg.topicId,
+      });
+    });
+  }, [onWSMessage]);
+
   const handleProjectClick = useCallback((projectPath: string) => {
     // Aprire un progetto dalla sidebar è una navigazione VOLUTA quanto un click
     // su una tab: rilascia l'intento, o il primo dispatch che passa riporta la
@@ -2333,6 +2349,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // promotion's renders (see `state/firstSend.ts`).
     const draftKey = draftSessionKey(draftId);
     const bubbleId = stageFirstBubble(draftKey, firstMessage, options?.mediaSizes);
+    // On disk before the request: a restart while it is in flight brings the
+    // text back into the draft's field (`state/pendingFirstSend.ts`).
+    savePendingFirstSend(draftId, firstMessage);
+    // Gives the text back to the field of the draft that stays open.
+    const returnToField = () => {
+      clearPendingFirstSend(draftId);
+      window.dispatchEvent(new CustomEvent('topics:seed-composer', { detail: { topicId: draftId, text: firstMessage } }));
+    };
     const topic = await createTopic({
       name: 'New Chat',
       icon: DEFAULT_TOPIC_ICON,
@@ -2341,6 +2365,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
     if (!topic) {
       withdrawFirstBubble(draftKey, bubbleId);
+      returnToField();
       return;
     }
     // The lineage first: every render from here on that sees the topic's id
@@ -2370,6 +2395,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (usePaneStore.getState().panes[draftId]) {
         console.warn('promoteDraft: id collision, keeping draft', draftId, '→', topic.id);
         withdrawFirstBubble(draftKey, bubbleId);
+        returnToField();
         return;
       }
     }
@@ -2398,6 +2424,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
     try { localStorage.removeItem(draftTextKey(draftId)); } catch { /* draft text may already be gone */ }
     forgetDraft(draftId);
+    clearPendingFirstSend(draftId);
     await sendMessage(topic.sessionKey, firstMessage, { ...options, userMessageId: bubbleId });
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);
 

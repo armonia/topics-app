@@ -9,9 +9,10 @@ import { hermetic } from "./fixtures/hermetic";
 import { installReplayCli } from "./helpers/fake-claude-cli";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ timeout: 180_000 });
 
 /**

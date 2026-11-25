@@ -28,9 +28,10 @@ import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
 import { projectIdForPath } from "../../shared/board";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ timeout: 120_000 });
 
 // The card's loop, with 4 s between ticks instead of 20: the same shape (three

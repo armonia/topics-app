@@ -256,6 +256,10 @@ export interface DispatcherDeps {
    * resumes, unchanged.
    */
   hasLiveSession?: (sessionKey: string) => Promise<boolean>;
+  /** A question of this session still waits on its person (`sessionHasOpenQuestion`).
+   *  A card cut on one is not an interrupted turn to repair: the restart leaves it
+   *  waiting instead of nudging the agent to carry on without the answer. */
+  hasOpenQuestion?: (sessionKey: string) => boolean;
   /** Drive a REATTACH turn to completion (adopt the surviving broker child and
    *  finish it). Injected alongside hasLiveSession. */
   reattach?: (sessionKey: string, opts: { timeoutMs: number; idleMs?: number }) => Promise<TurnEndInfo | void>;

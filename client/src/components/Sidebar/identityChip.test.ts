@@ -10,7 +10,8 @@
  * @covers STATUSLINE-01
  */
 import { describe, expect, test } from 'bun:test';
-import { ORG_MARKS_IN_CHIP, chipClass } from './identityChip';
+import { ORG_MARKS_IN_CHIP, chipClass, meRowClass } from './identityChip';
+import { ROW_GAP, ROW_H, ROW_PX, sidebarRowCard } from '../../lib/selectionStyles';
 
 describe('the chip box', () => {
 
@@ -37,6 +38,23 @@ describe('the chip box', () => {
     // sidebar hover token unusable here.
     expect(chipClass(true)).toContain('hover:bg-black/[0.10]');
     expect(chipClass(true)).not.toContain('hover:bg-black/[0.05]');
+  });
+});
+
+describe('your own card is a row', () => {
+  // 25/11: the user button with the Sistema row's height and spacing, and no
+  // ground unless it is active. Sistema is `sidebarRowCard({ focused: open })`.
+  const resting = (cls: string) => cls.split(' ').filter((c) => /(^|:)bg-/.test(c) && !c.includes('hover:'));
+
+  test("the row's box: height, padding, gap, no border", () => {
+    for (const token of [ROW_H, ROW_PX, ROW_GAP]) expect(meRowClass(false)).toContain(token);
+    expect(meRowClass(false)).not.toMatch(/(?:^|\s)border(?:\s|$)/);
+  });
+
+  test('no ground at rest, the selected row\'s while its menu is open', () => {
+    expect(resting(meRowClass(false))).toEqual([]);
+    expect(resting(meRowClass(true))).toEqual(resting(sidebarRowCard({ focused: true })));
+    expect(meRowClass(true)).toContain('edge-lit');
   });
 });
 
