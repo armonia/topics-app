@@ -46,6 +46,7 @@ import { TaskWorkFoldContext } from './taskWorkFoldContext';
 import { ChatTopicContext } from './chatTopicContext';
 import { useTopicTask } from '../../state/taskSessions';
 import { ChangedFilesStrip } from './ChangedFilesStrip';
+import { PreviewButton } from './PreviewButton';
 import { UnsentStrip } from './UnsentStrip';
 import { selectLatestTodo } from './selectLatestTodo';
 import { useVoiceRecording } from './useVoiceRecording';
@@ -1079,6 +1080,7 @@ function ChatPaneComponent({
           coordinator, which by invariant has no project path and no worktree:
           its rows would have no tree to open a diff against. */}
       {!isGlobalOrchestrator && <ChangedFilesStrip key={topic.id} topic={topic} onWSMessage={onWSMessage} />}
+      {!isGlobalOrchestrator && <PreviewButton key={topic.id} topic={topic} />}
     </>
   );
   const stripsInTranscript = currentMessages.length > 0;
