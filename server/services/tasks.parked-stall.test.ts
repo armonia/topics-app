@@ -649,7 +649,7 @@ describe("una parentId mai lavorata in backlog e' un contenitore", () => {
 
 /**
  * THE CONTAINER STAYS A CONTAINER (cards 5904a1cf and ca2134e0, 25/11). Two
- * parents made in backlog to group cards were asked the stalled-subtasks question twice
+ * parents made in backlog to group cards were asked «fermo su N sottotask» twice
  * in five minutes, the second time 20 s after a person answered and put them
  * back in backlog. Two holes, one cause: the container judgement lived only in
  * the rake's query. A child moved to todo asks the parent through another door,
@@ -677,11 +677,11 @@ describe("un contenitore resta contenitore anche dopo la domanda del rastrello",
   test("la domanda posta dal rastrello non toglie la qualifica: rimesso in backlog, non viene richiesto", () => {
     const padre = s.create({ projectId: PID, text: "Raggruppa i doppioni" }).id;
     s.create({ projectId: PID, text: "Card A", parentTaskId: padre });
-    // The parent had a real turn and the rake asks it: review plus the system signature.
+    // The parent had a real turn, the rake asks it: review plus the system signature.
     hadATurn(db, padre);
     expect(s.sweepParkedChildren({ eligible: () => true }).map((t) => t.id)).toEqual([padre]);
     expect(riga(padre)).toMatchObject({ status: "review", delivered_by: "system", delivered_reason: "parked_children" });
-    // The state the two parents were in: no turn ever started, and a person puts them back in backlog.
+    // The state the two mothers were in: no turn ever started, and a person puts them back in backlog.
     db.run("UPDATE tasks SET dispatch_attempts = 0, in_progress_at = NULL WHERE id = ?", [padre]);
     s.update({ taskId: padre, actor: "human", by: "attilio", patch: { status: "backlog" } });
     expect(riga(padre).status).toBe("backlog");
