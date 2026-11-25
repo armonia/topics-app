@@ -348,6 +348,22 @@ export function createReconcile(ctx: DispatcherCtx) {
           let rejection: { text: string; commentIds: string[] } | null = null;
           try { rejection = deps.svc.pendingHumanReopen({ taskId: t.id }); }
           catch { rejection = null; }
+          // A card cut on a question its person has not answered is waiting, not
+          // interrupted: the nudge would tell the agent to carry on without the
+          // answer. The answer reaches the session through the chat route. A human
+          // rejection above still resumes: it is news the agent has not read.
+          let onQuestion = false;
+          try { onQuestion = !rejection && !!deps.hasOpenQuestion?.("topic:" + topicId.slice(0, 8)); }
+          catch { onQuestion = false; }
+          if (onQuestion) {
+            try {
+              deps.svc.claimInterruption({
+                taskId: t.id,
+                note: "Server ripartito mentre la card aspettava una tua risposta: non la riprendo da sola, riparte quando rispondi.",
+              });
+            } catch { /* dedupe/best-effort */ }
+            continue;
+          }
           try {
             deps.svc.claimInterruption({
               taskId: t.id,

@@ -2390,6 +2390,13 @@ input[type="range"]::-webkit-slider-thumb {
   opacity: 1;
   pointer-events: auto;
 }
+/* On the title row the tab is as wide as what it says: the browser's commands
+ * take their own width there instead of covering the address, so the label
+ * keeps no fade under them either (25/11). */
+.tab-as-title > .tab-extras {
+  position: static;
+  transform: none;
+}
 .tab-slot:has(> .tab-slot-command[data-pending='true']) > .tab-slot-signal { opacity: 0; }
 @media (hover: hover) {
   [role='tab']:hover > .tab-slot > .tab-slot-command,
@@ -2401,13 +2408,13 @@ input[type="range"]::-webkit-slider-thumb {
   }
   [role='tab']:hover > .tab-slot > .tab-slot-signal,
   [role='tab']:has(:focus-visible) > .tab-slot > .tab-slot-signal { opacity: 0; }
-  [role='tab'][data-tab-extras]:hover > [data-testid='pane-tab-label'] {
+  [role='tab'][data-tab-extras]:not(.tab-as-title):hover > [data-testid='pane-tab-label'] {
     -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
     mask-image: linear-gradient(to left, transparent 20px, #000 32px);
   }
   /* Two extras (take back control + the dots, 16 + 8 + 16): the fade moves
    * left by one command and its gap, or the label shows through the first. */
-  [role='tab'][data-tab-extras]:has(> .tab-extras > :nth-child(2)):hover > [data-testid='pane-tab-label'] {
+  [role='tab'][data-tab-extras]:not(.tab-as-title):has(> .tab-extras > :nth-child(2)):hover > [data-testid='pane-tab-label'] {
     -webkit-mask-image: linear-gradient(to left, transparent 44px, #000 56px);
     mask-image: linear-gradient(to left, transparent 44px, #000 56px);
   }
@@ -2419,11 +2426,11 @@ input[type="range"]::-webkit-slider-thumb {
     pointer-events: auto;
   }
   [role='tab'][data-active='true'] > .tab-slot > .tab-slot-signal { opacity: 0; }
-  [role='tab'][data-active='true'][data-tab-extras] > [data-testid='pane-tab-label'] {
+  [role='tab'][data-active='true'][data-tab-extras]:not(.tab-as-title) > [data-testid='pane-tab-label'] {
     -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
     mask-image: linear-gradient(to left, transparent 20px, #000 32px);
   }
-  [role='tab'][data-active='true'][data-tab-extras]:has(> .tab-extras > :nth-child(2)) > [data-testid='pane-tab-label'] {
+  [role='tab'][data-active='true'][data-tab-extras]:not(.tab-as-title):has(> .tab-extras > :nth-child(2)) > [data-testid='pane-tab-label'] {
     -webkit-mask-image: linear-gradient(to left, transparent 44px, #000 56px);
     mask-image: linear-gradient(to left, transparent 44px, #000 56px);
   }
@@ -2490,6 +2497,9 @@ input[type="range"]::-webkit-slider-thumb {
  * nera su un fondo quasi nero non si vede e sporca soltanto») descriveva la
  * scatola vuota, non la scatola dipinta. */
 .edge-lit { position: relative; }
+/* A tab drawn as a window's title is a title at rest: its edge shows only with
+   the fill, under the pointer or with the keyboard focus (TAB_AS_TITLE_SURFACE). */
+.tab-as-title:not(:hover):not(:focus-visible)::before { opacity: 0; }
 .edge-lit::before {
   content: '';
   position: absolute;
@@ -2545,57 +2555,6 @@ html.native-frost.dark .edge-lit::before {
     inset 0 1px 0 0 rgb(255 255 255 / 0.06),
     inset 0 -1px 0 0 rgb(0 0 0 / 0.18),
     inset 0 0 0 1px rgb(255 255 255 / 0.035);
-}
-
-/* LO STESSO RIFLESSO, MA SOLO DOVE C'È UNA CARD DA CHIUDERE.
- *
- * `edge-lit` disegna la FORMA di una superficie, quindi va messo solo su una
- * card che un fondo ce l'ha: su una riga trasparente diventerebbe un rettangolo
- * attorno a ogni voce dell'albero, cioè esattamente le linee divisorie che
- * questo file esiste per togliere. È la regola scritta in `sidebarRowCard`, ed
- * è giusta — sul DESKTOP.
- *
- * Sotto i 768px però la riga a riposo un fondo ce l'ha (RESTING_FILL_MOBILE:
- * là pagina e chrome collassano in una superficie sola e senza campitura le
- * card sparirebbero). Da quel momento tessera e tab hanno il riflesso e la riga
- * no, pur essendo tre presentazioni della stessa cosa: il bordo della riga
- * resta aperto in basso mentre quello della tessera accanto è chiuso.
- *
- * Una classe a parte e non una variante `max-md:` perché `edge-lit` è una
- * classe vera con uno pseudo-elemento, e i prefissi di Tailwind non la
- * raggiungono. La media query è la stessa di `max-md:` (48rem), scritta come
- * `not all and (min-width: …)` per pareggiare ciò che Tailwind emette. */
-@media not all and (min-width: 48rem) {
-  .edge-lit-mobile { position: relative; }
-  .edge-lit-mobile::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.4),
-      inset 0 -1px 0 0 rgb(0 0 0 / 0.05),
-      inset 0 0 0 1px rgb(0 0 0 / 0.04);
-  }
-  .dark .edge-lit-mobile::before {
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.07),
-      inset 0 -1px 0 0 rgb(0 0 0 / 0.2),
-      inset 0 0 0 1px rgb(255 255 255 / 0.045);
-  }
-  html.native-frost .edge-lit-mobile::before {
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.32),
-      inset 0 -1px 0 0 rgb(0 0 0 / 0.045),
-      inset 0 0 0 1px rgb(0 0 0 / 0.03);
-  }
-  html.native-frost.dark .edge-lit-mobile::before {
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.06),
-      inset 0 -1px 0 0 rgb(0 0 0 / 0.18),
-      inset 0 0 0 1px rgb(255 255 255 / 0.035);
-  }
 }
 
 /* Il margine del composer, come variabile: serve a `max(…)` nel confronto con

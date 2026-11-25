@@ -30,7 +30,7 @@ import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { CLOUD_HOLD_KEY, parseCloudWeeklyLimit, type CloudWeeklyLimit } from "../lib/cloud-weekly-limit";
 import { setProviderHold } from "../lib/provider-hold";
-import { carriedBranch, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
+import { BRANCH_NOWHERE_REASON, carriedBranch, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
@@ -532,12 +532,23 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // can only start from what origin has, so the branch is pushed first; a
     // branch that cannot reach origin keeps the card from starting at all.
     let baseBranch: string | null = null;
+    // A recorded branch that exists nowhere is skipped for the next one the card carries.
+    const phantoms = new Set<string>();
     const carried = carriedBranch(task);
     if (carried && !policy && node.ensureBranchOnOrigin) {
-      const branch = carried;
-      const ready = await Promise.resolve(node.ensureBranchOnOrigin({ projectId: task.projectId, branch }))
+      let branch = carried;
+      let ready = await Promise.resolve(node.ensureBranchOnOrigin({ projectId: task.projectId, branch }))
         .catch((err): { ok: false; reason: string } => ({ ok: false, reason: err instanceof Error ? err.message : String(err) }));
-      if (!ready.ok) {
+      while (!ready.ok && ready.reason === BRANCH_NOWHERE_REASON) {
+        phantoms.add(branch);
+        const next = carriedBranch(task, phantoms);
+        if (!next) break;
+        branch = next;
+        ready = await Promise.resolve(node.ensureBranchOnOrigin({ projectId: task.projectId, branch }))
+          .catch((err): { ok: false; reason: string } => ({ ok: false, reason: err instanceof Error ? err.message : String(err) }));
+      }
+      // Nothing left that exists: the card starts from main, as a card with no branch does.
+      if (!ready.ok && ready.reason !== BRANCH_NOWHERE_REASON) {
         parkNodeCard(
           task,
           `Questa card ha già il ramo «${branch}», ma su origin non c'è e non si è potuto pusharlo (${ready.reason}). ` +
@@ -545,7 +556,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         );
         return;
       }
-      baseBranch = branch;
+      if (ready.ok) baseBranch = branch;
     }
     if (policy) {
       let begun: boolean | number = false;

@@ -239,17 +239,21 @@ installHideOnPageExit(() => browserViewRefs.keys(), tauriInvoke); // any other r
  * rounding still happens ONLY at window corners: the number is a declaration,
  * not a mask.
  */
-function resolveCornerRadius(viewId: string): number {
+function resolveCornerShape(viewId: string): { radius: number; card: boolean } {
   // Escaped by hand: `CSS.escape` does not exist in every runtime this hook is
   // exercised in, and a view id is a uuid anyway.
   const selector = `[data-native-browser-slot="${viewId.replace(/["\\]/g, '\\$&')}"]`;
   const slot = viewId ? document.querySelector(selector) : null;
+  // An ISLAND (`BrowserIsland`, 25/11): the page is a card of its own and the
+  // shell rounds all four of its corners to the declared radius.
+  const island = Number(slot?.closest('[data-native-card-radius]')?.getAttribute('data-native-card-radius'));
+  if (Number.isFinite(island) && island > 0) return { radius: Math.round(island), card: true };
   const declared = slot?.closest('[data-native-radius]')?.getAttribute('data-native-radius');
   if (declared !== null && declared !== undefined) {
     const n = Number(declared);
-    if (Number.isFinite(n)) return Math.max(0, Math.round(n));
+    if (Number.isFinite(n)) return { radius: Math.max(0, Math.round(n)), card: false };
   }
-  return document.querySelector('.floating-splits') ? 10 : 0;
+  return { radius: document.querySelector('.floating-splits') ? 10 : 0, card: false };
 }
 
 /**
@@ -548,7 +552,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     if (!hide && rect.width >= 64 && rect.height >= 64) {
       lastRealSizeRef.current = { width: Math.round(rect.width), height: Math.round(rect.height) };
     }
-    const radius = resolveCornerRadius(id);
+    const { radius, card } = resolveCornerShape(id);
     // Moving the live view can slide it under the cursor and make WebKit emit a
     // trusted pointerdown that isn't a real click-in — suppress self-focus across
     // the move (only when actually showing; a hide/park can't be misread).
@@ -560,6 +564,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       width: Math.round(rect.width),
       height: Math.round(rect.height),
       radius,
+      card,
     });
   }, [id, suppressSelfFocus, paneInvoke, applyPageZoom]);
 
@@ -618,7 +623,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       if (rect.width >= 64 && rect.height >= 64) {
         lastRealSizeRef.current = { width: Math.round(rect.width), height: Math.round(rect.height) };
       }
-      const radius = resolveCornerRadius(id);
+      const { radius, card } = resolveCornerShape(id);
       // The animated move can slide the view under a resting cursor — same
       // trusted-pointerdown hazard as a plain reposition.
       suppressSelfFocus();
@@ -632,6 +637,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         durationMs,
         timing,
         radius,
+        card,
       });
     },
     [id, suppressSelfFocus, paneInvoke, applyPageZoom],

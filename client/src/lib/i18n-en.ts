@@ -3717,7 +3717,7 @@ const EN = {
   'app.tabsPosition': 'Tabs',
   'app.tabsPosition.side': 'Side',
   'app.tabsPosition.top': 'Top',
-  'app.tabsPosition.sideHint': 'In the sidebar; with the sidebar closed, they move to the top',
+  'app.tabsPosition.sideHint': 'In the sidebar, closed too: only the title on top',
   'app.closeArchives': 'Closing a tab archives it',
   'app.closeArchives.hint': 'Off: a closed tab stays listed, without a background',
   'app.pinnedClosable': 'Pinned tabs can be closed',

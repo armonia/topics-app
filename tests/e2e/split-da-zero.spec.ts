@@ -12,9 +12,10 @@
  * @covers SPLIT-01 @covers SPLIT-02 @covers SPLIT-03 @covers SPLIT-04 @covers SPLIT-05 @covers SPLIT-06 @covers SPLIT-07
  */
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, resetPaneStore, seedProjectInnerChats, seedProjectPane } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, seedPaneStore, seedProjectInnerChats, seedProjectInnerPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { projectRow } from "./helpers/project-row";
 import { hermetic } from "./fixtures/hermetic";
@@ -23,12 +24,12 @@ import { E2E_BASE } from "./helpers/test-server";
 hermetic(test);
 // The tabs at the side, the default a person gets: the suite runs with both
 // strips on (`both`), where a cell keeps its tab bar and has no title.
-test.use({
-  viewport: { width: 1440, height: 900 },
-  storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "app-settings", value: JSON.stringify({ tabsPosition: "side" }) }] }] },
-});
+const SIDE_TABS = { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "app-settings", value: JSON.stringify({ tabsPosition: "side" }) }] }] };
+test.use({ viewport: { width: 1440, height: 900 }, storageState: SIDE_TABS });
 
 const cells = (page: Page) => page.locator("[data-split-card]");
+/** A cell's title with the tabs at the side: the real tab of the surface in front, alone. */
+const TITLE = '[data-testid="cell-title-tab"] [role="tab"]';
 const row = (page: Page, name: string) => page.locator(`[role="treeitem"][aria-label="${name}"]`).first();
 
 /** The row menu's Layout level, then one side. */
@@ -41,7 +42,7 @@ async function openBeside(page: Page, name: string, side: RegExp): Promise<void>
 /** The title of every cell, left to right then top to bottom. */
 async function cellTitles(page: Page): Promise<string[]> {
   return page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-split-card]")]
-    .map((el) => ({ r: el.getBoundingClientRect(), t: el.querySelector('[data-testid="mobile-pane-title"]')?.textContent?.trim() ?? "" }))
+    .map((el) => ({ r: el.getBoundingClientRect(), t: el.querySelector('[data-testid="cell-title-tab"] [role="tab"]')?.textContent?.trim() ?? "" }))
     .filter((c) => c.r.width > 0)
     .sort((a, b) => a.r.top - b.r.top || a.r.left - b.r.left)
     .map((c) => c.t));
@@ -60,7 +61,7 @@ async function frames(page: Page, n: number): Promise<void> {
  *  in the field. Wait for the LAST opened chat's field (the one before it took
  *  the focus first) before handing the focus to a divider. */
 async function fieldHasFocus(page: Page, lastOpened: string): Promise<void> {
-  const cell = cells(page).filter({ has: page.getByTestId("cell-title-handle").filter({ hasText: lastOpened }) });
+  const cell = cells(page).filter({ has: page.locator(TITLE).filter({ hasText: lastOpened }) });
   await expect(cell.locator("textarea:focus")).toHaveCount(1, { timeout: 5_000 });
 }
 
@@ -105,14 +106,14 @@ test.describe("split, from zero", () => {
 
   test("SPLIT-03: a split cell says what it holds and which one has the focus", async ({ page, request }) => {
     await threeCells(page, request, made);
-    const handles = page.getByTestId("cell-title-handle");
+    const handles = page.locator(TITLE);
     await expect(handles).toHaveCount(3);
     await expect(handles.first()).toHaveAttribute("draggable", "true");
 
     // Clicking a cell lights its title, and only its.
     await handles.nth(1).click();
     await expect(page.locator('[data-cell-lit="true"]')).toHaveCount(1);
-    const litTitle = await page.locator('[data-cell-lit="true"] [data-testid="cell-title-handle"]').textContent();
+    const litTitle = await page.locator(`[data-cell-lit="true"] ${TITLE}`).textContent();
     expect(litTitle).toBe(await handles.nth(1).textContent());
 
     // Zoom and back from the title, without a sheet.
@@ -166,7 +167,7 @@ test.describe("split, from zero", () => {
     await frames(page, 4);
     const overlaps = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-split-card]")].flatMap((card) => {
       const greeting = card.querySelector<HTMLElement>('[data-testid="chat-empty-state"]:not([aria-hidden])');
-      const title = card.querySelector<HTMLElement>('[data-testid="mobile-pane-title"]');
+      const title = card.querySelector<HTMLElement>('[data-testid="cell-title-tab"] [role="tab"]');
       if (!greeting || !title) return [];
       const under = greeting.getBoundingClientRect().top - title.getBoundingClientRect().bottom;
       return under < 0 ? [`${title.textContent?.trim()}: ${Math.round(under)}px`] : [];
@@ -205,12 +206,12 @@ test.describe("split, from zero", () => {
 
   test("SPLIT-06: ⌘⌥ + arrow walks the focus to the cell beside", async ({ page, request }) => {
     await threeCells(page, request, made);
-    const handles = page.getByTestId("cell-title-handle");
+    const handles = page.locator(TITLE);
     await handles.first().click();
     const first = await handles.first().textContent();
-    await expect(page.locator('[data-cell-lit="true"] [data-testid="cell-title-handle"]')).toHaveText(first ?? "");
+    await expect(page.locator(`[data-cell-lit="true"] ${TITLE}`)).toHaveText(first ?? "");
     await page.keyboard.press("ControlOrMeta+Alt+ArrowRight");
-    await expect(page.locator('[data-cell-lit="true"] [data-testid="cell-title-handle"]')).not.toHaveText(first ?? "", { timeout: 5_000 });
+    await expect(page.locator(`[data-cell-lit="true"] ${TITLE}`)).not.toHaveText(first ?? "", { timeout: 5_000 });
   });
 
   test("SPLIT-01 + SPLIT-02: a row dragged to an edge splits, and the footprint names it", async ({ page, request }) => {
@@ -290,6 +291,11 @@ test.describe("split, from zero", () => {
     const projectPath = canonicalTmpDir("e2e-title-tab");
     mkdirSync(projectPath, { recursive: true });
     const projectName = projectPath.split("/").pop()!;
+    // Three changes, so the git command on the title carries a badge.
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: projectPath, stdio: "ignore" });
+    git("init", "-q");
+    git("-c", "user.email=e2e@e.test", "-c", "user.name=e2e", "commit", "-q", "--allow-empty", "-m", "start");
+    for (const f of ["a.txt", "b.txt", "c.txt"]) writeFileSync(`${projectPath}/${f}`, f);
     const inner = await createTopic(request, `title-tab-in-${Date.now()}`, { projectPath, provider: "claude-code" });
     const fill = (el: HTMLElement): number => {
       const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g) ?? [];
@@ -305,22 +311,56 @@ test.describe("split, from zero", () => {
       await project.click();
       const win = page.getByTestId("project-window");
       await expect(win).toBeVisible({ timeout: 10_000 });
-      const title = page.getByTestId("cell-title-handle").filter({ hasText: projectName });
+      const title = page.locator(TITLE).filter({ hasText: projectName });
       await expect(title).toBeVisible();
-      // As on the window of 25/11: a chat open inside, the project column closed.
+      // As on the window of 25/11: a chat open inside.
       await row(page, inner.name).click();
       await expect(win.locator("textarea:visible")).toHaveCount(1, { timeout: 10_000 });
-      await win.getByTestId("project-card").click();
+      const tools = page.getByTestId("title-project-tools");
+      // The column open: its commands stay on the title (25/11), the toggle says
+      // it is open, and the column has no header repeating them.
+      await expect(page.getByTestId("project-sidebar")).toBeVisible();
+      await expect(tools.getByTestId("project-rail-button")).toHaveCount(3);
+      await expect(tools.getByTestId("project-card")).toHaveAttribute("aria-expanded", "true");
+      // Its sections are islands: each a rounded card, the column with no
+      // ground or edge of its own.
+      const column = await page.getByTestId("project-sidebar").evaluate((el) => {
+        const s = getComputedStyle(el);
+        const git = el.querySelector<HTMLElement>('[data-testid="project-sidebar-git-section"]');
+        return { ground: s.backgroundColor, edge: s.borderRightWidth, radius: git ? getComputedStyle(git).borderTopLeftRadius : "" };
+      });
+      expect(column).toEqual({ ground: "rgba(0, 0, 0, 0)", edge: "0px", radius: "12px" });
+      // A command on the open column opens or closes its section.
+      const gitSection = page.getByTestId("project-sidebar-git-section");
+      const gitOpen = await gitSection.evaluate((el) => el.clientHeight);
+      await tools.getByTestId("project-rail-button").nth(1).click();
+      await expect.poll(() => gitSection.evaluate((el) => el.clientHeight)).not.toBe(gitOpen);
+      await tools.getByTestId("project-rail-button").nth(1).click();
+      await expect.poll(() => gitSection.evaluate((el) => el.clientHeight)).toBe(gitOpen);
+      await tools.getByTestId("project-card").click();
       await expect(page.getByTestId("project-sidebar")).toHaveCount(0);
 
-      // No bar of its own: no tab inside the window, its commands on the title row.
-      await expect(win.locator('[role="tab"][data-pane-id]')).toHaveCount(0);
-      const tools = page.getByTestId("title-project-tools");
+      // No bar of its own: no tab of its chats, its commands on the title row.
+      await expect(page.locator(`[role="tab"][data-pane-id="${inner.id}"]`)).toHaveCount(0);
       await expect(tools.getByTestId("project-card")).toBeVisible();
+      await expect(tools.getByTestId("project-card")).toHaveAttribute("aria-expanded", "false");
       await expect(tools.getByTestId("project-rail-button").first()).toBeVisible();
+      // The git badge hangs inside the bar, not cut by it (25/11).
+      const badge = tools.getByTestId("project-rail-button").nth(1).locator("span.absolute");
+      await expect(badge).toHaveText("3", { timeout: 15_000 });
+      const cut = await badge.evaluate((b) => {
+        const r = b.getBoundingClientRect();
+        for (let p = b.parentElement; p; p = p.parentElement) {
+          if (!getComputedStyle(p).overflow.includes("hidden")) continue;
+          const q = p.getBoundingClientRect();
+          if (r.bottom > q.bottom + 0.5 || r.top < q.top - 0.5 || r.right > q.right + 0.5) return p.className;
+        }
+        return null;
+      });
+      expect(cut, "badge cut by an ancestor").toBeNull();
       // The body starts under the title, with no empty band where the bar was.
       const gap = await page.evaluate((name) => {
-        const handle = [...document.querySelectorAll<HTMLElement>('[data-testid="cell-title-handle"]')].find((el) => el.textContent?.includes(name));
+        const handle = [...document.querySelectorAll<HTMLElement>('[data-testid="cell-title-tab"] [role="tab"]')].find((el) => el.textContent?.includes(name));
         const bar = handle?.closest<HTMLElement>(".pane-chrome-bar");
         const body = document.querySelector<HTMLElement>('[data-testid="project-window"] [data-pane-content]');
         if (!bar || !body) return Number.NaN;
@@ -342,7 +382,7 @@ test.describe("split, from zero", () => {
       await openBeside(page, a.name, /^(Apri a destra|Open on the right)$/);
       await expect(page.locator("[data-cell-lit]")).toHaveCount(2, { timeout: 10_000 });
       await expect.poll(async () => (await cellTitles(page)).filter(Boolean)[0]).toContain(projectName);
-      const other = cells(page).filter({ has: page.getByTestId("cell-title-handle").filter({ hasText: a.name }) });
+      const other = cells(page).filter({ has: page.locator(TITLE).filter({ hasText: a.name }) });
       const src = await title.boundingBox();
       const target = await other.boundingBox();
       if (!src || !target) throw new Error("no geometry to drag on");
@@ -355,6 +395,258 @@ test.describe("split, from zero", () => {
       await expect.poll(async () => (await cellTitles(page)).filter(Boolean).at(-1)).toContain(projectName);
       await expect(page.locator("[data-cell-lit]")).toHaveCount(2);
       await page.screenshot({ path: test.info().outputPath("project-title-dragged-1440.png") });
+    } finally {
+      await deleteTopic(request, inner.id).catch(() => {});
+      removeTmpDir(projectPath);
+    }
+  });
+
+  test("SPLIT-03e: the title is the real tab, with everything a tab shows", async ({ page, request }) => {
+    // 25/11: the title written by hand lost the browser's icon and commands and
+    // the countdown of a close; the real tab carries them.
+    // A topic of its own: this test lets a close run out.
+    const a = await createTopic(request, `split-Title-${Date.now()}`);
+    made.push(a);
+    const browserId = `browser:title-tab-${Date.now()}`;
+    const openedAt = Date.now();
+    await page.routeWebSocket(/\/ws\/browser\//, () => {});
+    await seedPaneStore(request, () => ({
+      panes: {
+        [a.id]: { id: a.id, type: "chat", topicId: a.id, title: a.name, openedAt },
+        [browserId]: { id: browserId, type: "browser", url: "http://title-tab.test/page", openedAt },
+      },
+      groups: { "group:default": { id: "group:default", paneIds: [browserId, a.id], splitRatio: 1, splitAxis: "horizontal", activePaneId: browserId } },
+      projects: {},
+    }));
+    await goToApp(page);
+    const title = page.locator(TITLE);
+    await expect(title).toHaveAttribute("data-pane-id", browserId, { timeout: 20_000 });
+    await expect(page.getByTestId("panel-tab-bar")).toHaveCount(0);
+    // The browser's tab: its site icon, its menu and its commands under the pointer.
+    await title.hover();
+    await expect(title.getByTestId("browser-tab-menu")).toBeVisible();
+    await expect(title.locator(".tab-extras")).toHaveCount(1);
+    // Its commands take their own room on the title: the address stays whole,
+    // with no fade under them.
+    const label = title.getByTestId("pane-tab-label");
+    await expect.poll(() => label.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    await expect(label).toHaveCSS("mask-image", "none");
+    await page.screenshot({ path: test.info().outputPath("browser-title-hover-1440.png") });
+
+    const pending = title.locator('.tab-slot-command[data-pending="true"]');
+    // The browser's close counts down on the title too, and the browser stays
+    // in front while it runs.
+    await title.getByTestId("pane-tab-close").click();
+    await expect(pending).toHaveCount(1);
+    await expect(title).toHaveAttribute("data-pane-id", browserId);
+    await title.getByTestId("pane-tab-close").click();
+    await expect(pending).toHaveCount(0);
+
+    // A chat in front: its close counts down ON THE TITLE. The front does not
+    // jump to the next tab first (25/11: the title showed the browser and the
+    // progress was nowhere), and a second click cancels it.
+    await row(page, a.name).click();
+    await expect(title).toHaveAttribute("data-pane-id", a.id);
+    await title.hover();
+    await title.getByTestId("pane-tab-close").click();
+    await expect(pending).toHaveCount(1);
+    await expect(title).toHaveAttribute("data-pane-id", a.id);
+    await page.screenshot({ path: test.info().outputPath("chat-title-closing-1440.png") });
+    await title.getByTestId("pane-tab-close").click();
+    await expect(pending).toHaveCount(0);
+    await expect(title).toHaveAttribute("data-pane-id", a.id);
+    // Let it run out: the commit moves the front to the tab left.
+    await title.hover();
+    await title.getByTestId("pane-tab-close").click();
+    await expect(title).toHaveAttribute("data-pane-id", a.id);
+    await expect(title).toHaveAttribute("data-pane-id", browserId, { timeout: 10_000 });
+  });
+
+  test("SPLIT-03f: inside a project the browser in front is the title, and its page is an island", async ({ page, request, browser }) => {
+    // 25/11, on a project's browser: the title on top was the project's tab and
+    // the browser's tab was nowhere, and the page was a square slab against the
+    // window's rounded corner.
+    const projectPath = canonicalTmpDir("e2e-title-browser");
+    mkdirSync(projectPath, { recursive: true });
+    const projectName = projectPath.split("/").pop()!;
+    const inner = await createTopic(request, `title-browser-chat-${Date.now()}`, { projectPath, provider: "claude-code" });
+    const ctx = `title-in-project-${Date.now()}`;
+    const browserId = `browser:${ctx}`;
+    await page.routeWebSocket(/\/ws\/browser\//, () => {});
+    try {
+      await resetPaneStore(request, []);
+      await seedProjectPane(request, projectPath);
+      await seedProjectInnerPanes(request, projectPath, [
+        { id: browserId, type: "browser", title: "gtm", titleSource: "user", url: "http://title-in-project.test/container" },
+      ], [inner.id]);
+      await goToApp(page);
+      const project = projectRow(page, projectName);
+      await expect(project).toBeVisible({ timeout: 20_000 });
+      await project.click();
+      await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10_000 });
+      const title = page.locator(TITLE);
+      const tools = page.getByTestId("title-project-tools");
+
+      // A chat in front: the title stays the project's (approved 25/11).
+      await row(page, inner.name).click();
+      await expect(page.getByTestId("project-window").locator("textarea:visible")).toHaveCount(1, { timeout: 10_000 });
+      await expect(title).toHaveCount(1);
+      await expect(title).toHaveAttribute("data-pane-id", /^project:/);
+
+      // The browser in front: the title is ITS tab, the project's commands stay
+      // at the right of the same row.
+      // The browser's row in the column, by the name it shows.
+      await page.getByRole("tree").getByText("gtm", { exact: true }).click();
+      await expect(page.locator(`[data-browser-pane="${ctx}"]`)).toBeVisible({ timeout: 10_000 });
+      // The window at the widths a person uses, before anything is asserted and
+      // each from a page of its own (a phone width folds the columns, and that
+      // would follow the next width): the same photos come out of the bundle
+      // before the change and after it.
+      for (const width of [375, 768, 1440, 3440]) {
+        // The project and its browser in front are the saved state: the page
+        // comes back to them by itself.
+        const shot = await browser.newPage({ baseURL: E2E_BASE, viewport: { width, height: 900 }, storageState: SIDE_TABS });
+        await shot.routeWebSocket(/\/ws\/browser\//, () => {});
+        await goToApp(shot);
+        await expect(shot.locator(`[data-browser-pane="${ctx}"]`)).toBeVisible({ timeout: 10_000 });
+        await frames(shot, 6);
+        await shot.screenshot({ path: test.info().outputPath(`project-browser-${width}.png`) });
+        await shot.close();
+      }
+      await expect(title).toHaveAttribute("data-pane-id", browserId, { timeout: 10_000 });
+      await expect(title).toHaveCount(1);
+      await expect(title.getByTestId("pane-tab-label")).toHaveText(/gtm/);
+      await expect(tools.getByTestId("project-card")).toBeVisible();
+      const [t, k] = await Promise.all([title.boundingBox(), tools.boundingBox()]);
+      if (!t || !k) throw new Error("no geometry for the title row");
+      expect(Math.abs((t.y + t.height / 2) - (k.y + k.height / 2)), "title and project commands on one row").toBeLessThan(2);
+      expect(k.x, "the project commands at the right of the title").toBeGreaterThan(t.x + t.width);
+      // Its menu and commands under the pointer, as on a cell's title.
+      await title.hover();
+      await expect(title.getByTestId("browser-tab-menu")).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath("project-browser-title-1440.png") });
+      // Its close counts down on the title, and the browser stays in front.
+      const pending = title.locator('.tab-slot-command[data-pending="true"]');
+      await title.getByTestId("pane-tab-close").click();
+      await expect(pending).toHaveCount(1);
+      await expect(title).toHaveAttribute("data-pane-id", browserId);
+      await title.getByTestId("pane-tab-close").click();
+      await expect(pending).toHaveCount(0);
+      await expect(title).toHaveAttribute("data-pane-id", browserId);
+
+      // The page is an island: off the window's edges by the islands' gap, its
+      // four corners rounded to the window's radius less that gap (16 − 6).
+      await page.mouse.move(700, 600);
+      const shape = await page.getByTestId("browser-island").evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const s = getComputedStyle(el);
+        const islands = [...document.querySelectorAll<HTMLElement>('[data-testid="project-sidebar"] [data-section-island]')]
+          .map((i) => i.getBoundingClientRect()).filter((b) => b.height > 0);
+        return {
+          radii: [s.borderTopLeftRadius, s.borderTopRightRadius, s.borderBottomRightRadius, s.borderBottomLeftRadius],
+          clips: s.overflow,
+          declared: el.getAttribute("data-native-card-radius"),
+          right: Math.round(window.innerWidth - r.right),
+          bottom: Math.round(window.innerHeight - r.bottom),
+          gapToIslands: Math.round(r.left - Math.max(...islands.map((b) => b.right))),
+          topVsIslands: Math.round(r.top - Math.min(...islands.map((b) => b.top))),
+          bottomVsIslands: Math.round(r.bottom - Math.max(...islands.map((b) => b.bottom))),
+        };
+      });
+      expect(shape).toEqual({
+        radii: ["10px", "10px", "10px", "10px"], clips: "hidden", declared: "10",
+        right: 6, bottom: 6, gapToIslands: 6, topVsIslands: 0, bottomVsIslands: 0,
+      });
+    } finally {
+      await deleteTopic(request, inner.id).catch(() => {});
+      removeTmpDir(projectPath);
+    }
+  });
+
+  test("SPLIT-03g: rows, island headers and the foot share one height and spacing, and no ground at rest", async ({ page, request, browser }) => {
+    // 25/11: everything consistent, the island headers' heights and spacings
+    // like the tabs' and like the user and Sistema buttons', and none of them
+    // with a background unless it is active in some way, as the tabs.
+    const projectPath = canonicalTmpDir("e2e-row-grammar");
+    mkdirSync(projectPath, { recursive: true });
+    const projectName = projectPath.split("/").pop()!;
+    const inner = await createTopic(request, `row-grammar-chat-${Date.now()}`, { projectPath, provider: "claude-code" });
+    const NONE = "rgba(0, 0, 0, 0)";
+    try {
+      await resetPaneStore(request, []);
+      await seedProjectPane(request, projectPath);
+      await seedProjectInnerChats(request, projectPath, [inner.id]);
+      await goToApp(page);
+      const project = projectRow(page, projectName);
+      await expect(project).toBeVisible({ timeout: 20_000 });
+      await project.click();
+      await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10_000 });
+      const processes = page.getByTestId("project-sidebar-processes");
+      await expect(processes).toBeVisible({ timeout: 10_000 });
+      if ((await processes.getAttribute("aria-expanded")) === "true") await processes.click();
+      await expect(processes).toHaveAttribute("aria-expanded", "false");
+
+      // The photos first, from pages of their own, so the bundle before the
+      // change gives the same ones. The phone's Board row is read there too.
+      let phoneBoard: { h: number; ground: string } | null = null;
+      for (const width of [375, 1440]) {
+        const shot = await browser.newPage({ baseURL: E2E_BASE, viewport: { width, height: 900 }, storageState: SIDE_TABS });
+        await goToApp(shot);
+        const board = shot.getByTestId("sidebar-board-generale");
+        await expect(board).toBeVisible({ timeout: 15_000 });
+        if (width > 768) await expect(shot.getByTestId("project-sidebar-processes")).toBeVisible({ timeout: 10_000 });
+        await shot.mouse.move(width - 2, 899);
+        await frames(shot, 12);
+        await shot.screenshot({ path: test.info().outputPath(`rows-${width}.png`) });
+        if (width === 375) {
+          phoneBoard = await board.evaluate((el) => ({ h: Math.round(el.getBoundingClientRect().height), ground: getComputedStyle(el).backgroundColor }));
+        }
+        await shot.close();
+      }
+      expect(phoneBoard, "on the phone the Board row is a row: 44 high, no ground at rest").toEqual({ h: 44, ground: NONE });
+
+      type Box = { h: number; pl: string; pr: string; ground: string } | null;
+      const measure = () => page.evaluate((chat) => {
+        const box = (el: Element | null | undefined) => {
+          if (!el) return null;
+          const s = getComputedStyle(el);
+          return { h: Math.round(el.getBoundingClientRect().height), pl: s.paddingLeft, pr: s.paddingRight, ground: s.backgroundColor };
+        };
+        const q = (sel: string) => document.querySelector(sel);
+        const proc = q('[data-testid="project-sidebar-processes"]');
+        return {
+          tab: box(q(`[role="treeitem"][aria-label="${chat}"]`)),
+          board: box(q('[data-testid="sidebar-board-generale"]')),
+          system: box(q('[data-testid="sidebar-system"]')),
+          me: box(q('[data-testid="identity-me-profile"]')),
+          header: box(proc),
+          island: box(proc?.closest("[data-section-island]")),
+        };
+      }, inner.name) as Promise<Record<string, Box>>;
+      const row = (ground: string) => ({ h: 34, pl: "8px", pr: "8px", ground });
+      // Pointer parked on the page, colours settled (`transition-colors`).
+      await page.mouse.move(900, 500);
+      await expect.poll(measure, { timeout: 5_000 }).toEqual({
+        // The reference: an open tab has its ground, it is active.
+        tab: { ...row(NONE), ground: expect.not.stringMatching(/^rgba\(0, 0, 0, 0\)$/) },
+        board: row(NONE), system: row(NONE), me: row(NONE), header: row(NONE),
+        // A closed island is only its header: no ground of its own either.
+        island: { h: 34, pl: "0px", pr: "0px", ground: NONE },
+      });
+
+      // Active in some way: an open island is the card, the header stays a
+      // row on its ground; the user's row while its menu is open.
+      await processes.click();
+      await page.mouse.move(900, 500);
+      await expect.poll(async () => {
+        const m = await measure();
+        return { island: m.island?.ground !== NONE, header: m.header?.ground };
+      }, { timeout: 5_000 }).toEqual({ island: true, header: NONE });
+      await processes.click();
+      await page.getByTestId("identity-me-profile").click();
+      await page.mouse.move(900, 500);
+      await expect.poll(async () => (await measure()).me?.ground, { timeout: 5_000 }).not.toBe(NONE);
+      await page.keyboard.press("Escape");
     } finally {
       await deleteTopic(request, inner.id).catch(() => {});
       removeTmpDir(projectPath);
