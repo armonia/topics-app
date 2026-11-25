@@ -31,7 +31,8 @@
  */
 
 import { findEmptyDraftPane, forgetDraft, isDraftDisposable, draftTextKey } from '../state/draftPane';
-import { carryFirstBubble, draftSessionKey, stageFirstBubble, withdrawFirstBubble } from '../state/firstSend';
+import { clearPendingFirstSend, savePendingFirstSend } from '../state/pendingFirstSend';
+import { carryFirstBubble,draftSessionKey, stageFirstBubble, withdrawFirstBubble } from '../state/firstSend';
 import { notePromotion } from '../state/composerHandoff';
 import {
   useCallback,
@@ -2333,6 +2334,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // promotion's renders (see `state/firstSend.ts`).
     const draftKey = draftSessionKey(draftId);
     const bubbleId = stageFirstBubble(draftKey, firstMessage, options?.mediaSizes);
+    // On disk before the request: a restart while it is in flight brings the
+    // text back into the draft's field (`state/pendingFirstSend.ts`).
+    savePendingFirstSend(draftId, firstMessage);
+    // Gives the text back to the field of the draft that stays open.
+    const returnToField = () => {
+      clearPendingFirstSend(draftId);
+      window.dispatchEvent(new CustomEvent('topics:seed-composer', { detail: { topicId: draftId, text: firstMessage } }));
+    };
     const topic = await createTopic({
       name: 'New Chat',
       icon: DEFAULT_TOPIC_ICON,
@@ -2341,6 +2350,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
     if (!topic) {
       withdrawFirstBubble(draftKey, bubbleId);
+      returnToField();
       return;
     }
     // The lineage first: every render from here on that sees the topic's id
@@ -2370,6 +2380,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (usePaneStore.getState().panes[draftId]) {
         console.warn('promoteDraft: id collision, keeping draft', draftId, '→', topic.id);
         withdrawFirstBubble(draftKey, bubbleId);
+        returnToField();
         return;
       }
     }
@@ -2398,6 +2409,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
     try { localStorage.removeItem(draftTextKey(draftId)); } catch { /* draft text may already be gone */ }
     forgetDraft(draftId);
+    clearPendingFirstSend(draftId);
     await sendMessage(topic.sessionKey, firstMessage, { ...options, userMessageId: bubbleId });
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);
 
