@@ -38,7 +38,11 @@ import { readDispatcherSource } from "../../tests/helpers/dispatcher-source";
 const REPO = join(import.meta.dir, "..", "..");
 const dispatcher = readDispatcherSource();
 const doc = readFileSync(join(REPO, "docs/board-protocol.md"), "utf8");
-const board = readFileSync(join(REPO, "shared/board.ts"), "utf8");
+// shared/board.ts is a barrel since the split (8c3f0d4d): the constants live in the
+// modules it re-exports, so the contract is read across all of them.
+const boardBarrel = readFileSync(join(REPO, "shared/board.ts"), "utf8");
+const board = [boardBarrel, ...[...boardBarrel.matchAll(/from '\.\/(board-[a-z-]+)'/g)]
+  .map((m) => readFileSync(join(REPO, `shared/${m[1]}.ts`), "utf8"))].join("\n");
 // The tool definitions live in the catalog module the MCP server composes.
 const mcp = readFileSync(join(REPO, "server/mcp/tool-catalog.ts"), "utf8");
 
