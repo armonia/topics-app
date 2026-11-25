@@ -83,7 +83,11 @@ import { GIT_ISOLATION_MARKER, gitIsolationEnv } from "./git-isolation";
  */
 let ownTmpDir: string | null = null;
 if (!process.env[PRIVATE_SCRATCH_ENV]) {
-  ownTmpDir = mkdtempSync(join(tmpdir(), "topics-tt-"));
+  // On macOS the folder goes under /tmp, not `$TMPDIR` (/var/folders/xx/…/T/,
+  // 49 characters): nested there, a socket a test makes in its own mkdtemp
+  // passes 104. late-scan-route-grace measured 109, red on every Mac run of a
+  // single file or of `test:touched`, green on Linux CI where tmpdir is /tmp.
+  ownTmpDir = mkdtempSync(join(process.platform === "darwin" ? "/tmp" : tmpdir(), "topics-tt-"));
   process.env.TMPDIR = ownTmpDir;
 }
 

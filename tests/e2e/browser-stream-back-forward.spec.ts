@@ -6,9 +6,10 @@ import type { Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { closeAllBrowserContexts, createTopic, deleteTopic, resetPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 /**
  * The streaming pane's back and forward arrows (the tab sheet's row) follow

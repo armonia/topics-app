@@ -4,6 +4,7 @@ import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -31,7 +32,7 @@ const SHOTS = "test-results/unsent-banner";
  * Whether a message expires at all is decided by `decideQueuedMessage`, which
  * has its own unit tests in `client/src/hooks/outboundQueue.test.ts`.
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const OUTBOUND_KEY = "messages-outbound-queue";
 const EXPIRED_KEY = "messages-expired-queue";
