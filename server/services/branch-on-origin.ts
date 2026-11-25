@@ -25,9 +25,20 @@ import type { GitRunner } from "./own-commits";
  * The branch a card's next run starts from: its live delivery branch, or the
  * one it had when it went back to the queue. `null` = none, the default branch.
  */
-export function carriedBranch(task: { deliveryBranch?: string | null; priorBranch?: string | null }): string | null {
-  return task.deliveryBranch?.trim() || task.priorBranch?.trim() || null;
+export function carriedBranch(
+  task: { deliveryBranch?: string | null; priorBranch?: string | null },
+  // Branches known to exist nowhere (see `BRANCH_NOWHERE_REASON`): skipped, the next candidate carries.
+  skip?: ReadonlySet<string>,
+): string | null {
+  for (const candidate of [task.deliveryBranch, task.priorBranch]) {
+    const name = candidate?.trim();
+    if (name && !skip?.has(name)) return name;
+  }
+  return null;
 }
+
+/** `ensureBranchOnOrigin`'s answer for a branch that is neither in the checkout nor on origin. */
+export const BRANCH_NOWHERE_REASON = "il ramo non c'è né qui né su origin";
 
 /**
  * The delivery commit of a node round that came back with nothing planted and
@@ -60,7 +71,7 @@ export async function ensureBranchOnOrigin(
   if (local.code !== 0) {
     // Not in this checkout (pruned after a land, or born elsewhere): only origin can have it.
     const remote = await run(repoPath, ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`]);
-    return remote.code === 0 ? { ok: true } : { ok: false, reason: "il ramo non c'è né qui né su origin" };
+    return remote.code === 0 ? { ok: true } : { ok: false, reason: BRANCH_NOWHERE_REASON };
   }
   const push = await run(repoPath, ["push", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
   if (push.code === 0) return { ok: true };

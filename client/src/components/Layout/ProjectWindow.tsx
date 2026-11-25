@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, CompactionMarker } from '../../types';
@@ -115,6 +115,13 @@ export interface ProjectWindowPaneProps {
    * poll cadence. Defaults true so a host that never hides is unaffected.
    */
   isVisible?: boolean;
+  /**
+   * The tabs are at the side (see `GroupLayout`'s `chromeless`): no bar of its
+   * own, and the closed project bar's commands go to `titleSlot`, a node on the
+   * window's title row. Null while this window is not the pane in front.
+   */
+  chromeless?: boolean;
+  titleSlot?: HTMLElement | null;
 }
 
 export function ProjectWindowPane({
@@ -125,6 +132,7 @@ export function ProjectWindowPane({
   pendingPane, pendingTerminalSessionId, pendingTerminalType, pendingNearPaneId, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, pendingFocusTargetGroupId, pendingFocusPreview, onPendingFocusConsumed,
   onActiveTopicChange, onOpenPanesChange, onToggleFissato, isFissato, isVisible: windowVisible = true,
+  chromeless = false, titleSlot = null,
 }: ProjectWindowPaneProps) {
   // Load persisted state (fast-paint from localStorage; server fetch triggers onUpdate)
   const loaded = useProjectPersistenceLoad({ projectPath });
@@ -216,6 +224,14 @@ export function ProjectWindowPane({
    * valore stabile da PASSARE, non da leggere.
    */
   const railSlot = useMemo(() => document.createElement('div'), []);
+  // Without a bar of its own the commands sit on the window's title row. The
+  // node moves, so the portal inside it never remounts. No "+" there: the
+  // project's row in the column has it (asked on 25/11).
+  useLayoutEffect(() => {
+    if (!chromeless || !titleSlot) return;
+    titleSlot.appendChild(railSlot);
+    return () => { if (railSlot.parentNode === titleSlot) titleSlot.removeChild(railSlot); };
+  }, [chromeless, titleSlot, railSlot]);
 
   // Publish this project's internal split extent (leaf columns/rows) into the
   // module registry so the STANDALONE grid can weight this project's cell when
@@ -660,6 +676,7 @@ export function ProjectWindowPane({
             onWSMessage={onWSMessage}
             onOpenProcessLog={handleOpenProcessLog}
             inlineSlot={railSlot}
+            inlineBare={chromeless}
           />
         </Suspense>
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
@@ -712,7 +729,8 @@ export function ProjectWindowPane({
             // updatePane, not the global store, so we can't use the store helper).
             onRenameChat={(tid, name) => { void onUpdateTopic(tid, { name }); }}
             onRenameBrowser={(id, name) => updatePane(id, { title: name, titleSource: 'user' })}
-            leadingSlot={railSlot}
+            leadingSlot={chromeless ? undefined : railSlot}
+            chromeless={chromeless}
             // ENLARGING A CONVERSATION is switched on HERE and nowhere else.
             // `GroupLayout` is the same component a task's drawer mounts, and
             // that is already an overlaid surface: two nested "outsides" are not

@@ -149,6 +149,9 @@ barra dei menu.
 - La Board del 20/11 («va bene così»): barra «Il mio lavoro | Tutto» con i chip dei proprietari e il
   menu dei canali, chip proprietario e canale sulla card, slider del dettaglio, viste «Kanban, Lista,
   Chi la segue, Workflow» con icone; etichette e campo di ricerca seguono la larghezza della board.
+- La finestra di un progetto con le tab di lato (25/11 «Sì, va bene»): solo il titolo, che al
+  passaggio prende il fondo della tab e si trascina nello split; i comandi del progetto a destra
+  sulla stessa riga; nessun «+» lì, resta quello sulla riga del progetto nella colonna.
 
 ## Feedback di Attilio
 
@@ -207,3 +210,8 @@ barra dei menu.
   riga d'intestazione in più.
 - 25/11 «stai attento a tab di un progetto, non sembrano avere spaziature corretta» → le righe
   dentro un progetto hanno lo stesso passo e lo stesso rientro, nell'albero e nella fascia.
+- 25/11 «c'è ancora la tabbar progetto. va bene solo il titolo e tenere la tab all'hover sul
+  titolo, così da sfruttarlo per il dnd dello split» → con le tab di lato la finestra di un
+  progetto non ha barra sua: il titolo è la tab (fondo al passaggio, si trascina nello split) e
+  i comandi del progetto stanno a destra del titolo. Il «+» lì no («ma il + serve ancora la?»):
+  c'è già sulla riga del progetto nella colonna.
