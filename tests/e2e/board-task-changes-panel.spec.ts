@@ -324,7 +324,8 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     // reap — worktree rimosso e ramo cancellato. Da qui in poi l'unica traccia
     // di cosa ha portato la card è quel merge.
     git(REPO, ["merge", "--no-ff", "-m", `merge task ${landedTaskId}: Card atterrata`, landedBranch!]);
-    git(REPO, ["worktree", "remove", "--force", landedPath!]);
+    // Twice: Topics locks its own worktrees (`topics:<name>`), and the real reap unlocks before it removes.
+    git(REPO, ["worktree", "remove", "--force", "--force", landedPath!]);
     git(REPO, ["branch", "-D", landedBranch!]);
     landedPath = null;
 
@@ -509,7 +510,7 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     git(imagesPath!, ["add", "-A"]);
     git(imagesPath!, ["commit", "-q", "-m", "il resto della consegna"]);
     git(REPO, ["merge", "--no-ff", "-m", `merge task ${imagesTaskId}: Card con immagini`, imagesBranch!]);
-    git(REPO, ["worktree", "remove", "--force", imagesPath!]);
+    git(REPO, ["worktree", "remove", "--force", "--force", imagesPath!]);
     git(REPO, ["branch", "-D", imagesBranch!]);
     imagesPath = null;
     const merge = git(REPO, ["rev-parse", "HEAD"]).trim();

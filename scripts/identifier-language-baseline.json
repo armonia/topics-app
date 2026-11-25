@@ -3855,9 +3855,6 @@
       "idempotencySlot",
       "isWoken"
     ],
-    "server/routes/claude-hooks.ts": [
-      "isLocalhost"
-    ],
     "server/routes/context-preview.test.ts": [
       "pathnameParts"
     ],
@@ -4993,7 +4990,6 @@
     "server/services/worktree-gc-runner.ts": [
       "annuncia",
       "avviata",
-      "csid",
       "inVolo",
       "qualcosaVivoDentro"
     ],

@@ -1,5 +1,63 @@
 [
   {
+    "version": "2.4.102",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.101",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [
+        {
+          "it": "red-main cards carry a fixed recipe and run on Sonnet",
+          "en": "",
+          "scope": "main-ci",
+          "breaking": false
+        },
+        {
+          "it": "skip a spent account until its reset and retry the turn on the next one",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "run gate-coverage and native-shutdown-notice tests serially",
+          "en": "",
+          "scope": "tests",
+          "breaking": false
+        },
+        {
+          "it": "no reap, prune or remove loses work the review found exposed",
+          "en": "",
+          "scope": "worktrees",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Disk budget: fix deadcode-prod/untraced-tests gates, make legacy transcript readers gz-aware",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.100",
     "date": "2026-11-25",
     "sections": {
@@ -10,10 +68,35 @@
           "en": "",
           "scope": "sidebar",
           "breaking": false
+        },
+        {
+          "it": "judge other tools' fresh rows, lift vanished hook locks, keep git off live sessions",
+          "en": "",
+          "scope": "worktree-gc",
+          "breaking": false
+        },
+        {
+          "it": "one folder per session, atomic name claim, nothing lost on failure",
+          "en": "",
+          "scope": "worktree-hook",
+          "breaking": false
         }
       ],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "the hand-made land removes a locked worktree the way the reap does",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "drop the spec-flow 0.7.0 intersections step until 0.7.0 is published",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
     }
   },
   {
@@ -22,6 +105,18 @@
     "sections": {
       "new": [],
       "fixes": [
+        {
+          "it": "judge what a folder holds now, and never reap what Topics cannot prove it made",
+          "en": "",
+          "scope": "worktrees",
+          "breaking": false
+        },
+        {
+          "it": "every cross-node and cross-tool door leaves Topics' proof, and nothing is removed without it",
+          "en": "",
+          "scope": "worktrees",
+          "breaking": false
+        },
         {
           "it": "count the cells on screen, not the ones the layout remembers",
           "en": "",
@@ -33,10 +128,23 @@
           "en": "",
           "scope": "sidebar",
           "breaking": false
+        },
+        {
+          "it": "a Topics worktree whose HEAD left its branch is judged by HEAD",
+          "en": "",
+          "scope": "worktrees",
+          "breaking": false
         }
       ],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "dup: keep main's baseline; the lowered one was measured on this Mac, where jscpd counts 360 lines fewer than CI",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
     }
   },
   {
@@ -105,6 +213,12 @@
           "en": "",
           "scope": "split",
           "breaking": false
+        },
+        {
+          "it": "the GC moves only what Topics proves it made, into a quarantine",
+          "en": "",
+          "scope": "worktrees",
+          "breaking": false
         }
       ],
       "perf": [],
@@ -131,6 +245,22 @@
           "it": "the change is done, its seven requirements join the layout spec",
           "en": "",
           "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "Cancelli rossi della PR cross-nodo: lint del server, codice morto e l'intreccio senza prova",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Hook di Claude Code: il token non sta più negli argomenti di curl",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the project-family backfill script is a manual entry point",
+          "en": "",
+          "scope": null,
           "breaking": false
         },
         {
@@ -177,10 +307,40 @@
       "perf": [],
       "internal": [
         {
+          "it": "Hook dei worktree: la rimozione archivia anche il lavoro non committato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Porta di registrazione: il GC non cancella più rami e checkout altrui",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cancelli rossi del ramo: nomi non inglesi e git senza ambiente isolato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova del ramo cross-nodo: e2e delle impostazioni, sonda con il vero Claude Code, tipi dei finti",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "an open row's circle closes its tab, the stop test and the target-size audit read it",
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Le anteprime accanto al bordo sfumato si caricano da sole: Chromium perde la distanza di caricamento pigro sotto la maschera della riga, e la card saltava di altezza al primo swipe (board-preview-cap rosso 4 su 4)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rimette verdi i rossi della PR dei worktree standard",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -201,16 +361,68 @@
       "perf": [],
       "internal": [
         {
+          "it": "table view, bare empty columns, one column per project, scroll edges",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the detail slider follows a drag (mouse, pen, finger)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Rossi della CI: celle contate dopo il resize, due any arrivati da main",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "name the requirement the keyed listener registry test covers",
           "en": "",
           "scope": null,
           "breaking": false
         },
         {
+          "it": "Rossi ereditati da main: requisito del registro di ascolto, parole fuori dizionario",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Standard dei worktree e progetti accorpati",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "keep the live AI bridge out of the suite",
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Porta di registrazione dei worktree e regole di percorso per Windows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Hook dei worktree di Claude Code e porta per gli altri strumenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Worktree di ogni macchina: il nodo riferisce, il primario manda la policy",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Hook dei worktree di Claude Code: i file della traccia, separati da T12",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Intrecci fra funzionalita': ogni incontro dichiarato ha una prova che li nomina tutti e due",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -736,10 +948,20 @@
           "scope": null
         },
         {
+          "it": "Compress aging agent transcripts; opt-in media expiry (debt G5)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "disk-budget-check e' un ingresso di produzione (job launchd notturno), non uno script di sviluppo",
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Fix new Italian comment lines flagged by check:comment-language",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Codice morto in produzione di nuovo a 596: il budget disco gira da launchd",

@@ -8,9 +8,10 @@ import { type HookPayload } from "../lib/claude-session-state";
 import { topicsHome } from "../services/daemon-state";
 import { autoNameClaudeSession, noteClaudeHookSession, noteSubAgentStopHook } from "./terminal";
 import { endBashToolCall, forgetBashRecords, noteBashToolCall } from "../lib/background-bash-record";
-import { delegationHookPath, hookScriptPath, writeHookScript } from "../lib/topics-hook-script";
+import { delegationHookPath, hookScriptPath, worktreeHookPath, WORKTREE_HOOK_SCRIPT, writeHookScript } from "../lib/topics-hook-script";
 import { delegationHookScript } from "../lib/delegation-policy";
 import { hookEventTime } from "../lib/hook-order";
+import { bearerMatches, isLoopbackHostRequest } from "../lib/hook-auth";
 
 /**
  * Where the hook auth token lives: under Topics' OWN home, never under
@@ -94,6 +95,9 @@ export function getOrCreateHookToken(): string {
     // The delegation nudge rides the same boot step: generated from the policy,
     // so its thresholds are the ones the native engine uses.
     writeHookScript(delegationHookPath(), delegationHookScript());
+    // The worktree hook rides it too: `--settings` names it, and the tools
+    // outside Topics (`topics-worktree`, the post-checkout hook) find it here.
+    writeHookScript(worktreeHookPath(), WORKTREE_HOOK_SCRIPT);
   } catch (err) {
     // Without the script every hook of a Topics session exits 127: no phases,
     // no end-of-turn notifications. The turn itself goes on (only exit 2
@@ -101,15 +105,6 @@ export function getOrCreateHookToken(): string {
     console.error("[claude-hooks] Failed to write the hook script", err);
   }
   return cachedToken;
-}
-
-function isLocalhost(req: Request): boolean {
-  // Behind Bun.serve, `req.headers.get('host')` is the Host header. We also
-  // accept the dev TLS host (localhost:3333 / 127.0.0.1:3333). The token is
-  // the real defense — this check is belt-and-braces.
-  const host = (req.headers.get("host") || "").toLowerCase();
-  if (host.startsWith("localhost") || host.startsWith("127.0.0.1") || host.startsWith("[::1]")) return true;
-  return false;
 }
 
 export function createClaudeHooksRouter(
@@ -124,12 +119,10 @@ export function createClaudeHooksRouter(
     {
       const params = matchRoute(pathname, "/api/claude-hooks/:event");
       if (params && method === "POST") {
-        if (!isLocalhost(req)) {
+        if (!isLoopbackHostRequest(req)) {
           return errorResponse(403, "claude-hooks endpoint is localhost-only");
         }
-        const auth = req.headers.get("authorization") || "";
-        const m = auth.match(/^Bearer\s+([a-f0-9]+)$/i);
-        if (!m || m[1] !== token) {
+        if (!bearerMatches(req, token)) {
           return errorResponse(401, "Invalid hook token");
         }
 
