@@ -12,6 +12,7 @@
  *     `.jsonl` under `<app data>/agents/*\/sessions` older than
  *     `TOPICS_TRANSCRIPT_COMPRESS_DAYS` (default 7) is gzipped IN PLACE, never
  *     deleted (`server/lib/transcript-retention.ts`).
+ *   - BACKUPS (`backups`, `db-backups`): only the newest `TOPICS_BACKUP_KEEP` (default 3) copies stay.
  *   - MEDIA stays opt-in (`server/lib/media-retention.ts`): a file here can be
  *     referenced by a live message or task preview, and this script never
  *     opens the live database to check, so nothing is deleted unless an
@@ -24,7 +25,7 @@
  * Exit code: 0 within budget, 1 over budget.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, statSync, unlinkSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, statSync, unlinkSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -33,6 +34,7 @@ import { topicsHome } from "../server/services/daemon-state";
 import { diskBudgetConfig, evaluateDiskBudget, type DiskBudgetFolder } from "../server/lib/disk-budget";
 import { expiredLogFiles, logRetentionDays } from "../server/lib/log-retention";
 import { filesToCompress, transcriptCompressDays, type TranscriptFileStat } from "../server/lib/transcript-retention";
+import { backupKeepCount, expiredBackupEntries } from "../server/lib/backup-retention";
 import { expiredMediaFiles, mediaRetentionDays, type MediaFileStat } from "../server/lib/media-retention";
 
 function du(path: string): number {
@@ -137,6 +139,24 @@ function pruneExpiredMedia(mediaDir: string, env: NodeJS.ProcessEnv): string[] {
   return expired;
 }
 
+/** Keeps the newest `TOPICS_BACKUP_KEEP` copies in a backup folder (top-level entries) and removes the rest. */
+function pruneOldBackups(dir: string, env: NodeJS.ProcessEnv): string[] {
+  if (!existsSync(dir)) return [];
+  const keep = backupKeepCount(env);
+  const entries = readdirSync(dir).flatMap((name) => {
+    try {
+      return [{ id: join(dir, name), name, mtimeMs: statSync(join(dir, name)).mtimeMs }];
+    } catch {
+      return [];
+    }
+  });
+  const expired = expiredBackupEntries(entries, keep);
+  for (const path of expired) {
+    try { rmSync(path, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+  return expired;
+}
+
 const stateDir = resolveStateDir(LIVE_REPO_ROOT);
 const dataDir = resolveDataDir(stateDir);
 const appDataDir = resolveAppDataDir();
@@ -157,9 +177,15 @@ if (dbBytes === 0) {
 
 const prunedLogs = pruneExpiredLogs(join(home, "logs"), process.env);
 const compressedTranscripts = compressExpiredTranscripts(join(appDataDir, "agents"), process.env);
+const prunedBackups = ["backups", "db-backups"].flatMap((n) => pruneOldBackups(join(homedir(), ".topics", n), process.env));
 const prunedMedia = pruneExpiredMedia(join(homedir(), ".topics", "media"), process.env);
 
-/** Folders outside the database that the data folder actually grows with. */
+/**
+ * Folders outside the database. The ratio (G5) judges only what Topics itself
+ * produces; agent workspaces and media hold the user's own work, so they are
+ * listed with `counted: false` and can still carry a cap (TOPICS_DISK_CAP_<NAME>).
+ */
+const USER_WORK_FOLDERS = new Set(["agents", "workspace", "media"]);
 const CANDIDATE_FOLDERS: [string, string][] = [
   ["agents", join(appDataDir, "agents")],
   ["workspace", join(appDataDir, "workspace")],
@@ -173,25 +199,28 @@ const CANDIDATE_FOLDERS: [string, string][] = [
 
 const folders: DiskBudgetFolder[] = CANDIDATE_FOLDERS
   .filter(([, path]) => existsSync(path))
-  .map(([name, path]) => ({ name, bytes: du(path) }));
+  .map(([name, path]) => ({ name, bytes: du(path), counted: !USER_WORK_FOLDERS.has(name) }));
 
 const config = diskBudgetConfig(process.env, folders.map((f) => f.name));
 const result = evaluateDiskBudget(dbBytes, folders, config);
 
 if (process.argv.includes("--json")) {
-  console.log(JSON.stringify({ ...result, prunedLogs, compressedTranscripts, prunedMedia }));
+  console.log(JSON.stringify({ ...result, prunedLogs, compressedTranscripts, prunedMedia, prunedBackups }));
 } else {
   console.log(`database           ${human(result.dbBytes)}`);
   console.log(`outside database   ${human(result.outsideBytes)}  (ratio ${result.ratio.toFixed(2)}x, cap ${result.ratioCap}x)${result.ratioOverCap ? "  OVER BUDGET" : ""}`);
   for (const f of result.folders) {
     const cap = f.capBytes !== null ? `, cap ${human(f.capBytes)}` : "";
-    console.log(`  ${f.name.padEnd(18)} ${human(f.bytes).padStart(9)}${cap}${f.overCap ? "  OVER CAP" : ""}`);
+    console.log(`  ${f.name.padEnd(18)} ${human(f.bytes).padStart(9)}${cap}${f.overCap ? "  OVER CAP" : ""}${f.counted === false ? "  (user work, not in ratio)" : ""}`);
   }
   if (prunedLogs.length > 0) {
     console.log(`\npruned ${prunedLogs.length} log file(s) older than ${logRetentionDays(process.env)} days`);
   }
   if (compressedTranscripts.length > 0) {
     console.log(`compressed ${compressedTranscripts.length} agent transcript(s) older than ${transcriptCompressDays(process.env)} days`);
+  }
+  if (prunedBackups.length > 0) {
+    console.log(`removed ${prunedBackups.length} backup entr${prunedBackups.length === 1 ? "y" : "ies"} beyond the newest ${backupKeepCount(process.env)} (TOPICS_BACKUP_KEEP)`);
   }
   if (prunedMedia.length > 0) {
     console.log(`pruned ${prunedMedia.length} media file(s) older than ${mediaRetentionDays(process.env)} days (opt-in, TOPICS_MEDIA_RETENTION_DAYS set)`);

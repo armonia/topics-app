@@ -86,3 +86,19 @@ describe("evaluateDiskBudget", () => {
     expect(result.folders[0]?.overCap).toBe(false);
   });
 });
+
+describe("folders that are the user's own work", () => {
+  test("counted:false stays out of the ratio but can still hit its own cap", () => {
+    const r = evaluateDiskBudget(
+      100,
+      [
+        { name: "agents", bytes: 10_000, counted: false },
+        { name: "logs", bytes: 50 },
+      ],
+      { ratioCap: 3, folderCaps: { agents: 5_000 } },
+    );
+    expect(r.outsideBytes).toBe(50);
+    expect(r.ratioOverCap).toBe(false);
+    expect(r.ok).toBe(false);
+  });
+});

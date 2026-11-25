@@ -32,6 +32,12 @@ export interface DiskBudgetFolder {
   /** The folder's own name (e.g. `logs`, `chromium-sidecar`), not a path. */
   name: string;
   bytes: number;
+  /**
+   * False for folders holding the user's own work (agent workspaces, media):
+   * they are reported and may carry a per-folder cap, but stay out of the
+   * ratio, which only judges what Topics itself produces. Default true.
+   */
+  counted?: boolean;
 }
 
 export interface DiskBudgetConfig {
@@ -97,7 +103,7 @@ export function evaluateDiskBudget(
   folders: readonly DiskBudgetFolder[],
   config: DiskBudgetConfig,
 ): DiskBudgetResult {
-  const outsideBytes = folders.reduce((sum, f) => sum + f.bytes, 0);
+  const outsideBytes = folders.reduce((sum, f) => sum + (f.counted === false ? 0 : f.bytes), 0);
   const ratio = dbBytes > 0 ? outsideBytes / dbBytes : 0;
   const ratioOverCap = dbBytes > 0 && ratio > config.ratioCap;
   const folderVerdicts: DiskBudgetFolderVerdict[] = folders.map((f) => {
