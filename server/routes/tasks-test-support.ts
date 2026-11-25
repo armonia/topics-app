@@ -96,7 +96,7 @@ export function freshDb(): Database {
  * the tests of the phase that measures BEFORE the land say so here.
  */
 export function setCiPhaseMode(db: Database, mode: CiPhaseMode): Database {
-  db.run("CREATE TABLE IF NOT EXISTS board_workflow_rules (scope TEXT PRIMARY KEY, ci_phase INTEGER, person_paths TEXT, updated_at TEXT NOT NULL)");
+  db.run("CREATE TABLE IF NOT EXISTS board_workflow_rules (scope TEXT PRIMARY KEY, ci_phase INTEGER, person_paths TEXT, scheduled_review_minutes INTEGER, updated_at TEXT NOT NULL)");
   writeWorkflowRules(db, "*", { ciPhase: mode }, new Date().toISOString());
   return db;
 }

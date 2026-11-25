@@ -16,7 +16,7 @@ let router: ReturnType<typeof createTasksRouter>;
 
 beforeEach(() => {
   db = freshDb();
-  db.run("CREATE TABLE IF NOT EXISTS board_workflow_rules (scope TEXT PRIMARY KEY, ci_phase INTEGER, person_paths TEXT, updated_at TEXT NOT NULL)");
+  db.run("CREATE TABLE IF NOT EXISTS board_workflow_rules (scope TEXT PRIMARY KEY, ci_phase INTEGER, person_paths TEXT, scheduled_review_minutes INTEGER, updated_at TEXT NOT NULL)");
   const ctx = {
     db,
     json: (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),

@@ -8,16 +8,19 @@ import type { LandingState } from "../services/landing-audit";
 import { mainRedStop } from "../services/main-ci-watch";
 import { createLandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { type TaskAttempt } from "../services/task-attempts";
-import { createAutoLander } from "../services/auto-land";
+import { createAutoLander, sameCommit } from "../services/auto-land";
+import { readWorkflowRules } from "../services/board-workflow";
+import type { Task } from "../services/tasks";
 import { createNodeDeliveryMeter } from "../services/node-delivery-meter";
 import type { StopCause } from "../lib/abort-cause";
-import { readWorkflowRules } from "../services/board-workflow";
 import { createCiPhase } from "./tasks-ci-phase";
 import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
 import { createReviewSweep } from "./tasks-review-sweep";
 import { createNothingToLand } from "./tasks-land-nothing";
+import { inspectDelivery } from "../services/scheduled-review-inspect";
+import { reviewScheduled, scheduledReviewDue, type ScheduledReviewCard } from "../services/scheduled-review";
 
 /** What a queued land is asked besides landing. */
 export interface LandRunOpts {
@@ -257,6 +260,49 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   });
   const { unmeasuredInReview, remeasureInReview, probeConflict } = reviewSweep;
 
+  /**
+   * THE SCHEDULED REVIEW (`services/scheduled-review.ts`): a card the other doors left in review gets
+   * looked at by the clock when its board turned the rule on. `true` = the card was decided here.
+   */
+  async function scheduledPass(t: Task): Promise<boolean> {
+    let minutes = 0;
+    try { minutes = readWorkflowRules(db, t.projectId).scheduledReviewMinutes; } catch { return false; }
+    if (minutes <= 0) return false;
+    const stamp = db.query("SELECT ai_review_reminded_at AS at, archived FROM tasks WHERE id = ?").get(t.id) as { at?: string | null; archived?: number } | null;
+    if (stamp?.archived) return false;
+    const card: ScheduledReviewCard = {
+      id: t.id, projectId: t.projectId, status: t.status, humanAsk: t.humanAsk ?? null,
+      deliveryBranch: t.deliveryBranch ?? null, deliveryCommit: t.deliveryCommit ?? null,
+      lastPassAt: stamp?.at ?? null, reviewAt: t.updatedAt ?? null,
+    };
+    if (!scheduledReviewDue(card, Date.now(), minutes)) return false;
+    const repo = await opts?.integrationRepo?.(t.id).catch(() => null);
+    if (!repo) return false;
+    const outcome = await reviewScheduled(card, {
+      files: async (c) => (opts?.deliveryFiles ? opts.deliveryFiles(c.id, c.deliveryCommit!) : null),
+      personPaths: (projectId) => readWorkflowRules(db, projectId).personPaths,
+      inspect: (c, files) => inspectDelivery(repo, c.id, c.deliveryCommit!, files),
+      turnIsLive: () => cardTurnIsLive(t),
+      bounce: (c, why) => ciPhase.bounceWithReason(c.projectId, c.id, why),
+      land: (c, commit) => {
+        // Landing needs the board's merge switch; without it the card keeps waiting for a person.
+        if (!svc.getBoardSettings(c.projectId).dispatchAutoMerge) return;
+        void landDirect(c.projectId, c.id, {
+          // The last look, a moment before the merge: the card must still deliver the commit the pass measured.
+          recheck: async (toMerge: string | null) => {
+            const now = svc.get(c.id, { projectId: c.projectId })?.task;
+            if (!now || now.status !== "review") return "the card left review";
+            if ((now.humanAsk ?? "").trim()) return "the card asks a person something";
+            return sameCommit(toMerge, commit) && sameCommit(now.deliveryCommit, commit) ? null : "the card moved to another commit";
+          },
+        });
+      },
+      stamp: (c, at) => { db.run("UPDATE tasks SET ai_review_reminded_at = ? WHERE id = ?", [at, c.id]); },
+      log: (line) => console.warn(line),
+    });
+    return outcome === "bounced" || outcome === "landed";
+  }
+
   /** Every review card gets the verdict again: a timer lost to a reload strands nothing. */
   async function sweepAutoLand(): Promise<number> {
     let asked = 0;
@@ -284,7 +330,11 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         if (!ciPhase.pending(t.projectId).includes(t.id)) await ciPhase.returnToCiPhase(t.projectId, t.id);
         continue;
       }
-      if (!t.labels.some((l) => l.label === "invisibile") || t.checksState !== "pass") continue;
+      if (!t.labels.some((l) => l.label === "invisibile") || t.checksState !== "pass") {
+        // Not the automatic land's card: the scheduled review is the other door, off unless the board turns it on.
+        try { await scheduledPass(t); } catch (err) { console.warn(`[scheduled-review] ${t.id.slice(0, 8)}:`, err); }
+        continue;
+      }
       asked += 1;
       await autoLander.tryLand(t.projectId, t.id, { quiet: true });
     }

@@ -91,6 +91,8 @@ export interface WorkflowRules {
   ciPhase: CiPhaseMode;
   /** This board's paths on top of the generic list: the global row's first, then the project's. */
   personPaths: PersonPath[];
+  /** Minutes between scheduled reviews of technical cards sitting in review; 0 = off (the default). */
+  scheduledReviewMinutes: number;
 }
 
 /**
@@ -111,14 +113,26 @@ export function parseCiPhase(v: unknown): CiPhaseMode | null {
 }
 
 /** One scope's row: `null`/absent = inherit (the global row, then the default). A boolean is the old form of the switch. */
-export interface WorkflowRulesRow { ciPhase?: CiPhaseMode | boolean | null; personPaths?: PersonPath[] | null }
+export interface WorkflowRulesRow { ciPhase?: CiPhaseMode | boolean | null; personPaths?: PersonPath[] | null; scheduledReviewMinutes?: number | null }
+
+/** The scheduled review is off unless a board turns it on; no interval shorter than 10 minutes, none longer than a day. */
+export const MIN_SCHEDULED_REVIEW_MINUTES = 10;
+export const MAX_SCHEDULED_REVIEW_MINUTES = 1440;
+
+/** An interval as stored or sent: 0 = off, otherwise whole minutes inside the bounds; `null` when it is neither. */
+export function parseScheduledReviewMinutes(v: unknown): number | null {
+  if (typeof v !== 'number' || !Number.isInteger(v)) return null;
+  if (v === 0) return 0;
+  return v >= MIN_SCHEDULED_REVIEW_MINUTES && v <= MAX_SCHEDULED_REVIEW_MINUTES ? v : null;
+}
 
 export const MAX_PERSON_PATHS = 200;
 
 /** The project's CI mode wins over the global one (`after` by default); the paths add up. */
 export function resolveWorkflowRules(rows: { project?: WorkflowRulesRow | null; global?: WorkflowRulesRow | null }): WorkflowRules {
   const ciPhase = parseCiPhase(rows.project?.ciPhase) ?? parseCiPhase(rows.global?.ciPhase) ?? DEFAULT_CI_PHASE;
-  return { ciPhase, personPaths: [...(rows.global?.personPaths ?? []), ...(rows.project?.personPaths ?? [])] };
+  const scheduledReviewMinutes = parseScheduledReviewMinutes(rows.project?.scheduledReviewMinutes) ?? parseScheduledReviewMinutes(rows.global?.scheduledReviewMinutes) ?? 0;
+  return { ciPhase, personPaths: [...(rows.global?.personPaths ?? []), ...(rows.project?.personPaths ?? [])], scheduledReviewMinutes };
 }
 
 /** A stored or sent list, checked; `null` when it is not a valid one. */

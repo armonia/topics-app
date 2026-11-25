@@ -61,7 +61,7 @@ describe("columnOfTask", () => {
 
 describe("resolveWorkflowRules: the CI switch inherits, the paths add up", () => {
   test("no rows: the CI measures after the land, no board paths", () => {
-    expect(resolveWorkflowRules({})).toEqual({ ciPhase: "after", personPaths: [] });
+    expect(resolveWorkflowRules({})).toEqual({ ciPhase: "after", personPaths: [], scheduledReviewMinutes: 0 });
   });
   test("the project's mode wins over the global one; null inherits", () => {
     expect(resolveWorkflowRules({ global: { ciPhase: "off" } }).ciPhase).toBe("off");
