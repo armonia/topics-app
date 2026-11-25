@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.110 — 2026-11-25
+
+### Correzioni
+- **tauri** · a pop-out window is dressed on the main thread, not on a tokio worker
+
 ## 2.4.108 — 2026-11-25
 
 ### Correzioni

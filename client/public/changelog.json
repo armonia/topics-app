@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.110",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a pop-out window is dressed on the main thread, not on a tokio worker",
+          "en": "",
+          "scope": "tauri",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.4.108",
     "date": "2026-11-25",
     "sections": {
