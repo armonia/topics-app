@@ -506,7 +506,7 @@ export function StandaloneChatGroup({
     onSplitPane, onUnsolo,
     onCreateTerminal, onMergeIntoCell, onPersistReorder, claudeSkipPermissions,
     stopSession,
-    frontOnlyOnTop: mobile || !tabStrip,
+    frontOnlyOnTop: !mobile && !tabStrip,
   });
   const { settingsTopicId, setSettingsTopicId } = lifecycle;
   const {

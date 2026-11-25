@@ -568,7 +568,9 @@ function App() {
     pinnedCloseBlocked: panelLifecycle.handlers.pinnedCloseBlocked,
     closeArchives: appSettings.closeArchives,
     removeClosedTab,
-    frontOnlyOnTop: !placement.strip,
+    // The desktop title is the real tab and shows the countdown; the phone's
+    // title does not, so there the front still moves on at once.
+    frontOnlyOnTop: !placement.strip && !isMobile,
   });
 
   // Keyboard shortcuts (Phase 3 hook 4, ref-mirror pattern fixes

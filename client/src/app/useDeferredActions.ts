@@ -29,7 +29,7 @@ interface DeferredActionsArgs {
   /** View setting: closing a chat archives it (the two-state model). Off, a
    *  closed chat is a closed row and unpinning one archives nothing. */
   closeArchives: boolean;
-  /** Only the tab in front is drawn on top (no strip, the title row): the
+  /** Only the tab in front is drawn on top, as the desktop title row: the
    *  countdown of a close lives on that tab, so the front must not move to
    *  the next surface before the close commits (25/11: the title jumped to
    *  the next tab and the progress was nowhere to be seen). */
