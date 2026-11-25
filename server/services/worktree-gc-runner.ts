@@ -20,19 +20,30 @@
  * che il file usa gia' per `previewManager` (un `let` assegnato piu' tardi,
  * letto solo quando un turno arriva davvero in review).
  */
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import type { Database } from "bun:sqlite";
-import { claudeTranscriptPath } from "../lib/claude-transcript-path";
-import { sweepWorktrees, type TaskStatus as GcTaskStatus, type WorktreeGcSummary } from "./worktree-gc";
+import type { Topic } from "../types";
+import { sweepWorktrees, type TaskStatus as GcTaskStatus, type WorktreeGcDeps as SweepDeps, type WorktreeGcSummary } from "./worktree-gc";
 import { worktreeDirtProbe } from "./task-automerge";
-import { branchStatusFromRepo } from "./branch-status";
+import { branchExistsInRepo, branchStatusFromRepo } from "./branch-status";
 import { abandonNoticeFromRepo } from "./worktree-abandon-notice";
 import { formatMb, parseSlimSkip, slimWorktree } from "./worktree-slim";
-import { archiveBranchRef } from "./worktree-archive";
+import { alreadyArchived, archiveBranchRef } from "./worktree-archive";
 import { commitWorktreeResidue } from "./worktree-residue";
 import { isTopicsSpawned } from "../lib/ghost-script";
-import { isInsideDir } from "../lib/path-containment";
+import { anyInsideDir, isInsideDir } from "../lib/path-containment";
 import { topicSessionKey } from "./agent-census";
+import { taskIdleDays, transcriptMtime } from "./worktree-task-idle";
+import { headHoldsCommitsOffBranch, headStatusOfCheckout } from "./worktree-head-status";
+
+export { taskIdleDays };
+import { defaultRunGit, type GitRunner } from "./own-commits";
+import { resolveGcForeign, resolveWorktreeAbandonDays, resolveWorktreeMaxPerProject, resolveWorktreeQuarantineDays } from "./app-settings";
+import { runRootPass, type RootPassDeps, type RootPassResult, type StoredWorktree } from "./worktree-gc-root-pass";
+import { capPass, foreignPass, previewPass, type GcPlan, type GcRow, type GcSettings, type PassesCtx } from "./worktree-gc-passes";
+import { MIN_REMOVAL_AGE_MS, canonicalPath } from "./worktree-root-gc";
+
+export type { GcPlan, GcSettings };
 
 /**
  * Tutto cio' che la potatura chiede al resto del server, dichiarato.
@@ -51,7 +62,13 @@ export interface WorktreeGcDeps {
    * in `pending` (see `collectPopulation`); without it those rows are judged
    * but not repaired.
    */
-  worktreeStore: { list(filtro?: { status?: string }): any[]; update?(id: string, patch: { status: "ready" }): unknown };
+  worktreeStore: {
+    list(filtro?: { status?: string }): StoredWorktree[];
+    update?(id: string, patch: { status: "ready" }): unknown;
+    /** Present on the real store: the root pass registers an orphan folder with these. */
+    create?(input: { projectId: string; name: string; branchName: string | null; baseRef: string | null; mode: "branch" | "reuse" | "detached"; absPath: string }): { id: string };
+    listNamesForProject?(projectId: string): Set<string>;
+  };
   /**
    * The manager: the one that really deletes a folder. `isMaterialising` says
    * whether a `pending` row is still in THIS process's hands: those are never
@@ -59,10 +76,24 @@ export interface WorktreeGcDeps {
    * behind other installs).
    */
   worktreeManager: { delete(id: string, opts?: any): Promise<any>; isMaterialising?(id: string): boolean; worktreesDir?(): string };
+  /**
+   * The roots that are Topics' own: the current one, then every one it used
+   * before (the default, and past roots read off its rows). The server wiring
+   * names them; this module never adds one of its own, so a caller that passes
+   * a temp root scans that root and nothing else. Without it only
+   * `worktreeManager.worktreesDir()` is Topics'.
+   */
+  roots?: () => { root: string; extraRoots: string[] } | null;
+  /** A session Topics did not start (Claude Code, Codex, jcode from a terminal) is active at or under this folder. */
+  externalActiveAt?: (absPath: string) => boolean;
   /** Il progetto di un worktree, per leggere lo stato del ramo dal checkout principale. */
-  projectStore: { get(id: string): { path?: string } | null | undefined };
-  getTopicBySessionKey: (sessionKey: string) => any;
-  resolveTopicCwd: (topic: any) => string | null;
+  projectStore: { get(id: string): { path?: string } | null | undefined; list?(): Array<{ id: string; slug: string; path: string }> };
+  /** Git, injectable for tests. Default: the bounded runner of `own-commits`. */
+  git?: GitRunner;
+  /** The GC settings, read at every pass. Default: the app settings (with the env fallbacks). */
+  settings?: () => GcSettings;
+  getTopicBySessionKey: (sessionKey: string) => Topic | null;
+  resolveTopicCwd: (topic: Topic | null | undefined) => string | null;
   /**
    * The working directories of live terminal sessions, for the WORKTREE-14
    * guard. The binding between a session and a worktree is the PATH and nothing
@@ -70,6 +101,8 @@ export interface WorktreeGcDeps {
    * `terminal_sessions` after a restart counts like any other.
    */
   liveCwds?: () => string[];
+  /** Path rules for the cwd comparisons (Windows separators and case); defaults to the running platform. */
+  platform?: NodeJS.Platform;
   /**
    * Is the chat session addressed by this key mid-turn, or active within the
    * last few minutes? A chat topic bound to a worktree has no task and no
@@ -110,105 +143,23 @@ export interface WorktreeGcDeps {
   listOwnedScripts?: () => Array<{ processId: string; pid: number | null; projectPath: string; source?: string; status: string }>;
 }
 
-/**
- * The transcript mtime of a task's topic, or null.
- *
- * It is the only trace of a session that writes without ever reaching our
- * tables, and it is best-effort by design: a missing file, a topic without a
- * Claude session id, an unreadable cwd — each one simply does not vote.
- */
-function transcriptMtime(deps: Pick<WorktreeGcDeps, "db" | "getTopicBySessionKey" | "resolveTopicCwd">, topicId: string): number | null {
-  try {
-    const sk = (deps.db.prepare("SELECT session_key AS sk FROM topics WHERE id = ?")
-      .get(topicId) as { sk?: string } | undefined)?.sk;
-    const topic = sk ? deps.getTopicBySessionKey(sk) : null;
-    const csid = sk
-      ? (deps.db.prepare("SELECT claude_session_id AS id FROM claude_code_sessions WHERE session_key = ?")
-          .get(sk) as { id?: string } | undefined)?.id
-      : undefined;
-    const cwd = topic ? deps.resolveTopicCwd(topic) : null;
-    if (!cwd || !csid) return null;
-    const p = claudeTranscriptPath(cwd, csid);
-    return existsSync(p) ? statSync(p).mtimeMs : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Days since the LAST SIGN OF LIFE on a task, or null if we can't tell.
- *
- * "Life" is the union of every trace WORK leaves, because each one alone has a
- * blind spot: comments miss a chat-only session, messages miss a turn that only
- * committed, and both miss a CLI session whose only trace is the transcript
- * growing on disk. The maximum is the honest answer; a query that blows up
- * returns null, which the GC reads as "don't touch".
- *
- * WHAT IS NOT A SIGN OF LIFE, and this is the whole point of the function.
- * `tasks.updated_at` used to vote here, and the dispatcher rewrites it every 60
- * seconds through `setDispatchState` WHILE it holds the card (the queue-hold
- * chip refresh, `HELD_RESUME_REFRESH_MS`). So the more thoroughly a card was
- * stuck, the fresher it looked: measured 2026-09-17 on the live DB, all 8
- * `in_progress` tasks had an `updated_at` less than 10 minutes old while 6 of
- * them had not produced a single word of work in 2 days — idle ~0 for every
- * one, `decideWorktreeReap` answering `keep` forever, and zero abandons in the
- * whole history of the log. The dispatcher's own bookkeeping comments
- * (`kind IN ('service','status')`) are out for the same reason: 314 "Memoria
- * quasi finita" rows on cards where nobody was working.
- */
-export function taskIdleDays(
-  db: Database,
-  taskId: string,
-  transcriptAt?: (topicId: string) => number | null,
-): number | null {
-  try {
-    const row = db
-      .prepare(
-        `SELECT (SELECT MAX(created_at) FROM task_comments
-                   WHERE task_id = t.id AND COALESCE(kind, 'comment') NOT IN ('service', 'status')) AS commentAt,
-                (SELECT MAX(m.timestamp) FROM messages m
-                   JOIN topics tp ON tp.session_key = m.session_key
-                  WHERE tp.id = t.assigned_topic_id) AS messageAt,
-                t.assigned_topic_id AS topicId
-           FROM tasks t WHERE t.id = ?`,
-      )
-      .get(taskId) as { commentAt?: string; messageAt?: string; topicId?: string } | undefined;
-    if (!row) return null;
-
-    let last = 0;
-    for (const ts of [row.commentAt, row.messageAt]) {
-      const ms = ts ? Date.parse(ts) : NaN;
-      if (Number.isFinite(ms)) last = Math.max(last, ms);
-    }
-
-    // An attempt is a turn that really ran, and it is the one trace a fan-out
-    // leaves when the losing agents said nothing. Its own query, because a DB
-    // without the table (an older test fixture) must cost this function a vote,
-    // never an answer of null — null reads as "don't touch" and would hide the
-    // very staleness we are measuring.
-    try {
-      const attempt = db
-        .prepare("SELECT MAX(MAX(COALESCE(ended_at, ''), COALESCE(created_at, ''))) AS at FROM task_attempts WHERE task_id = ?")
-        .get(taskId) as { at?: string } | undefined;
-      const ms = attempt?.at ? Date.parse(attempt.at) : NaN;
-      if (Number.isFinite(ms)) last = Math.max(last, ms);
-    } catch { /* one vote fewer, never a block */ }
-
-    if (row.topicId && transcriptAt) {
-      const ms = transcriptAt(row.topicId);
-      if (ms != null && Number.isFinite(ms)) last = Math.max(last, ms);
-    }
-
-    if (!last) return null;
-    return (Date.now() - last) / 86_400_000;
-  } catch (err) {
-    console.warn("[worktree-gc] idleDays failed", err);
-    return null;
-  }
-}
+/** What a pass reports: the sweep's summary plus what the root pass and the cap did. */
+export type GcRunSummary = WorktreeGcSummary & {
+  root?: Omit<RootPassResult, "plan"> | null;
+  foreignRemoved?: number;
+  capped?: number;
+};
 
 export interface WorktreeGcRunner {
-  runWorktreeGc: () => Promise<WorktreeGcSummary | null>;
+  runWorktreeGc: () => Promise<GcRunSummary | null>;
+  /** The same pass as `runWorktreeGc`, read-only. `weigh` adds the on-disk size of each folder. */
+  planWorktreeGc: (opts?: { weigh?: boolean }) => Promise<GcPlan | null>;
+  /** A live session or a process of Topics has its working directory in this folder (by-hand relocation asks). */
+  isBusyInside: (absPath: string) => boolean;
+  /** A card that is not finished is bound to this worktree row (by-hand relocation asks). */
+  isTaskActive: (worktreeId: string) => boolean;
+  /** Frees room in a project over its worktree cap: slim, then reap the oldest the contract admits. */
+  enforceCap: (projectId?: string) => Promise<number>;
   slimWorktreeOfTask: (taskId: string) => Promise<void>;
   /** Ogni quanto passa la scopa. Il timer resta in `server.ts`: e' avvio, non logica. */
   readonly intervalMs: number;
@@ -226,11 +177,18 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
   // never landed here: they are pinned under an archive ref, then the checkout
   // is freed. See server/services/worktree-gc.ts.
   const WORKTREE_GC_INTERVAL_MS = 30 * 60_000;
-  // After how many days without a single sign of life an `in_progress` task counts
-  // as abandoned and gives its checkout back (branch kept — see worktree-gc.ts).
-  // A week: dispatch turns are capped at minutes, so seven days of total silence
-  // on a task that claims an agent is working can only mean nobody is.
-  const WORKTREE_ABANDON_DAYS = Number(process.env.TOPICS_WORKTREE_ABANDON_DAYS ?? 7);
+  // The abandon TTL, the cap and the foreign mode are settings now (Settings >
+  // Worktrees), read at every pass; the old env knob is still honoured by the
+  // resolver when the setting is empty.
+  const readSettings = (): GcSettings => {
+    if (deps.settings) return deps.settings();
+    return {
+      abandonDays: resolveWorktreeAbandonDays(), gcForeign: resolveGcForeign(), maxPerProject: resolveWorktreeMaxPerProject(),
+      quarantineDays: resolveWorktreeQuarantineDays(),
+    };
+  };
+  const git: GitRunner = deps.git ?? defaultRunGit;
+  const platform = deps.platform ?? process.platform;
 
   /**
    * La card com'e' ADESSO, a tutti i client aperti.
@@ -263,10 +221,9 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
    */
   const topicsProcessRunsIn = (absPath: string): boolean => {
     if (!deps.listOwnedScripts) return false;
-    const base = absPath.endsWith("/") ? absPath : absPath + "/";
     return deps.listOwnedScripts().some((s) =>
       isTopicsSpawned(s.source) && s.status === "running" && !!s.pid
-      && (s.projectPath === absPath || s.projectPath.startsWith(base)));
+      && !!s.projectPath && isInsideDir(s.projectPath, absPath, platform));
   };
 
   /**
@@ -338,9 +295,9 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
    * il riepilogo vero invece di un `null` da interpretare.
    */
   /** La passata in volo, o `null` se non ce n'e' nessuna. */
-  let inVolo: Promise<WorktreeGcSummary | null> | null = null;
+  let inVolo: Promise<GcRunSummary | null> | null = null;
 
-  function runWorktreeGc(): Promise<WorktreeGcSummary | null> {
+  function runWorktreeGc(): Promise<GcRunSummary | null> {
     const corrente = inVolo;
     if (corrente) return corrente;
     const avviata = sweepOnce();
@@ -373,14 +330,26 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
    */
   const WORKTREE_PENDING_GRACE_MS = 10 * 60_000;
 
-  type GcRow = { id: string; projectId: string; absPath: string; branchName: string | null; mode: "branch" | "reuse" | "detached"; status?: string; createdAt?: string };
+  /**
+   * Rows whose removal failed MAX_FAILED_PASSES passes running are left alone
+   * until the next restart instead of being retried forever; said once, in the log.
+   */
+  const MAX_FAILED_PASSES = 3;
+  const failedPasses = new Map<string, number>();
 
-  async function collectPopulation(): Promise<GcRow[]> {
+  async function collectPopulation(opts: { repair?: boolean } = {}): Promise<GcRow[]> {
     const out: GcRow[] = [];
     for (const w of deps.worktreeStore.list() as GcRow[]) {
-      // `error` rows stay out: their message is what the human sees in the UI,
-      // and a failed `git worktree add` leaves no folder to collect.
-      if (w.status !== "pending") { if (w.status !== "error") out.push(w); continue; }
+      if ((failedPasses.get(w.id) ?? 0) >= MAX_FAILED_PASSES) continue;
+      // An `error` row is judged too (the folder a failed `worktree add` left,
+      // or the row alone), but only once it is a day old: until then its message
+      // is what the person looking at the UI is reading.
+      if (w.status === "error") {
+        const born = Date.parse(w.createdAt ?? "");
+        if (!Number.isFinite(born) || Date.now() - born >= MIN_REMOVAL_AGE_MS) out.push(w);
+        continue;
+      }
+      if (w.status !== "pending") { out.push(w); continue; }
       if (deps.worktreeManager.isMaterialising?.(w.id)) continue;
       const born = Date.parse(w.createdAt ?? "");
       if (Number.isFinite(born) && Date.now() - born < WORKTREE_PENDING_GRACE_MS) continue;
@@ -390,7 +359,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       const branch = w.mode !== "branch"
         ? "merged"
         : repoPath ? await branchStatusFromRepo(repoPath, w.branchName).catch(() => "gone" as const) : "gone";
-      if (present && branch !== "gone" && deps.worktreeStore.update) {
+      if (present && branch !== "gone" && deps.worktreeStore.update && opts.repair !== false) {
         try {
           const updated = deps.worktreeStore.update(w.id, { status: "ready" });
           if (updated) deps.broadcast({ type: "worktree:updated", worktree: updated, payload_version: 1 });
@@ -403,16 +372,11 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       }
       out.push(w);
     }
-    return out.map((w) => ({
-      id: w.id, projectId: w.projectId, absPath: w.absPath, branchName: w.branchName, mode: w.mode,
-    }));
+    // Creator and birth travel with the row, or `registeredLately` reads another tool's fresh checkout as Topics' own.
+    return out.map((w) => ({ id: w.id, projectId: w.projectId, absPath: w.absPath, branchName: w.branchName, mode: w.mode, source: w.source, createdAt: w.createdAt }));
   }
 
-  // `null` quando la passata e' fallita: il `catch` in fondo la trasforma in
-  // un esito invece che in un rifiuto, e chi la lancia da un timer non deve
-  // gestire una promessa rifiutata.
-  async function sweepOnce(): Promise<WorktreeGcSummary | null> {
-    /**
+  /**
      * QUALCOSA STA GIRANDO LÀ DENTRO?
      *
      * Estratta perché adesso la usano in due (`slim` e `commitResidue`) e la
@@ -450,57 +414,131 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       return res.ok;
     };
 
+  /** The task bound to a worktree row: worktree -> topic -> task. */
+  const resolveTaskOf = (worktreeId: string): { taskId: string; status: GcTaskStatus; archived: boolean } | { taskId: null } => {
+    const topic = deps.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
+    if (!topic?.id) return { taskId: null };
+    const t = deps.db.prepare("SELECT id, status, archived FROM tasks WHERE assigned_topic_id = ? LIMIT 1").get(topic.id) as { id?: string; status?: string; archived?: number } | undefined;
+    if (!t?.id) return { taskId: null };
+    return { taskId: t.id, status: (t.status ?? "todo") as GcTaskStatus, archived: !!t.archived };
+  };
+
+  /** The roots this runner may look at: what the wiring names, else the manager's current root alone. */
+  const rootsOf = (): { root: string; extraRoots: string[] } | null => {
+    if (deps.roots) return deps.roots();
+    const root = deps.worktreeManager.worktreesDir?.();
+    return root ? { root, extraRoots: [] } : null;
+  };
+
+  /** A folder is Topics' own: under one of its roots (the setting may have moved the root, more than once). */
+  const isOurs = (absPath: string): boolean => {
+    const r = rootsOf();
+    return !r || [r.root, ...r.extraRoots].some((root) => isInsideDir(absPath, root));
+  };
+
+  /** Worktrees locked by somebody other than Topics, as of the last read of git's lists. */
+  let lockedByOthers = new Set<string>();
+
+  /** A live terminal or sub-agent has its working directory in or under this folder (as written or as git spells it). */
+  const liveCwdInside = (absPath: string): boolean => {
+    const check = (path: string): boolean => {
+      try {
+        const since = new Date(Date.now() - SUBAGENT_GRACE_MS).toISOString();
+        const kids = deps.db.prepare(
+          "SELECT cwd FROM subagents WHERE state = 'running' OR ended_at IS NULL OR ended_at > ?",
+        ).all(since) as { cwd: string }[];
+        if (anyInsideDir(kids.map((k) => k.cwd), path, platform)) return true;
+      } catch { /* table absent in old hosts: nothing to protect */ }
+      return anyInsideDir(deps.liveCwds?.() ?? [], path, platform);
+    };
+    return check(absPath) || check(canonicalPath(absPath));
+  };
+
+  /** A chat topic bound to this row is mid-turn, or spoke in the last minutes. */
+  const chatOnRow = (rowId: string): boolean => {
+    if (!deps.chatActive) return false;
     try {
-    const population = await collectPopulation();
-    return await sweepWorktrees({
+      const rows = deps.db.prepare("SELECT id FROM topics WHERE worktree_id = ?").all(rowId) as { id: string }[];
+      return rows.some((r) => deps.chatActive!(topicSessionKey(r.id)));
+    } catch { return false; }
+  };
+
+  /** The row at this path, as written or as git spells it. */
+  const rowIdAt = (absPath: string): string | null => {
+    const rows = deps.worktreeStore.list();
+    const exact = rows.find((w) => w.absPath === absPath);
+    if (exact) return exact.id;
+    const canon = canonicalPath(absPath);
+    return rows.find((w) => canonicalPath(w.absPath) === canon)?.id ?? null;
+  };
+
+  /**
+   * SOMEBODY IS INSIDE: the one answer every pass that removes or moves a folder
+   * asks (sweep, cap, foreign pass, root pass, by-hand relocation). A live
+   * terminal or sub-agent cwd, a process Topics started, a chat bound to the
+   * row that is mid-turn, or a session Topics did not start (a terminal's
+   * Claude Code, Codex, jcode).
+   */
+  const busyInside = (absPath: string, rowId: string | null = null): boolean =>
+    liveCwdInside(absPath)
+    || topicsProcessRunsIn(absPath)
+    || (rowId !== null && chatOnRow(rowId))
+    || (deps.externalActiveAt?.(absPath) ?? false);
+
+  /**
+   * Pins the branch tip under `refs/topics/archive/<task>` before a checkout is
+   * freed or abandoned (`wt-<id>` for a row with no task). False when the branch
+   * should resolve and the ref could not be written: the checkout then stays.
+   */
+  const pinBeforeFree = async (wt: { id: string; projectId: string; absPath: string; branchName: string | null; mode: string }): Promise<boolean> => {
+    if (wt.mode !== "branch" || !wt.branchName) return true;
+    const repoPath = deps.projectStore.get(wt.projectId)?.path;
+    if (!repoPath) return true;
+    // Freeing keeps the BRANCH: commits made on a HEAD that left it would go with the folder.
+    if (await headHoldsCommitsOffBranch(wt, repoPath, git)) return false;
+    if (!(await branchExistsInRepo(repoPath, wt.branchName))) return true;
+    // Already kept by an archive ref, ours or the hook's tag: nothing more to pin.
+    const tip = await git(repoPath, ["rev-parse", "--verify", `refs/heads/${wt.branchName}^{commit}`]).catch(() => null);
+    if (tip?.code === 0 && await alreadyArchived(repoPath, tip.stdout.trim(), git).catch(() => false)) return true;
+    const t = resolveTaskOf(wt.id);
+    return archiveBranchRef(repoPath, wt.branchName, t.taskId ?? `wt-${wt.id}`);
+  };
+
+  /** Counts consecutive failed passes per row; a success clears the count. */
+  const tracked = (id: string, ok: boolean): boolean => {
+    if (ok) failedPasses.delete(id);
+    else {
+      const n = (failedPasses.get(id) ?? 0) + 1;
+      failedPasses.set(id, n);
+      if (n === MAX_FAILED_PASSES) console.warn(`[worktree-gc] ${id}: ${n} passes failed in a row, left alone until the next restart`);
+    }
+    return ok;
+  };
+
+  /** The sweep's dependencies over a population, with the real effects. */
+  function sweepDeps(population: GcRow[], settings: GcSettings): SweepDeps {
+    return {
       listWorktrees: () => population,
-      resolveTask: (worktreeId) => {
-        const topic = deps.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
-        if (!topic?.id) return { taskId: null };
-        const t = deps.db.prepare("SELECT id, status, archived FROM tasks WHERE assigned_topic_id = ? LIMIT 1").get(topic.id) as { id?: string; status?: string; archived?: number } | undefined;
-        if (!t?.id) return { taskId: null };
-        return { taskId: t.id, status: (t.status ?? "todo") as GcTaskStatus, archived: !!t.archived };
-      },
+      resolveTask: resolveTaskOf,
       isBusy: (taskId) => deps.isInFlight(taskId),
       // Only the folders under Topics' own root are Topics' to judge: an
       // adopted session's checkout elsewhere is kept as is. A manager that
       // cannot name its root (tests, older hosts) judges everything, as before.
-      foreign: (w) => {
-        const root = deps.worktreeManager.worktreesDir?.();
-        return !!root && !isInsideDir(w.absPath, root);
-      },
-      liveInside: (w) => {
-        if (deps.chatActive) {
-          const rows = deps.db.prepare("SELECT id FROM topics WHERE worktree_id = ?").all(w.id) as { id: string }[];
-          if (rows.some((r) => deps.chatActive!(topicSessionKey(r.id)))) return true;
-        }
-        // A `spawn_agent` child has a worktree but no card and no terminal:
-        // keep the folder while it runs and for 24h after it ended, the window
-        // in which `send_to_agent` can still resume it.
-        try {
-          const since = new Date(Date.now() - SUBAGENT_GRACE_MS).toISOString();
-          const kids = deps.db.prepare(
-            "SELECT cwd FROM subagents WHERE state = 'running' OR ended_at IS NULL OR ended_at > ?",
-          ).all(since) as { cwd: string }[];
-          const base = w.absPath.endsWith("/") ? w.absPath : `${w.absPath}/`;
-          if (kids.some((k) => k.cwd === w.absPath || k.cwd.startsWith(base))) return true;
-        } catch { /* table absent in old hosts: nothing to protect */ }
-        const cwds = deps.liveCwds?.() ?? [];
-        if (!cwds.length) return false;
-        // The directory itself or a descendant of it: a child that did `cd
-        // server/` is still inside the worktree, and the trailing separator
-        // stops `…/foo-2` from passing as a descendant of `…/foo`.
-        const prefix = w.absPath.endsWith("/") ? w.absPath : `${w.absPath}/`;
-        return cwds.some((c) => c === w.absPath || c.startsWith(prefix));
-      },
+      foreign: (w) => !isOurs(w.absPath),
+      lockedByOthers: (w) => lockedByOthers.has(canonicalPath(w.absPath)),
+      // A `spawn_agent` child has a worktree but no card and no terminal: its
+      // folder stays while it runs and for 24h after it ended (see `liveCwdInside`).
+      liveInside: (w) => busyInside(w.absPath, w.id),
       diskPresent: (absPath) => existsSync(absPath),
       realDirt: (absPath) => worktreeDirtProbe(absPath),
-      branchStatus: (w) => {
+      branchStatus: async (w) => {
         const repoPath = deps.projectStore.get(w.projectId)?.path;
-        if (!repoPath) return Promise.resolve("gone" as const);
-        return branchStatusFromRepo(repoPath, w.branchName);
+        if (!repoPath) return "gone" as const;
+        const status = await branchStatusFromRepo(repoPath, w.branchName);
+        return status !== "unmerged" && await headHoldsCommitsOffBranch(w, repoPath, git) ? "unmerged" : status;
       },
-      abandonAfterDays: WORKTREE_ABANDON_DAYS,
+      headStatus: (w) => headStatusOfCheckout(w, deps.projectStore.get(w.projectId)?.path, git),
+      abandonAfterDays: settings.abandonDays,
       idleDays: (taskId) => idleDaysOfTask(taskId),
       // «Il ramo non c'è più» va letto insieme a QUESTO, o dice il contrario del
       // vero. Il commit di consegna si guarda per CONTENUTO (`commitStatusFromRepo`
@@ -539,6 +577,8 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
         return deps.worktreeManager.delete(wt.id, { deleteBranch: false });
       },
       abandon: async (taskId, wt, reason) => {
+        // The tip goes under the archive ref BEFORE the checkout can be lost.
+        if (!(await pinBeforeFree(wt))) return false;
         // PRIMA SI GUARDA, POI SI SCRIVE. Questa riga è quella che l'umano legge
         // per decidere se ha perso lavoro: fino al 04/08 era una formula fissa che
         // giurava «il branch è INTATTO (nessun commit perso)» senza aver mai
@@ -583,6 +623,8 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       // qui sotto: i commit restano raggiungibili dal ref, e il worktree smette di
       // occupare ~400 MB per una copia di lavoro che nessuno riaprirà.
       freeCheckout: async (worktreeId) => {
+        const row = population.find((w) => w.id === worktreeId);
+        if (row && !(await pinBeforeFree(row))) return false;
         await teardownPreviewOfWorktree(worktreeId);
         return deps.worktreeManager.delete(worktreeId, { deleteBranch: false });
       },
@@ -636,14 +678,118 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
         annuncia(taskId);
       },
       log: (msg) => console.log(msg),
-    });
+    };
+  }
+
+  /** Wraps the removing effects so a row that keeps failing is counted, then left alone (see `failedPasses`). */
+  function withFailureCount(d: SweepDeps): SweepDeps {
+    const guard = async (id: string, run: () => Promise<boolean>): Promise<boolean> => {
+      try { return tracked(id, await run()); } catch (err) { tracked(id, false); throw err; }
+    };
+    return {
+      ...d,
+      reap: (id) => guard(id, () => d.reap(id)),
+      freeCheckout: d.freeCheckout ? (id) => guard(id, () => d.freeCheckout!(id)) : undefined,
+      abandon: d.abandon ? (taskId, wt, reason) => guard(wt.id, () => d.abandon!(taskId, wt, reason)) : undefined,
+      unbind: d.unbind ? (taskId, wt, reason, landed) => guard(wt.id, () => d.unbind!(taskId, wt, reason, landed)) : undefined,
+    };
+  }
+
+  /** What the root pass needs from this host. */
+  const rootPassDeps = (): RootPassDeps => ({
+    roots: rootsOf,
+    quarantineDays: () => readSettings().quarantineDays ?? resolveWorktreeQuarantineDays(),
+    store: deps.worktreeStore,
+    projects: () => deps.projectStore.list?.() ?? [],
+    git,
+    onLocks: (locks) => { lockedByOthers = locks; },
+    abandonDays: () => readSettings().abandonDays,
+    liveInside: (absPath) => busyInside(absPath, rowIdAt(absPath)),
+    log: (msg) => console.log(msg),
+  });
+  const canScanRoot = (): boolean => (!!deps.roots || !!deps.worktreeManager.worktreesDir) && !!deps.projectStore.list && !!deps.worktreeStore.create;
+
+  // `null` when the pass failed: the `catch` below turns the failure into a result
+  // instead of a rejection, so a timer that starts a pass has nothing to handle.
+  async function sweepOnce(): Promise<GcRunSummary | null> {
+    try {
+      const settings = readSettings();
+      // The disk first: register orphans, remove ghosts, prune what git forgot.
+      const root = canScanRoot() ? await runRootPass(rootPassDeps()) : null;
+      const population = await collectPopulation();
+      const summary: GcRunSummary = await sweepWorktrees(withFailureCount(sweepDeps(population, settings)));
+      if (root) { const { plan: _plan, ...rest } = root; summary.root = rest; }
+      if (settings.gcForeign === "merged") summary.foreignRemoved = await foreignPass(passesCtx);
+      summary.capped = await enforceCap();
+      return summary;
     } catch (err) {
       console.error("[worktree-gc] sweep failed", err);
       return null;
     }
   }
+
+  /** What the extra passes (cap, foreign, preview) read from this host. */
+  const passesCtx: PassesCtx = {
+    readSettings,
+    rows: () => deps.worktreeStore.list() as GcRow[],
+    isOurs,
+    folderPresent: (absPath) => existsSync(absPath),
+    taskOf: resolveTaskOf,
+    isInFlight: (taskId) => deps.isInFlight(taskId),
+    liveInside: (absPath) => busyInside(absPath, rowIdAt(absPath)),
+    busyInside: (wt) => qualcosaVivoDentro(wt),
+    slim: (absPath) => slimWorktree(absPath, WORKTREE_SLIM_SKIP),
+    sweepOne: (wt, settings) => sweepWorktrees(withFailureCount(sweepDeps([wt], settings))),
+    previewDeps: (population, settings) => sweepDeps(population, settings),
+    population: (opts) => collectPopulation(opts),
+    rootDeps: rootPassDeps,
+    canScanRoot,
+    removeForeign: {
+      isForeign: (p) => !isOurs(p),
+      held: (w) => busyInside(w.absPath, w.id) || resolveTaskOf(w.id).taskId !== null,
+      mergedAndClean: async (w) => {
+        const repoPath = deps.projectStore.get(w.projectId)?.path;
+        if (!repoPath || !w.branchName || !existsSync(w.absPath)) return false;
+        // HEAD-aware: a row adopted on a merged branch and then detached, with
+        // commits on top, is judged by what the folder holds now.
+        if ((await headStatusOfCheckout(w, repoPath, git)) !== "merged") return false;
+        const dirt = await worktreeDirtProbe(w.absPath);
+        return dirt.ok && dirt.paths.length === 0 && dirt.unregistered !== true;
+      },
+      remove: (id) => deps.worktreeManager.delete(id, { deleteBranch: false, includeForeign: true }).then(Boolean),
+      log: (msg) => console.log(msg),
+    },
+  };
+
+  let capInFlight: Promise<number> | null = null;
+
+  /** One cap pass at a time: a burst of creates asks once, not once each. */
+  function enforceCap(projectId?: string): Promise<number> {
+    if (capInFlight) return capInFlight;
+    const run = capPass(passesCtx, projectId).catch((err) => { console.warn("[worktree-gc] cap pass failed", err); return 0; });
+    capInFlight = run;
+    void run.finally(() => { if (capInFlight === run) capInFlight = null; });
+    return run;
+  }
+
+  async function planWorktreeGc(opts: { weigh?: boolean } = {}): Promise<GcPlan | null> {
+    try {
+      return await previewPass(passesCtx, opts);
+    } catch (err) {
+      console.error("[worktree-gc] preview failed", err);
+      return null;
+    }
+  }
+
   return {
     runWorktreeGc,
+    planWorktreeGc,
+    isBusyInside: (absPath) => busyInside(absPath, rowIdAt(absPath)),
+    isTaskActive: (worktreeId) => {
+      const t = resolveTaskOf(worktreeId);
+      return t.taskId !== null && !t.archived && t.status !== "done";
+    },
+    enforceCap,
     slimWorktreeOfTask,
     intervalMs: WORKTREE_GC_INTERVAL_MS,
     // Due minuti dopo il boot: si lascia depositare il dispatch prima di

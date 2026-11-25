@@ -16,6 +16,7 @@ import { join } from "node:path";
 // `shared/types.ts` così non ce n'è una seconda copia in client/src/types.
 export type { Machine } from "../../shared/types";
 import type { Machine } from "../../shared/types";
+import type { MachineWorktreeReport } from "../../shared/worktree-summary";
 
 export class MachineInUseError extends Error {
   constructor(
@@ -63,6 +64,13 @@ export interface MachineStore {
    * flip (gone, or already offline).
    */
   markNodeOffline(id: string): Machine | null;
+  /**
+   * The read-model of a machine's worktrees (`machines.worktree_summary`, T12): what its node
+   * reported on the last probe. Written only when it changed; a schema without the column is a no-op.
+   */
+  recordWorktreeReport(id: string, report: MachineWorktreeReport): void;
+  /** The last worktree report of a machine; `null` = never reported. */
+  worktreeReport(id: string): MachineWorktreeReport | null;
   /** How many tasks still name this machine. Feeds the MACHINE-01 conflict. */
   countTasks(id: string): number;
   delete(id: string): boolean;
@@ -141,6 +149,24 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
 
   // Models a node reported: volatile on purpose, the next probe (30 s) refills it.
   const reportedModels = new Map<string, string[]>();
+
+  // Prepared on first use: a database older than the column answers null instead of failing the store.
+  let reportStatements: { get: ReturnType<Database["prepare"]>; set: ReturnType<Database["prepare"]> } | null = null;
+  const reports = () => (reportStatements ??= {
+    get: db.prepare(`SELECT worktree_summary FROM machines WHERE id = ?`),
+    set: db.prepare(`UPDATE machines SET worktree_summary = ? WHERE id = ?`),
+  });
+
+  function worktreeReport(id: string): MachineWorktreeReport | null {
+    try {
+      const raw = (reports().get.get(id) as { worktree_summary: string | null } | null)?.worktree_summary;
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as MachineWorktreeReport;
+      return typeof parsed?.supported === "boolean" ? { supported: parsed.supported, summary: parsed.summary ?? null } : null;
+    } catch {
+      return null;
+    }
+  }
 
   function rowToMachine(row: any): Machine {
     let warnings: Record<string, string> = {};
@@ -251,6 +277,14 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       const row = stmts.getById.get(id);
       return row ? rowToMachine(row) : null;
     },
+    recordWorktreeReport(id, report) {
+      try {
+        const next = JSON.stringify({ supported: report.supported, summary: report.summary });
+        const prev = (reports().get.get(id) as { worktree_summary: string | null } | null)?.worktree_summary ?? null;
+        if (prev !== next) reports().set.run(next, id);
+      } catch { /* schema older than the column: nothing to keep it in */ }
+    },
+    worktreeReport,
     countTasks(id) {
       return (stmts.countTasks.get(id) as { n: number } | null)?.n ?? 0;
     },

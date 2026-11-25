@@ -17,9 +17,9 @@
  * skips), or an unregistered leftover that the next discard of the same path
  * removes.
  */
-import { readdirSync, renameSync } from "node:fs";
+import { readFileSync, readdirSync, renameSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 export type DiscardGit = (cwd: string, args: string[]) => Promise<{ code: number }>;
 
@@ -71,4 +71,23 @@ function asideCopiesOf(path: string): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * The repository a linked worktree belongs to, read from its `.git` file
+ * (`gitdir: <common dir>/worktrees/<name>`). Null when the file is gone or does
+ * not describe a linked worktree: then no git command is run for it, only the
+ * folder goes, and its registration (prunable) goes with the next discard in
+ * that repository. Such a folder was what the macOS $TMPDIR cleaner made of a
+ * checkout left unread for three days.
+ */
+export function worktreeRepoOf(dir: string): string | null {
+  let text: string;
+  try { text = readFileSync(join(dir, ".git"), "utf8"); } catch { return null; }
+  const line = /^gitdir:\s*(.+)$/m.exec(text)?.[1]?.trim();
+  if (!line) return null;
+  const adminDir = resolve(dir, line);
+  if (basename(dirname(adminDir)) !== "worktrees") return null;
+  const common = dirname(dirname(adminDir));
+  return basename(common) === ".git" ? dirname(common) : common;
 }

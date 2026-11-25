@@ -12,7 +12,7 @@
  */
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, Plug } from 'lucide-react';
+import { CalendarDays, GitBranch, Plug } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { FormPanelFrame, type Glyph } from '../Sidebar/FormLevel';
 import { LevelCloseContext } from '../Shared/levelClose';
@@ -39,6 +39,11 @@ const CalendarSection = lazy(async () => {
   return { default: Body };
 });
 
+const WorktreesSection = lazy(async () => {
+  const { WorktreesSection: Body } = await import('./WorktreesSection');
+  return { default: Body };
+});
+
 /** Wide enough for an API key with its button. */
 const PANEL_WIDTH = 420;
 
@@ -54,6 +59,7 @@ const CENTERED_TOP = '12vh';
 const PANELS: Record<Exclude<PanelHome, 'providers'>, { icon: Glyph; label: string; body: () => React.ReactNode }> = {
   tools: { icon: Plug, label: 'home.tools', body: () => <ToolsSection /> },
   calendar: { icon: CalendarDays, label: 'home.calendar', body: () => <CalendarSection /> },
+  worktrees: { icon: GitBranch, label: 'home.worktrees', body: () => <WorktreesSection /> },
 };
 
 export interface HomeRequest {

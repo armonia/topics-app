@@ -219,8 +219,10 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
     // version chip fetches this so a post-bump build no longer needs the
     // build-watch kickstart to stop showing the old number. no-store so no
     // layer (WKWebView HTTP cache included) serves a stale version.
+    // `worktreeStandard: 1` tells a primary this server speaks the worktree routes
+    // (`routes/nodes-worktrees.ts`); a node without it is skipped, never asked.
     if (method === "GET" && pathname === "/api/version") {
-      return new Response(JSON.stringify({ version: readAppVersion() }), {
+      return new Response(JSON.stringify({ version: readAppVersion(), worktreeStandard: 1 }), {
         headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
     }

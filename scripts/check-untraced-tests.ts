@@ -35,7 +35,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const ROOT = join(import.meta.dir, "..");
+// `UNTRACED_TESTS_ROOT` exists ONLY for `check-spec-coverage.test.ts`, which points the gate at a
+// throwaway git repository to prove what counts as a declaration. Unset in every real run.
+const ROOT = process.env.UNTRACED_TESTS_ROOT ?? join(import.meta.dir, "..");
 const BASELINE = join(ROOT, "scripts", "untraced-tests-baseline.json");
 
 /**
@@ -49,6 +51,7 @@ const BASELINE = join(ROOT, "scripts", "untraced-tests-baseline.json");
  * because neither gate is red. Measured on 2026-08-26: nine such annotations across five files.
  *
  * The two regexes must keep reading the same vocabulary. If one changes, the other changes.
+ * `@covers A+B` (a joint group, spec-flow D19) is a declaration: the prefix `@covers A` matches.
  */
 const DECLARES = /@covers\s+[A-Z][A-Z0-9-]*-\d+|type:\s*["']spec["']\s*,\s*description:\s*["'`][^"'`]*\b[A-Z][A-Z0-9-]*-\d+/;
 

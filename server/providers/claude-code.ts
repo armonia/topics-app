@@ -32,7 +32,7 @@ import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker
 import { parseCompactBoundary } from "./claude/compaction";
 import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark } from "./claude/row-turn";
 import { buildClaudeArgs, resolveToolTrim } from "./claude/args";
-import { delegationHookPath, hookScriptPath } from "../lib/topics-hook-script";
+import { delegationHookPath, hookScriptPath, sessionWorktreeHookPath } from "../lib/topics-hook-script";
 import { nativeSubagentToolPolicy } from "../lib/subagent-tool-policy";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota } from "../services/agent-job-quota";
@@ -1660,6 +1660,9 @@ export class ClaudeCodeProvider implements AIProvider {
       // file: phase, tool label and foreground command list for EVERY session
       // launched from here, and for no other.
       hooksScriptPath: hookScriptPath(),
+      // Where a worktree of this session is born: under the worktree root, marked
+      // and registered (`claude_worktree_hooks`, default on).
+      worktreeHooksScriptPath: sessionWorktreeHookPath(),
       // The nudge toward spawn_agent after a long run of inline calls (the
       // policy itself rides `appendSystemPrompt`). `TOPICS_DELEGATION_NUDGE=off`
       // turns it off without a release.

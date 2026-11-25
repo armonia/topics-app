@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.101",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Disk budget: fix deadcode-prod/untraced-tests gates, make legacy transcript readers gz-aware",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.100",
     "date": "2026-11-25",
     "sections": {
@@ -181,6 +197,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Le anteprime accanto al bordo sfumato si caricano da sole: Chromium perde la distanza di caricamento pigro sotto la maschera della riga, e la card saltava di altezza al primo swipe (board-preview-cap rosso 4 su 4)",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -201,10 +222,32 @@
       "perf": [],
       "internal": [
         {
+          "it": "table view, bare empty columns, one column per project, scroll edges",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the detail slider follows a drag (mouse, pen, finger)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Rossi della CI: celle contate dopo il resize, due any arrivati da main",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "name the requirement the keyed listener registry test covers",
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Rossi ereditati da main: requisito del registro di ascolto, parole fuori dizionario",
+          "en": "",
+          "scope": null
         },
         {
           "it": "keep the live AI bridge out of the suite",
@@ -736,10 +779,20 @@
           "scope": null
         },
         {
+          "it": "Compress aging agent transcripts; opt-in media expiry (debt G5)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "disk-budget-check e' un ingresso di produzione (job launchd notturno), non uno script di sviluppo",
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Fix new Italian comment lines flagged by check:comment-language",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Codice morto in produzione di nuovo a 596: il budget disco gira da launchd",
