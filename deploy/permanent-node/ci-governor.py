@@ -248,13 +248,24 @@ def selftest():
         d2 = tempfile.mkdtemp(); os.makedirs(d2 + "/_diag"); lg = d2 + "/_diag/Runner_x.log"
         open(lg, "w").write("x"); os.utime(lg, (time.time() - 60,) * 2)
         state = lambda p: open(f"/proc/{p}/stat").read().rsplit(")", 1)[1].split()[0]
+
+        def wait_state(pid, target, timeout=2.0):
+            # SIGSTOP/SIGCONT are delivered when the scheduler gets to it, not synchronously:
+            # a fixed sleep flakes on a loaded runner (25/11, gates-2 red on an unrelated PR).
+            deadline = time.time() + timeout
+            s = state(pid)
+            while s != target and time.time() < deadline:
+                time.sleep(0.05)
+                s = state(pid)
+            return s
+
         a = subprocess.Popen(["sleep", "60"], cwd=d2); b = subprocess.Popen(["sleep", "60"], cwd=d2)
         try:
             time.sleep(0.2)
-            assert freeze(a.pid) is True and state(a.pid) == "T", "log fermo da 60 s: resta congelato"
+            assert freeze(a.pid) is True and wait_state(a.pid, "T") == "T", "log fermo da 60 s: resta congelato"
             os.kill(a.pid, signal.SIGCONT)
             assert freeze(b.pid, between=lambda: os.utime(lg, None)) is False, "ha scritto nel log mentre lo si fermava"
-            time.sleep(0.1)
+            time.sleep(0.3)
             assert state(b.pid) != "T", "Listener rimasto congelato con un job appena arrivato"
         finally:
             for p in (a, b):
