@@ -111,7 +111,7 @@ export function createTopicsRouter(
      */
     paneWaitMs?: number;
     stopTopicProcesses?: (topicId: string) => void;
-    /** Starts the live preview of a chat that works in its own worktree (the "Anteprima" button). */
+    /** Starts the live preview of a chat that works in its own worktree (the chat preview button). */
     ensureChatPreview?: (topicId: string) => Promise<void>;
   } = {},
 ): RouteHandler {

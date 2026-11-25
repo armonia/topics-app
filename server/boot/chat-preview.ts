@@ -3,7 +3,7 @@ import { late } from "./late";
 import { chatSourceId } from "../services/preview-manager";
 import { stopTopicCommandProcesses } from "../routes/processes";
 
-/** The "Anteprima" button: same flow as the end-of-turn start, minus the interface-files gate. */
+/** The chat preview button: same flow as the end-of-turn start, minus the interface-files gate. */
 export function ensureChatPreview(topicId: string): Promise<void> {
   return late.previewManager?.ensureForChat(topicId) ?? Promise.resolve();
 }
