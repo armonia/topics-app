@@ -2,6 +2,8 @@
  * A sub-agent that stops its parent's service and relaunches it without a wake
  * is replacing it: the relaunch is owned by the parent, so archiving the child
  * at the end of its turn does not stop the service.
+ *
+ * @covers PROCESS-13
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
