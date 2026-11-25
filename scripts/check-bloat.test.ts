@@ -231,7 +231,7 @@ function recorded(sizes: Record<string, number>, notes?: Record<string, string[]
   for (const [path, n] of Object.entries(sizes)) files[path] = longFile(n, path.replace(/\W/g, "_"));
   // A note is written by hand into the entry; the writer then reformats it.
   const entries = Object.fromEntries(Object.entries(notes ?? {}).map(([path, why]) => [path, { lines: sizes[path], why }]));
-  files["scripts/bloat-baseline.json"] = JSON.stringify({ ...JSON.parse(BASELINE({}, 0)), files: entries });
+  files["scripts/bloat-baseline.json"] = JSON.stringify({ ...JSON.parse(BASELINE({}, 0)), files: entries, exceptions: Object.fromEntries(Object.keys(sizes).map((path) => [path, { why: "test fixture", expires: "2999-01-01" }])) });
   const dir = repo(files);
   expect(run(dir, "--update-baseline").code).toBe(0);
   return readFileSync(join(dir, "scripts/bloat-baseline.json"), "utf-8");
