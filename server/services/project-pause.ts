@@ -128,7 +128,7 @@ function upsert(db: Database, projectId: string, patch: Partial<Omit<ProjectQuot
   );
 }
 
-/** The project's chosen limit, written from its menu. `null` = "None" (no limit). */
+/** @internal The project's chosen limit, written from its menu. `null` = "None" (no limit). */
 export function setProjectLimit(db: Database, projectId: string, limit24hPct: number | null): void {
   upsert(db, projectId, { limit24hPct });
 }

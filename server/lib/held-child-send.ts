@@ -46,5 +46,5 @@ export function holdChildSend(
   });
 }
 
-/** Test seam. */
+/** @internal Test seam. */
 export function resetHeldChildSendsForTests(): void { pending.clear(); }

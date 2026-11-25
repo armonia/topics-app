@@ -860,7 +860,7 @@ export interface TaskService {
   getSpendCaps(): { perTaskCents: number; perDayCents: number };
   /** Write the caps (a PERSON does this, from the settings). Zero clears one. */
   setSpendCaps(patch: { perTaskCents?: number; perDayCents?: number }): { perTaskCents: number; perDayCents: number };
-  /** limiti-consumo-progetto (USAGE-29): one indexed row read, fail-open, never a quota recomputation on the dispatcher's tick. */
+  /** Whether the project is paused by its quota brake (USAGE-29): one indexed row read, fail-open, never a recomputation on the dispatcher tick. */
   projectPaused(projectId: string | null): boolean;
   /**
    * HOW MUCH FREE MEMORY A NEW CHECK COMMAND NEEDS, in whole GB, from the same

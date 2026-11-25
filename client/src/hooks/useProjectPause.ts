@@ -61,7 +61,7 @@ export function getProjectPause(projectId: string): ProjectPause {
   return pauses.get(projectId) ?? IDLE;
 }
 
-/** Test seam: forgets everything. */
+/** @internal Test seam: forgets everything. */
 export function resetProjectPauses(): void {
   pauses = new Map();
   watched.clear();

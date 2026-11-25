@@ -63,6 +63,7 @@ export function holdUntilResumed(projectId: string, key: string, run: () => void
   m.set(key, run);
 }
 
+/** @internal Test seam: how many turns wait for "Continua". */
 export function heldCount(projectId: string): number { return held.get(projectId)?.size ?? 0; }
 
 /** Runs and clears everything parked for the project. A thunk that throws does not stop the others. */
@@ -87,5 +88,5 @@ export function fireProjectResumed(projectId: string): void {
   for (const cb of resumeListeners) { try { cb(projectId); } catch { /* best-effort */ } }
 }
 
-/** Test seam. */
+/** @internal Test seam. */
 export function resetHeldForTests(): void { held.clear(); resumeListeners.clear(); }

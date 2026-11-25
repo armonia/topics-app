@@ -22,7 +22,7 @@ import { projectIsPaused, reconcilePause } from "./project-pause";
  */
 const pointsAtOpen = new Map<string, number>();
 
-/** Test seam. */
+/** @internal Test seam. */
 export function resetPausePointsForTests(): void { pointsAtOpen.clear(); }
 
 export interface ProjectQuotaSweepDeps {
