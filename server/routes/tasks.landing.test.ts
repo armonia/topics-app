@@ -263,9 +263,36 @@ describe("approve decoupled from landing", () => {
     // Il land gira staccato dalla risposta: si aspetta che la catena dreni.
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(seen).toEqual([{ branch: "topics/consegnato", commit: "bdfcf0cb" }]);
+    expect(seen.map(({ branch, commit }) => ({ branch, commit }))).toEqual([{ branch: "topics/consegnato", commit: "bdfcf0cb" }]);
     const said = db.prepare("SELECT content FROM task_comments WHERE task_id = ?").all(t.id) as Array<{ content: string }>;
     expect(said.some((c) => c.content.includes("Land ≠ consegna") && c.content.includes("DOPO la consegna"))).toBe(true);
+  });
+
+  test("land: a delivery with null checks does not merge on a board that declares a bar, a measured one does", async () => {
+    const hooks: Array<(sha: string) => Promise<string | null>> = [];
+    const am = {
+      tryMerge: async (_id: string, _t: string, delivery: any) => {
+        hooks.push(delivery.beforeMerge);
+        return { status: "skipped", code: "auto-land-stopped", reason: "stopped" };
+      },
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const ctx = makeCtx(db, broadcasts);
+    const r2 = createTasksRouter(ctx, undefined, { autoMerge: am });
+    db.run("INSERT INTO topics (id) VALUES ('top-4')");
+    db.run("INSERT OR REPLACE INTO board_settings (project_id, review_checks) VALUES ('pX', ?)",
+      [JSON.stringify([{ name: "gates", cmd: "true" }])]);
+    const ids: string[] = [];
+    for (const state of [null, "pass"]) {
+      const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: "card " + String(state) }))!.json();
+      db.prepare("UPDATE tasks SET assigned_topic_id='top-4', status='review', delivery_branch='topics/y', delivery_commit='bdfcf0cb', checks_state=? WHERE id = ?").run(state, t.id);
+      ids.push(t.id);
+      await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(hooks).toHaveLength(2);
+    expect(await hooks[0]!("bdfcf0cb")).toContain("checks nullo");
+    expect(await hooks[1]!("bdfcf0cb")).toBeNull();
   });
 
   test("land: with main red the merge hook refuses, but the repair card (main-ci-red:) goes through", async () => {
