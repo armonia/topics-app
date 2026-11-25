@@ -135,7 +135,7 @@ async function seedDensityGrid(
     ignoreHTTPSErrors: true,
   });
 
-  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
   const hostGroupId = `density-host-${STAMP}`;
   const mainGroupId = `density-main-${STAMP}`;
   await page.evaluate(({ layoutKey, panesKey, layout, tabState }) => {

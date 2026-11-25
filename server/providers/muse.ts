@@ -17,8 +17,7 @@
  *     in 35 events), so turns report duration only.
  */
 
-import { childExited } from "./child-exit";
-import { KILL_GRACE_MS, abortTurn, isChildAlive, spawnCollected, waitForPreviousTurn, type SendTicket } from "./exec-turn";
+import { KILL_GRACE_MS, abortTurn, stopAllChildren, isChildAlive, spawnCollected, waitForPreviousTurn, type SendTicket } from "./exec-turn";
 import { spawn, type ChildProcess } from "child_process";
 import { createInterface } from "readline";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
@@ -336,15 +335,9 @@ export class MuseProvider implements AIProvider {
 
   stop(): Promise<void> {
     this.started = false;
-    const exits: Promise<void>[] = [];
-    for (const [, child] of this.activeChildren) {
-      try { child.kill("SIGTERM"); } catch { /* best-effort: the child may already have exited */ }
-      setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* best-effort: the child may already have exited */ } }, KILL_GRACE_MS);
-      exits.push(childExited(child, KILL_GRACE_MS + 500));
-    }
-    this.activeChildren.clear();
+    const exited = stopAllChildren(this.activeChildren);
     console.log("[muse] Provider stopped");
-    return Promise.all(exits).then(() => undefined);
+    return exited;
   }
 
   /**
