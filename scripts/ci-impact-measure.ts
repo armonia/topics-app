@@ -112,8 +112,13 @@ function noise(run: Run, red: Red): string | null {
     const o = byId.get(id)!;
     if (id !== run.databaseId && Math.abs(Date.parse(o.createdAt) - t) <= WINDOW_MS && other.some((x) => x.file === red.file)) return `red on another main run, ${link(o)}`;
   }
-  const same = gh<Run[]>(["run", "list", "--workflow", "CI", "--commit", run.headSha, "--json", "databaseId,event,headSha,headBranch,createdAt,conclusion"]);
-  const green = same.find((s) => s.databaseId !== run.databaseId && (s as Run & { conclusion?: string }).conclusion === "success");
+  let same: Array<Run & { conclusion?: string }> = [];
+  try {
+    same = gh<Array<Run & { conclusion?: string }>>(["run", "list", "--workflow", "CI", "--commit", run.headSha, "--json", "databaseId,event,headSha,headBranch,createdAt,conclusion"]);
+  } catch {
+    /* an unreadable list is no proof: the red stays unproven */
+  }
+  const green = same.find((s) => s.databaseId !== run.databaseId && s.conclusion === "success");
   return green ? `green on a rerun of the same commit, ${link(green)}` : null;
 }
 
