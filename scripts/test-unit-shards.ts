@@ -171,6 +171,15 @@ export const SERIAL_GLOBS = [
   // the watchdog answered at 2083 ms), green on the same tests before the
   // rebase (run 40022305558): the window follows the load of the box.
   "tests/integration/late-scan-past-cap.test.ts",
+  // Spawns `tsc`/`eslint` and waits on their own CPU-bound deadline: five
+  // consecutive pre-review rounds red on commit 027037c9 (11/11/2026),
+  // green standalone every time. CPU contention from the other shards, not
+  // the code under review.
+  "relay/gate-coverage.test.ts",
+  // A real SSE drain against a hardcoded 10 s cap inside a 30 s test timeout,
+  // neither scaled by `TOPICS_TEST_TIME_SLACK`: same five-red streak as
+  // gate-coverage above, same commit, same fix.
+  "tests/integration/native-shutdown-notice.test.ts",
 ] as const;
 
 const TEST_GLOBS = ["**/*.test.ts", "**/*.test.tsx"] as const;

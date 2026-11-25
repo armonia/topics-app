@@ -29,9 +29,7 @@
 //   • On any non-zero merge we `merge --abort`, so main is never left mid-conflict.
 //   • Serialized per repo path, so two approvals on the same project can't race.
 
-import { tmpdir } from "os";
 import { join } from "path";
-import { createHash } from "crypto";
 import { existsSync } from "fs";
 import { worktreeRegistrationLost } from "./worktree-registration";
 import { carriedBranch, isPlainBranchName, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
@@ -41,6 +39,7 @@ import { lastLook } from "./landing-last-look";
 import { branchContentIsOnMain, branchContentWasOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
 import { resolveLandingBase } from "./worktree-base-ref";
+import { scratchDir, scratchId } from "./worktree-scratch";
 import { runGit } from "../lib/run-git";
 import { discardWorktree } from "../lib/worktree-discard";
 import { neutralizeRefusedMergeMessage } from "./land-prepush-message";
@@ -751,7 +750,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       if (!Number.isFinite(behind) || behind <= 0) return null;
 
       const live = await branchWorktree();
-      const wtPath = live ?? join(tmpdir(), "topics-realign", createHash("sha1").update(`${repoPath}\n${target.branch}`).digest("hex").slice(0, 16));
+      const wtPath = live ?? join(scratchDir("realign"), scratchId(repoPath, target.branch));
       if (live) {
         const dirt = await worktreeRealDirt(live, runGit);
         if (dirt.length > 0) {
@@ -1567,7 +1566,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // throwaway worktree pinned to main: the shared `main` ref advances, the dev
         // branch is untouched, nobody's branch has to move. The landing is on main
         // but NOT running yet (the live server serves `cur`) → landedNotLive.
-        const wtPath = join(tmpdir(), "topics-land", createHash("sha1").update(repoPath).digest("hex").slice(0, 16));
+        const wtPath = join(scratchDir("land"), scratchId(repoPath));
         // Clear any leftover from a previous crashed land before re-adding.
         await discardWorktree(runGit, repoPath, wtPath);
         const add = await runGit(repoPath, ["worktree", "add", wtPath, defaultBranch]);

@@ -91,6 +91,12 @@ export async function mainRedStop(port: MainCiPort, nowMs: number = Date.now()):
   return null;
 }
 
+/** The model every red-main card runs on: the repair is a recipe, not research. */
+export const MAIN_RED_MODEL = "claude-sonnet-5-5";
+
+/** The run id at the end of a GitHub run URL, or a placeholder when the URL has none. */
+const runId = (url: string): string => /\/runs\/(\d+)/.exec(url)?.[1] ?? "<id>";
+
 /** The failing jobs and the run, as the card reads them. */
 export function describeMainRed(c: MainCiCommit, v: MainCiVerdict): string {
   return [
@@ -98,7 +104,10 @@ export function describeMainRed(c: MainCiCommit, v: MainCiVerdict): string {
     v.failed.length ? `Job rossi: ${v.failed.map((n) => `\`${n}\``).join(", ")}.` : "Nessun job rosso nominato: apri il run.",
     v.url ? `Run: ${v.url}` : "",
     "Nessuna card atterrata ha questo commit sotto la sua misura: è arrivato su main da una chat o a mano. " +
-      "Leggi il log del job rosso (`gh run view <id> --log-failed`), ripara IN AVANTI con un commit nuovo su main (niente revert, niente force), " +
+      "Ricetta fissa, parti da qui senza esplorare: " +
+      "1) `git fetch origin main` e `git merge --ff-only origin/main` nel tuo worktree; " +
+      (v.url ? `2) il log del run rosso: \`gh run view ${runId(v.url)} --log-failed\`; ` : "2) il log del run rosso: `gh run view <id> --log-failed`; ") +
+      "3) ripara IN AVANTI con un commit nuovo su main (niente revert, niente force), " +
       "consegna e la card si chiude con la CI verde.",
   ].filter(Boolean).join("\n\n");
 }

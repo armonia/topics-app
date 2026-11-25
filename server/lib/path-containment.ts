@@ -22,17 +22,28 @@
  * impeccable. Resolving touches the disk, deciding does not, and the decision
  * is the part worth testing.
  */
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { posix, win32 } from "node:path";
 
-/** A path is inside a directory (or is the directory itself)? */
-export function isInsideDir(candidate: string, dir: string): boolean {
-  const child = resolve(candidate);
-  const root = resolve(dir);
+/**
+ * A path is inside a directory (or is the directory itself)? `platform` picks the
+ * path rules (separator, drive letters, case on Windows) so the Windows answer is
+ * testable on any machine; it defaults to the one the server runs on.
+ */
+export function isInsideDir(candidate: string, dir: string, platform: NodeJS.Platform = process.platform): boolean {
+  const P = platform === "win32" ? win32 : posix;
+  const child = P.resolve(candidate);
+  const root = P.resolve(dir);
   if (child === root) return true;
-  const rel = relative(root, child);
-  // Empty means "same path" (already handled); an absolute result means the two
-  // live on different volumes, which on Windows is the honest answer to
-  // `relative("C:\\a", "D:\\b")` and is NOT containment.
-  if (!rel || isAbsolute(rel)) return false;
-  return rel !== ".." && !rel.startsWith(".." + sep);
+  const rel = P.relative(root, child);
+  // Empty means "same path" (on Windows also when only the case differs); an
+  // absolute result means the two live on different volumes, which on Windows is
+  // the honest answer to `relative("C:\\a", "D:\\b")` and is NOT containment.
+  if (rel === "") return true;
+  if (P.isAbsolute(rel)) return false;
+  return rel !== ".." && !rel.startsWith(".." + P.sep);
+}
+
+/** Any of these paths (working directories, script folders) is in or under `dir`. */
+export function anyInsideDir(paths: readonly string[], dir: string, platform: NodeJS.Platform = process.platform): boolean {
+  return paths.some((p) => !!p && isInsideDir(p, dir, platform));
 }

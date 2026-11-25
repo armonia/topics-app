@@ -2,10 +2,11 @@
  * The birth of a sub-agent's own checkout, with a fake manager and a fake store:
  * base ref from `main`, a wait that must end in `ready`, and the project
  * resolved from a directory that may itself be a worktree.
- * @covers WORKTREE-14, WORKTREE-08
+ * @covers WORKTREE-14, WORKTREE-08, WORKTREE-STD-04
  */
 import { describe, expect, test } from "bun:test";
-import { createAgentWorktree, resolveAgentProject, type AgentWorktreeDeps } from "./worktree-for-agent";
+import { Database } from "bun:sqlite";
+import { cargoTargetDir, cargoTargetEnv, createAgentWorktree, resolveAgentProject, worktreeCargoEnv, type AgentWorktreeDeps } from "./worktree-for-agent";
 
 function fakeDeps(over: Partial<AgentWorktreeDeps> = {}) {
   const calls: { create: unknown[]; awaited: unknown[]; warned: string[] } = { create: [], awaited: [], warned: [] };
@@ -87,5 +88,50 @@ describe("resolveAgentProject", () => {
     expect(out.ok).toBe(false);
     if (out.ok) throw new Error("expected a refusal");
     expect(out.refusal).toBeTruthy();
+  });
+});
+
+describe("CARGO_TARGET_DIR: one Rust build directory per project", () => {
+  test("shared mode points every worktree of a project at {root}/_cache/cargo/{slug}", () => {
+    expect(cargoTargetDir("/wt", "acme")).toBe("/wt/_cache/cargo/acme");
+    expect(cargoTargetEnv({ mode: "shared", root: "/wt", slug: "acme" })).toEqual({ CARGO_TARGET_DIR: "/wt/_cache/cargo/acme" });
+  });
+
+  test("per-worktree mode leaves cargo alone, and so does a project with no usable slug", () => {
+    expect(cargoTargetEnv({ mode: "per-worktree", root: "/wt", slug: "acme" })).toEqual({});
+    expect(cargoTargetEnv({ mode: "shared", root: "/wt", slug: "" })).toEqual({});
+    expect(cargoTargetEnv({ mode: "shared", root: "/wt", slug: "../.." })).toEqual({});
+  });
+
+  test("a slug cannot climb out of the cache folder", () => {
+    expect(cargoTargetDir("/wt", "a/../b")).toBe("/wt/_cache/cargo/a-..-b");
+  });
+
+  function dbWith(absPath: string): Database {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE projects (id TEXT PRIMARY KEY, slug TEXT)");
+    db.run("CREATE TABLE worktrees (id TEXT PRIMARY KEY, project_id TEXT, abs_path TEXT)");
+    db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, session_key TEXT, worktree_id TEXT)");
+    db.run("INSERT INTO projects VALUES ('p1', 'acme')");
+    db.run("INSERT INTO worktrees VALUES ('w1', 'p1', ?)", [absPath]);
+    db.run("INSERT INTO topics VALUES ('t1', 'topic:t1', 'w1')");
+    return db;
+  }
+  const opts = { mode: "shared" as const, root: "/wt", defaultRoot: "/wt-default" };
+
+  test("the agent of a Topics worktree gets the variable, read from its topic", () => {
+    expect(worktreeCargoEnv(dbWith("/wt/acme/kind-tower"), "topic:t1", opts)).toEqual({ CARGO_TARGET_DIR: "/wt/_cache/cargo/acme" });
+    // A checkout still under the default root after the setting moved the root is ours too.
+    expect(worktreeCargoEnv(dbWith("/wt-default/acme/old"), "topic:t1", opts)).toEqual({ CARGO_TARGET_DIR: "/wt/_cache/cargo/acme" });
+  });
+
+  test("an adopted worktree of another tool, a chat with no worktree and a broken database get nothing", () => {
+    expect(worktreeCargoEnv(dbWith("/home/someone/.claude/worktrees/x"), "topic:t1", opts)).toEqual({});
+    expect(worktreeCargoEnv(dbWith("/wt/acme/kind-tower"), "topic:other", opts)).toEqual({});
+    expect(worktreeCargoEnv(new Database(":memory:"), "topic:t1", opts)).toEqual({});
+  });
+
+  test("per-worktree mode in the settings turns the injection off", () => {
+    expect(worktreeCargoEnv(dbWith("/wt/acme/kind-tower"), "topic:t1", { ...opts, mode: "per-worktree" })).toEqual({});
   });
 });

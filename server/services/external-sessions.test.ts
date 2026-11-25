@@ -1,9 +1,13 @@
 /**
  * @covers KANBAN-20
+ * @covers WORKTREE-STD-15
  */
 import { describe, test, expect } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createExternalSessionsService } from "./external-sessions";
-import type { ExternalClaudeSession } from "../lib/external-claude-sessions";
+import { scanExternalClaudeSessions, type ExternalClaudeSession } from "../lib/external-claude-sessions";
 
 const NOW = 1_700_000_000_000;
 
@@ -99,5 +103,33 @@ describe("external sessions service", () => {
     expect(h.svc.list()).toHaveLength(1);
     expect(h.svc.list().filter((item) => item.state === "active")).toHaveLength(0);
     expect(h.scans()).toBe(2);
+  });
+
+  test("activeInside sees a terminal session working inside a Topics worktree; activeAt keeps calling it Topics' own", () => {
+    const base = mkdtempSync(join(tmpdir(), "ext-inside-"));
+    try {
+      const root = join(base, "worktrees");
+      const inRoot = join(root, "proj", "my-worktree");
+      const projectsDir = join(base, "claude-projects");
+      mkdirSync(inRoot, { recursive: true });
+      for (const id of ["term-in-root", "agent-of-topics"]) {
+        mkdirSync(join(projectsDir, id), { recursive: true });
+        const line = { type: "user", sessionId: id, cwd: inRoot, timestamp: new Date().toISOString(), message: { role: "user", content: "hi" } };
+        writeFileSync(join(projectsDir, id, `${id}.jsonl`), JSON.stringify(line) + "\n");
+      }
+      const svc = createExternalSessionsService({
+        knownSessionIds: () => ["agent-of-topics"],
+        candidatePaths: () => [],
+        projectIdFor: (p) => `p:${p}`,
+        projectsDir,
+        worktreeRoot: root,
+        scan: scanExternalClaudeSessions,
+      });
+      // The roster still decides: Topics' own agent is never an external holder.
+      expect(svc.activeInside(inRoot).map((s) => s.sessionId)).toEqual(["term-in-root"]);
+      expect(svc.activeAt(inRoot)).toEqual([]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
