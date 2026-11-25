@@ -1,3 +1,6 @@
+/**
+ * @covers BROWSER-LOGIN-01
+ */
 import { describe, expect, it } from "bun:test";
 import { hasLeftLogin, looksLikeLogin, waitForLoginExit } from "./login-wait";
 

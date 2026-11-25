@@ -40,8 +40,7 @@
  *
  * Il comportamento è una mossa verbatim: cambia solo l'involucro di dispatch.
  */
-import { recordHistoryRow } from "../attention/store";
-import { loginNoticeInput } from "../mcp/login-notice";
+import { announceLoginRequest } from "./browser-login-request";
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
@@ -650,9 +649,7 @@ export function createBrowserBridgeRouter(
           // otherwise make getOrCreateContext upsert a phantom headless context.
           const live = collectLiveContextIds(buildTabDeps(browserService));
           if (!live.has(override)) {
-            return json({
-              error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.`,
-            }, 404);
+            return json({ error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.` }, 404);
           }
           contextId = override;
         } else {
@@ -781,9 +778,7 @@ export function createBrowserBridgeRouter(
         if (override) {
           const live = collectLiveContextIds(buildTabDeps(browserService));
           if (!live.has(override)) {
-            return json({
-              error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.`,
-            }, 404);
+            return json({ error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.` }, 404);
           }
           ctxId = override;
         } else {
@@ -792,20 +787,7 @@ export function createBrowserBridgeRouter(
           ctxId = target.contextId;
         }
         const mounted = await focusPaneFlow(ctxId);
-        // A login wall: the person has to type credentials the agent never
-        // handles, so the focus also asks the window to take the screen
-        // (raised, optionally detached) and to say why.
-        if (body?.loginRequest === true) {
-          const topicId = byTopic?.id ?? (bySession ? getTopicBySessionKey(decodeURIComponent(bySession.sessionKey))?.id : undefined);
-          broadcastToAll({
-            type: "browser:login-request",
-            contextId: ctxId,
-            url: browserService.getUrl(ctxId)?.url ?? "",
-            detached: body.detached === true,
-            ...(topicId ? { topicId } : {}),
-          });
-          recordHistoryRow(loginNoticeInput({ contextId: ctxId, url: browserService.getUrl(ctxId)?.url ?? "", topicId }));
-        }
+        if (body?.loginRequest === true) announceLoginRequest({ broadcastToAll, getTopicBySessionKey }, { contextId: ctxId, url: browserService.getUrl(ctxId)?.url ?? "", detached: body.detached === true, topicId: byTopic?.id, sessionKey: bySession?.sessionKey });
         return json({ ok: true, contextId: ctxId, mounted });
       }
     }

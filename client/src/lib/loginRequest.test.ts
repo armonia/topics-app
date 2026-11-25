@@ -1,3 +1,6 @@
+/**
+ * @covers BROWSER-LOGIN-01
+ */
 import { describe, expect, it, vi } from 'vitest';
 import { handleLoginRequest, type LoginRequestEffects } from './loginRequest';
 

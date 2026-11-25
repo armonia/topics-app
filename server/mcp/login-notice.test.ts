@@ -1,3 +1,6 @@
+/**
+ * @covers BROWSER-LOGIN-01
+ */
 import { describe, expect, test } from "bun:test";
 import { loginNoticeInput } from "./login-notice";
 

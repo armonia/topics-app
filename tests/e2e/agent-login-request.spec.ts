@@ -12,12 +12,13 @@ hermetic(test);
 test.use({ viewport: { width: 1440, height: 900 }, video: { mode: "on", size: { width: 1440, height: 900 } } });
 
 test("request_login raises a detached window and records a linked notice", async ({ page, request }) => {
+  test.info().annotations.push({ type: "spec", description: "BROWSER-LOGIN-01" });
   const topic = await createTopic(request, "Login request");
   try {
     await goToApp(page);
     await waitForTopicVisible(page, topic.id);
 
-    const popup = page.waitForEvent("popup");
+    const loginWindow = page.waitForEvent("popup");
     const opened = await request.post(`${E2E_BASE}/api/topics/${topic.id}/browser/open-pane`, {
       data: { url: "https://example.com/login", name: "Login" },
       ignoreHTTPSErrors: true,
@@ -32,7 +33,7 @@ test("request_login raises a detached window and records a linked notice", async
     expect(focused.ok()).toBeTruthy();
 
     // Detached window: a second page that carries this topic.
-    expect((await popup).url()).toContain(`topics=${topic.id}`);
+    expect((await loginWindow).url()).toContain(`topics=${topic.id}`);
 
     // Notice: one history row, clickable to the topic.
     await expect.poll(async () => {
