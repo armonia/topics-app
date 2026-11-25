@@ -295,6 +295,14 @@ export function lastReportedTurnStatus(db: Db, id: string): string | null {
   return attempt(null, () => (db.query("SELECT status FROM subagent_reported_turns WHERE subagent_id = ? ORDER BY reported_at DESC, rowid DESC LIMIT 1").get(id) as { status: string } | null)?.status ?? null);
 }
 
+/** Branches of every child a parent ever spawned, whatever its state: they are the parent's own history. */
+export function subagentBranchesOf(db: Db, parentSessionKey: string): string[] {
+  return attempt([], () => {
+    const rows = db.query("SELECT branch FROM subagents WHERE parent_session_key = ? AND branch IS NOT NULL AND branch <> ''").all(parentSessionKey) as Array<{ branch: string }>;
+    return rows.map((r) => r.branch);
+  });
+}
+
 /** Running children: of one parent, or of the whole machine. */
 export function runningSubagents(db: Db, parentSessionKey?: string): SubagentRow[] {
   return attempt([], () => {

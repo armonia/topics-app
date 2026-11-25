@@ -45,9 +45,10 @@ import {
   gotoTerminalProject,
   openShellViaSidebar,
 } from "./helpers/terminal-workspace";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 interface Seeded { id: string; name: string; sessionKey: string }
 

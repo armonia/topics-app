@@ -2,10 +2,44 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.105 — 2026-11-25
+
+### Sotto il cofano
+- Il cancello degli intrecci torna nella CI ora che spec-flow 0.7.0 è su npm
+
+## 2.4.104 — 2026-11-25
+
+### Sotto il cofano
+- Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio
+- La compressione notturna tocca solo i transcript delle sessioni, non il lavoro degli agenti
+- Sul Mac la cartella temporanea dei test sta in /tmp: i socket non passano più 104 caratteri
+
+## 2.4.103 — 2026-11-25
+
+### Sotto il cofano
+- lower ci.slice memory ceiling and reserve memory for system.slice and topics (card 0ecda178)
+- Split server/services/tasks/shared.ts into six factory modules behind the same barrel
+- Split tasks/shared.ts: baselines and unused type exports
+- Land guard: a card's own branches include its spawned children and worktree branch
+- Main verde: covers del test usage-limit e baseline dopo i land della notte
+- Test di contratto: leggono i moduli di shared/board.ts dopo lo split
+- Node deliveries emit task-deliver so the retrospective hook sees them
+- Re-measure the pre-review gate: failures are the 401 auth env, same on the parent commit
+- Re-measure the pre-review gate after bun install restored jscpd
+- Sub-agent no-news replies on a later turn no longer wake the parent
+- seed-before-navigation uses /manifest.json, not /favicon.ico
+- Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290
+- La spazzata del land-push spinge main una volta per repo, e ripete un rifiuto solo se cambia
+- Una corsa vecchia che il nodo non ha più non si scrive come errore
+- Un transcript troppo grande per cercarci un fork si dice una volta, non a ogni giro
+- Main verde dopo lo split di tasks/shared.ts: import rimasti e test che leggevano il file vecchio
+
 ## 2.4.102 — 2026-11-25
 
 ### Sotto il cofano
+- Replace real names in the client with fictitious ones, content (ORBIT, Alfa Impianti)
 - Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle
+- Claude CLI usage-limit sentence: read as a rate-limit and hold until the declared reset, so the resume sweep resends the turn by itself
 
 ## 2.4.101 — 2026-11-25
 
@@ -16,9 +50,15 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Correzioni
 - **tests** · run gate-coverage and native-shutdown-notice tests serially
 - **worktrees** · no reap, prune or remove loses work the review found exposed
+- **restart-gate** · the vacuum and the auto-land read what WORKS, a parked card is not working
 
 ### Sotto il cofano
+- serialize process-groups and tauri macOS legs
 - Disk budget: fix deadcode-prod/untraced-tests gates, make legacy transcript readers gz-aware
+- tauri runs whatever process-groups ends with
+- **restart-gate** · the wiring test reads the split stream count
+- **restart-gate** · English name for the vacuum test db
+- Replace real names in the client with fictitious ones (ORBIT, Alfa Impianti)
 
 ## 2.4.100 — 2026-11-25
 
@@ -42,6 +82,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - dup: keep main's baseline; the lowered one was measured on this Mac, where jscpd counts 360 lines fewer than CI
+- **providers** · share the in-flight run registry across the HTTP providers
+- **providers** · one stopAllChildren for the codex and muse exec providers
+- **browser** · one fitSurface for the select-element overlay geometry
 
 ## 2.4.98 — 2026-11-24
 
@@ -234,6 +277,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Baseline del bloat: ci-evidence.test.ts a 821 righe con i due test della testa ereditata
 - Disk budget: test tracciati su SYSTEM-DISK-01, niente verde senza database
 - I server SSH non mostrano più lo storico CPU e RAM del PC
+- Carry recent board.ts additions into the split modules
 - Main di nuovo verde su unit e gates: check:instance-strings motivato, nomi in inglese
 - Server fisso: tetto sui job CI in parallelo di tutti i repo (ci-governor)
 - Nodo cloud: guardia per le sessioni logind bloccate in closing, ssh condiviso dal Mac
@@ -486,6 +530,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · wait for sidebar rows before measuring touch heights
 - Un nodo rotto resta fuori anche dopo un riavvio, e la card spostata dal sistema lo lascia subito
 - Il Cloud col freno aperto non riprende la card che ha appena lasciato
+- Split shared/board.ts into five modules under 800 lines behind the same barrel
 
 ## 2.4.65 — 2026-11-21
 

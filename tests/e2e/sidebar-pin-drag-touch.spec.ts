@@ -5,6 +5,7 @@ import { test, expect, type Page, type Locator } from "@playwright/test";
 import { E2E_BASE } from "./helpers/test-server";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { videoAt } from "./video-evidence";
 
 /**
  * FISSARE E SFISSARE COL DITO.
@@ -36,7 +37,8 @@ hermetic(test);
 
 // La clip e' la prova: un gesto e' due o piu' stati, e uno screenshot non
 // distingue «la tessera se n'e' andata» da «non c'e' mai stata».
-test.use({ video: "on" });
+// Runs in the chromium-touch project only (390x844): the clip follows that viewport.
+test.use({ video: videoAt("on", { width: 390, height: 844 }) });
 
 const SIDEBAR = '[aria-label="Topics sidebar"]';
 const creati: string[] = [];

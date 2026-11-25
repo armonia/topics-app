@@ -25,9 +25,10 @@ import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
 import { E2E_BASE } from "./helpers/test-server";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 async function waitForHub(request: APIRequestContext): Promise<void> {
