@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.5.1",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Fix ci-governor selftest race on SIGSTOP/SIGCONT delivery under load",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.0",
     "date": "2026-11-25",
     "sections": {
