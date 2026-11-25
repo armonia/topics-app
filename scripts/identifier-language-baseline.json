@@ -4923,24 +4923,6 @@
       "noRipunta",
       "risalita"
     ],
-    "server/services/tasks/shared.ts": [
-      "PREVIEWABLE_MEDIA",
-      "SQL_MIA",
-      "SQL_PAROLA",
-      "anteprimaUtile",
-      "archiveSubtree",
-      "attuale",
-      "cappello",
-      "contorno",
-      "dalPiuRecente",
-      "elenco",
-      "figli",
-      "mrows",
-      "nonScavalcare",
-      "primaDiNoi",
-      "scelta",
-      "spegniDone"
-    ],
     "server/services/tasks/status.ts": [
       "ammessa",
       "candidati",
