@@ -539,6 +539,11 @@ jobs:
           # scenario non ha niente da provare, e la living-doc lo pubblicherebbe
           # come «coperto». Rigenera la mappa (ignorata da git) e poi la legge.
           bun run lint:openspec
+          # spec-flow D19, "intrecci": every `**Intersects:**` line in `openspec/specs/` needs ONE
+          # executed unit (one Playwright annotation, or one `@covers A+B`) that names both sides,
+          # read from the `joint` key of the map `lint:openspec` just wrote, so it runs right after it
+          # and does not rebuild the map the way `bun run lint:intrecci` does locally.
+          node_modules/.bin/spec-flow check-intersections
           # `check:untraced-tests` guarda nella direzione OPPOSTA a
           # `check:spec-coverage`: quello parte dalle spec e cerca i test, questo
           # parte dai test e cerca il requisito. La direzione mancante e' quella
