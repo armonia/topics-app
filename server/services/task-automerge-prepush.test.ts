@@ -6,6 +6,7 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createTaskAutoMerge } from "./task-automerge";
+import type { LandViaPrResult } from "./land-via-pull-request";
 import { prePushVerdict } from "./land-prepush-message";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "fs";
 import { spawnSync } from "child_process";
@@ -41,7 +42,7 @@ beforeEach(() => {
   const hook = join(dir, "hooks");
   git(dir, "init", "-q", hook);
   const script = join(hook, "pre-push");
-  writeFileSync(script, `#!/bin/sh\nwhile read l r s rs; do\n  if git log --format=%B "$rs..$s" | grep -qi ${BAD_WORD}; then exit 1; fi\ndone\nexit 0\n`);
+  writeFileSync(script, `#!/bin/sh\nwhile read lref lsha rref rsha; do\n  if git log --format=%B "$rsha..$lsha" | grep -qi ${BAD_WORD}; then exit 1; fi\ndone\nexit 0\n`);
   chmodSync(script, 0o755);
   git(repo, "config", "core.hooksPath", hook);
   // The suite's isolation pins `core.hooksPath` through GIT_CONFIG_*, which beats the repo setting: a later pair wins.
@@ -86,5 +87,47 @@ describe("land: pre-push refusing the title", () => {
     const { res, msg } = await land("fix harmless thing");
     expect(res).toMatchObject({ status: "merged" });
     expect(msg).toBe("merge task abc123: fix harmless thing");
+  });
+});
+
+/**
+ * The land through the pull request: GitHub writes the merge commit, so the
+ * hook is asked about the message BEFORE it is handed over. The fake stands
+ * for GitHub and the fast forward: it merges locally with the message it got.
+ */
+describe("land through the pull request: the message GitHub gets", () => {
+  async function landViaPr(title: string, outcome: "merged" | "failed") {
+    const repo = join(dir, "repo");
+    const handed: string[] = [];
+    const am = createTaskAutoMerge({
+      resolveTaskMerge: () => ({ repoPath: repo, branch: "topics/card", defaultBranch: "main" }),
+      landViaPullRequest: async (input): Promise<LandViaPrResult> => {
+        handed.push(input.mergeMessage);
+        if (outcome === "failed") return { status: "failed", reason: "auto-merge refused by GitHub" };
+        git(input.cwd, "merge", "--no-ff", "--no-verify", "-m", input.mergeMessage, input.expectedHead);
+        return { status: "merged", commit: git(input.cwd, "rev-parse", "HEAD") };
+      },
+    });
+    const res = await am.tryMerge("abc123", title);
+    return { res, handed, msg: git(repo, "log", "-1", "--format=%s", "main") };
+  }
+
+  test("a refused title reaches GitHub already neutralized, and the land finishes as merged", async () => {
+    const { res, handed, msg } = await landViaPr(`fix ${BAD_WORD} thing`, "merged");
+    expect(handed).toEqual(["merge task abc123"]);
+    expect(res).toMatchObject({ status: "merged", branch: "topics/card" });
+    expect((res as { commit?: string }).commit).toBe(git(join(dir, "repo"), "rev-parse", "--short", "main"));
+    expect(msg).toBe("merge task abc123");
+  });
+
+  test("an accepted title reaches GitHub unchanged", async () => {
+    const { res, handed } = await landViaPr("fix harmless thing", "merged");
+    expect(handed).toEqual(["merge task abc123: fix harmless thing"]);
+    expect(res).toMatchObject({ status: "merged" });
+  });
+
+  test("a failed land through the pull request is a skip with its real reason, not a conflict", async () => {
+    const { res } = await landViaPr("fix harmless thing", "failed");
+    expect(res).toMatchObject({ status: "skipped", code: "pull-request-land-failed", reason: "auto-merge refused by GitHub" });
   });
 });

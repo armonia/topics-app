@@ -44,7 +44,7 @@ import { runGit } from "../lib/run-git";
 import { githubPort } from "./ci-evidence";
 import { landViaPullRequest } from "./land-via-pull-request";
 import { discardWorktree } from "../lib/worktree-discard";
-import { neutralizeRefusedMergeMessage } from "./land-prepush-message";
+import { mergeMessageRefused, neutralizeRefusedMergeMessage } from "./land-prepush-message";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 import { makeSerialQueue } from "../lib/serial-queue";
@@ -928,9 +928,11 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     // wherever the merge happened (the shared checkout, or the throwaway main
     // worktree). The caller reacts per area: client/ → rebuild the served bundle,
     // server → restart, desktop-tauri → native rebuild.
-    async function finishMerged(cwd: string, live: boolean, checkoutBranch: string): Promise<AutoMergeResult> {
+    async function finishMerged(cwd: string, live: boolean, checkoutBranch: string, viaPr = false): Promise<AutoMergeResult> {
       // The title may carry text the repo's pre-push refuses: keep only the id prefix then.
-      await neutralizeRefusedMergeMessage(cwd, `merge task ${taskId}`).catch(() => false);
+      // Not after a land through the pull request: that commit is already on origin, and
+      // its message was checked before GitHub wrote it (`mergeBranchHere`).
+      if (!viaPr) await neutralizeRefusedMergeMessage(cwd, `merge task ${taskId}`).catch(() => false);
       const rev = await runGit(cwd, ["rev-parse", "--short", "HEAD"]);
       const diff = await runGit(cwd, ["diff", "--name-only", "HEAD^1", "HEAD"]);
       const files = diff.code === 0 ? diff.stdout.split("\n").filter(Boolean) : [];
@@ -1553,11 +1555,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
          * `cwd` ends up fast-forwarded onto GitHub's merge commit on success,
          * same as a successful local `git merge` leaves it on the merge commit.
          */
-        async function mergeBranchHere(cwd: string): Promise<{ ok: true } | { ok: false; reason?: string }> {
+        async function mergeBranchHere(cwd: string): Promise<{ ok: true; viaPr?: boolean } | { ok: false; reason?: string }> {
           const tip = pinnedSha ?? (await runGit(cwd, ["rev-parse", "--verify", `${branch}^{commit}`])).stdout.trim();
           if (tip) {
-            const viaPr = await landViaPr({ cwd, branch, mergeMessage: mergeMsg, expectedHead: tip }, githubPort());
-            if (viaPr.status === "merged") return { ok: true };
+            // GitHub writes this merge commit, so the repo's pre-push never sees it: ask the hook first.
+            const refused = await mergeMessageRefused(cwd, tip, mergeMsg).catch(() => false);
+            const mergeMessage = refused ? `merge task ${taskId}` : mergeMsg;
+            const viaPr = await landViaPr({ cwd, branch, mergeMessage, expectedHead: tip }, githubPort());
+            if (viaPr.status === "merged") return { ok: true, viaPr: true };
             if (viaPr.status === "failed") {
               log(`[automerge] land-via-pull-request failed for ${taskId}: ${viaPr.reason}`);
               return { ok: false, reason: viaPr.reason };
@@ -1599,7 +1604,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           if (stopped) return stopped;
           // --no-ff keeps a merge commit so the landing is auditable even for a FF.
           const merged = await mergeBranchHere(repoPath);
-          if (merged.ok) return finishMerged(repoPath, /*live*/ true, cur);
+          if (merged.ok) return finishMerged(repoPath, /*live*/ true, cur, merged.viaPr);
           if (merged.reason) return { status: "skipped", code: "pull-request-land-failed", reason: merged.reason };
           return { status: "conflict", branch };
         }
@@ -1625,7 +1630,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           const stopped = await lookBeforeMerge(wtPath);
           if (stopped) return stopped;
           const merged = await mergeBranchHere(wtPath);
-          if (merged.ok) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
+          if (merged.ok) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD", merged.viaPr);
           if (merged.reason) return { status: "skipped", code: "pull-request-land-failed", reason: merged.reason };
           return { status: "conflict", branch };
         } finally {

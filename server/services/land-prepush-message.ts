@@ -59,3 +59,15 @@ export async function neutralizeRefusedMergeMessage(cwd: string, neutralMsg: str
   const amend = await runGit(cwd, ["commit", "--amend", "--no-verify", "-m", neutralMsg], { timeoutMs: 30_000, identity: true });
   return amend.code === 0;
 }
+
+/**
+ * Asks the hook about `message` BEFORE a merge commit exists anywhere: a land
+ * through the pull request makes GitHub write the merge commit, which never
+ * crosses this hook. A throwaway commit carrying `message` on top of `parent`
+ * (same tree) is what the hook scans; it stays dangling and git collects it.
+ */
+export async function mergeMessageRefused(cwd: string, parent: string, message: string): Promise<boolean> {
+  const probe = await runGit(cwd, ["commit-tree", `${parent}^{tree}`, "-p", parent, "-m", message], { timeoutMs: 10_000, identity: true });
+  if (probe.code !== 0) return false;
+  return prePushRefuses(cwd, parent, probe.stdout.trim());
+}
