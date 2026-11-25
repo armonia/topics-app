@@ -215,3 +215,12 @@ barra dei menu.
   progetto non ha barra sua: il titolo è la tab (fondo al passaggio, si trascina nello split) e
   i comandi del progetto stanno a destra del titolo. Il «+» lì no («ma il + serve ancora la?»):
   c'è già sulla riga del progetto nella colonna.
+- 25/11 «le icone tipo di attivazione sidebar file git etc, dovrebbero restare anche se aperte» →
+  i comandi del progetto restano sul titolo anche a colonna aperta, e la colonna non ripete nome e
+  chiusura in testa. «le notifiche delle icone sono tagliate» → il badge pende dentro la riga intera.
+  «se chiudo la sidebar vedo che spunta ancora la tabbar, ma è o una o l'altra» → con le tab di lato
+  la barra in alto non torna mai. «se premo archivia non si vede il progresso», «si perdono tutte le
+  funzionalità della tab browser» → il titolo è la tab vera (`PaneTabBar` in variante titolo), non
+  una scritta che ne copia una parte, e chiudendo la tab davanti il titolo resta su di lei col conto
+  alla rovescia finché non scade (prima saltava subito alla tab dopo e il progresso spariva). «gli accordion della sidebar progetto … singole isole come se
+  fosse una loro card» → File, Git e Processi sono card a sé, la colonna non ha più fondo né filo.

@@ -33,7 +33,7 @@ import { useT } from '../../hooks/useT';
 import { TabSlot, TabLabel, ProjectTabLead } from './TabSlot';
 import { SquareTabMark, TopicInitial, type SquareLoaderSource } from './SquareTabMark';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, TIER_DONE_BG, TIER_ERROR_BG, TIER_INPUT_BG, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
+import { TAB_AS_TITLE_SURFACE, TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, TIER_DONE_BG, TIER_ERROR_BG, TIER_INPUT_BG, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import {
@@ -91,6 +91,8 @@ const TAB_DRAG_SLOP_PX = 4;
  * `onPointerDown` deliberately stays unguarded: taking AppKit's first
  * responder back to the chrome is exactly what typing in the sheet needs.
  */
+const TITLE_TAB_STYLE: React.CSSProperties = { minWidth: 0, maxWidth: '100%', flexShrink: 1 };
+
 function fromThisTab(e: React.SyntheticEvent): boolean {
   return (e.currentTarget as Node).contains(e.target as Node);
 }
@@ -342,9 +344,17 @@ interface PaneTabBarProps {
    * l'aria in cima l'ha già messa la riga sopra.
    */
   subordinate?: boolean;
+  /**
+   * The bar is a window's TITLE: with the tabs at the side the surface in front
+   * is drawn here alone, as its real tab (25/11: the title written by hand lost
+   * the archive countdown, the browser's icon and commands, the loaders). At
+   * rest it reads as a title, with no fill and no edge; under the pointer it
+   * takes the selected tab's fill. A lit attention fill still shows.
+   */
+  asTitle?: boolean;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onToggleZoom, canZoom, isZoomed, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, hasLeadingBlock, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, onOpenPaneInProject, subordinate = false }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onToggleZoom, canZoom, isZoomed, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, hasLeadingBlock, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, onOpenPaneInProject, subordinate = false, asTitle = false }: PaneTabBarProps) {
   // Le voci del menu passano dal dizionario (`lib/i18n.ts`): sono fra le
   // stringhe più viste dell'app, ed erano gia' in italiano — quindi la
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
@@ -488,7 +498,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     () => tabDensity(densityMeasure.availablePx, densityMeasure.gapPx, densityMeasure.tabHeightPx, naturalTabs),
     [densityMeasure, naturalTabs],
   );
-  const densityMode = frozenDensity?.mode ?? densityPlan.mode;
+  // A title is one tab with the whole row: always full, never squeezed.
+  const densityMode = asTitle ? 'full' : (frozenDensity?.mode ?? densityPlan.mode);
   useActiveTabInView(scrollContainerRef, activePaneId ? `[data-pane-id="${CSS.escape(activePaneId)}"]` : null);
 
   // A RIGHT CLICK, A LONG PRESS AND SHIFT+F10 OPEN THE TAB'S SHEET, from the
@@ -935,7 +946,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       ref={tabBarRef}
       className={barClass}
       {...(barClass.includes('app-drag-region') ? DRAG_REGION : {})}
-      data-testid="panel-tab-bar"
+      data-testid={asTitle ? 'cell-title-tab' : 'panel-tab-bar'}
       data-group-id={groupId ?? ''}
       data-density={densityMode}
       style={{ position: 'relative' }}
@@ -1323,7 +1334,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // A browser tab has extra commands that cover the label's tail on
             // hover: the label fades under them (index.css, `.tab-extras`).
             data-tab-extras={pane.type === 'browser' ? '' : undefined}
-            style={{ width: frozenTabWidth, minWidth: frozenTabWidth, maxWidth: frozenTabWidth, flexShrink: 0 }}
+            // A title is as wide as its name, up to the row it has.
+            style={asTitle ? TITLE_TAB_STYLE : { width: frozenTabWidth, minWidth: frozenTabWidth, maxWidth: frozenTabWidth, flexShrink: 0 }}
             // overflow-hidden clips the command box, which is larger than the
             // slot it sits on, at the tab's own edge.
             // L'attenzione PRECEDE la selezione, come nella sidebar: `attentionTier`
@@ -1349,7 +1361,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             className={`group ${ROW_CARD} edge-lit flex items-center ${isSquareInactive ? 'justify-center p-0' : compactInnerLayout ? 'gap-1 px-1' : `${ROW_GAP} ${ROW_PX}`} ${CARD_H} ${TAB_LABEL} transition-all motion-reduce:transition-none relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
               attentionTier
                 ? attentionSurface(attentionTier)
-                : isFullyActive
+                : asTitle
+                  ? `${TAB_AS_TITLE_SURFACE} ${isFullyActive ? 'text-app-text' : 'text-app-text-secondary'}`
+                  : isFullyActive
                   ? TAB_SELECTED_SURFACE
                   : isActiveDimmed
                     ? TAB_SELECTED_SURFACE_SOFT

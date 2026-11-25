@@ -176,15 +176,16 @@ describe("changedFiles on the pull request checkout (run 34969697363: 32 files c
     return p.stdout.toString().trim();
   };
 
-  /** The fetch line of the CI step, with the GitHub expressions filled in. */
+  /** The fetch line of the CI step that runs `check:e2e-touched`, with the
+   *  GitHub expressions filled in. The nearest fetch above the command, not the
+   *  first one in the file: other steps fetch the base too (the design-system
+   *  gate does, with a shallow `--depth`). */
   function ciFetchArgs(baseRef: string, sha: string): string[] {
     const config = readFileSync(join(import.meta.dir, "../.github/workflows/ci.yml"), "utf8");
-    // The fetch of the e2e-touched step, the one that writes origin/<base>: ci.yml has other
-    // `git fetch ... github.base_ref` lines (the design system gate's, 25/11), and taking the
-    // first one tested a fetch this script never runs after.
-    const line = config.split("\n").map((l) => l.trim())
-      .find((l) => l.startsWith("git fetch") && l.includes("github.base_ref") && l.includes("refs/remotes/origin/"));
-    if (!line) throw new Error("no `git fetch ... github.base_ref ...:refs/remotes/origin/...` line in ci.yml");
+    const lines = config.split("\n").map((l) => l.trim());
+    const run = lines.findIndex((l) => l.includes("check:e2e-touched"));
+    const line = lines.slice(0, run).reverse().find((l) => l.startsWith("git fetch") && l.includes("github.base_ref"));
+    if (run < 0 || !line) throw new Error("no `git fetch ... github.base_ref` line before check:e2e-touched in ci.yml");
     const filled = line.replaceAll("${{ github.base_ref }}", baseRef).replaceAll("${{ github.sha }}", sha);
     return filled.split(/\s+/).slice(1).map((a) => a.replace(/^"|"$/g, ""));
   }
