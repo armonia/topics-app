@@ -544,6 +544,20 @@ jobs:
           # read from the `joint` key of the map `lint:openspec` just wrote, so it runs right after it
           # and does not rebuild the map the way `bun run lint:intrecci` does locally.
           node_modules/.bin/spec-flow check-intersections
+          # spec-flow D20, design system: DESIGN.md lints clean, every UI file stays inside the
+          # tokens and primitives declared in `designSystem` (spec-flow.completeness.json) against
+          # the recorded debt (spec-flow.design-baseline.json), and on a pull request every touched
+          # UI file carries its visual proof at 375/768/1440/3440 px. It runs only once the installed
+          # package has the command, so the dependency bump to the release that ships it turns it on
+          # without another edit here.
+          if node_modules/.bin/spec-flow --help | grep -q check-design-system; then
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              git fetch --no-tags --depth=300 origin "${{ github.base_ref }}" "${{ github.sha }}"
+              node_modules/.bin/spec-flow check-design-system --base "origin/${{ github.base_ref }}"
+            else
+              node_modules/.bin/spec-flow check-design-system --changed ""
+            fi
+          fi
           # `check:untraced-tests` guarda nella direzione OPPOSTA a
           # `check:spec-coverage`: quello parte dalle spec e cerca i test, questo
           # parte dai test e cerca il requisito. La direzione mancante e' quella
