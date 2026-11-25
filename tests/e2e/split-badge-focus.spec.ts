@@ -34,9 +34,10 @@ import {
 import { attentionUpdated, stageAttention } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 test.describe("Split view: il badge sparisce solo da ciò che guardi", () => {
   let sinistra: { id: string; name: string };

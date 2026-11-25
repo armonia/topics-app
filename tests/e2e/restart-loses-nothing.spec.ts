@@ -36,9 +36,10 @@ import { restartTestServer } from "./helpers/restart-test-server";
 import { installFakeAnthropic, startFakeAnthropic, type FakeAnthropic, type FakeRound } from "./helpers/fake-anthropic-api";
 import { beat, didascalia } from "./helpers/evidence";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ timeout: 240_000 });
 
 const CHAT_PIECES = 30;

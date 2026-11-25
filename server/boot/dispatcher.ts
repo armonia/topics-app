@@ -15,7 +15,8 @@ import { machineCores } from "../lib/machine-cores";
 import { worktreeRealDirt } from "../services/task-automerge";
 import { branchStatusFromRepo, worktreeDiffStat } from "../services/branch-status";
 import { createDetachedTopic } from "../lib/session-control-core";
-import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
+import { buildProjectCandidates, canonicalProjectFor, resolveProjectPath } from "../services/project-path-resolver";
+import { worktreeRootDir } from "../services/worktree-manager";
 import { getDefaultProviderName, tryGetProvider, resolveTurnAlive } from "../providers";
 import { readNativeUsage } from "../providers/native-usage-registry";
 import { automaticDispatchHooks } from "../services/task-auto-model";
@@ -28,7 +29,7 @@ import { totalmem as osTotalmem } from "node:os";
 import { readDelegatedNodeToken } from "../services/node-client";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "../lib/delegated-agent-start";
 import { isCloudBaseUrl, resolveGithubSlug } from "../providers/claude-cloud/node";
-import { bundleBranch, ensureBranchOnOrigin } from "../services/branch-on-origin";
+import { bundleBranchForNode, ensureBranchOnOrigin } from "../services/branch-on-origin";
 import { repoIdentity } from "../lib/git-identity";
 import { githubOriginFrom, overflowMachinesFrom } from "../services/dispatch-overflow";
 import { NODE_BREAKERS_FILE, persistNodeBreakers } from "../services/wake-breaker";
@@ -36,6 +37,8 @@ import { TURN_ERROR_PREFIX } from "../../shared/board";
 import type { AfterHeadlessTurns } from "./scope";
 import { late } from "./late";
 import { isThisServerPrimary } from "../lib/primary-role";
+import { sessionHasOpenQuestion } from "../lib/question-outlives-asker";
+import { decodeCol } from "../../shared/message-blob";
 
 /** Project id -> GitHub owner/repo, filled by the overflow's origin lookup: the cloud's per-repository refusals are read through it. */
 const projectSlugs = new Map<string, string>();
@@ -154,7 +157,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     externalSessionsAt: (path) =>
       externalSessions.activeAt(path).map((s) => ({ cwd: s.cwd, branch: s.branch })),
     resolveProject: (projectId) => {
-      const c = resolveProjectPath(
+      const found = resolveProjectPath(
         projectId,
         buildProjectCandidates({
           projectStore: ctx.projectStore,
@@ -162,7 +165,17 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
           extraPaths: dispatchExtraPaths,
         }),
       );
-      if (!c) return null;
+      if (!found) return null;
+      // A worktree is never a project: a card keyed by a worktree folder (or by
+      // an alias of the repo) dispatches on the project that owns the repository,
+      // so the auto-registration below cannot mint a board out of a checkout.
+      const owner = canonicalProjectFor(found.path, ctx.projectStore.list(), {
+        worktreeOwner: (abs) => ctx.worktreeStore.getByAbsPath(abs)?.projectId ?? null,
+        worktreeRoot: worktreeRootDir(),
+      });
+      const c = owner && owner.id !== found.projectStoreId
+        ? { path: owner.path, projectStoreId: owner.id }
+        : found;
       // Worktrees require a ProjectStore row. Ad-hoc projects (path-only
       // candidates) that are git repos get registered on demand, so the default
       // "isola in un worktree" board setting actually works for them instead of
@@ -306,6 +319,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       }
     },
     runTurn: runHeadlessTurn,
+    hasOpenQuestion: (sessionKey) => sessionHasOpenQuestion(ctx, sessionKey, decodeCol),
     // ai-bridge restart recovery: the provider answers whether a turn survived in
     // the broker (returns false when the flag is off / provider lacks it), and
     // runHeadlessReattach drives the adopted turn. Both are safe no-ops off-broker.
@@ -375,7 +389,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       // from this machine's checkout (`branch-on-origin.ts`).
       ensureBranchOnOrigin: ({ projectId, branch }) => ensureBranchOnOrigin(projectPathForNode(projectId), branch),
       // A node that cannot reach origin gets the same branch as a bundle with the run.
-      bundleBranch: ({ projectId, branch }) => bundleBranch(projectPathForNode(projectId), branch),
+      bundleBranch: ({ projectId, branch }) => bundleBranchForNode(projectPathForNode(projectId), branch),
       // The `node-run` hook starts in the project's checkout on this machine,
       // the same path the planter reads the origin from and plants into.
       projectPathOf: projectPathForNode,

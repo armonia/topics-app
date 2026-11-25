@@ -14,7 +14,7 @@ import { runGit } from "../lib/run-git";
 import { awaitCiEvidence, closeCiDraft, spawnCapped } from "../services/ci-evidence";
 import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
 import { measureIntegration } from "../services/integration-measure";
-import { describeMainRed, describeMainRedAgain, mainRedKey, mainRedKeyPrefix, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
+import { describeMainRed, describeMainRedAgain, MAIN_RED_MODEL, mainRedKey, mainRedKeyPrefix, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
 import { personPlace } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
 import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict } from "../services/red-bounce";
@@ -559,7 +559,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
           return false;
         }
         const task = deps.svc.create({
-          projectId, text: mainRedTitle(commit.sha), status: "todo", createdBy: "cron:main-ci", idempotencyKey: key,
+          projectId, text: mainRedTitle(commit.sha), status: "todo", createdBy: "cron:main-ci", idempotencyKey: key, model: MAIN_RED_MODEL,
           description: describeMainRed(commit, verdict),
           bar: "La CI del push su main è verde su un commit che contiene la riparazione.",
         });

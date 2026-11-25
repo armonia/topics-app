@@ -1,6 +1,8 @@
 import { defineConfig } from "@playwright/test";
 import { E2E_BASE } from "./tests/e2e/helpers/test-server";
 import { CHROMIUM_LAUNCH } from "./tests/e2e/helpers/remote-gpu";
+import { suiteStorageState } from "./tests/e2e/helpers/tabs-position";
+import { DESKTOP_VIEWPORT, videoAt } from "./tests/e2e/video-evidence";
 
 // Two-tier E2E: the PR gate runs a fast, deterministic subset; the full suite —
 // including slow/perf/network/two-window/reload-persistence specs — runs nightly
@@ -108,7 +110,8 @@ const EVIDENCE = process.env.E2E_EVIDENCE === "1";
 //   slowMo  300 ms davanti a OGNI azione. Non è una prova, è un rallentatore
 //           perché il filmato sia guardabile da un umano.
 //
-// `E2E_VIDEO=1` aggiunge la clip. `E2E_NO_SLOWMO=1` toglie la pausa. Servono a
+// `E2E_VIDEO=1` (o `E2E_EVIDENCE=1`) aggiunge la clip, sempre alla dimensione del
+// viewport (`tests/e2e/video-evidence.ts`). `E2E_NO_SLOWMO=1` toglie la pausa. Servono a
 // rispondere con una misura, invece che a occhio, alla domanda «quanto ci costa
 // l'evidenza e quale pezzo».
 //
@@ -121,7 +124,8 @@ const EVIDENCE = process.env.E2E_EVIDENCE === "1";
 // «e' successo qualcosa»; il trace dice CHE COSA, e a che minuto.
 //
 // Il video resta a un tasto di distanza per quando serve una clip da guardare.
-const VIDEO = process.env.E2E_VIDEO === "1" && process.env.E2E_NO_VIDEO !== "1";
+// `E2E_EVIDENCE=1` also records the clip: the delivery bar asks for a .webm of every run.
+const VIDEO = (EVIDENCE || process.env.E2E_VIDEO === "1") && process.env.E2E_NO_VIDEO !== "1";
 /** Rimette i fotogrammi nel trace (la striscia di miniature). Vedi il commento su `trace`. */
 const TRACE_SCREENCAST = process.env.E2E_TRACE_SCREENCAST === "1";
 
@@ -304,12 +308,10 @@ export default defineConfig({
     actionTimeout: 15_000,
 
     baseURL: E2E_BASE,
-    // The board hides Done by default (a board of live work); the suite reads cards in
-    // Done, so a test starts with the column shown. board-group-density checks the default.
-    // Same for the origin preset: a board opens on «My work», which hides cards in progress
-    // and the agents' cards; the suite starts on «All» and board-origin-filters checks the default.
-    storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "topics.board.showDone", value: "true" }, { name: "topics.board.preset", value: "all" }] }] },
-    video: EVIDENCE && VIDEO ? "on" : "retain-on-failure",
+    // Board filters and tab options the suite starts with: see suiteStorageState.
+    storageState: suiteStorageState(),
+    // The clip is sized to the viewport: left unset, Playwright scales it to 800x500.
+    video: videoAt(VIDEO ? "on" : "retain-on-failure", DESKTOP_VIEWPORT),
     // `E2E_SHOT=1`: uno screenshot alla fine di OGNI test, non solo sui rossi. Serve alle
     // ANTEPRIME delle card della living-doc: senza, la card mostra un rettangolo grigio col nome
     // dell'esito, perche' il trace con `screenshots: false` non contiene nessun fotogramma da
@@ -358,7 +360,7 @@ export default defineConfig({
           attachments: traceKeepsAttachments(process.versions.node),
         }
       : "on-first-retry",
-    viewport: { width: 1280, height: 800 },
+    viewport: DESKTOP_VIEWPORT,
     launchOptions: SLOWMO ? { slowMo: 300 } : {},
     permissions: ["clipboard-read", "clipboard-write"],
     // Lingua del BROWSER fissata all'italiano.
@@ -508,6 +510,7 @@ export default defineConfig({
         hasTouch: true,
         isMobile: true,
         viewport: { width: 390, height: 844 },
+        video: videoAt(VIDEO ? "on" : "retain-on-failure", { width: 390, height: 844 }),
       },
     },
     /**
@@ -554,6 +557,7 @@ export default defineConfig({
         hasTouch: true,
         isMobile: true,
         viewport: { width: 390, height: 844 },
+        video: videoAt(VIDEO ? "on" : "retain-on-failure", { width: 390, height: 844 }),
       },
     },
     {
@@ -583,6 +587,7 @@ export default defineConfig({
         hasTouch: true,
         isMobile: true,
         viewport: { width: 1280, height: 900 },
+        video: videoAt(VIDEO ? "on" : "retain-on-failure", { width: 1280, height: 900 }),
       },
     },
     /**
@@ -661,6 +666,9 @@ export default defineConfig({
         // The Board's origin filters, owner chips and Workflow view, shot on the engine the desktop app ships in.
         "**/board-origin-filters.spec.ts",
         "**/board-frenato.spec.ts",
+        // The columns row's scrollbar band and its end room: the overlay scrollbar and the flex
+        // padding-end are WKWebView behaviour, so the bars are measured on the shell's engine.
+        "**/board-columns-scroll-edges.spec.ts",
         // The hub's status signals in the bell, the diary's kinds and the services' groups, same reason as the bell.
         "**/hub-status-signals.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone

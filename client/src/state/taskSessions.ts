@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import { createKeyedListeners } from '../lib/keyedListeners';
 
 /**
  * L'altra metà del legame fra una SCHEDA di task e la SESSIONE che la lavora:
@@ -36,7 +37,7 @@ export interface TopicTaskRef {
 
 let state: Record<string, TopicTaskRef> = {};
 /** Iscritti per topic. È l'unica ragione per cui questo store esiste. */
-const perTopic = new Map<string, Set<() => void>>();
+const perTopic = createKeyedListeners<string>();
 /** The reverse direction, task → topic, for the board card's loader (`useTaskAction`). */
 let topicByTask = new Map<string, string>();
 /** Subscribers to the reverse index: woken only when a task's topic changes. */
@@ -49,18 +50,7 @@ export function getTopicTask(topicId: string): TopicTaskRef | undefined {
 
 /** Si iscrive a UN topic: un task che si muove altrove non lo sveglia. */
 export function subscribeTopicTask(topicId: string, fn: () => void): () => void {
-  let subs = perTopic.get(topicId);
-  if (!subs) {
-    subs = new Set();
-    perTopic.set(topicId, subs);
-  }
-  subs.add(fn);
-  return () => {
-    const s = perTopic.get(topicId);
-    if (!s) return;
-    s.delete(fn);
-    if (s.size === 0) perTopic.delete(topicId);
-  };
+  return perTopic.subscribe(topicId, fn);
 }
 
 /**
@@ -91,8 +81,7 @@ export function applyTaskSessionIndex(next: Record<string, TopicTaskRef>): void 
   }
   state = next;
   for (const topicId of touched) {
-    const subs = perTopic.get(topicId);
-    if (subs) for (const fn of subs) fn();
+    perTopic.emit(topicId);
   }
   const nextByTask = new Map<string, string>();
   for (const [topicId, ref] of Object.entries(next)) nextByTask.set(ref.taskId, topicId);

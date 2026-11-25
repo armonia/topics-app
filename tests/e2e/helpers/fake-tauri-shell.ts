@@ -67,6 +67,16 @@
  * there for a same-origin page to write its storage lands on nothing: the
  * navigation is aborted, the page stays on about:blank, and storage there is
  * denied. Any other same-origin file of the bundle works (`/manifest.json`).
+ *
+ * THE SAME ABORT HITS SPECS WITH NO ROUTE OF THEIR OWN, under `pw-remote`
+ * (`PW_EXPOSE_PORTS`): forwarding a local port to the remote browser is built
+ * on the same request-interception path, so every context gets one whether a
+ * spec called `page.route()` or not. `public/favicon.ico` does not even exist
+ * in this repo, so this was never a real asset request: every seed-before-
+ * navigation idiom across tests/e2e uses `/manifest.json` for this reason,
+ * not `/favicon.ico` (fixed 2026-11-25, 39 reds across three files that were
+ * all this one abort under `pw-remote`, invisible in CI since nothing there
+ * forwards a port).
  */
 import type { Page } from "@playwright/test";
 

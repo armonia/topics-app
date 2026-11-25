@@ -1,4 +1,3 @@
-import { launchArgs } from "../lib/subagent-launch";
 import type { TerminalSessionType } from "../../shared/terminal-session-types";
 import { basename } from "path";
 import { getDatabase } from "../db";
@@ -7,8 +6,7 @@ import { isAgentWorkspace, lowerPriority } from "../lib/low-priority";
 import { augmentPath, realHome } from "../utils/path-env";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveClaudeBin } from "../lib/claude-bin";
-import { topicsHooksSettings } from "../lib/topics-hooks";
-import { hookScriptPath } from "../lib/topics-hook-script";
+import { claudePaneArgs } from "./claude-pane-args";
 import { resolveKimiBin } from "../lib/kimi-bin";
 import { resolveMuseBin } from "../lib/muse-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
@@ -19,7 +17,7 @@ import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { restoreSweptTranscript } from "../lib/transcript-keeper";
 import { getSubagent, setSubagentState } from "../lib/subagent-store";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
-import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveCodexReasoningEffort, topicEffortFor } from "../lib/topics-agent-prompt";
+import { resolveClaudeEffort, resolveCodexReasoningEffort, topicEffortFor } from "../lib/topics-agent-prompt";
 import { type SubagentLaunchFlags, type TerminalSession, sessionSockets, sessions } from "./terminal-state";
 import { pendingCreates, sendToBridge } from "./terminal-bridge-send";
 import { _tracker, broadcastTerminalSessions } from "./terminal-shared";
@@ -53,68 +51,34 @@ export async function createSession(id: string, name: string, cwd: string, comma
     // No `--disallowed-tools Agent,Workflow` here, unlike a chat or a card
     // (`NATIVE_DELEGATION_TOOLS`): in its TUI the person drives the CLI and sees its sub-agents.
     // Hence `topicsAgentSystemPrompt()` without `headless`: no spawn_agent nudge.
-    args = [];
-    if (claudeSessionId) {
-      // The CLI's 30-day cleanup may have taken the transcript of a long-parked
-      // tab: put the kept one back, or `--resume` ends the pane at once.
-      restoreSweptTranscript(getDatabase(), cwd, claudeSessionId, `tab ${id}`);
-      args.push('--resume', claudeSessionId);
-    } else if (resolvedClaudeSessionId) {
-      args.push('--session-id', resolvedClaudeSessionId);
-    }
-    if (skipPermissions) args.push('--dangerously-skip-permissions');
-    // Nudge the agent to launch servers via the Topics MCP (run_script) so they
-    // show up in the Processes panel instead of leaking into the bare shell.
-    // --append-system-prompt works in interactive mode and is additive to the
-    // project's own CLAUDE.md.
-    args.push('--append-system-prompt', topicsAgentSystemPrompt());
-    // Topics' hooks (phase, current tool, end of turn) travel with the spawn,
-    // not from the user's `~/.claude/settings.json`: they fire in this pane and
-    // not in the Claude the user starts outside Topics. Same definition as the
-    // chat engine (`lib/topics-hooks.ts`). The only `--settings` of this argv:
-    // the CLI would keep just the last one.
-    args.push('--settings', JSON.stringify(topicsHooksSettings(hookScriptPath())));
-    // Start the interactive session at the same effort tier a Warp shell would
-    // ("ultracode" = xhigh). The server runs under launchd with no CLAUDE_EFFORT
-    // in its env, and the user's global effortLevel defaults to low, so without
-    // an explicit flag every Topics PTY would start at low effort. Tunable via
-    // TOPICS_CLAUDE_EFFORT (set "off" to defer to the CLI's own settings).
-    // L'override per-topic (migration 033, il selettore nel model picker) vince
-    // su ogni default — ma solo se glielo si passa: `resolveClaudeEffort()` senza
-    // argomento salta il primo ramo della sua catena, e questo percorso lo
-    // chiamava così. Il risultato è che il selettore era MORTO sul terminale
-    // interattivo: un topic messo a "medium" apriva comunque un PTY a xhigh, e
-    // sul percorso chat (claude-code.ts, che l'override lo passa) lo stesso topic
-    // si comportava diversamente. Due superfici, due effort, un solo selettore.
-    if (launch) {
-      // A sub-agent's effort was resolved at spawn (call, profile, parent topic):
-      // `launchArgs` carries it with the model and the profile.
-      args.push(...launchArgs(launch));
-    } else {
-      const claudeEffort = resolveClaudeEffort(topicEffortFor(getDatabase(), topicId));
-      if (claudeEffort) args.push('--effort', claudeEffort);
-    }
-    // Bridge the Topics MCP server into the interactive CLI so a terminal
-    // Claude Code can surface a browser pane next to itself (the chat path
-    // does the same in providers/claude-code.ts). We key the config by the
-    // terminal session id — the MCP tool POSTs to
-    // /api/sessions/<id>/browser/open-pane, which the endpoint resolves to
-    // THIS terminal (not a chat topic) and opens the browser in the same
-    // group as the terminal pane, for both standalone and project layouts.
-    // The generated config carries the `topics` bridge plus a curated set of
-    // the user's global MCP servers; when scoped we add `--strict-mcp-config`
-    // so the CLI uses ONLY that set (otherwise it stays additive and nothing
-    // the user had is lost). Policy lives in writeMcpConfigForSession and is
-    // env-tunable (TOPICS_SESSION_MCP_ALLOW/DENY/INHERIT_ALL). Cleaned up in
-    // the `exit` handler below.
+    // The CLI's 30-day cleanup may have taken the transcript of a long-parked
+    // tab: put the kept one back, or `--resume` ends the pane at once.
+    if (claudeSessionId) restoreSweptTranscript(getDatabase(), cwd, claudeSessionId, `tab ${id}`);
+    // The Topics MCP bridge for this pane, keyed by the terminal session id: the
+    // MCP tool POSTs to /api/sessions/<id>/browser/open-pane, which resolves to
+    // THIS terminal and opens the browser next to it. The config carries the
+    // `topics` bridge plus a curated set of the user's global MCP servers; policy
+    // in writeMcpConfigForSession (TOPICS_SESSION_MCP_ALLOW/DENY/INHERIT_ALL).
+    // Cleaned up in the `exit` handler below.
+    let mcp: { path: string; strict: boolean } | null = null;
     try {
-      const { path: mcpPath, strict } = writeMcpConfigForSession(id);
-      args.push('--mcp-config', mcpPath);
-      if (strict) args.push('--strict-mcp-config');
+      mcp = writeMcpConfigForSession(id);
     } catch (err) {
       // Non-fatal: a missing bridge just means no open_browser_pane tool.
       console.warn(`[Terminal] MCP config write failed for ${id}:`, err);
     }
+    // The per-topic override (migration 033, the model picker's selector) wins
+    // over every default, but only when it is passed: `resolveClaudeEffort()`
+    // without it skips the first branch of its chain, and the selector was dead
+    // on the interactive terminal. A sub-agent's effort rides its `launch`.
+    args = claudePaneArgs({
+      resume: claudeSessionId,
+      sessionId: resolvedClaudeSessionId,
+      skipPermissions,
+      launch,
+      effort: launch ? null : resolveClaudeEffort(topicEffortFor(getDatabase(), topicId)),
+      mcp,
+    });
   } else if (sessionType === 'codex') {
     // Codex (OpenAI CLI) — spawned the same interactive-PTY way as `claude`,
     // with none of the Claude-specific plumbing (no session-id/--resume, no

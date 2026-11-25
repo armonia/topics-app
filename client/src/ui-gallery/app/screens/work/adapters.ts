@@ -19,8 +19,8 @@ import { caseSeed } from '../../store/cases';
 import { P } from '../../paths';
 import { ageLabel, daysFromToday, formatShortDay, hm, historyAt } from './format';
 
-/** Where a case opens: SARIM's cases live under their own organization. */
-export const recordPathOf = (c: { id: string; org: string }) => (c.org === 'sarim' ? P.sarimRecord(c.id) : P.record(c.id));
+/** Where a case opens: ORBIT's cases live under their own organization. */
+export const recordPathOf = (c: { id: string; org: string }) => (c.org === 'orbit' ? P.orbitRecord(c.id) : P.record(c.id));
 
 /* ---------- deadlines ---------- */
 

@@ -1,7 +1,7 @@
 /**
  * The restart gate: what is still working, and the wait that ends when it is safe to stop.
  */
-import { cardTurnsHoldingReload, chatGraceMs, chatsHolding, describeInFlight, dispatchDoor, sharedWait, turnComesBack as turnComesBackDecision, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice, unrecoverableHolders } from "../lib/quiescence";
+import { cardTurnsHoldingReload, chatGraceMs, chatsHolding, describeInFlight, dispatchDoor, sharedWait, splitOnPerson, turnComesBack as turnComesBackDecision, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice, unrecoverableHolders } from "../lib/quiescence";
 import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "../lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "../lib/reload-deferred";
 import { countBusyAgentTerminals } from "../routes/terminal";
@@ -9,12 +9,17 @@ import { tryGetProvider } from "../providers";
 import { aiBridgeEnabled } from "../providers/claude-code";
 import { getAiBridgeClient } from "../lib/ai-bridge-client";
 import { recordSystemNotice } from "../attention/system-notices";
-import { pendingAskKeys } from "../lib/ask-user-bridge";
+import { askStillPolled, pendingAskKeys } from "../lib/ask-user-bridge";
 import { decodeCol } from "../../shared/message-blob";
 import type { AfterDispatcher } from "./scope";
 import { late } from "./late";
 
-export function bootQuiescence(scope: AfterDispatcher) {
+export function bootQuiescence(
+  scope: AfterDispatcher,
+  /** What the gate asks of the outside, replaceable so a test can say what the broker keeps open and whether the bridge is on. */
+  probes: { brokerOpenTurns?: () => Promise<string[]>; bridgeOn?: () => boolean } = {},
+) {
+  const bridgeOn = probes.bridgeOn ?? aiBridgeEnabled;
   const { activeStreams, ctx, deliveryOnlyWaitsOnChecks, landingQueue, taskDispatcher } = scope;
   // Quiescence gate: a PLANNED restart (approve self-restart, or an explicit
   // restart-when-idle request) must not cut an agent mid-turn. Poll the
@@ -154,7 +159,7 @@ export function bootQuiescence(scope: AfterDispatcher) {
     const native = tryGetProvider("topics") as unknown as { isTurnProcessAlive?: (sk: string) => boolean; turnRunsDetached?: (sk: string) => boolean } | undefined;
     const nativeTurn = native?.isTurnProcessAlive?.(sessionKey) === true;
     return turnComesBackDecision({
-      bridgeOn: aiBridgeEnabled(),
+      bridgeOn: bridgeOn(),
       brokerKeeps: activeStreams.get(sessionKey)?.brokerKeeps === true,
       nativeTurn,
       nativeDetached: nativeTurn && native?.turnRunsDetached?.(sessionKey) === true,
@@ -171,12 +176,21 @@ export function bootQuiescence(scope: AfterDispatcher) {
   async function autoLandTurnCount(opts?: { insideLand?: boolean }): Promise<number> {
     // Asked from within a land, that land is itself "in flight" for the gate, and
     // is not a turn it should wait for: it would never find the server idle.
-    const working = await whatIsStillWorking({ ownLands: opts?.insideLand ? 1 : 0 });
-    return (working.busy !== null ? 1 : 0) + activeStreams.size + countBusyAgentTerminals();
+    const now = await whatIsStillWorking({ ownLands: opts?.insideLand ? 1 : 0 });
+    // WHAT THE RELOAD WOULD MEET, NOT WHAT IS MERELY OPEN (RGATE-13). A chat
+    // parked on a question is neither a turn in flight nor one a reload cuts:
+    // the question survives on its row. It used to count twice here (`busy`
+    // names the parked ones, and `activeStreams` holds their streams), so a land
+    // of a server diff waited for as long as nobody answered, up to its three
+    // hours, and then gave up. A CARD that does not come back stays in
+    // (`now.cards`), parked or not: its recovery resumes it without asking
+    // whether its question is still open, which is the reason the gate holds it.
+    const open = splitOnPerson(activeStreams.values(), (s) => s.sessionKey, (key) => askStillPolled(key)).working.length;
+    return (now.cards > 0 || now.working ? 1 : 0) + open + countBusyAgentTerminals();
   }
 
 
-  async function whatIsStillWorking(opts: { ownLands?: number } = {}): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; lostWorkingChats: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {
+  async function whatIsStillWorking(opts: { ownLands?: number } = {}): Promise<{ busy: string | null; workingBusy: string | null; cards: number; cardsOnPerson: number; unadoptable: number; chats: number; workingChats: number; lostWorkingChats: number; working: boolean; waitingOnPerson: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {
     // A land in flight is a card turn for this purpose: it rewrites main and
     // the card, and a restart in the middle of it forgets the delivery branch.
     //
@@ -192,6 +206,21 @@ export function bootQuiescence(scope: AfterDispatcher) {
     // round is redone. What still holds is a card whose turn lives in this
     // process, and a land, which rewrites main under the restart.
     const cardTurns = cardTurnsAll.filter((t) => !(t.sessionKey && turnComesBack(t.sessionKey)));
+    // A CARD TURN WAITING FOR A PERSON HOLDS THE RESTART BUT DOES NOT WORK
+    // (RGATE-13). Two questions, two answers. "Is anything computing?" (`working`,
+    // so `idle`, the vacuum, the sleep of the Mac) is no for a turn blocked on a
+    // question, a card's as much as a chat's. "Does a restart lose it?" is yes
+    // for a card and no for a chat, and the difference is the recovery: a chat
+    // cut on a question is left alone (`resumeVerdict`: "waiting for a person is
+    // not an interruption to repair"), while the dispatcher resumes a card cut
+    // mid-turn at once with the interrupted-turn nudge, never asking whether its
+    // question is still open, so the model asks it again in a second panel or
+    // goes on without the answer. So the card stays in `cards`, and only the
+    // label moves. In practice it is the card whose turn lives in THIS process
+    // (Codex, ACP, a native turn fallen back from the broker): the others come
+    // back, and are parked like any chat below. Same doubt as everywhere: a
+    // predicate that cannot say, or a card with no session yet, is working.
+    const cardsOnPerson = splitOnPerson(cardTurns, (t) => t.sessionKey, (key) => askStillPolled(key)).onPerson.length;
     // `ownLands`: the caller IS a land and does not count itself (the automatic land's last look).
     const cards = cardTurns.length + Math.max(0, landingQueue.inFlight() - (opts.ownLands ?? 0));
     // Those cards' own streams go with them. A card turn streams through
@@ -202,8 +231,27 @@ export function bootQuiescence(scope: AfterDispatcher) {
     // NON LE CHIAVI DEL REGISTRO: quelle il cui TURNO e' ancora aperto. Una voce
     // rimasta dietro a un turno gia' finalizzato trattiene un riavvio per
     // nessuno, e nessuno puo' nemmeno sbloccarlo (vedi `turnAlreadyFinished`).
-    const liveStreams = unfinishedStreams(activeStreams.values(), turnAlreadyFinished)
+    //
+    // AND NOT THE ONES PARKED ON A PERSON. A turn blocked on a question on screen
+    // is alive: its process polls the bridge and its row is `partial = 1`. But it
+    // is not working, it is waiting, and the fourth source (`parked` below) is the
+    // one that says so. Counted as a stream as well, it passed for a "chat in
+    // streaming" and for a turn a restart would lose: one unanswered question held
+    // `/__daemon/idle` at `idle: false`, and ten hours later it was still there
+    // (RGATE-12). The bridge's in-memory registry is the right thing to read: it
+    // says "waiting for a person" the instant that is true and stops the instant
+    // someone answers, without the tail of a cached probe.
+    const unfinished = unfinishedStreams(activeStreams.values(), turnAlreadyFinished)
       .filter((s) => !waitingKeys.has(s.sessionKey));
+    //
+    // ONLY A QUESTION, AND ONLY WHILE ITS BRIDGE IS STILL POLLING. Not a
+    // permission prompt: its decision dies with the turn (`endStream` closes it as
+    // interrupted), so cutting that turn loses it, and it stays among the working
+    // ones as before. And not a registry entry nobody polls any more: a live
+    // question is polled every 25 s, one left open after a Stop or after an answer
+    // given between two legs is a leftover, and a leftover must never hide a turn
+    // that is working (`askStillPolled`).
+    const { working: liveStreams, onPerson: streamsOnPerson } = splitOnPerson(unfinished, (s) => s.sessionKey, (key) => askStillPolled(key));
     const streamKeys = liveStreams.map((s) => s.sessionKey);
     // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
     // economica ha già detto «occupato», la risposta non cambia.
@@ -211,13 +259,17 @@ export function bootQuiescence(scope: AfterDispatcher) {
     if (cards === 0 && streamKeys.length === 0) {
       const now = Date.now();
       if (now - brokerProbeCache.at >= QUIESCENCE_BROKER_PROBE_MS) {
-        brokerProbeCache = { at: now, open: await openBrokerChatTurns() };
+        brokerProbeCache = { at: now, open: await (probes.brokerOpenTurns ?? openBrokerChatTurns)() };
       }
       brokerOpen = brokerProbeCache.open;
     }
     // Same reason as the streams above: a card whose turn lives in a broker child
     // must not come back as a chat once its delivery has stopped holding.
     brokerOpen = brokerOpen.filter((key) => !waitingKeys.has(key));
+    // A turn the broker keeps is the same story one restart later: its child is
+    // blocked on the same bridge call, and the broker's "open" is not "working".
+    const { working: brokerWorking, onPerson: brokerOnPerson } = splitOnPerson(brokerOpen, (key) => key, (key) => askStillPolled(key));
+    brokerOpen = brokerWorking;
     // QUALI DI QUESTE CHAT NON TORNANO PIÙ, se le tagliamo adesso.
     //
     // L'attesa corta riservata alle chat vale una promessa: «la reload-resilience
@@ -250,25 +302,54 @@ export function bootQuiescence(scope: AfterDispatcher) {
       }
       parked = askProbeCache.parked;
     }
+    // Whoever the registry says is waiting joins the parked ones, whatever else
+    // they are (a stream, a broker turn): one chat, one entry. Not only when no
+    // card is in flight, like the rows above: it costs nothing and it keeps the
+    // chat in `chats` (the door of the dispatcher reads it) instead of dropping it.
+    const onPerson = [...streamsOnPerson.map((s) => s.sessionKey), ...brokerOnPerson];
+    if (onPerson.length > 0) parked = [...new Set([...onPerson, ...parked])];
+    const cardSessionKeys = taskDispatcher.busySessionKeys();
     return {
       busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen, askOpenKeys: parked }),
+      // The same sentence for what is COMPUTING: the parked ones left out, the
+      // cards parked on a person with them. `null` is "nothing works", the answer
+      // that lets the vacuum run while a question waits all night.
+      workingBusy: describeInFlight({ cards: cards - cardsOnPerson, streamKeys, brokerOpenKeys: brokerOpen, askOpenKeys: [] }),
       cards,
+      cardsOnPerson,
       unadoptable,
       // Every holder that is NOT a card: the streams of this process, the turns
       // the broker keeps, the chats parked on a question. `dispatchDoor` reads
       // this to decide whether refusing card turns buys the restart anything.
       // A card turn streams through /api/chat too, so its own session is taken
       // out here, or every card in flight would reopen the door by itself.
-      chats: chatsHolding({ streamKeys, brokerOpenKeys: brokerOpen, parkedKeys: parked, cardSessionKeys: taskDispatcher.busySessionKeys() }),
+      chats: chatsHolding({ streamKeys, brokerOpenKeys: brokerOpen, parkedKeys: parked, cardSessionKeys }),
       // The same chats minus the ones parked on a question: the turns a restart
       // "at zero turns" waits for (see `unrecoverableHolders`).
-      workingChats: chatsHolding({ streamKeys, brokerOpenKeys: brokerOpen, parkedKeys: [], cardSessionKeys: taskDispatcher.busySessionKeys() }),
+      workingChats: chatsHolding({ streamKeys, brokerOpenKeys: brokerOpen, parkedKeys: [], cardSessionKeys }),
       // Of those, the ones a restart would cut: streams whose turn does not come
       // back. A broker-kept turn comes back by construction.
-      lostWorkingChats: chatsHolding({ streamKeys: streamKeys.filter((k) => !turnComesBack(k)), brokerOpenKeys: [], parkedKeys: [], cardSessionKeys: taskDispatcher.busySessionKeys() }),
+      lostWorkingChats: chatsHolding({ streamKeys: streamKeys.filter((k) => !turnComesBack(k)), brokerOpenKeys: [], parkedKeys: [], cardSessionKeys }),
+      // Is anything COMPUTING right now? Cards, streams and broker turns, with the
+      // chats that wait for a person left out: they hold the restart for the chat
+      // minute (`busy`), but they are not work. This is what "idle" answers
+      // (`GET /__daemon/idle`), because a machine is not busy while a person
+      // thinks. A card's own stream counts here (its turn is a stream), as it
+      // does in `busy`.
+      working: cards - cardsOnPerson > 0 || streamKeys.length > 0 || brokerOpen.length > 0,
+      // The chats that wait for a person, apart from the card sessions.
+      // A chat the rows say is parked but the registry has not yet confirmed (right
+      // after a boot, before its child's next leg) is still counted as working
+      // above: it is not counted here too.
+      waitingOnPerson: chatsHolding({ streamKeys: [], brokerOpenKeys: [], parkedKeys: parked.filter((k) => !streamKeys.includes(k) && !brokerOpen.includes(k)), cardSessionKeys }),
       // Broker-kept turns and parked questions come back by construction; a
       // stream only if its turn does (a native one running in this process does not).
-      everyTurnComesBack: aiBridgeEnabled() && streamKeys.every(turnComesBack),
+      // The parked streams count here too: what the restart does to their PROCESS
+      // decides how long the gate waits (`chatGraceMs`), even though the question
+      // itself survives on its row. Left out, a native turn running in this
+      // process and parked on a question read as "everything comes back" and was
+      // cut on the first lap, with no minute for the answer being typed.
+      everyTurnComesBack: bridgeOn() && [...streamKeys, ...streamsOnPerson.map((s) => s.sessionKey)].every(turnComesBack),
       // STESSA PRIORITA' di `describeInFlight`, o la notifica nomina un soggetto
       // che non e' quello che trattiene: quando a trattenere e' una card la frase
       // parla di card, e qui non c'e' un topic da nominare — meglio `null` e il

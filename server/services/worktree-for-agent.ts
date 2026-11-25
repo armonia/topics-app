@@ -18,6 +18,12 @@ import { fetchRemoteBase, resolveWorktreeBaseRef, type WorktreeBaseRef } from ".
 import type { GitRunner } from "./own-commits";
 import { carriedRef } from "./branch-on-origin";
 import type { Worktree } from "../types";
+import type { Database } from "bun:sqlite";
+import { join } from "node:path";
+import { isInsideDir } from "../lib/path-containment";
+import { resolveCargoTargetMode } from "./app-settings";
+import { defaultWorktreeRootDir, worktreeRootDir } from "./worktree-root";
+import type { CargoTargetMode } from "../../shared/worktree-settings";
 
 /**
  * HOW LONG A WORKTREE IS GIVEN TO BECOME READY, AND WHY IT IS NOT TWO MINUTES.
@@ -159,4 +165,56 @@ export function resolveAgentProject(
   }
   const where = tried.length ? tried.join(", ") : "no known directory";
   return { ok: false, refusal: `isolation 'worktree': no project owns ${where}` };
+}
+
+/** Folder of the worktree root that holds caches shared by every worktree of a project. */
+export const CACHE_FOLDER = "_cache";
+
+/**
+ * The one Rust build directory of a project: `{root}/_cache/cargo/{slug}`. Every
+ * worktree of the project compiles into it, so `target/` (the one weight that is
+ * not cloned) exists once instead of once per checkout. Cargo's own lock on the
+ * directory serialises the builds, which is wanted: four parallel builds took the
+ * load to 29 on 09/11/2026.
+ */
+export function cargoTargetDir(root: string, slug: string): string {
+  return join(root, CACHE_FOLDER, "cargo", slug.replace(/[^A-Za-z0-9._-]/g, "-"));
+}
+
+/**
+ * `CARGO_TARGET_DIR` for an agent working in a worktree of this project, or `{}`.
+ * `per-worktree` leaves cargo alone (for build scripts that pin absolute paths:
+ * they can stay tied to the first worktree that compiled), and so does a project
+ * with no usable slug.
+ */
+export function cargoTargetEnv(opts: { mode: CargoTargetMode; root: string; slug: string | null | undefined }): Record<string, string> {
+  if (opts.mode !== "shared" || !opts.slug || !/[A-Za-z0-9]/.test(opts.slug)) return {};
+  return { CARGO_TARGET_DIR: cargoTargetDir(opts.root, opts.slug) };
+}
+
+/**
+ * The cargo environment of the agent behind a session key: its topic's worktree,
+ * when that worktree is one Topics made (under the root, the current one or the
+ * default), and the project's slug. An adopted worktree of another tool and a
+ * chat with no worktree get nothing. Every failure answers `{}`: a missing cache
+ * variable costs a slower first build, never a session.
+ */
+export function worktreeCargoEnv(
+  db: Database,
+  sessionKey: string,
+  opts: { mode?: CargoTargetMode; root?: string; defaultRoot?: string } = {},
+): Record<string, string> {
+  try {
+    const row = db.prepare(
+      `SELECT w.abs_path AS absPath, p.slug AS slug
+         FROM topics t JOIN worktrees w ON w.id = t.worktree_id JOIN projects p ON p.id = w.project_id
+        WHERE t.session_key = ? LIMIT 1`,
+    ).get(sessionKey) as { absPath?: string; slug?: string } | undefined;
+    if (!row?.absPath || !row.slug) return {};
+    const root = opts.root ?? worktreeRootDir();
+    if (!isInsideDir(row.absPath, root) && !isInsideDir(row.absPath, opts.defaultRoot ?? defaultWorktreeRootDir())) return {};
+    return cargoTargetEnv({ mode: opts.mode ?? resolveCargoTargetMode(), root, slug: row.slug });
+  } catch {
+    return {};
+  }
 }

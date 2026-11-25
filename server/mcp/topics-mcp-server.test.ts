@@ -587,6 +587,7 @@ describe("handleMessage", () => {
     const names = tools.map((t) => t.name);
     expect(names).toEqual([
       "open_browser_pane",
+      "request_login",
       "close_browser_pane",
       "browser_list_tabs",
       "browser_focus_tab",
@@ -705,7 +706,7 @@ describe("handleMessage", () => {
       // Aprono, chiudono, spostano o scrivono qualcosa — pane, processi, board,
       // topic, progetti, chat. `browser_focus_tab` è qui di proposito: portare
       // una tab in primo piano cambia ciò che la persona ha davanti.
-      "open_browser_pane", "close_browser_pane", "browser_focus_tab", "import_chrome",
+      "open_browser_pane", "request_login", "close_browser_pane", "browser_focus_tab", "import_chrome",
       "browser_act", "browser_eval", "browser_save_state", "browser_load_state",
       "browser_upload",
       // It reloads or navigates the page before it reads it.

@@ -2766,7 +2766,6 @@ suo lavoro.
 - **GIVEN** un avvio in cui il guscio NON ha concluso lo stato degradato
 - **THEN** il comando SHALL non eliminare niente e non rilanciare
 
-
 ### Requirement: CHROME-11 — Al ricarico si torna sulla tab su cui si era, e l'indirizzo del drawer segue il fuoco della board
 
 Il fuoco di una tab e' dell'apparecchio (`pane-store-focused-id`), e un ricarico
@@ -4414,3 +4413,181 @@ con le voci del suo tipo tranne Disposizione, e bersagli di almeno 44 px.
 - **WHEN** l'utente tiene premuto il titolo
 - **THEN** il foglio della chat si apre dal basso a tutta larghezza, con Chiudi, Impostazioni della chat e il livello Tab
 - **AND** nessun bersaglio è più basso di 44 px e non c'è Disposizione
+
+### Requirement: TABPOS-01 — Le tab stanno in un posto solo, sopra o di lato
+
+Le tab di primo livello SHALL comparire in UN posto solo: nella colonna (default)
+o nella barra in alto, a scelta dal menu Vista. Con le tab di lato la barra in
+alto NON SHALL esserci, nemmeno a colonna chiusa (25/11: «è o una o l'altra»), e
+ciò che serviva della barra SHALL restare raggiungibile dalla riga del titolo: il
+foglio della tab con Disposizione, il «+» che aggiunge nella cella, la chiusura.
+A colonna chiusa la riga del titolo SHALL tenere la superficie davanti e il
+bottone che riapre la colonna.
+
+#### Scenario: il default
+- **GIVEN** un client che non ha mai toccato il menu Vista e due chat aperte
+- **THEN** nessun `panel-tab-bar` è visibile e le due chat sono righe della colonna con lo sfondo delle tab aperte
+- **WHEN** la colonna si chiude
+- **THEN** nessun `panel-tab-bar` compare e la riga del titolo tiene la tab davanti
+
+### Requirement: TABPOS-02 — Ogni tab ha tre stati: aperta, chiusa, archiviata
+
+Chiudere una tab di primo livello (chat, progetto, terminale, browser, pagina di
+utilità) SHALL lasciarne la riga nella colonna senza sfondo, con UN gesto solo.
+Un clic sulla riga chiusa SHALL riaprire la tab al suo posto; il cerchio della
+riga chiusa SHALL archiviarla, e la riga SHALL uscire dalla colonna. Con
+«Chiudere una tab la archivia» acceso dal menu Vista, chiudere SHALL archiviare
+come prima. Una chat chiusa DENTRO una finestra di progetto SHALL restare sotto
+il suo progetto come riga chiusa, non archiviata. Una chat chiusa il cui record
+esce dalla pila delle chiuse (50) SHALL essere archiviata, così sta
+nell'archivio e non sparisce fra i due.
+Le tab di una finestra di progetto, nell'albero e nella fascia di una fissata,
+SHALL avere gli stessi due aspetti: aperta con lo sfondo, chiusa senza; la
+fascia SHALL NOT dipingere un riquadro sotto le sue righe, e le sue righe SHALL
+avere lo stesso passo di quelle dell'albero.
+Una riga chiusa SHALL restare senza sfondo anche sotto il puntatore: lo
+sfondo dice «aperta», e nessuno stato della riga chiusa lo prende in prestito.
+
+#### Scenario: una chat di progetto chiusa resta sotto il progetto
+- **GIVEN** una chat aperta dentro la finestra del suo progetto, con le opzioni di default
+- **WHEN** l'utente preme il cerchio della sua riga
+- **THEN** la riga resta sotto il progetto con il cerchio che archivia, e la chat non è archiviata
+
+#### Scenario: dentro una fissata, solo le tab aperte hanno lo sfondo
+- **GIVEN** un progetto fissato con due chat aperte, la sua fascia aperta
+- **THEN** la fascia non ha sfondo, le due righe sono `open` con lo sfondo e distano 6px
+- **WHEN** l'utente preme il cerchio della seconda
+- **THEN** la riga diventa `closed` senza sfondo, la prima resta con lo sfondo e la chat non è archiviata
+
+#### Scenario: chiudi, riapri, archivia
+- **GIVEN** due chat aperte, con le opzioni di default
+- **WHEN** l'utente preme il cerchio della seconda riga
+- **THEN** la riga resta con `data-tab-state="closed"`, la tab non è più aperta e la chat non è archiviata
+- **WHEN** clicca la riga
+- **THEN** la riga torna `open`
+- **WHEN** la chiude di nuovo e preme il cerchio della riga chiusa
+- **THEN** la riga esce dalla colonna e la chat è archiviata
+
+#### Scenario: la riga chiusa sotto il puntatore
+- **GIVEN** due chat aperte, la seconda chiusa dal cerchio
+- **WHEN** il puntatore sta sulla riga chiusa
+- **THEN** la riga non ha sfondo, mentre quella aperta sotto il puntatore lo ha
+
+### Requirement: TABPOS-03 — Le fissate si aprono da sole e non si chiudono
+
+Una tab fissata SHALL essere aperta al caricamento, e NON SHALL chiudersi: il suo
+foglio NON SHALL offrire Chiudi (resta «Rimuovi dai Fissati»), e ⌘W nella app
+SHALL lasciarla aperta con un avviso che dice di rimuoverla dai Fissati. Con
+«Le fissate si possono chiudere» acceso dal menu Vista, si chiudono come le
+altre e non si riaprono da sole.
+
+#### Scenario: chiudere una fissata
+- **GIVEN** una chat fissata e nessuna tab aperta
+- **WHEN** l'app si carica
+- **THEN** la chat fissata è aperta
+- **WHEN** l'utente la mette in primo piano e apre il foglio del titolo
+- **THEN** il foglio non ha Chiudi in nessun livello, ha «Rimuovi dai Fissati», e la tab resta aperta
+
+### Requirement: TABPOS-04 — Le righe stanno nell'ordine dato a mano
+
+Le righe della colonna SHALL stare nell'ordine in cui l'utente le trascina, e
+l'ordine SHALL sopravvivere a un ricaricamento e viaggiare fra i dispositivi con
+lo stato della sidebar. Una riga che l'ordine non conosce ancora (una tab appena
+aperta) SHALL andare in cima. Una riga che chiede attenzione NON SHALL saltare
+in cima: si accende dove sta.
+
+#### Scenario: trascina e ricarica
+- **GIVEN** tre chat aperte, in colonna nell'ordine A, B, C
+- **WHEN** l'utente trascina C sul bordo alto di A
+- **THEN** la colonna mostra C, A, B
+- **WHEN** ricarica la pagina
+- **THEN** la colonna mostra ancora C, A, B
+
+### Requirement: SPLIT-01 — Un trascinamento divide da qualunque sorgente
+
+The grid and the project window SHALL read one intent from the drop zone, whatever the source (column row, tab, pinned tile, cell header): a cell edge splits on that side, the cell centre shows the pane there, the surface edge inserts a full row or column. A drag that starts in the column SHALL split on an edge exactly like a tab does, opening the pane first when it is closed. No drop SHALL close a pane.
+
+#### Scenario: dalla colonna al bordo destro
+- **GIVEN** three open chats, tabs on the side, one cell
+- **WHEN** the user drags the row of Beta onto the right edge of the grid
+- **THEN** the grid has two cells side by side with Beta on the right and one divider
+
+### Requirement: SPLIT-02 — L'anteprima è l'impronta della pane, con il suo nome
+
+During a drag exactly one indicator SHALL be painted: on an edge, the area the pane will occupy, carrying the icon and name of the dragged item; on the centre, an outline of the cell without a fill. An edge that would exceed the column, row or stack cap (`constants.ts`) SHALL NOT be offered.
+
+#### Scenario: impronta sul bordo destro
+- **GIVEN** a grid with one cell
+- **WHEN** the user holds a dragged row over the right edge
+- **THEN** the preview covers the right half of the cell and shows the row's name
+
+### Requirement: SPLIT-03 — Una cella divisa dice cosa contiene e chi ha il fuoco
+
+When a surface holds more than one cell and the tabs are on the side, every cell SHALL carry a header with the pane's icon and name, the header of the focused cell SHALL be lit, a click on a header SHALL focus its cell, and the header SHALL drag like a tab. With one cell the header SHALL be lit for no cell and carry no cell commands. Cells SHALL be counted on screen: a cell the saved layout keeps for a closed pane SHALL NOT make a lone pane a split cell.
+
+With the tabs on the side the title of the pane in front SHALL be its tab, in a split or alone: the same tab the strip draws, alone, so everything a tab shows comes with it (a browser's icon and commands, the countdown of a close, the loaders and badges); at rest it SHALL read as a title with no fill, under the pointer it SHALL take the tab's fill, and it SHALL drag into a split. A project's window SHALL then draw no bar of its own while it holds one group: its tabs are rows of the column, the project's commands SHALL sit on the title row with the column open or closed, with no "+" (the project's row in the column has it) and with their badges whole, and its body SHALL start under the title with no empty band. The column's sections SHALL be islands: each a card of its own, the column with no ground or edge of its own.
+
+#### Scenario: due celle, due testate
+- **GIVEN** a grid split in two with tabs on the side
+- **THEN** each cell shows a header with its pane's name and only the focused one is lit
+
+#### Scenario: a cell kept for a closed pane
+- **GIVEN** one open chat and a saved layout that still names a cell for a closed one
+- **THEN** no title is lit and none carries the cell commands
+
+#### Scenario: a project's window has only its title
+- **GIVEN** the tabs on the side and a project in front, with a chat open inside and its column closed
+- **THEN** the window shows no tab of its own, the project's commands sit on the title row and no "+" does
+- **WHEN** the pointer is on the title
+- **THEN** the title takes the tab's fill
+- **WHEN** the title is dragged to the right edge of a chat beside it
+- **THEN** the project lands on the right of that chat
+
+#### Scenario: the column open keeps the commands on the title
+- **GIVEN** the tabs on the side and a project in front with its column open
+- **THEN** the project's commands sit on the title row, the toggle says the column is open, and each section of the column is a rounded card
+- **WHEN** a section's command is pressed
+- **THEN** that section opens or closes
+
+#### Scenario: the title is the real tab
+- **GIVEN** the tabs on the side and a browser in front
+- **THEN** its title carries the browser tab's menu and commands
+- **WHEN** a chat is in front and its close is pressed on the title
+- **THEN** the title keeps that chat and shows the countdown, and a second press cancels it
+- **WHEN** the countdown runs out
+- **THEN** the title moves to the tab left
+
+### Requirement: SPLIT-04 — I divisori si usano da tastiera
+
+Every split divider SHALL be focusable, expose its position as `aria-valuenow` (percent of the band), move by 5% per arrow key (1% with Shift) and even out its band on Enter, as it does on double-click.
+
+#### Scenario: freccia destra
+- **GIVEN** two cells side by side at 50%
+- **WHEN** the divider has focus and the user presses ArrowRight
+- **THEN** the left cell is at 55% and the divider reports 55
+
+### Requirement: SPLIT-05 — Disposizione sta in ogni foglio
+
+The sheet of a column row, a tab, the title and a cell header SHALL offer Split right, left, down and up, Zoom, Even out and Remove from split whenever the action applies; a row whose pane is not open SHALL offer Open on the right and Open below.
+
+#### Scenario: foglio della riga
+- **GIVEN** tabs on the side and an open chat that shares its cell
+- **WHEN** the user opens the sheet of its row
+- **THEN** the Layout level lists the four split directions, Zoom, Even out and Remove from split
+
+### Requirement: SPLIT-06 — Il fuoco passa fra le celle da tastiera
+
+Cmd+Option+Arrow SHALL move the focus to the nearest cell in that direction, measured on the cells' geometry; with no cell in that direction nothing SHALL change.
+
+#### Scenario: a destra e poi sotto
+- **GIVEN** two cells side by side and one below
+- **WHEN** the user presses Cmd+Option+ArrowRight then Cmd+Option+ArrowDown
+- **THEN** the focus moves to the right cell and then to the one below
+
+### Requirement: SPLIT-07 — Gli split di un progetto hanno la loro mini mappa
+
+A project row in the column SHALL show the mini map of the splits inside its project window, with the active cell lit, whenever that window holds more than one cell.
+
+#### Scenario: progetto diviso in due
+- **GIVEN** a project window split in two
+- **THEN** the project's row shows a two-cell mini map with the active cell lit

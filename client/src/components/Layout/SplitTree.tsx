@@ -24,6 +24,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { type LayoutNode, type SplitChild, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
 import { gapHasDivider } from './splitDivider';
+import { dividerKeyAction } from './splitKeyboard';
 import { assignSplitKeys, EMPTY_SPLIT_KEYS, type SplitKeyState } from './splitKeys';
 
 const NO_CHILDREN: readonly SplitChild[] = [];
@@ -131,6 +132,7 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
                 // what makes the disarm reach the gesture.
                 onResize={onResize ? (deltaPx, bandPx) => onResize(path, i - 1, deltaPx, bandPx) : undefined}
                 onEqualize={onEqualize ? () => onEqualize(path, i - 1) : undefined}
+                share={shareOf(node.children, i - 1)}
               />
             ))}
             <div style={{ flex: `${child.weight} 1 0%`, minWidth: 0, minHeight: 0, position: 'relative' }}>
@@ -154,6 +156,9 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
 interface DividerProps {
   dir: SplitDir;
   gutter: number;
+  /** The share of the child before the divider, 0-100: what a screen reader
+   *  announces as the separator value. */
+  share?: number;
   /** Commit the resize ONCE on release: the TOTAL signed px the divider moved
    *  along the split axis, within the parent band of `bandPx`. The host maps it
    *  via `pxToWeightDelta` + `resizeWeights`.
@@ -191,7 +196,13 @@ const MIN_CHILD_FRACTION = 0.1;
  * `topics:pane-resize-start` / `-end` so those panes hide for the drag's duration.
  * The start/end pair is always balanced — even if the divider unmounts mid-drag.
  */
-function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.ReactElement {
+/** The share (0-100) of child `idx` in its band. */
+function shareOf(children: ReadonlyArray<{ weight: number }>, idx: number): number | undefined {
+  const total = children.reduce((sum, c) => sum + c.weight, 0);
+  return total > 0 && children[idx] ? Math.round((children[idx].weight / total) * 100) : undefined;
+}
+
+function Divider({ dir, gutter, onResize, onEqualize, share }: DividerProps): React.ReactElement {
   const horizontal = dir === 'row';
   // DISARMED = INERT, and the two halves are separate on purpose. `canDrag`
   // decides whether the drag is wired at all, so a gap without a host handler
@@ -206,6 +217,7 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
   const canDrag = !!onResize;
   const inert = !canDrag && !onEqualize;
   const [active, setActive] = useState(false);
+  const [keyFocus, setKeyFocus] = useState(false);
   // Teardown for the in-flight drag so an unmount-mid-drag finishes it cleanly.
   const cleanupRef = useRef<(() => void) | null>(null);
 
@@ -289,6 +301,19 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
     window.addEventListener('mouseup', finish);
   }, [horizontal, onResize]);
 
+  // The same commit a drag makes, a step at a time (SPLIT-04): the band is the
+  // parent split, the step a share of it.
+  const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>): void => {
+    const act = dividerKeyAction(e.key, e.shiftKey, horizontal);
+    if (!act) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (act.kind === 'equalize') { onEqualize?.(); return; }
+    const rect = e.currentTarget.parentElement?.getBoundingClientRect();
+    const bandPx = rect ? (horizontal ? rect.width : rect.height) : 0;
+    if (bandPx > 0) onResize?.(act.fraction * bandPx, bandPx);
+  }, [horizontal, onResize, onEqualize]);
+
   // Unmount mid-drag (a concurrent column close re-keys the row): finish so the
   // listeners, overlay and the resize start/end count stay balanced.
   useEffect(() => () => { cleanupRef.current?.(); }, []);
@@ -322,7 +347,16 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
       // `project-sidebar-resizer` largo 0×0 dentro una pane tenuta viva e
       // nascosta. Il rosso era vero e il difetto non c'era.
       data-resize-axis={horizontal ? 'col' : 'row'}
-      className={`bg-app-border ${horizontal ? 'cursor-col-resize' : 'cursor-row-resize'}${active ? ' is-resizing' : ''}`}
+      className={`bg-app-border outline-none ${horizontal ? 'cursor-col-resize' : 'cursor-row-resize'}${active || keyFocus ? ' is-resizing' : ''}`}
+      // A handle is a stop of the keyboard: Tab reaches it, the arrows move it,
+      // and it lights like a drag while it holds the focus (WAI-ARIA splitter).
+      tabIndex={canDrag ? 0 : undefined}
+      aria-valuenow={canDrag ? share : undefined}
+      aria-valuemin={canDrag ? 0 : undefined}
+      aria-valuemax={canDrag ? 100 : undefined}
+      onKeyDown={canDrag ? onKeyDown : undefined}
+      onFocus={canDrag ? (e) => setKeyFocus(e.currentTarget.matches(':focus-visible')) : undefined}
+      onBlur={canDrag ? () => setKeyFocus(false) : undefined}
       onMouseDown={canDrag ? onMouseDown : undefined}
       onDoubleClick={onEqualize ? (e) => { e.preventDefault(); e.stopPropagation(); onEqualize(); } : undefined}
       style={{

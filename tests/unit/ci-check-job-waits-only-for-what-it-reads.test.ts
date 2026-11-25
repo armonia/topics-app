@@ -80,20 +80,27 @@ describe("ci.yml: a job waits only for the jobs whose result it reads", () => {
         // The one wait for an END, not a result: the Hetzner server is deleted after
         // the shards it carries, whatever they concluded (`if: always()`).
         if (job === "hcloud-delete" && need === "e2e") continue;
+        // A wait for the macOS runner pool, not a result: both legs queued for it together
+        // and the loser timed out at 0 steps (9d4ac01e); tauri runs whatever process-groups did.
+        if (job === "tauri" && need === "process-groups") continue;
         if (!jobBody(job).includes(`needs.${need}.`)) idle.push(`${job} needs ${need} and never reads it`);
       }
     }
     expect(idle).toEqual([]);
   });
 
-  it("the measuring job starts with the run: it needs nothing", () => {
-    expect(needsOf("gates")).toEqual([]);
+  // `changes` only, and only to skip a tree a pull request run already judged: it
+  // ends a median 15 s after `gates` starts (80 runs, 23/11/2026), not the 14
+  // minutes of `unit` this test was written against.
+  it("the measuring job starts with the run: it needs only the 15-second `changes`", () => {
+    expect(needsOf("gates")).toEqual(["changes"]);
+    expect(jobBody("gates")).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) && needs\.changes\.outputs\.proven != 'true' \}\}$/m);
     expect(stepsOf("gates").length).toBeGreaterThanOrEqual(10);
   });
 
   it(`the board's job \`${UNIT_JOB}\` needs the unit jobs and the gates, and runs even when they are red`, () => {
-    expect(needsOf(UNIT_JOB).sort()).toEqual(["gates", "gates-2", "unit"]);
-    expect(jobBody(UNIT_JOB)).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) \}\}$/m);
+    expect(needsOf(UNIT_JOB).sort()).toEqual(["changes", "gates", "gates-2", "unit"]);
+    expect(jobBody(UNIT_JOB)).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) && needs\.changes\.outputs\.proven != 'true' \}\}$/m);
   });
 
   it(`\`${UNIT_JOB}\` runs nothing: no checkout, no install, only verdicts`, () => {

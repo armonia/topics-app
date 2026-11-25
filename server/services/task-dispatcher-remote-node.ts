@@ -30,7 +30,7 @@ import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { CLOUD_HOLD_KEY, parseCloudWeeklyLimit, type CloudWeeklyLimit } from "../lib/cloud-weekly-limit";
 import { setProviderHold } from "../lib/provider-hold";
-import { carriedBranch, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
+import { BRANCH_NOWHERE_REASON, carriedBranch, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
@@ -532,12 +532,23 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // can only start from what origin has, so the branch is pushed first; a
     // branch that cannot reach origin keeps the card from starting at all.
     let baseBranch: string | null = null;
+    // A recorded branch that exists nowhere is skipped for the next one the card carries.
+    const phantoms = new Set<string>();
     const carried = carriedBranch(task);
     if (carried && !policy && node.ensureBranchOnOrigin) {
-      const branch = carried;
-      const ready = await Promise.resolve(node.ensureBranchOnOrigin({ projectId: task.projectId, branch }))
+      let branch = carried;
+      let ready = await Promise.resolve(node.ensureBranchOnOrigin({ projectId: task.projectId, branch }))
         .catch((err): { ok: false; reason: string } => ({ ok: false, reason: err instanceof Error ? err.message : String(err) }));
-      if (!ready.ok) {
+      while (!ready.ok && ready.reason === BRANCH_NOWHERE_REASON) {
+        phantoms.add(branch);
+        const next = carriedBranch(task, phantoms);
+        if (!next) break;
+        branch = next;
+        ready = await Promise.resolve(node.ensureBranchOnOrigin({ projectId: task.projectId, branch }))
+          .catch((err): { ok: false; reason: string } => ({ ok: false, reason: err instanceof Error ? err.message : String(err) }));
+      }
+      // Nothing left that exists: the card starts from main, as a card with no branch does.
+      if (!ready.ok && ready.reason !== BRANCH_NOWHERE_REASON) {
         parkNodeCard(
           task,
           `Questa card ha già il ramo «${branch}», ma su origin non c'è e non si è potuto pusharlo (${ready.reason}). ` +
@@ -545,7 +556,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         );
         return;
       }
-      baseBranch = branch;
+      if (ready.ok) baseBranch = branch;
     }
     if (policy) {
       let begun: boolean | number = false;
@@ -614,7 +625,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
             subjectDeviceId: policy.initiatorDeviceId,
           } : undefined,
         }); }
-        catch (err) { log(`nodo: la corsa ${previous} non si è cancellata`, err); }
+        catch (err) {
+          // 404 = the node no longer has that run: it is already dead, which is the point.
+          if (!(isNodeError(err) && err.status === 404)) log(`nodo: la corsa ${previous} non si è cancellata`, err);
+        }
         lastNodeRun.delete(task.id);
       }
       const runInput: Parameters<typeof node.createRun>[0] = {
@@ -1010,6 +1024,31 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   }
 
   /**
+   * A node delivery reaches review here, never through the route that emits `task-deliver`, so the
+   * user's hook (a retrospective, an audit) would never see a card that ran on a node. Emit the same
+   * event with the node's own account of the run, because its chat lives in the node's database.
+   * Detached and swallowed: a delivery that already landed must not wait on, or fail for, a hook.
+   */
+  function fireNodeDeliverHook(delivered: { id: string; projectId: string }, node: NodeSlot, report: NodeRunReport): void {
+    try {
+      const hooks = host.client?.hooks ?? defaultLifecycleHooks();
+      if (hooks.declares && !hooks.declares("task-deliver")) return;
+      const comments = report.comments.slice(-12).map((c) => ({ author: c.author, content: c.content.slice(0, 2000) }));
+      void hooks.run("task-deliver", {
+        hook_event_name: "task-deliver",
+        session_id: delivered.id,
+        cwd: host.client?.projectPathOf?.(delivered.projectId) ?? "",
+        task_id: delivered.id,
+        project_id: delivered.projectId,
+        commit: report.deliveryCommit,
+        node_run: true,
+        machine_id: node.machineId,
+        node_comments: comments,
+      }).catch((err) => log(`nodo: hook task-deliver di ${delivered.id} non riuscito`, err));
+    } catch (err) { log(`nodo: hook task-deliver di ${delivered.id} non avviato`, err); }
+  }
+
+  /**
    * The node's card reached review: the BRANCH comes back with it (KANBAN-76).
    *
    * A git bundle over the channel that is already authenticated, verified and
@@ -1118,6 +1157,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         catch { /* audit never blocks delivery */ }
       }
       emit(delivered);
+      fireNodeDeliverHook(delivered, node, report);
       // The review rewrites the chip and clears dispatch_error: a node that closed on an error
       // (the Claude cloud does) gets its code back, so the card does not read like a success.
       if (report.dispatchError) {

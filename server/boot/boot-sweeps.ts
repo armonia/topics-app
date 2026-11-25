@@ -10,9 +10,19 @@ import { getAiBridgeClient } from "../lib/ai-bridge-client";
 import { runBootPartialSweep } from "../lib/boot-partial-sweep";
 import type { AfterTerminalsWs } from "./scope";
 import { late } from "./late";
+import { backfillProjectParents } from "../services/project-family-backfill";
+import { worktreeRootDir } from "../services/worktree-manager";
 
 export async function bootBootSweeps(scope: AfterTerminalsWs) {
   const { db, turnLedger } = scope;
+  // Worktree-projects get their parent project (accorpa / separa). Idempotent and
+  // cheap when there is nothing to do: one read of the projects table.
+  try {
+    const family = backfillProjectParents(db, { worktreeRoot: worktreeRootDir() });
+    for (const a of family.assigned) console.log(`[Startup] project ${a.slug} is a worktree of ${a.parentSlug}: parent set, cards untouched`);
+  } catch (err) {
+    console.warn("[Startup] project family backfill failed:", err instanceof Error ? err.message : err);
+  }
   // Startup: reset stale partial messages (via SQLite). BEFORE clearing,
   // capture which sessions were mid-turn: the chat-reattach boot sweep below
   // uses this set to tell a SURVIVING broker turn (detached by the previous

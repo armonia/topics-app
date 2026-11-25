@@ -1,6 +1,5 @@
-import { existsSync } from "fs";
 import { join } from "path";
-import { agentBinPath } from "./agent-bin-paths";
+import { HOME, WINDOWS_NPM_DIR, createBinResolver } from "./cli-bin";
 
 /**
  * Resolve the Anthropic `claude` (Claude Code) CLI binary by absolute path.
@@ -18,83 +17,28 @@ import { agentBinPath } from "./agent-bin-paths";
  * claude-code tab (the caller falls back to the bare name, which still surfaces the
  * "command not found" plainly rather than pretending).
  */
-// `$HOME` does not exist on Windows — it is `%USERPROFILE%` there. Reading only
-// HOME made every candidate below collapse to a relative path like
-// `.local/bin/claude`, which `existsSync` resolves against the server's cwd and
-// never finds: on Windows the probe could only ever return null.
-const HOME = process.env.HOME || process.env.USERPROFILE || "";
+const bin = createBinResolver({
+  agentId: "claude-code",
+  binary: "claude",
+  envVar: "CLAUDE_BIN",
+  windowsDirs: [
+    join(HOME, ".local/bin"), // native installer
+    join(HOME, ".bun/bin"), // bun global
+    WINDOWS_NPM_DIR, // npm global
+    join(HOME, "AppData/Local/Microsoft/WinGet/Links"),
+  ],
+  posixPaths: [
+    join(HOME, ".local/bin/claude"), // native installer (modern default)
+    join(HOME, ".claude/local/claude"), // native installer (legacy location)
+    "/opt/homebrew/bin/claude", // Homebrew (Apple Silicon)
+    "/usr/local/bin/claude", // Homebrew (Intel) / manual
+    join(HOME, ".bun/bin/claude"), // bun global
+    join(HOME, ".npm-global/bin/claude"), // npm global (custom prefix)
+    join(HOME, ".local/share/claude/bin/claude"),
+  ],
+});
 
-const IS_WINDOWS = process.platform === "win32";
+export const resolveClaudeBin = bin.resolve;
 
-/**
- * The names a CLI can have on this platform. On Windows an executable carries its
- * extension, and which one depends on how it was installed: the native installer
- * ships a real `.exe`, while an npm/bun global installs a `.cmd` shim. Probing the
- * bare name finds neither.
- *
- * Verified on Windows 11 on 2026-08-26: `claude` lives at
- * `%USERPROFILE%\.local\bin\claude.exe`.
- */
-function names(base: string): string[] {
-  return IS_WINDOWS ? [`${base}.exe`, `${base}.cmd`, `${base}.bat`, base] : [base];
-}
-
-/** The install locations, expanded to every name this platform accepts. */
-function candidates(base: string, dirs: string[]): string[] {
-  const out: string[] = [];
-  for (const dir of dirs) for (const n of names(base)) out.push(join(dir, n));
-  return out;
-}
-
-const CANDIDATES = IS_WINDOWS
-  ? candidates("claude", [
-      join(HOME, ".local/bin"),                          // native installer
-      join(HOME, ".bun/bin"),                            // bun global
-      join(process.env.APPDATA || join(HOME, "AppData/Roaming"), "npm"), // npm global
-      join(HOME, "AppData/Local/Microsoft/WinGet/Links"),
-    ])
-  : [
-      join(HOME, ".local/bin/claude"),        // native installer (modern default)
-      join(HOME, ".claude/local/claude"),     // native installer (legacy location)
-      "/opt/homebrew/bin/claude",             // Homebrew (Apple Silicon)
-      "/usr/local/bin/claude",                // Homebrew (Intel) / manual
-      join(HOME, ".bun/bin/claude"),          // bun global
-      join(HOME, ".npm-global/bin/claude"),   // npm global (custom prefix)
-      join(HOME, ".local/share/claude/bin/claude"),
-    ];
-
-let cached: string | null = null;
-
-/**
- * Absolute path to the claude binary, or `null` if it can't be found anywhere.
- * Honors the path chosen in Settings first, then `$CLAUDE_BIN`, then PATH (`Bun.which`), then the known install
- * locations above. Result is memoized.
- */
-export function resolveClaudeBin(): string | null {
-  if (cached) return cached;
-
-  // The path somebody pointed at in Settings wins over every guess: it is the
-  // one answer that is not a probe. See `agent-bin-paths.ts`.
-  const chosen = agentBinPath("claude-code");
-  if (chosen) return (cached = chosen);
-
-  const envBin = process.env.CLAUDE_BIN;
-  if (envBin && existsSync(envBin)) return (cached = envBin);
-
-  const inPath = Bun.which("claude");
-  if (inPath) return (cached = inPath);
-
-  for (const candidate of CANDIDATES) {
-    try {
-      if (existsSync(candidate)) return (cached = candidate);
-    } catch {
-      /* keep probing */
-    }
-  }
-  return null;
-}
-
-/** Reset the memoized path — for tests that mutate the environment. */
-export function _resetClaudeBinCache(): void {
-  cached = null;
-}
+/** Reset the memoized path, for tests that mutate the environment. */
+export const _resetClaudeBinCache = bin.resetCache;

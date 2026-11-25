@@ -62,12 +62,13 @@ import { beat, didascalia } from "./helpers/evidence";
 import { attentionUpdated, stageAttention } from "./helpers/attention";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { topicSubject } from "../../shared/attention";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
 // The evidence IS the point of this file: the gate is a thing you watch appear
 // and disappear, so every test records.
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const TS = Date.now();
 /** The folder under test. A fresh path per run: the inner layout of a project is

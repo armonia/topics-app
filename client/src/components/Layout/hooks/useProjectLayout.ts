@@ -104,6 +104,8 @@ import { tracePaneAttach } from '../../../lib/paneAttachTrace';
 import { apiFetch } from '../../../lib/shell/net';
 import { createProjectSingletonPaneId, isProjectSingletonPaneType } from '../../../state/pane/adapters/paneConfig';
 import { migrateProjectPaneIdentity } from './projectPaneIdentity';
+import { CLOSE_PROJECT_INNER_PANE_EVENT, type CloseProjectInnerPaneDetail } from '../../../lib/closedRows';
+import { takesTheTitle } from '../titleTab';
 
 // --- Module-local helpers (mirrors of ProjectWindow.tsx helpers) ---
 
@@ -167,6 +169,13 @@ export interface UseProjectLayoutArgs {
    *  target, every visible browser pane consumed the same window-level URL —
    *  with splits, N panes navigated in lockstep. */
   onBrowserNavigateUrl?: (url: string, paneId?: string) => void;
+  /**
+   * The window draws no bar of its own (tabs at the side): with one group the
+   * surface in front may BE the window's title (`takesTheTitle`), and its close
+   * keeps it in front while the countdown runs, or the countdown would leave
+   * the screen with it. Same rule as the standalone cells' `frontOnlyOnTop`.
+   */
+  frontOnlyOnTop?: boolean;
 }
 
 export interface UseProjectLayoutReturn {
@@ -256,6 +265,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     stopSession,
     onOpenPaneSettings,
     onBrowserNavigateUrl,
+    frontOnlyOnTop = false,
   } = args;
 
   // Both doors below can be REFUSED by the server (no PTY bridge in this
@@ -929,10 +939,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // will pick on commit (line 829: same-index, clamped to last remaining).
       // Lets the user see the destination while the 3s progress runs. Skip
       // when this isn't the active pane of its group (closing a background
-      // tab must not steal focus).
+      // tab must not steal focus), and when the pane is the window's title:
+      // moving the front would take the countdown off screen with it.
       const targetGroup = groups.find(g => g.id === groupId);
+      const isTitle = frontOnlyOnTop && groups.length === 1 && takesTheTitle(pane);
       let activeBeforeClose: string | null = null;
-      if (targetGroup && targetGroup.activePaneId === paneId) {
+      if (targetGroup && targetGroup.activePaneId === paneId && !isTitle) {
         const remaining = targetGroup.paneIds.filter(id => id !== paneId);
         if (remaining.length > 0) {
           const idx = targetGroup.paneIds.indexOf(paneId);
@@ -967,7 +979,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       });
       tickPendingAction(key);
     },
-    [panes, topics, handleClosePaneNow, groups],
+    [panes, topics, handleClosePaneNow, groups, frontOnlyOnTop],
   );
 
   const restoreClosedRecord = useCallback(async (record: ClosedTabRecord) => {
@@ -1111,6 +1123,24 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     window.addEventListener('close-focused-pane', handler);
     return () => window.removeEventListener('close-focused-pane', handler);
   }, [wrapperPaneId, focusedGroupIdRef, groupsRef]);
+
+  // The column's circle on a chat open in THIS window: close it here, through
+  // the window's own close, so the row and the tab agree (see lib/closedRows).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { projectPath: target, paneIds } = (e as CustomEvent<CloseProjectInnerPaneDetail>).detail ?? {};
+      if (target !== projectPath || !paneIds?.length) return;
+      for (const paneId of paneIds) {
+        const group = groupsRef.current.find(g => g.paneIds.includes(paneId));
+        if (!group) continue;
+        e.preventDefault();
+        handleClosePaneRef.current?.(group.id, paneId);
+        return;
+      }
+    };
+    window.addEventListener(CLOSE_PROJECT_INNER_PANE_EVENT, handler);
+    return () => window.removeEventListener(CLOSE_PROJECT_INNER_PANE_EVENT, handler);
+  }, [projectPath, groupsRef]);
 
   // A project singleton view has one id per project (PANE-AUTH-04): opening it
   // again focuses the open one instead of minting a second pane with that id.

@@ -109,8 +109,31 @@ export function subagentWakeText(results: readonly SubAgentResult[]): string {
  * and that stop is the parent's all the same. The reason stays for results
  * written on a child's row before the mark existed.
  */
-export function resultWakesParent(r: Pick<SubAgentResult, "reason" | "stoppedByParent">): boolean {
-  return r.stoppedByParent !== true && r.reason?.code !== "stopped-by-parent";
+export function resultWakesParent(r: Pick<SubAgentResult, "reason" | "stoppedByParent"> & Partial<Pick<SubAgentResult, "status" | "turn" | "text">>): boolean {
+  if (r.stoppedByParent === true || r.reason?.code === "stopped-by-parent") return false;
+  return !isNoNewsReply(r);
+}
+
+/** Longest reply still read as a "nothing new" acknowledgement. */
+const NO_NEWS_MAX_CHARS = 300;
+
+// A queued message the child already answered earlier, acknowledged with no new
+// work. The wake patterns are English and Italian (the languages chats run in).
+// allow-italian: the quoted acknowledgement phrases are the data matched
+const NO_NEWS_PATTERN =
+  /\b(?:stale|outdated|already (?:handled|answered|reported|covered)|nothing new|no news|no new (?:information|update|work)|messaggio arretrato|nessuna novit[àa]|nulla di nuovo|gi[àa] (?:gestito|risposto|riportato))\b/i;
+
+/**
+ * A steered-turn reply that only says the message was stale and nothing
+ * changed carries nothing for the parent: waking it costs a full paid turn to
+ * read "no news" (about twenty empty wakes in one chat, 35% of its cost). Only
+ * a completed, short reply of a later turn counts; the first turn is the
+ * child's real result, whatever it says. The row still lands.
+ */
+export function isNoNewsReply(r: Partial<Pick<SubAgentResult, "status" | "turn" | "text">>): boolean {
+  if (r.status !== "completed" || (r.turn ?? 1) < 2) return false;
+  const text = (r.text ?? "").trim();
+  return text.length > 0 && text.length <= NO_NEWS_MAX_CHARS && NO_NEWS_PATTERN.test(text);
 }
 
 /** What the row's `subagent-result` block carries of each result: the card's data. */

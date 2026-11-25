@@ -10,6 +10,7 @@ const HEALTH_EN: Dict = {
   'health.problem.chat-unnamed': 'A chat has no name ({chat}), so you cannot tell what it is about.',
   'health.problem.source-contradiction': 'Two sources say different things about {about}: {first} against {second}. Choose which one counts.',
   'health.problem.memory-unreceived.agent': 'The memory of {agent} holds notes that no agent receives.',
+  'health.problem.memory-unreceived.count': '{count} project memories hold notes that no agent receives.',
   'health.problem.memory-unreceived.store': 'The memory "{store}" holds notes that no agent receives.',
   'health.problem.memory-index-missing.agent': 'The memory of {agent} has notes but no index, so the agent cannot find them.',
   'health.problem.memory-index-missing.store': 'The memory "{store}" has notes but no index, so the agent cannot find them.',

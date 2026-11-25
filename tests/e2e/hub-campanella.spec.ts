@@ -26,9 +26,10 @@ import { goToApp } from "./helpers";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
 import { openMainChat, seedScene, type Scene } from "./helpers/shot-scene";
 import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ mode: "serial", timeout: 120_000 });
 
 const panel = (page: Page) => page.getByTestId("inbox-panel");

@@ -29,7 +29,9 @@ describe('global Kanban coordinator lifecycle', () => {
     // guard is no longer glued to `onArchive`. What must not move is the guard
     // itself: the coordinator gets NEITHER command.
     expect(topicItem).toContain("&& !topic.isGlobalOrchestrator && (");
-    expect(topicItem).toContain("{(onArchive || (isStreaming && onStopStreaming))");
+    // The circle closes an open tab or archives a closed row (three states):
+    // either way it sits behind the same guard.
+    expect(topicItem).toContain("{(onArchive || onCloseTab || (isStreaming && onStopStreaming)) && !topic.isGlobalOrchestrator && (");
     expect(contextMenu).toContain('{!topic.isGlobalOrchestrator && <>');
     expect(topicTree).toContain('onStopStreaming={!topic.isGlobalOrchestrator && stopSession ? async () => {');
   });

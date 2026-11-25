@@ -26,6 +26,7 @@ import IT from "../../client/src/lib/i18n-it";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -34,7 +35,7 @@ const BASE = E2E_BASE;
 // Video: la prova che serve qui è visiva (due ambre/blu che respirano a velocità
 // diverse, tre sezioni che compaiono). `test.use({ video: 'on' })` sulla singola
 // spec, NON E2E_EVIDENCE=1 — quello accende anche slowMo:300 su TUTTA la suite.
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 interface Seeded { id: string; name: string; sessionKey: string }
 

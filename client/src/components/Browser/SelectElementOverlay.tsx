@@ -28,6 +28,26 @@ function surfaceIntrinsic(el: HTMLImageElement | HTMLVideoElement): { w: number;
   return { w: img.naturalWidth || vid.videoWidth || 1280, h: img.naturalHeight || vid.videoHeight || 720 };
 }
 
+/** Where the letterboxed screenshot sits inside its element, and its natural size. */
+function fitSurface(img: Parameters<typeof surfaceIntrinsic>[0] | null) {
+  if (!img) return null;
+  const rect = img.getBoundingClientRect();
+  const { w: naturalW, h: naturalH } = surfaceIntrinsic(img);
+  const imgAspect = naturalW / naturalH;
+  const fitsHeight = rect.width / rect.height > imgAspect;
+  const displayH = fitsHeight ? rect.height : rect.width / imgAspect;
+  const displayW = fitsHeight ? displayH * imgAspect : rect.width;
+  return {
+    rect,
+    naturalW,
+    naturalH,
+    displayW,
+    displayH,
+    offsetX: (rect.width - displayW) / 2,
+    offsetY: (rect.height - displayH) / 2,
+  };
+}
+
 export function SelectElementOverlay({
   contextId,
   active,
@@ -42,27 +62,9 @@ export function SelectElementOverlay({
   // Map screenshot client coords -> page coords (devicePixelRatio scaled).
   const mapCoordsToPage = useCallback(
     (clientX: number, clientY: number): { x: number; y: number } | null => {
-      const img = surfaceRef.current;
-      if (!img) return null;
-      const rect = img.getBoundingClientRect();
-      const { w: naturalW, h: naturalH } = surfaceIntrinsic(img);
-      const imgAspect = naturalW / naturalH;
-      const containerAspect = rect.width / rect.height;
-      let displayW: number;
-      let displayH: number;
-      let offsetX: number;
-      let offsetY: number;
-      if (containerAspect > imgAspect) {
-        displayH = rect.height;
-        displayW = displayH * imgAspect;
-        offsetX = (rect.width - displayW) / 2;
-        offsetY = 0;
-      } else {
-        displayW = rect.width;
-        displayH = displayW / imgAspect;
-        offsetX = 0;
-        offsetY = (rect.height - displayH) / 2;
-      }
+      const fit = fitSurface(surfaceRef.current);
+      if (!fit) return null;
+      const { rect, naturalW, naturalH, displayW, displayH, offsetX, offsetY } = fit;
       const localX = clientX - rect.left - offsetX;
       const localY = clientY - rect.top - offsetY;
       if (localX < 0 || localX > displayW || localY < 0 || localY > displayH) return null;
@@ -78,27 +80,9 @@ export function SelectElementOverlay({
   // Map page bbox -> overlay client coords (inverse of mapCoordsToPage on bbox).
   const pageBboxToClient = useCallback(
     (bbox: { x: number; y: number; w: number; h: number }) => {
-      const img = surfaceRef.current;
-      if (!img) return null;
-      const rect = img.getBoundingClientRect();
-      const { w: naturalW, h: naturalH } = surfaceIntrinsic(img);
-      const imgAspect = naturalW / naturalH;
-      const containerAspect = rect.width / rect.height;
-      let displayW: number;
-      let displayH: number;
-      let offsetX: number;
-      let offsetY: number;
-      if (containerAspect > imgAspect) {
-        displayH = rect.height;
-        displayW = displayH * imgAspect;
-        offsetX = (rect.width - displayW) / 2;
-        offsetY = 0;
-      } else {
-        displayW = rect.width;
-        displayH = displayW / imgAspect;
-        offsetX = 0;
-        offsetY = (rect.height - displayH) / 2;
-      }
+      const fit = fitSurface(surfaceRef.current);
+      if (!fit) return null;
+      const { rect, naturalW, naturalH, displayW, displayH, offsetX, offsetY } = fit;
       const scale = pageScaleFactor || 1;
       return {
         left: rect.left + offsetX + (bbox.x * scale * displayW) / naturalW,

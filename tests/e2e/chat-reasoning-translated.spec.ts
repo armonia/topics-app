@@ -30,10 +30,11 @@ import { deleteTopic } from "./helpers/api-fixtures";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { installFakeAnthropic, startFakeAnthropic, type FakeAnthropic } from "./helpers/fake-anthropic-api";
 import { framesOf, judge, nativeRuntime, nativeTopic, openChat, startSampler } from "./helpers/turn-end-sampler";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 // The video is the proof that the text comes up in Italian and that nothing moves at the end.
-test.use({ video: "on", contextOptions: { reducedMotion: "no-preference" } });
+test.use({ video: VIDEO_ON, contextOptions: { reducedMotion: "no-preference" } });
 
 const ANSWER = "ANSWER-TRANSLATED the answer after a reasoning in English.";
 // Three sentences, English: the dictionary of the fake helper knows all three.

@@ -8,6 +8,20 @@
     "starting score (`spec-flow check-mutation --update-baseline`), and from there it only goes up."
   ],
   "consumer": "topics",
+  "intersections": {
+    "_note": "D19: the declarations live in the specs (`**Intersects:**`); only the pair exceptions live here, each with a reason, an owner that is a ROLE (this repo is public) and an expiry.",
+    "waivers": [
+      {
+        "pair": [
+          "KANBAN-76",
+          "WORKTREE-STD-03"
+        ],
+        "reason": "The GC pass proves live work is never removed on real git, and KANBAN-76 proves a card chosen for a node runs there, but no test names both: it needs a paired node with a live card and a GC pass on it, which the cross-machine round (WORKTREE-STD-11) has not filmed yet.",
+        "owner": "worktrees-maintainers",
+        "expires": "2026-12-24"
+      }
+    ]
+  },
   "mutation": {
     "tierA": {
       "tool": "stryker",
@@ -34,5 +48,41 @@
       "coverageAnalysis": "perTest",
       "incremental": true
     }
+  },
+  "designSystem": {
+    "_note": "D20: the design system is DESIGN.md (google design.md format, linted in CI) plus the primitives below. Debt that existed when the gate was adopted is the baseline (spec-flow.design-baseline.json); a new file, or a file that grows, is red. Visual proof for touched components lives in openspec/changes/<change>/visual-proof.json.",
+    "designFile": "DESIGN.md",
+    "uiRoots": [
+      "client/src"
+    ],
+    "uiExtensions": [
+      ".tsx"
+    ],
+    "exclude": [
+      ".test.",
+      "/test/",
+      "/ui-gallery/",
+      "/demo/",
+      ".stories."
+    ],
+    "primitives": {
+      "dirs": [
+        "client/src/ui/primitives",
+        "client/src/components/Shared"
+      ],
+      "native": {
+        "button": "Button",
+        "input": "Field",
+        "textarea": "Field",
+        "select": "Menu"
+      }
+    },
+    "tokenFiles": [],
+    "baseline": "spec-flow.design-baseline.json",
+    "proofGlobs": [
+      "openspec/changes"
+    ],
+    "base": "origin/main",
+    "report": "design-conformity.json"
   }
 }

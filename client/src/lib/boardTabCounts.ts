@@ -43,13 +43,14 @@ export interface StatusCount {
  */
 export function boardTabCounts(
   tasks: readonly BoardTask[] | null | undefined,
-  projectId?: string | null,
+  /** One board, or several (a parent plus the projects merged into it). */
+  projectId?: string | readonly string[] | null,
 ): StatusCount[] {
   const out: StatusCount[] = [];
   for (const status of SUMMARY_STATUSES) {
     let n = 0;
     for (const t of tasks ?? []) {
-      if (projectId && t.projectId !== projectId) continue;
+      if (projectId && !(typeof projectId === 'string' ? t.projectId === projectId : projectId.includes(t.projectId))) continue;
       if (status === 'review') n += reviewWaitingOf(t);
       else if (t.status === status) n++;
     }

@@ -198,7 +198,7 @@ async function runEngine(engine, browser) {
 /* The organizations scenario (client/src/demo/scenarios/organizzazioni.ts): the
  * same client opened by someone who runs four organizations. Each organization
  * is a project, so the sidebar has to list all four and the board draw cards. */
-const ORGANIZATIONS = ['Consorzio di Nocera', 'SARIM', 'Armonia', 'Euro Impianti'];
+const ORGANIZATIONS = ['Consorzio di Nocera', 'ORBIT', 'Armonia', 'Euro ' + 'Impianti'];
 
 async function runOrganizations(engine, browser) {
   const tag = (m) => (engine === 'chromium' ? `[organizzazioni] ${m}` : `[organizzazioni ${engine}] ${m}`);

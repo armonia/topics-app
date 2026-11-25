@@ -298,6 +298,32 @@ describe("il freno, a tetto impostato", () => {
     expect(h.task("g1")!.dispatchState).toBe("queued");
   });
 
+  it("the board's chip names the 24h cap: how much, against what, which cards, and when they restart", () => {
+    const h = harness();
+    board(h);
+    h.svc.setSpendCaps({ perDayCents: 3_000 });
+    seedTask(h.db, "s1");
+    const hour = 60 * 60 * 1000;
+    const sixHoursAgo = Date.now() - 6 * hour;
+    // 20 USD six hours ago and 16 USD an hour ago: 36 over a 30 cap. The first
+    // row leaves the window in 18 hours, and 16 alone is under the cap.
+    h.db.run("INSERT INTO agent_spend (task_id, at, cents) VALUES ('s1', ?, 2000), ('s1', ?, 1600)",
+      [new Date(sixHoursAgo).toISOString(), new Date(Date.now() - hour).toISOString()]);
+
+    expect(h.dispatcher.dispatchWork!().spend).toEqual({ spentCents: 3_600, capCents: 3_000, untilMs: sixHoursAgo + 24 * hour, taskIds: ["s1"] });
+  });
+
+  it("under the cap, or with no card waiting, the chip says nothing about spend", () => {
+    const h = harness();
+    board(h);
+    h.svc.setSpendCaps({ perDayCents: 3_000 });
+    h.db.run("INSERT INTO agent_spend (task_id, at, cents) VALUES ('x', ?, 3600)", [new Date().toISOString()]);
+    expect(h.dispatcher.dispatchWork!().spend).toBeNull();
+    h.svc.setSpendCaps({ perDayCents: 5_000 });
+    seedTask(h.db, "s2");
+    expect(h.dispatcher.dispatchWork!().spend).toBeNull();
+  });
+
   it("fail OPEN: se la lettura del tetto cade, il turno parte", async () => {
     const h = harness();
     board(h);
