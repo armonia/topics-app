@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.104 — 2026-11-25
+
+### Sotto il cofano
+- Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio
+- La compressione notturna tocca solo i transcript delle sessioni, non il lavoro degli agenti
+- Sul Mac la cartella temporanea dei test sta in /tmp: i socket non passano più 104 caratteri
+
 ## 2.4.103 — 2026-11-25
 
 ### Sotto il cofano
@@ -11,6 +18,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Land guard: a card's own branches include its spawned children and worktree branch
 - Main verde: covers del test usage-limit e baseline dopo i land della notte
 - Test di contratto: leggono i moduli di shared/board.ts dopo lo split
+- Node deliveries emit task-deliver so the retrospective hook sees them
+- Re-measure the pre-review gate: failures are the 401 auth env, same on the parent commit
+- Re-measure the pre-review gate after bun install restored jscpd
 - Sub-agent no-news replies on a later turn no longer wake the parent
 - seed-before-navigation uses /manifest.json, not /favicon.ico
 - Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290

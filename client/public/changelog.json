@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.4.104",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La compressione notturna tocca solo i transcript delle sessioni, non il lavoro degli agenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sul Mac la cartella temporanea dei test sta in /tmp: i socket non passano più 104 caratteri",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.103",
     "date": "2026-11-25",
     "sections": {
@@ -35,6 +61,21 @@
         },
         {
           "it": "Test di contratto: leggono i moduli di shared/board.ts dopo lo split",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Node deliveries emit task-deliver so the retrospective hook sees them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-measure the pre-review gate: failures are the 401 auth env, same on the parent commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-measure the pre-review gate after bun install restored jscpd",
           "en": "",
           "scope": null
         },
