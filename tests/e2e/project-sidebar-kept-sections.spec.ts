@@ -21,9 +21,10 @@ import { hermetic } from "./fixtures/hermetic";
 import { beat, didascalia } from "./helpers/evidence";
 import { resetPaneStore } from "./helpers/api-fixtures";
 import { cleanupFileProject, seedFileProject, type FileProject } from "./helpers/file-project";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 /** Enough rows to make the tree taller than any sidebar this suite runs at. */
 const BULK_FILES = 80;

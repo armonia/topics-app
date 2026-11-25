@@ -5,6 +5,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { interceptWebSocket } from "./helpers/ws-helpers";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -26,7 +27,7 @@ hermetic(test);
  * It is a behaviour, so the video is the proof.
  * @covers CHAT-01
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const ENVELOPE = "You are the exclusive owner of task 46617a7f. Merge the branch.";
 const LANDED = "Fermato: il lavoro della card è già atterrato o è passato altrove";

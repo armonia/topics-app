@@ -8,6 +8,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { openHomePanel } from "./helpers/user-menu";
 import { PERMISSION_LABEL_KEY } from "../../shared/permission-decision";
 import IT from "../../client/src/lib/i18n-it";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -36,7 +37,7 @@ const BASE = E2E_BASE;
  * loro unit test (permission-bridge, tool-grants, permission-decision,
  * approval-prompt, human-hold).
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const TOOL = "mcp__gateway__kiwi__search-flight";
 const TOOL_INPUT = { flyFrom: "NAP", flyTo: "RAK" };

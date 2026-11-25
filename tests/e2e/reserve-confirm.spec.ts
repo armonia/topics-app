@@ -4,9 +4,10 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { seedMessage } from "./helpers/seed-messages";
 import { hermetic } from "./fixtures/hermetic";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 /**
  * THE RESERVE ASKS BEFORE IT IS SPENT (15/11).

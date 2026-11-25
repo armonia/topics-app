@@ -76,6 +76,7 @@ import { createTaskAttemptStore, setAttemptFinishedListener } from "../services/
 import { conditionalJson } from "../lib/conditional-json";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { makeSheetWriter } from "../services/delivery-sheet";
+import { branchAheadOfMain } from "../services/own-branch";
 import { resolveTaskDiffRange, revsOfRange } from "../services/task-diff-range";
 import { gitDiffFilePatch, serveDiffBlob } from "../services/task-diff-file";
 import { gitDiffBundle } from "../lib/git-diff-stat";
@@ -160,6 +161,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const svc = createTaskService(db, {
     writeDeliverySheet: makeSheetWriter(ctx.APP_DATA_DIR),
     repoRootFor: opts?.repoRootFor,
+    branchAheadOf: branchAheadOfMain,
     listRepoRoots: opts?.listRepoRoots,
     listProjectDirs: opts?.listProjectDirs,
     probeFor: opts?.probeFor,
