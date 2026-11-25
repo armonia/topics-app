@@ -50,7 +50,7 @@ function ChecksChip({ task, tr }: { task: BoardTask; tr: Tr }) {
  * (`expandedDetails` / `expandedDelivery`) in a capped region, so the thread
  * never leaves the screen.
  */
-export function TaskHeadStrip({ busy, commentRef, decide, deliveryOpen, detailsOpen, doLand, expandedDelivery, expandedDetails, hasDelivery, load, machines, modelLine, onChanged, outcome, scrollRequestedRef, sendBack, sending, setDeliveryOpen, setDetailsOpen, setError, setWorkspaceOpen, stickRef, task, tr }: {
+export function TaskHeadStrip({ busy, commentRef, decide, deliveryOpen, detailsOpen, doLand, expandedDelivery, expandedDetails, hasDelivery, load, machines, modelLine, onChanged, outcome, scrollRequestedRef, sendBack, sending, setDeliveryOpen, setDetailsOpen, setError, stickRef, task, tr }: {
   busy: boolean;
   commentRef: RefObject<HTMLTextAreaElement | null>;
   decide: (decision: 'approve' | 'reject', opts?: { force?: boolean; }) => Promise<void>;
@@ -71,14 +71,13 @@ export function TaskHeadStrip({ busy, commentRef, decide, deliveryOpen, detailsO
   setDeliveryOpen: Dispatch<SetStateAction<boolean>>;
   setDetailsOpen: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<string | null>>;
-  setWorkspaceOpen: Dispatch<SetStateAction<boolean>>;
   stickRef: RefObject<boolean>;
   task: BoardTask;
   tr: Tr;
 }) {
   const toggle = (which: 'details' | 'delivery') => {
     scrollRequestedRef.current = false;
-    setWorkspaceOpen(false);
+    // The workspace is left alone: side by side it shares the screen with this head, and single-column this head is hidden while it is open.
     stickRef.current = false;
     // One region open at a time: two capped panels together would leave the thread no room.
     if (which === 'details') { setDeliveryOpen(false); setDetailsOpen((o) => !o); } else { setDetailsOpen(false); setDeliveryOpen((o) => !o); }

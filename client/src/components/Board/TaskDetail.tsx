@@ -1367,7 +1367,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             <TaskHeadStrip busy={busy} commentRef={commentRef} decide={decide} deliveryOpen={deliveryOpen} detailsOpen={detailsOpen}
               doLand={doLand} hasDelivery={hasDelivery} load={load} machines={machines} modelLine={modelTrigger.line} onChanged={onChanged}
               outcome={headOutcome} scrollRequestedRef={detailsScrollRequested} sendBack={sendBack} sending={sending}
-              setDeliveryOpen={setDeliveryOpen} setDetailsOpen={setDetailsOpen} setError={setError} setWorkspaceOpen={setWorkspaceOpen}
+              setDeliveryOpen={setDeliveryOpen} setDetailsOpen={setDetailsOpen} setError={setError}
               stickRef={stickRef} task={task} tr={tr}
               expandedDetails={detailsOpen ? <div className="max-h-[30vh] overflow-y-auto border-t border-app-border-subtle">
                   <TaskDetailsPanel addSubtask={addSubtask} addingSub={addingSub} boardDispatchModel={boardDispatchModel} busy={busy}
