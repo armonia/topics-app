@@ -1,3 +1,8 @@
+/**
+ * Which changed files count as interface files for the chat preview.
+ *
+ * @covers KANBAN-23
+ */
 import { describe, it, expect } from "bun:test";
 import { isInterfaceFile } from "./chat-preview-diff";
 

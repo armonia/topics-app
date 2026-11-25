@@ -1,5 +1,7 @@
 /**
  * Chat previews: start, auto gating, reasons, idle shut-off, teardown, listing.
+ *
+ * @covers KANBAN-23
  */
 import { describe, it, expect } from "bun:test";
 import { createPreviewManager, chatSourceId, PREVIEW_NOTE_PREFIX, type PreviewManagerDeps, type PreviewProcess, type PreviewWorktree } from "./preview-manager";
