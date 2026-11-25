@@ -4,32 +4,8 @@
  * them without a cycle.
  */
 
-import type { Database } from "bun:sqlite";
-import type { ServiceOpts, TaskService } from "../tasks";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { PREVIEW_CARD_MAX_RATIO, type SubtaskWork, deriveSubtaskWork, isUnattributedSubtask, type CardComment, DISPATCH_CHIP_QUEUED, isAgentWorking, QUEUE_REASON_UNKNOWN, type QueueReason, WAITING_MEMORY_REASON, deriveQueueReason, readTaskWeight, REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, type TaskComment, type TaskActionOrigin, formatStatusEvent, statusEventEnters, type TaskStatus, TASK_STATUSES, parseQuestionBlock, questionAsksHuman, type BlockerRef, type QueueContext } from "../../../shared/board";
-import { imageShape } from "../image-shape";
-import { isDeliverySheetPath, isAutoCapturedPreview } from "../../../shared/media-kind";
-import { renderDeliverySheet } from "../delivery-sheet";
-import { createHash } from "node:crypto";
-import { RUNS_HERE_SQL } from "../agent-census";
-import { sliceCodePoints } from "../../lib/code-points";
-import { type LabelSource, type TaskLabel, type TaskLabelRow, isTaskLabel } from "../../../shared/task-labels";
-import { readElsewhere } from "../task-elsewhere";
-import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "../dispatch-block-signal";
-import { type Task } from "../task-shapes";
-import { INCOMPLETE_CARD_NOTICE_PREFIX, agentCardGaps } from "../../../shared/agent-card-contract";
-import { awaitsHumanSql, type WorkflowColumn, agentAskInThread } from "../../../shared/workflow";
-import { CHILD_AGENT_COMING } from "../../lib/task-timer-reads";
-import { type RepoProbe, checkReport as checkDeliveryReport, gitQuestions } from "../deliveryReportChecks";
-import { agentAuthorSql } from "../../../shared/comment-author";
-import { probeForRoot, repoProbe } from "../deliveryReportProbe";
-import { checkStage } from "../board-workflow";
-import { waitsLineAsk } from "../../../shared/waits-on-person";
+import { type TaskStatus, TASK_STATUSES, parseQuestionBlock, questionAsksHuman } from "../../../shared/board";
 import { EFFORT_TIERS } from "../../../shared/effort";
-import { channelKindOfIcon, type ChannelKind, type ChannelPlace } from "../../../shared/channel-origin";
-import { agentOfPath } from "../../../shared/agent-home";
-import { channelPlaceOf } from "../channel-place";
 
 /** Automatic requeues of a machine-parked card before it stays for a human. */
 export const MACHINE_RETRY_CAP = 3;
