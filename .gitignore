@@ -496,3 +496,4 @@ relay-identity.json
 # mutation testing
 .stryker-tmp/
 reports/mutation/
+design-conformity.json

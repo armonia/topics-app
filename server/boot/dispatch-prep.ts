@@ -3,6 +3,7 @@
  */
 import { createLandingQueue } from "../services/landing-queue";
 import { join } from "path";
+import { branchAheadOfMain } from "../services/own-branch";
 import { resolveStateDir } from "../lib/data-dir";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "../services/swap-freeze-ledger";
 import { createMemoryPressureSignal } from "../services/memory-pressure";
@@ -107,6 +108,7 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   const dispatcherSvc = createTaskService(ctx.db, {
     writeDeliverySheet: makeSheetWriter(ctx.APP_DATA_DIR),
     repoRootFor: repoRootForCard,
+    branchAheadOf: branchAheadOfMain,
     listRepoRoots: listKnownDeliveryRepoRoots,
     onLateDeliveryNote: (taskId, projectId) => {
       const noted = dispatcherSvc.get(taskId, { projectId })?.task;
