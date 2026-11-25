@@ -5,6 +5,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -22,7 +23,7 @@ hermetic(test);
  *
  * @covers SUBAGENT-16
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const DONE_ID = "0b7c2f0e-1d2a-4c3b-9e8f-1234567890a1";
 const LOST_PROMPT_ID = "0b7c2f0e-1d2a-4c3b-9e8f-1234567890a2";

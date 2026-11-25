@@ -29,9 +29,10 @@ import { goToApp } from "./helpers";
 import { canonicalTmpRoot } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
 import { QUOTA_SURFACES, type ProjectQuotaResponse, type ProjectQuotaRow, type QuotaSurface } from "../../shared/usage-shapes";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ mode: "serial", timeout: 150_000 });
 
 function surfaces(day: Partial<Record<QuotaSurface, number>>): ProjectQuotaRow["surfaces"] {

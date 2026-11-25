@@ -42,12 +42,13 @@ import { splitViaContextMenu } from "./helpers/layout";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { canonicalTmpDir } from "./helpers/file-project";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 // The card asks for a clip of the D15 gestures, so this file films even when
 // the run is not an evidence run. File level because Playwright refuses a
 // video option inside a describe: it would force a worker of its own.
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const PROJECT_PATH = canonicalTmpDir("e2e-dndmatrix");
 

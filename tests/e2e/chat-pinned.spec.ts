@@ -5,9 +5,10 @@ import { createTopic, deleteTopic, fetchTopic, patchTopic, resetPaneStore } from
 import { HISTORY_FIRST_PAGE } from "../../shared/history-paging";
 import { seedMessage } from "./helpers/seed-messages";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 /**
  * A PINNED MESSAGE IS SEEN (CMDUI-10): «Appunta» puts the message in the

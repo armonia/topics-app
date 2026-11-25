@@ -4,9 +4,10 @@ import { join } from "path";
 import { test } from "./fixtures/file-explorer.fixture";
 import { cleanupFileProject, seedFileProject, type FileProject } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 test("un file salvato fuori da Topics aggiorna Git entro un secondo", async ({ fileExplorerPage, page }) => {
   test.info().annotations.push({ type: "spec", description: "FILE-02" });
