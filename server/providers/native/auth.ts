@@ -327,8 +327,99 @@ export function readCredentials(): OAuthCredentials | null {
  * an account switched with the CLI counts from the next turn.
  */
 async function readCredentialsAsync(): Promise<OAuthCredentials | null> {
-  const kc = keychainEnabled() ? await readKeychainCredentialsAsync() : null;
-  return pickCredentials(kc ? [kc, ...fileCredentials()] : fileCredentials());
+  const candidates = await allCandidatesAsync();
+  const usable = candidates.filter((c) => !isExhausted(c));
+  if (candidates.length > 0 && usable.length === 0) throw allAccountsExhausted(candidates);
+  return pickCredentials(usable);
+}
+
+// ─── ACCOUNT FAILOVER: a spent account is skipped until its reset ───────────
+//
+// A credential source is an account. When the API says the plan and the credit
+// balance are spent (400 `credit balance is too low`, or a 429 whose usage
+// window has a published end), the account that sent the request is marked
+// spent until that moment and the turn goes on with the next one, in the same
+// round, with the same history. Only when every account is spent does the turn
+// stop, and the error names them all and says when the first one frees up.
+// The mark lives in memory: a restart asks the API again, which is cheap.
+
+type Candidate = OAuthCredentials & { sourcePath: string };
+
+/** When a 400 gives no end (credit exhaustion publishes none), the account is tried again after this. */
+export const EXHAUSTED_FALLBACK_MS = 30 * 60_000;
+
+const _exhausted = new Map<string, number>();
+
+/** The chain a credential belongs to: the refresh token survives access-token renewals. */
+function accountKey(c: OAuthCredentials): string {
+  return c.refreshToken || c.accessToken;
+}
+
+function accountLabel(c: Candidate): string {
+  const home = process.env.HOME || homedir();
+  return c.sourcePath.startsWith(home) ? `~${c.sourcePath.slice(home.length).replace(/\\/g, "/")}` : c.sourcePath;
+}
+
+function isExhausted(c: OAuthCredentials): boolean {
+  const untilMs = _exhausted.get(accountKey(c));
+  if (untilMs === undefined) return false;
+  if (untilMs > Date.now()) return true;
+  _exhausted.delete(accountKey(c));
+  return false;
+}
+
+export class AllAccountsExhaustedError extends Error {
+  constructor(message: string, readonly untilMs: number) {
+    super(message);
+    this.name = "AllAccountsExhaustedError";
+  }
+}
+
+function allAccountsExhausted(candidates: Candidate[]): AllAccountsExhaustedError {
+  const marks = candidates.map((c) => ({ label: accountLabel(c), untilMs: _exhausted.get(accountKey(c)) ?? 0 }));
+  const first = Math.min(...marks.map((m) => m.untilMs));
+  const names = marks.map((m) => `${m.label} (until ${new Date(m.untilMs).toISOString()})`).join(", ");
+  return new AllAccountsExhaustedError(
+    `API 429: usage window exhausted, resets at ${new Date(first).toISOString()}: every account is spent: ${names}`,
+    first,
+  );
+}
+
+/** Every credential found, the Keychain items first, one per chain. */
+async function allCandidatesAsync(): Promise<Candidate[]> {
+  const all: Candidate[] = [];
+  if (keychainEnabled()) {
+    for (const account of keychainAccountsToTry()) {
+      const found = keychainItemCredentials(await findKeychainItemAsync(account, true));
+      if (found) all.push(found);
+    }
+  }
+  all.push(...fileCredentials());
+  const seen = new Set<string>();
+  return all.filter((c) => {
+    const key = accountKey(c);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * The API refused `staleToken` for want of quota or credit: marks its account
+ * spent until `untilMs` (a default cooldown when null) and returns the next
+ * account's token. Null when the token belongs to no known account (nothing to
+ * switch from). Throws `AllAccountsExhaustedError` when no account is left.
+ */
+export async function switchAccountAfterExhaustion(staleToken: string, untilMs: number | null): Promise<string | null> {
+  const spent = (await allCandidatesAsync()).find((c) => c.accessToken === staleToken);
+  if (!spent) return null;
+  _exhausted.set(accountKey(spent), untilMs ?? Date.now() + EXHAUSTED_FALLBACK_MS);
+  return await getAccessToken();
+}
+
+/** @internal */
+export function resetExhaustedAccountsForTests(): void {
+  _exhausted.clear();
 }
 
 function fileCredentials(): Array<OAuthCredentials & { sourcePath: string }> {
