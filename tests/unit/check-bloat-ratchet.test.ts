@@ -1,8 +1,13 @@
+/**
+ * The bloat gate is a ratchet: the baseline only goes down.
+ * @covers BLOAT-RATCHET-01
+ */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const SCRIPT = join(import.meta.dir, "../../scripts/check-bloat.ts");
 
@@ -14,7 +19,7 @@ function lines(n: number): string {
 }
 
 function git(...args: string[]) {
-  spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  spawnSync("git", ["-C", root, ...args], { encoding: "utf8", env: gitEnv() });
 }
 
 function gate(...args: string[]) {
