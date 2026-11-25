@@ -214,7 +214,9 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   ci_after TEXT,
   -- 20261120100000: the plain-words summary of a card in Review and its key.
   for_you TEXT,
-  for_you_key TEXT
+  for_you_key TEXT,
+  -- 20261125224424: card snooze. The backlog card's own wake instant.
+  wake_at TEXT DEFAULT NULL
 )`;
 
 /**

@@ -82,6 +82,7 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
       "card-delivery-stat": "deliveryStat",
       "card-due-date": "dueChip",
       "card-scheduled": "plannedChip",
+      "card-wake-at": "wakeChipValue",
       // Un ramo senza un solo commit (18/08): non e' una consegna piccola, e'
       // nessuna consegna, e il land si rifiutera'. Va detto dalla colonna.
       "card-uncommitted": "senzaCommit",

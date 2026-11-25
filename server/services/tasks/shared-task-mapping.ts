@@ -335,6 +335,7 @@ function mapRow(r: any, b: TaskBatch): Task {
       // and `parentTaskId`, where null means root.
       ...(r.due_date ? { dueDate: r.due_date } : {}),
       ...(r.scheduled_by ? { scheduled: { by: r.scheduled_by, at: r.scheduled_at ?? null } } : {}),
+      ...(r.wake_at ? { wakeAt: r.wake_at } : {}),
       ...(r.chat_id ? { chatId: r.chat_id } : {}),
       ...(r.completed_at ? { completedAt: r.completed_at } : {}),
       ...(r.plan_comment_id ? { planCommentId: r.plan_comment_id } : {}),
