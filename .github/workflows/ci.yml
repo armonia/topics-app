@@ -1829,7 +1829,13 @@ jobs:
   # this job by name.
   tauri:
     timeout-minutes: 45
-    needs: changes
+    # `needs: process-groups` on top of `changes`: both jobs put a macos-latest
+    # leg in their matrix and both used to start together on `changes`, so they
+    # queued for the same scarce macOS runner pool and the loser sat at 0 steps
+    # until its own 15-minute timeout cancelled it (ci-audit, 23/11). The `if`
+    # below still ignores process-groups' result (skipped or not), it only waits
+    # for it to free its macOS runner first.
+    needs: [changes, process-groups]
     if: ${{ needs.changes.outputs.tauri != 'false' }}
     strategy:
       fail-fast: false
