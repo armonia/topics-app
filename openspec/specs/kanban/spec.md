@@ -6005,3 +6005,63 @@ del browser remoto.
 - **GIVEN** l'ultima cattura finita
 - **WHEN** passa la finestra di inattività senza nuove catture
 - **THEN** il processo WebKit SHALL essere chiuso
+
+### Requirement: KANBAN-120 — The table view: one dense row per card, sortable
+
+The board SHALL offer a «Tabella» view next to the list: every card the filters
+and the Done toggle let through SHALL be ONE row 32px high with its status, title,
+project (global board, ungrouped), owner, priority, age and its chat, branch and
+PR marks. The default order SHALL follow the workflow columns, then priority from
+high to low, then the newest first; a click on a header SHALL sort by that column
+and a second click SHALL flip it. A row SHALL open the task drawer on click or on
+Enter. With a grouping on, each group SHALL be a block of rows on the same grid
+template, so the cells line up across groups. Below the pane width where the
+extra columns fit, only status, title and age SHALL stay, and the page SHALL never
+scroll sideways. The view SHALL persist per board, like the others. Every header
+label, «Aggiornato» (Italian) and «Updated» (English) included, SHALL read whole at
+375, 768, 1440 and 3440px, with the sort arrow showing.
+
+#### Scenario: sort by a header and flip it
+- **GIVEN** the table view with cards in several statuses
+- **WHEN** the person clicks the title header twice
+- **THEN** the rows SHALL be A to Z after the first click and Z to A after the second
+
+#### Scenario: grouped rows line up
+- **GIVEN** the global board grouped by project in the table view
+- **THEN** every cell of a row SHALL have the same left edge and width as the same cell in the other project's rows
+
+### Requirement: KANBAN-121 — Empty columns are bare, and the columns can merge into one
+
+A status column with no card SHALL keep its header, its count and its box (same
+border width) but SHALL paint no fill and no border colour; while a card is being
+dragged its frame SHALL come back, so it stays visible as a drop target. A
+«Colonne: separate | una» switch, kept per board, SHALL turn the status columns
+into ONE column holding every status, ordered by workflow column then board
+order, each card with its status chip above it; a click on a card SHALL still open
+the drawer. Grouped by project, each project SHALL be a framed card holding its
+merged column, stacked vertically. The switch SHALL show only in the views with
+status columns (kanban and list).
+
+#### Scenario: an empty column has no background
+- **GIVEN** a board whose review column is empty
+- **THEN** that column SHALL have a transparent background and border, and the same border width as a column with cards
+
+#### Scenario: one column survives a reload
+- **WHEN** the person switches to «una»
+- **THEN** the board SHALL show one merged column with a status chip on every card, and SHALL still show it after a reload
+
+### Requirement: KANBAN-122 — The columns row keeps a band for its scrollbar and the same room at both ends
+
+A sideways-scrolling row of status columns, the board's own and the one inside a
+project lane, SHALL end every column at least 14px above the row's bottom edge,
+so the overlay scrollbar never paints over a card; SHALL keep at least 8px
+between the row's left edge and the first column at rest and at least 12px between
+its right edge and the last column at the end of the scroll, the end room being
+part of the scrollable area; and, while columns are hidden past an edge, SHALL
+fade that edge, statically and without a transition, instead of slicing a column
+against the window.
+
+#### Scenario: no column under the scrollbar, room at both ends
+- **GIVEN** a board whose columns overflow the row
+- **WHEN** the row is at rest and then scrolled to its end
+- **THEN** the first column SHALL start at least 8px inside the row, the last SHALL end at least 12px inside it, and no column SHALL come within 14px of its bottom edge, in the board's row and in a lane's row

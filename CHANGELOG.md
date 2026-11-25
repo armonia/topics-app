@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.101 — 2026-11-25
+
+### Sotto il cofano
+- Disk budget: fix deadcode-prod/untraced-tests gates, make legacy transcript readers gz-aware
+
 ## 2.4.100 — 2026-11-25
 
 ### Correzioni
@@ -48,6 +53,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - an open row's circle closes its tab, the stop test and the target-size audit read it
+- Le anteprime accanto al bordo sfumato si caricano da sole: Chromium perde la distanza di caricamento pigro sotto la maschera della riga, e la card saltava di altezza al primo swipe (board-preview-cap rosso 4 su 4)
 
 ## 2.4.96 — 2026-11-24
 
@@ -55,7 +61,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - bring main's any budget and identifier gate back to green
 
 ### Sotto il cofano
+- table view, bare empty columns, one column per project, scroll edges
+- the detail slider follows a drag (mouse, pen, finger)
+- Rossi della CI: celle contate dopo il resize, due any arrivati da main
 - name the requirement the keyed listener registry test covers
+- Rossi ereditati da main: requisito del registro di ascolto, parole fuori dizionario
 - keep the live AI bridge out of the suite
 
 ## 2.4.95 — 2026-11-24
@@ -188,7 +198,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Server fisso: tetto sui job CI in parallelo di tutti i repo (ci-governor)
 - Nodo cloud: guardia per le sessioni logind bloccate in closing, ssh condiviso dal Mac
 - Land pre-push probe: run the hook through sh on Windows
+- Compress aging agent transcripts; opt-in media expiry (debt G5)
 - disk-budget-check e' un ingresso di produzione (job launchd notturno), non uno script di sviluppo
+- Fix new Italian comment lines flagged by check:comment-language
 - Codice morto in produzione di nuovo a 596: il budget disco gira da launchd
 - ci-governor: il turno va a chi aspetta da piu' tempo (prima prendevano sempre gli stessi due runner e la CI di topics-app restava in coda)
 - the nightly disk-budget check ships, so its two server modules are production code
