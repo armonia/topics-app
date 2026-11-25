@@ -48,7 +48,7 @@ import { hangBreaker, wakeBreaker } from "./wake-breaker";
 import type { LifecycleHookRunner } from "./lifecycle-hooks";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { NodeError } from "./node-client";
-import { bundleBranch, plantCarriedBranch } from "./branch-on-origin";
+import { BRANCH_NOWHERE_REASON, bundleBranch, plantCarriedBranch } from "./branch-on-origin";
 import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { delegatedPolicyForTask, putAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import { readFileSync } from "node:fs";
@@ -570,6 +570,25 @@ describe("overflow: il ramo della card, l'origin, il modello", () => {
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.task(CARD).status).toBe("todo");
     expect(h.created).toEqual([]);
+  });
+
+  it("un delivery_branch fantasma (né qui né su origin) non tiene ferma la card: ripiega su prior_branch", async () => {
+    const h = harness({ ensure: (branch) => (branch === "topics/imperial-castle" ? { ok: false, reason: BRANCH_NOWHERE_REASON } : { ok: true }) });
+    h.seed(CARD, { deliveryBranch: "topics/imperial-castle" });
+    h.db.run("UPDATE tasks SET prior_branch = 'topics/stealthy-bog' WHERE id = ?", [CARD]);
+    await settleTwoRounds(h);
+    // One round to learn the branch is a phantom, one to push the fallback, one to move.
+    for (let i = 0; i < 3; i++) await h.tick();
+    expect(h.pushed).toContain("topics/stealthy-bog");
+    expect(h.task(CARD).machineId).not.toBeNull();
+  });
+
+  it("un delivery_branch fantasma senza alternative: la card non resta ferma per sempre", async () => {
+    const h = harness({ ensure: () => ({ ok: false, reason: BRANCH_NOWHERE_REASON }) });
+    h.seed(CARD, { deliveryBranch: "topics/imperial-castle" });
+    await settleTwoRounds(h);
+    for (let i = 0; i < 3; i++) await h.tick();
+    expect(h.task(CARD).machineId).not.toBeNull();
   });
 
   it("anche una card mandata a mano sul PC parte dal suo ramo; se non si può pushare, si ferma con il motivo", async () => {

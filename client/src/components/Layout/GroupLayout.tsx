@@ -171,6 +171,14 @@ interface GroupLayoutProps {
    */
   subordinate?: boolean;
   /**
+   * The tabs are at the side of the window (TABPOS-01): the project's tabs are
+   * rows of the column and the window's title names the project, so a project
+   * with ONE group draws no bar of its own (asked on 25/11: only the title).
+   * With a split inside the project each group keeps its bar, the only handle
+   * its cell has.
+   */
+  chromeless?: boolean;
+  /**
    * DOES THIS SURFACE OFFER "ENLARGE"? Default **false**, and the default IS the
    * decision: this same `GroupLayout` is also what a task's drawer mounts
    * (`Board/TaskDetail.tsx`), which is already an overlaid surface — two nested
@@ -229,7 +237,7 @@ function LeadingSlot({ node }: { node: HTMLElement }) {
 
 
 export function GroupLayout({
-  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot, belowSlot, subordinate = false, enableZoom = false,
+  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot, belowSlot, subordinate = false, chromeless = false, enableZoom = false,
   onActivatePane, onClosePane, onClosePaneImmediate, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
@@ -1305,6 +1313,9 @@ export function GroupLayout({
   // primo della prima riga. Con uno split le righe di chrome sono N, il
   // progetto uno solo.
   const leadingGid = rows[0]?.groupIds[0];
+  // One group on screen: nothing beside it, nothing stacked under it.
+  const soloGroup = rows.length === 1 && rows[0].groupIds.length === 1
+    && !Object.values(rows[0].cellStacks ?? {}).some((s) => s.groupIds.length > 0);
 
   // `hasBox` = the cell hosting this block occupies a rectangle in the layout.
   // It is an axis SEPARATE from residency: whoever receives it false SUSPENDS
@@ -1345,6 +1356,8 @@ export function GroupLayout({
     //    the project itself sits next to a focused sibling at App level
     //  - inactive: not the focused group of this project
     const isFullyFocused = isFocusedGroup && isAppFocused;
+    // No bar at all (see `chromeless`): the body starts at the top of the cell.
+    const bareLead = chromeless && soloGroup && gid === leadingGid;
     const edgeDrop = edgeDropTarget?.groupId === gid ? edgeDropTarget.edge : null;
     // Shared split gating (splitRules.ts, one predicate with the standalone
     // surface): splitting the only pane of a group into itself is a visual
@@ -1362,7 +1375,7 @@ export function GroupLayout({
       <div data-split-card className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(rowIdx === 0).className}`} style={cardVar(rowIdx === 0).style}>
         {/* Per-group tab bar — h-10 to match the project sidebar header
             and the StandaloneChatGroup header (consistent chrome row). */}
-        <div className={barraSub(rowIdx === 0)} onDragOverCapture={handleTabBarDragOver(gid)}>
+        {!bareLead && <div className={barraSub(rowIdx === 0)} onDragOverCapture={handleTabBarDragOver(gid)}>
           {leadingSlot && gid === leadingGid && <LeadingSlot node={leadingSlot} />}
           <div className="flex-1 flex items-center min-w-0 overflow-hidden">
           <PaneTabBar
@@ -1442,7 +1455,7 @@ export function GroupLayout({
             onOpenPaneInProject={onOpenPaneInProject}
           />
           </div>
-        </div>
+        </div>}
         {belowSlot && gid === leadingGid && <LeadingSlot node={belowSlot} />}
         {/* Active pane content */}
         {/* La riga dei comandi ha già scavalcato la barra: da qui in giù non va
@@ -1450,7 +1463,7 @@ export function GroupLayout({
             di fascia vuota, misurati. La condizione è la STESSA della riga qui
             sopra, o si azzererebbe in gruppi che la riga non ce l'hanno. */}
         <div
-          className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${belowSlot && gid === leadingGid ? CHROME_BAR_CONSUMED : ''}`}
+          className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${(belowSlot && gid === leadingGid) || bareLead ? CHROME_BAR_CONSUMED : ''}`}
           data-pane-content=""
           onMouseDownCapture={contentHandlers.onMouseDownCapture}
           onDragOver={contentHandlers.onDragOver}
