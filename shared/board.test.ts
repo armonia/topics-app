@@ -34,7 +34,6 @@ import {
   pendingQuestion,
   pendingQuestionComment,
   projectIdForPath,
-  queueReasonKeys,
   questionAsksHuman,
   showsLandingDebt,
   statusEventEnters,

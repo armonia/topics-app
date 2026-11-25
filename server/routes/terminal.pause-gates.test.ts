@@ -16,7 +16,8 @@ import { resetHeldChildSendsForTests } from "../lib/held-child-send";
 import { continueProject, openPauseIfNeeded } from "../services/project-pause";
 import { fireProjectResumed, heldCount, resetHeldForTests } from "../services/turn-gate";
 import { projectIdOfFolder } from "../usage/project-folders";
-import { _setPtyBridgeSocketPath, createTerminalRouter, disconnectBridge } from "./terminal";
+import { createTerminalRouter, disconnectBridge } from "./terminal";
+import { _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
 import type { AppContext } from "../types";
 
 const AGENT_TOKEN = "e".repeat(64);
