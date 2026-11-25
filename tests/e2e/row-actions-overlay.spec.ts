@@ -226,10 +226,10 @@ test("CODA-3: il comando è l'ULTIMO — nessun segnale gli sta a destra", async
  *
  * Fabbricare uno stato «in attesa» solo per far comparire un'intestazione
  * significherebbe provare la geometria attraverso tre sistemi che non c'entrano
- * (segnali, streaming, soglie di visto). Il numero è invece bloccato dove è
- * davvero verificabile: `selectionStyles.test.ts` ricalcola `SECTION_H` contro
- * `CARD_H` (stessa misura col mouse) e contro `ROW_H` (stessa col dito, i 44 di
- * iOS), e controlla che `SECTION_CARD` la monti. */
+ * (segnali, streaming, soglie di visto).
+ * The number is pinned where it can really be checked instead:
+ * `selectionStyles.test.ts` checks that `SECTION_CARD` mounts `ROW_H` (a
+ * header is a row since 25/11: 34 with the mouse, iOS's 44 with the finger). */
 
 test("CODA-6: una tessera fissata è alta ESATTAMENTE quanto una riga", async ({ page, request }) => {
   // Due pixel fra card impilate nella stessa colonna — 36 contro 34 — che

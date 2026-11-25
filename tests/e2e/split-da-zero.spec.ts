@@ -540,7 +540,7 @@ test.describe("split, from zero", () => {
       const shape = await page.getByTestId("browser-island").evaluate((el) => {
         const r = el.getBoundingClientRect();
         const s = getComputedStyle(el);
-        const islands = [...document.querySelectorAll<HTMLElement>('[data-testid="project-sidebar"] .edge-lit.rounded-xl')]
+        const islands = [...document.querySelectorAll<HTMLElement>('[data-testid="project-sidebar"] [data-section-island]')]
           .map((i) => i.getBoundingClientRect()).filter((b) => b.height > 0);
         return {
           radii: [s.borderTopLeftRadius, s.borderTopRightRadius, s.borderBottomRightRadius, s.borderBottomLeftRadius],
@@ -557,6 +557,96 @@ test.describe("split, from zero", () => {
         radii: ["10px", "10px", "10px", "10px"], clips: "hidden", declared: "10",
         right: 6, bottom: 6, gapToIslands: 6, topVsIslands: 0, bottomVsIslands: 0,
       });
+    } finally {
+      await deleteTopic(request, inner.id).catch(() => {});
+      removeTmpDir(projectPath);
+    }
+  });
+
+  test("SPLIT-03g: rows, island headers and the foot share one height and spacing, and no ground at rest", async ({ page, request, browser }) => {
+    // 25/11: everything consistent, the island headers' heights and spacings
+    // like the tabs' and like the user and Sistema buttons', and none of them
+    // with a background unless it is active in some way, as the tabs.
+    const projectPath = canonicalTmpDir("e2e-row-grammar");
+    mkdirSync(projectPath, { recursive: true });
+    const projectName = projectPath.split("/").pop()!;
+    const inner = await createTopic(request, `row-grammar-chat-${Date.now()}`, { projectPath, provider: "claude-code" });
+    const NONE = "rgba(0, 0, 0, 0)";
+    try {
+      await resetPaneStore(request, []);
+      await seedProjectPane(request, projectPath);
+      await seedProjectInnerChats(request, projectPath, [inner.id]);
+      await goToApp(page);
+      const project = projectRow(page, projectName);
+      await expect(project).toBeVisible({ timeout: 20_000 });
+      await project.click();
+      await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10_000 });
+      const processes = page.getByTestId("project-sidebar-processes");
+      await expect(processes).toBeVisible({ timeout: 10_000 });
+      if ((await processes.getAttribute("aria-expanded")) === "true") await processes.click();
+      await expect(processes).toHaveAttribute("aria-expanded", "false");
+
+      // The photos first, from pages of their own, so the bundle before the
+      // change gives the same ones. The phone's Board row is read there too.
+      let phoneBoard: { h: number; ground: string } | null = null;
+      for (const width of [375, 1440]) {
+        const shot = await browser.newPage({ baseURL: E2E_BASE, viewport: { width, height: 900 }, storageState: SIDE_TABS });
+        await goToApp(shot);
+        const board = shot.getByTestId("sidebar-board-generale");
+        await expect(board).toBeVisible({ timeout: 15_000 });
+        if (width > 768) await expect(shot.getByTestId("project-sidebar-processes")).toBeVisible({ timeout: 10_000 });
+        await shot.mouse.move(width - 2, 899);
+        await frames(shot, 12);
+        await shot.screenshot({ path: test.info().outputPath(`rows-${width}.png`) });
+        if (width === 375) {
+          phoneBoard = await board.evaluate((el) => ({ h: Math.round(el.getBoundingClientRect().height), ground: getComputedStyle(el).backgroundColor }));
+        }
+        await shot.close();
+      }
+      expect(phoneBoard, "on the phone the Board row is a row: 44 high, no ground at rest").toEqual({ h: 44, ground: NONE });
+
+      type Box = { h: number; pl: string; pr: string; ground: string } | null;
+      const measure = () => page.evaluate((chat) => {
+        const box = (el: Element | null | undefined) => {
+          if (!el) return null;
+          const s = getComputedStyle(el);
+          return { h: Math.round(el.getBoundingClientRect().height), pl: s.paddingLeft, pr: s.paddingRight, ground: s.backgroundColor };
+        };
+        const q = (sel: string) => document.querySelector(sel);
+        const proc = q('[data-testid="project-sidebar-processes"]');
+        return {
+          tab: box(q(`[role="treeitem"][aria-label="${chat}"]`)),
+          board: box(q('[data-testid="sidebar-board-generale"]')),
+          system: box(q('[data-testid="sidebar-system"]')),
+          me: box(q('[data-testid="identity-me-profile"]')),
+          header: box(proc),
+          island: box(proc?.closest("[data-section-island]")),
+        };
+      }, inner.name) as Promise<Record<string, Box>>;
+      const row = (ground: string) => ({ h: 34, pl: "8px", pr: "8px", ground });
+      // Pointer parked on the page, colours settled (`transition-colors`).
+      await page.mouse.move(900, 500);
+      await expect.poll(measure, { timeout: 5_000 }).toEqual({
+        // The reference: an open tab has its ground, it is active.
+        tab: { ...row(NONE), ground: expect.not.stringMatching(/^rgba\(0, 0, 0, 0\)$/) },
+        board: row(NONE), system: row(NONE), me: row(NONE), header: row(NONE),
+        // A closed island is only its header: no ground of its own either.
+        island: { h: 34, pl: "0px", pr: "0px", ground: NONE },
+      });
+
+      // Active in some way: an open island is the card, the header stays a
+      // row on its ground; the user's row while its menu is open.
+      await processes.click();
+      await page.mouse.move(900, 500);
+      await expect.poll(async () => {
+        const m = await measure();
+        return { island: m.island?.ground !== NONE, header: m.header?.ground };
+      }, { timeout: 5_000 }).toEqual({ island: true, header: NONE });
+      await processes.click();
+      await page.getByTestId("identity-me-profile").click();
+      await page.mouse.move(900, 500);
+      await expect.poll(async () => (await measure()).me?.ground, { timeout: 5_000 }).not.toBe(NONE);
+      await page.keyboard.press("Escape");
     } finally {
       await deleteTopic(request, inner.id).catch(() => {});
       removeTmpDir(projectPath);
