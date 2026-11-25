@@ -13,8 +13,8 @@ export type TranscriptCall = { ts: number; tokens: CallTokens; model: string | n
  */
 interface ParsedTranscript { size: number; ino: number; offset: number; seen: Set<string>; calls: TranscriptCall[] }
 const parsedTranscripts = new Map<string, ParsedTranscript>();
-/** Files kept parsed: the week's transcripts are a few hundred, each entry is a few KB of calls. */
-const PARSED_TRANSCRIPTS_MAX = 600;
+/** Files kept parsed: a week holds thousands of subagent files, each entry is a few KB of calls. */
+const PARSED_TRANSCRIPTS_MAX = 6000;
 /** Bytes read per step while catching up: bounds the transient buffer, whatever the file size. */
 const TRANSCRIPT_READ_CHUNK = 4 * 1024 * 1024;
 
