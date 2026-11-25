@@ -25,6 +25,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · the table view's seed reads like a real board
 - **e2e** · focus-pane carries the daemon token; the rail step is measured to the File island
 - **e2e** · the parked-children question starts from a step that was being worked
+- **design** · the title as the real tab and the project islands are approved
 
 ## 2.4.107 — 2026-11-25
 

@@ -115,6 +115,12 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "the title as the real tab and the project islands are approved",
+          "en": "",
+          "scope": "design",
+          "breaking": false
         }
       ]
     }
