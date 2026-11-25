@@ -10,6 +10,8 @@
  *
  * Same child-process shape as evidence-trace-attachments.test.ts: the config
  * reads the environment at import time, so each case imports it in a fresh `bun`.
+ *
+ * @covers E2E-VIDEO-01
  */
 import { describe, it, expect } from "bun:test";
 import { resolve } from "path";
