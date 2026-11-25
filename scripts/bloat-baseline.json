@@ -293,7 +293,7 @@
   "tolerance_pct": 5,
   "max_lines": 800,
   "min_clone_lines": 20,
-  "duplicated_lines": 311,
+  "duplicated_lines": 290,
   "clone_groups": 11,
   "files": {
     "client/src/App.tsx": 1140,
