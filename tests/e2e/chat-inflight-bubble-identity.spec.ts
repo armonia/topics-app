@@ -4,6 +4,7 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -27,7 +28,7 @@ const BASE = E2E_BASE;
  *
  * Video acceso: è un COMPORTAMENTO (una bolla che si sdoppia), non uno stato.
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const DURABLE = "3f6d0f1e-2b0a-4a55-9c8e-1a2b3c4d5e6f";
 const TESTO = "Ho aperto la pratica e ho trovato la voltura del 2019.";

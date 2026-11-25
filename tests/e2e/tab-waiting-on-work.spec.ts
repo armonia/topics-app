@@ -40,9 +40,10 @@ import { createTopic, deleteAllTerminalSessions, deleteTopic, patchTopic, resetP
 import { sessionKeyOf } from "./helpers/attention";
 import { installFakeCli } from "./helpers/fake-claude-cli";
 import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 /** A frame of the moment, next to the video when `TAB_STATE_VIDEO_DIR` asks for it. */
 async function shot(page: Page, name: string): Promise<void> {

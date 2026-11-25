@@ -20,6 +20,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { hermetic } from "./fixtures/hermetic";
 import type { ProvidersSnapshot } from "../../shared/types";
 import { KEYS, NO_KEYS, mockSnapshot, snapshotOf } from "./fixtures/model-panels-fleet";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 // On WebKit a page the service worker controls (from its second load on) sends
@@ -27,7 +28,7 @@ hermetic(test);
 // hands in would come from the test server instead (seen 04/10, the key form's
 // POST reached the server once in four runs). Same fix as chat-tail-first.
 test.use({ serviceWorkers: "block" });
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 /** The order of the cards on the fleet «with keys»: the table, then the endpoints. */
 const KEYS_ORDER = ["claude-code", "topics", "claude", "codex", "openai", "gemini", "jcode", "goose", "direct-ollama", "direct-openrouter"];
