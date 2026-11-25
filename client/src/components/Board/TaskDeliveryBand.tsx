@@ -159,14 +159,12 @@ export function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: 
   );
 }
 
-export function DeliveryPanel({ browser, bump, busy, commentRef, decide, deliveryOpen, doLand, downloadsOpen, focusDiff, isAgentReview, load, mediaPaths, onChanged, onOpenTopic, openTaskPane, projectId, recapturePreview, recapturing, sendBack, sending, setError, setWorkspaceOpen, task, taskId, toggleDownloadsOpen, tr }: {
+export function DeliveryPanel({ browser, bump, busy, commentRef, deliveryOpen, downloadsOpen, focusDiff, isAgentReview, load, mediaPaths, onChanged, onOpenTopic, openTaskPane, projectId, recapturePreview, recapturing, setError, setWorkspaceOpen, task, taskId, toggleDownloadsOpen, tr }: {
   browser: TaskBrowserGroupLayout;
   bump: string | undefined;
   busy: boolean;
   commentRef: RefObject<HTMLTextAreaElement | null>;
-  decide: (decision: 'approve' | 'reject', opts?: { force?: boolean; }) => Promise<void>;
   deliveryOpen: boolean;
-  doLand: () => Promise<void>;
   downloadsOpen: boolean;
   focusDiff: string | null;
   isAgentReview: boolean;
@@ -178,8 +176,6 @@ export function DeliveryPanel({ browser, bump, busy, commentRef, decide, deliver
   projectId: string;
   recapturePreview: () => Promise<void>;
   recapturing: boolean;
-  sendBack: () => Promise<void>;
-  sending: boolean;
   setError: Dispatch<SetStateAction<string | null>>;
   setWorkspaceOpen: Dispatch<SetStateAction<boolean>>;
   task: BoardTask | null;
@@ -189,7 +185,7 @@ export function DeliveryPanel({ browser, bump, busy, commentRef, decide, deliver
 }) {
   return (
 deliveryOpen && task ? (
-    <div data-testid="task-delivery-panel" className="-mx-3 -mt-3 mb-3 border-b border-app-border">
+    <div data-testid="task-delivery-panel" className="border-b border-app-border">
       <div className="space-y-2 px-3 py-3">
             {/* Lifecycle choices belong to delivery. Stop is owned by the composer. */}
             {task.status !== 'review' && !task.archived && (
@@ -209,32 +205,7 @@ deliveryOpen && task ? (
                 <OutputUrlProbeNotice task={task} />
                 <SystemDeliveryNotice task={task} />
                 <ChecksSection task={task} />
-                {/* The wording and WHICH of the three is green come from the
-                    card, not from here. On a review nobody delivered, green is
-                    «Rimandalo avanti» (Send it forward) and the other two drop
-                    to neutral. */}
-                {/* `busy || sending`: since «Rimanda indietro» (Send back)
-                    carries the text along, its long path raises `sending` and
-                    not `busy`. Without the second flag, the three buttons stayed
-                    pressable while the delivery had already started. */}
-                <div data-testid="task-review-actions" className="flex flex-wrap items-center gap-1.5">
-                <ReviewDecisionRow
-                  task={task} busy={busy || sending}
-                  onAccept={() => decide('approve', { force: task.checksState === 'fail' })}
-                  onSendBack={() => void sendBack()}
-                  onLand={doLand}
-                />
-                {/* The exits the three buttons above do NOT have: taking the task
-                    over (the "I need it" choice) or archiving it.
-                    Approva/Rimanda indietro/Landa (Approve/Send back/Land) are
-                    already spelled out above, so they are excluded: a duplicate
-                    is not an extra choice. */}
-                <TaskChoiceRow
-                  task={task} disabled={busy || sending} exclude={['land', 'send-back', 'accept', 'redo', 'stop']}
-                  onDone={() => { void load(); onChanged(); }}
-                  onError={setError} onNeedText={() => commentRef.current?.focus()}
-                />
-                </div>
+                {/* The decision buttons live in the head strip (`TaskHeadStrip`), always visible above the conversation. */}
                 {hasDeliveryToMerge(task) && (
                   <p data-testid="task-approve-leaves-branch-note" className="mt-1 text-mini text-app-text-secondary">
                     {tr('board.task.approveLeavesBranchOut', {

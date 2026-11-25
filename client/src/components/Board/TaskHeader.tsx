@@ -219,53 +219,19 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
   );
 }
 
-export function TaskTabsBar({ browser, deliveryOpen, detailsOpen, detailsScrollRequestedRef, hasWorkspacePanes, setDeliveryOpen, setDetailsOpen, setWorkspaceOpen, stickRef, toggleWorkspaceOpen, tr, twoCol, workspaceOpen, workspacePaneCount }: {
+export function TaskTabsBar({ browser, hasWorkspacePanes, setWorkspaceOpen, toggleWorkspaceOpen, tr, workspaceOpen, workspacePaneCount }: {
   browser: TaskBrowserGroupLayout;
-  deliveryOpen: boolean;
-  detailsOpen: boolean;
-  detailsScrollRequestedRef: RefObject<boolean>;
   hasWorkspacePanes: boolean;
-  setDeliveryOpen: Dispatch<SetStateAction<boolean>>;
-  setDetailsOpen: Dispatch<SetStateAction<boolean>>;
   setWorkspaceOpen: Dispatch<SetStateAction<boolean>>;
-  stickRef: RefObject<boolean>;
   toggleWorkspaceOpen: () => void;
   tr: (key: string, vars?: Record<string, string | number>) => string;
-  twoCol: boolean;
   workspaceOpen: boolean;
   workspacePaneCount: number;
 }) {
+  // The conversation is the default and owns the column: only the workspace
+  // is a place to go to, so it is the only entry left on this bar.
   return (
 <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-app-border px-3 py-1.5">
-        <button type="button" data-testid="task-conversation-toggle" aria-pressed={(!workspaceOpen || twoCol) && !detailsOpen && !deliveryOpen}
-          onClick={() => { setWorkspaceOpen(false); setDetailsOpen(false); setDeliveryOpen(false); }}
-          className={`rounded px-2 py-1 text-compact leading-4 coarse:min-h-11 ${!workspaceOpen && !detailsOpen && !deliveryOpen ? 'bg-app-hover text-app-text' : 'text-app-text-secondary hover:text-app-text'}`}>
-          {tr('board.task.threadLabel')}
-        </button>
-        <button type="button" data-testid="task-details-toggle" aria-expanded={detailsOpen}
-          onClick={() => {
-            detailsScrollRequestedRef.current = !detailsOpen || workspaceOpen;
-            setDetailsOpen((open) => workspaceOpen || !open);
-            setDeliveryOpen(false);
-            setWorkspaceOpen(false);
-            stickRef.current = false;
-          }}
-          className="flex items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-muted hover:bg-black/5 dark:hover:bg-white/5 hover:text-app-text coarse:min-h-11">
-          {detailsOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          {tr('board.task.detailsLabel')}
-        </button>
-        <button type="button" data-testid="task-delivery-toggle" aria-expanded={deliveryOpen}
-          onClick={() => {
-            detailsScrollRequestedRef.current = !deliveryOpen || workspaceOpen;
-            setDeliveryOpen((open) => workspaceOpen || !open);
-            setDetailsOpen(false);
-            setWorkspaceOpen(false);
-            stickRef.current = false;
-          }}
-          className="flex items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-secondary hover:bg-app-hover hover:text-app-text coarse:min-h-11">
-          {deliveryOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          {tr('board.task.deliveryBand')}
-        </button>
         <button type="button" data-testid="task-workspace-toggle" data-open={workspaceOpen ? '1' : '0'} aria-expanded={workspaceOpen}
           onClick={toggleWorkspaceOpen}
           className="ml-auto flex min-w-0 items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-muted hover:bg-black/5 dark:hover:bg-white/5 hover:text-app-text coarse:min-h-11">
