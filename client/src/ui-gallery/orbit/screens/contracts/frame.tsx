@@ -8,7 +8,7 @@
  */
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { FileSearch, FileSignature, GitCompareArrows, Library, Link, ListChecks, MessageSquare, Paperclip, Sparkles } from 'lucide-react';
-import type { Contract } from '../../../../ui/fixtures/sarim-org/types';
+import type { Contract } from '../../../../ui/fixtures/orbit-org/types';
 import { personaById, world } from '../../world';
 import { Button } from '../../../../ui/primitives/Button';
 import { EmptyState } from '../../../../ui/primitives/EmptyState';
@@ -116,7 +116,7 @@ export function NotFound({ ctx }: { ctx: ScreenCtx }) {
   const t = ctx.copy.contracts.page;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PaneHeader crumbs={orgCrumbs(ctx, [{ label: ctx.copy.sarimData.knowledge.title, to: SP.knowledge() }, { label: ctx.copy.contracts.title }])} />
+      <PaneHeader crumbs={orgCrumbs(ctx, [{ label: ctx.copy.orbitData.knowledge.title, to: SP.knowledge() }, { label: ctx.copy.contracts.title }])} />
       <KnowledgeNav ctx={ctx} active="contracts" />
       <EmptyState icon={FileSearch} title={t.notFoundTitle} action={<Button variant="primary" onClick={() => ctx.go(SP.contracts())}>{t.back}</Button>}>{t.notFoundBody}</EmptyState>
     </div>
@@ -213,7 +213,7 @@ export function ContractFrame({ ctx, c, crumb, page, children }: {
     <div className="flex h-full min-h-0 flex-col">
       <PaneHeader
         leading={<BackButton label={t.title} onClick={() => ctx.go(SP.contracts())} copy={ctx.copy} />}
-        crumbs={orgCrumbs(ctx, [{ label: ctx.copy.sarimData.knowledge.title, to: SP.knowledge() }, { label: t.title, to: SP.contracts() }, ...(crumb ? [{ label: c.title, to: SP.contract(c.id) }, { label: crumb }] : [{ label: c.title }])])}
+        crumbs={orgCrumbs(ctx, [{ label: ctx.copy.orbitData.knowledge.title, to: SP.knowledge() }, { label: t.title, to: SP.contracts() }, ...(crumb ? [{ label: c.title, to: SP.contract(c.id) }, { label: crumb }] : [{ label: c.title }])])}
       />
       <KnowledgeNav ctx={ctx} active="contracts" />
       <div ref={scroller} data-contract-scroll="true" className="min-h-0 flex-1 overflow-y-auto">

@@ -1,12 +1,12 @@
-import type { SarimWorkCopy } from './sarim-work';
+import type { OrbitWorkCopy } from './orbit-work';
 import { orgWords } from './org-words';
 
 const W = orgWords();
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
-/** Italian words of the `sarim-work` area. */
-export const SARIM_WORK_COPY_IT: SarimWorkCopy = {
+/** Italian words of the `orbit-work` area. */
+export const ORBIT_WORK_COPY_IT: OrbitWorkCopy = {
   title: 'Oggi',
   weekdays: ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'],
   months: ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'],

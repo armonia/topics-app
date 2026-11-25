@@ -6,7 +6,7 @@
  */
 import { FileX } from 'lucide-react';
 import clsx from 'clsx';
-import type { Contract } from '../../../../ui/fixtures/sarim-org/types';
+import type { Contract } from '../../../../ui/fixtures/orbit-org/types';
 import { personaById, world } from '../../world';
 import { Button } from '../../../../ui/primitives/Button';
 import { EmptyState } from '../../../../ui/primitives/EmptyState';
@@ -22,7 +22,7 @@ import { attachmentKind, attachmentsOf } from './view';
 import { fingerprint, stamp } from './model';
 
 /**
- * The signers of a signed version: who signed for SARIM and the other side.
+ * The signers of a signed version: who signed for ORBIT and the other side.
  * The chain on file is the one of the latest version: only that version takes
  * its signer and its dates; an older signed copy keeps the date it carries.
  */

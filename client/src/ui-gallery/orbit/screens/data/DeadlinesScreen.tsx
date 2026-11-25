@@ -1,5 +1,5 @@
 /**
- * sarim-deadlines: the schedule of «Dati». Every deadline of SARIM, as a list (allow-italian: quotes the Italian interface)
+ * orbit-deadlines: the schedule of «Dati». Every deadline of ORBIT, as a list (allow-italian: quotes the Italian interface)
  * or as a month (two addresses: `/scadenzario` and `/scadenzario/mese`): the (allow-italian: address segments)
  * due day of the cards, the end and the last day for notice of the contracts,
  * the obligations written in the clauses. One filter bar (kind, area, state,
@@ -21,7 +21,7 @@ import { BackButton, PaneHeader } from '../../../../ui/shell/PaneHeader';
 import { FOCUS_RING } from '../../../../ui/shell/pressable';
 import { MonthCalendar } from '../../../../ui/data/MonthCalendar';
 import type { CalendarItemModel } from '../../../../ui/data/model';
-import type { SarimDeadlineKind, SarimDeadlineState } from '../../../../ui/copy/sarim-data';
+import type { OrbitDeadlineKind, OrbitDeadlineState } from '../../../../ui/copy/orbit-data';
 import { agentById } from '../../world';
 import { formatDay } from '../../../../ui/fixtures/org/clock';
 import type { ScreenCtx } from '../../../app/kit';
@@ -33,18 +33,18 @@ import { aboutOf, allDeadlines, DEADLINE_KEYS, isDueSoon, relativeDay, STATE_TON
 import { downloadText, personShort, toCsv } from './tables';
 import { PAGE_GUTTER } from '../../../../ui/shell/layout';
 
-const KINDS: SarimDeadlineKind[] = ['card', 'end', 'notice', 'obligation'];
+const KINDS: OrbitDeadlineKind[] = ['card', 'end', 'notice', 'obligation'];
 
 /** The one name a person has in the work screens (the short one «Da fare» prints), or the name of the agent. (allow-italian: quotes the Italian interface) */
 const ownerName = (id: string) => agentById(id)?.name ?? personShort(id);
 
 export function DeadlinesScreen({ ctx, view }: { ctx: ScreenCtx; view: 'list' | 'month' }) {
-  const s = ctx.copy.sarimData;
+  const s = ctx.copy.orbitData;
   const dl = s.deadlines;
   const today = ctx.now.slice(0, 10);
   const [showDone, setShowDone] = ctx.ui<boolean>(DEADLINE_KEYS.done, false);
-  const [month, setMonth] = ctx.ui<string>('sarim.dl.month', today.slice(0, 7));
-  const [day, setDay] = ctx.ui<string>('sarim.dl.day', '');
+  const [month, setMonth] = ctx.ui<string>('orbit.dl.month', today.slice(0, 7));
+  const [day, setDay] = ctx.ui<string>('orbit.dl.day', '');
 
   const every = useMemo(() => allDeadlines(ctx.state, today), [ctx.state, today]);
   const pool = useMemo(() => (showDone ? every : every.filter((d) => !d.done)), [every, showDone]);
@@ -53,9 +53,9 @@ export function DeadlinesScreen({ ctx, view }: { ctx: ScreenCtx; view: 'list' | 
   const schema = useMemo<FilterSchema<Deadline>>(() => ({
     text: (d) => [whatOf(copyOnly, d), aboutOf(copyOnly, d), ownerName(d.owner), teamOfDeadline(d).label].join(' '),
     fields: [
-      { id: 'tipo', label: dl.fields.kind, icon: Tag, kind: 'choice', get: (d) => d.kind, valueLabel: (v) => dl.kinds[v as SarimDeadlineKind], order: KINDS },
+      { id: 'tipo', label: dl.fields.kind, icon: Tag, kind: 'choice', get: (d) => d.kind, valueLabel: (v) => dl.kinds[v as OrbitDeadlineKind], order: KINDS },
       { id: 'area', label: dl.fields.area, icon: Users, kind: 'choice', get: (d) => teamOfDeadline(d).id, valueLabel: (v) => teamLabels.get(v) ?? v },
-      { id: 'state', label: dl.fields.state, icon: CircleDot, kind: 'choice', get: (d) => stateOf(d, today), valueLabel: (v) => dl.states[v as SarimDeadlineState], order: ['late', 'soon', 'open', 'done'], values: ['late', 'soon', 'open'] },
+      { id: 'state', label: dl.fields.state, icon: CircleDot, kind: 'choice', get: (d) => stateOf(d, today), valueLabel: (v) => dl.states[v as OrbitDeadlineState], order: ['late', 'soon', 'open', 'done'], values: ['late', 'soon', 'open'] },
       /* what the overview of «Dati» counts as due within the week, late ones included (allow-italian: quotes the Italian interface) */
       { id: 'entro', label: dl.fields.within, icon: Flag, kind: 'choice', ops: ['is'], get: (d) => (!d.done && isDueSoon(d.day, today) ? 'week' : []), valueLabel: () => dl.saved.week, values: ['week'] },
       { id: 'day', label: dl.fields.day, icon: CalendarClock, kind: 'date', get: (d) => d.day },
@@ -69,7 +69,7 @@ export function DeadlinesScreen({ ctx, view }: { ctx: ScreenCtx; view: 'list' | 
   ], [dl]);
   const list = useListFilters(ctx, { key: DEADLINE_KEYS.filters, items: pool, schema, presets });
   const shown = list.items;
-  const stateText = (st: SarimDeadlineState) => dl.states[st];
+  const stateText = (st: OrbitDeadlineState) => dl.states[st];
 
   const exportList = () => {
     const name = dl.file(today);

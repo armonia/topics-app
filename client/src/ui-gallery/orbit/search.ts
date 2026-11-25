@@ -137,7 +137,7 @@ function documentEntries(ctx: ScreenCtx): SearchEntry[] {
 
 function dataEntries(ctx: ScreenCtx): SearchEntry[] {
   const s = ctx.copy.app.search;
-  const d = ctx.copy.sarimData;
+  const d = ctx.copy.orbitData;
   const tables = TABLE_IDS.map((t): SearchEntry => ({
     id: `data:${t}`,
     kind: 'dati',
@@ -175,7 +175,7 @@ function dataEntries(ctx: ScreenCtx): SearchEntry[] {
 
 function peopleEntries(ctx: ScreenCtx): SearchEntry[] {
   const s = ctx.copy.app.search;
-  const t = ctx.copy.sarimTeam;
+  const t = ctx.copy.orbitTeam;
   const people = world().people.personas.map((p): SearchEntry => {
     const team = teamLabel(ctx, teamIdOfPerson(p.id) ?? p.area);
     return {
@@ -306,7 +306,7 @@ function suggestions(ctx: ScreenCtx): SearchEntry[] {
   return out;
 }
 
-export const SARIM_SEARCH_AREA: AreaModule = {
+export const ORBIT_SEARCH_AREA: AreaModule = {
   screens: [],
   search: (ctx) => [...cardEntries(ctx), ...flowEntries(ctx), ...documentEntries(ctx), ...dataEntries(ctx), ...peopleEntries(ctx), ...programEntries(ctx)],
   suggest: suggestions,

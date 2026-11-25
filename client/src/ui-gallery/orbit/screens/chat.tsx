@@ -1,5 +1,5 @@
 /**
- * SARIM edition, area «Chat»: the chat with the AI as in Topics, the list of
+ * ORBIT edition, area «Chat»: the chat with the AI as in Topics, the list of
  * every chat, a new chat that opens on four questions taken from the data of
  * the organization, and one conversation. The chat that belongs to a card is
  * drawn in the page of the card (`inbox/card-chat.tsx`) and keeps its
@@ -13,12 +13,12 @@ import { chatPlaceTitle } from './chat/conversation';
 import { ChatListPage, ChatPage } from './chat/pages';
 
 /* The three places share one tab: a new chat becomes the conversation it starts in the same tab. */
-const base = { org: world().key, tabKey: () => 'sarim-chat' } as const;
+const base = { org: world().key, tabKey: () => 'orbit-chat' } as const;
 
 const SCREENS: ScreenDef[] = [
   {
     ...base,
-    id: 'sarim-chats',
+    id: 'orbit-chats',
     path: '/chat',
     nav: 'chat:all',
     samples: [SP.chats()],
@@ -27,7 +27,7 @@ const SCREENS: ScreenDef[] = [
   },
   {
     ...base,
-    id: 'sarim-chat-new',
+    id: 'orbit-chat-new',
     path: '/chat/nuova',
     nav: 'chat:new',
     samples: [SP.chatNew()],
@@ -36,7 +36,7 @@ const SCREENS: ScreenDef[] = [
   },
   {
     ...base,
-    id: 'sarim-chat-one',
+    id: 'orbit-chat-one',
     path: '/chat/:chat',
     nav: 'chat:all',
     samples: ['demo-1', 'demo-2'].map((id) => SP.chat(id)),
@@ -45,4 +45,4 @@ const SCREENS: ScreenDef[] = [
   },
 ];
 
-export const SARIM_CHAT_AREA: AreaModule = { screens: SCREENS };
+export const ORBIT_CHAT_AREA: AreaModule = { screens: SCREENS };

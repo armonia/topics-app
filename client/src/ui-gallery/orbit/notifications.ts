@@ -1,5 +1,5 @@
 /**
- * The notifications the SARIM edition starts with, built from its example
+ * The notifications the ORBIT edition starts with, built from its example
  * world so each one opens the thing it talks about: the oldest stopped card,
  * the last card an agent handed to a person, the variations waiting for an
  * approval, the obligations past their date and the nearest notice of a
@@ -17,7 +17,7 @@ const morning = `${DEMO_TODAY}T07:00:00+01:00`;
 /** Who a notification is for: the person it concerns, and the direction, which sees everything. */
 const forWhom = (id: string) => [...new Set([id, world().people.directorId])];
 
-export function sarimNotifications(): NotificationEntry[] {
+export function orbitNotifications(): NotificationEntry[] {
   const out: NotificationEntry[] = [];
 
   const stopped = world().cards.filter((c) => c.blocked && stageOf(c) !== 'fatto') // allow-italian: stage id, compared by value

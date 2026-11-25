@@ -4,7 +4,7 @@
  * left running when the page goes) and is kept in the same saved state, also
  * when the person has gone to another page meanwhile.
  */
-import type { SarimCard } from '../../../../ui/fixtures/sarim-org/types';
+import type { OrbitCard } from '../../../../ui/fixtures/orbit-org/types';
 import type { ScreenCtx } from '../../../app/kit';
 import { EMPTY_FILTERS, type ListFilterState } from '../../../app/filters';
 import { LIST_STUCK_PATH, answer, type AssistantEnv } from '../../model/assistant';
@@ -42,7 +42,7 @@ export function chatPlaceTitle(ctx: ScreenCtx, id?: string): string {
 }
 
 /** Where a draft is kept while the person has not sent it. */
-export const draftKey = (key: string): string => `sarim.chat.draft.${key}`;
+export const draftKey = (key: string): string => `orbit.chat.draft.${key}`;
 
 export const chatJob = (conversationId: string): string => `chat:${conversationId}`;
 export const cardJob = (cardId: string): string => `chat:card:${cardId}`;
@@ -84,7 +84,7 @@ export function sendInChat(ctx: ScreenCtx, conversationId: string | undefined, r
 }
 
 /** Sends a question in the chat of a card. */
-export function sendInCard(ctx: ScreenCtx, card: SarimCard, raw: string): void {
+export function sendInCard(ctx: ScreenCtx, card: OrbitCard, raw: string): void {
   const question = raw.trim();
   if (!question || writing(ctx, cardJob(card.id))) return;
   const [, setSlice] = ctx.slice<ChatsSlice>(CHATS_SLICE, CHATS_INITIAL);

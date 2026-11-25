@@ -1,17 +1,17 @@
 /**
  * The world the screens of this folder read: the example data and the words of
- * one organization. SARIM is the default; an entry that runs another
+ * one organization. ORBIT is the default; an entry that runs another
  * organization calls `setWorld()` before it imports the app, so the constants
  * the modules compute when they load already read the right world.
  *
- * Everything the screens used to take from `fixtures/sarim-org/*` goes through
+ * Everything the screens used to take from `fixtures/orbit-org/*` goes through
  * `world()` and the helpers below, so no screen names an organization.
  */
 import type { OrgWorld } from '../../ui/fixtures/world-types';
-import type { SarimAgent, SarimPersona, SarimTeam } from '../../ui/fixtures/sarim-org/people';
-import type { SarimTown } from '../../ui/fixtures/sarim-org/data';
-import type { KnowledgeCitation, KnowledgeDoc, KnowledgePart } from '../../ui/fixtures/sarim-org/knowledge';
-import type { SarimProgram } from '../../ui/fixtures/sarim-org/programs';
+import type { OrbitAgent, OrbitPersona, OrbitTeam } from '../../ui/fixtures/orbit-org/people';
+import type { OrbitTown } from '../../ui/fixtures/orbit-org/data';
+import type { KnowledgeCitation, KnowledgeDoc, KnowledgePart } from '../../ui/fixtures/orbit-org/knowledge';
+import type { OrbitProgram } from '../../ui/fixtures/orbit-org/programs';
 import { setOrgWords } from '../../ui/copy/org-words';
 
 let current: OrgWorld | undefined;
@@ -28,12 +28,12 @@ export function setWorld(w: OrgWorld): void {
   setOrgWords(w.words);
 }
 
-export const personaById = (id: string): SarimPersona | undefined => world().people.personas.find((p) => p.id === id);
-export const agentById = (id: string): SarimAgent | undefined => world().people.agents.find((a) => a.id === id);
-export const teamById = (id: string): SarimTeam | undefined => world().people.teams.find((t) => t.id === id);
-export const programById = (id: string): SarimProgram | undefined => world().programs.find((p) => p.id === id);
+export const personaById = (id: string): OrbitPersona | undefined => world().people.personas.find((p) => p.id === id);
+export const agentById = (id: string): OrbitAgent | undefined => world().people.agents.find((a) => a.id === id);
+export const teamById = (id: string): OrbitTeam | undefined => world().people.teams.find((t) => t.id === id);
+export const programById = (id: string): OrbitProgram | undefined => world().programs.find((p) => p.id === id);
 export const knowledgeDocById = (id: string): KnowledgeDoc | undefined => world().knowledge.docs.find((d) => d.id === id);
-export const townById = (id: string): SarimTown | undefined => world().towns.find((t) => t.id === id);
+export const townById = (id: string): OrbitTown | undefined => world().towns.find((t) => t.id === id);
 
 /** The team of a person: the people with the viewer role sit apart, every other person with their area. */
 export function teamIdOfPerson(personaId: string): string | undefined {
@@ -43,10 +43,10 @@ export function teamIdOfPerson(personaId: string): string | undefined {
 }
 
 /** The people of a team. */
-export const teamMembers = (id: string): SarimPersona[] => world().people.personas.filter((p) => teamIdOfPerson(p.id) === id);
+export const teamMembers = (id: string): OrbitPersona[] => world().people.personas.filter((p) => teamIdOfPerson(p.id) === id);
 
 /** The town a card's place belongs to: `Roma (AMA, Smart Leaf)` is Rome. */
-export function townOfPlace(place: string | undefined): SarimTown | undefined {
+export function townOfPlace(place: string | undefined): OrbitTown | undefined {
   if (!place) return undefined;
   return world().towns.find((t) => place === t.name || place.startsWith(`${t.place ?? t.name} (`) || place === t.place);
 }

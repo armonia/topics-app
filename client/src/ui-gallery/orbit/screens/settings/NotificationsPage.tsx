@@ -1,6 +1,6 @@
 /**
  * Preferences · Notifications: when Topics warns the reader (each person has their own
- * choices, under `sarim.alerts.<persona>`). Notices of the contracts at 180,
+ * choices, under `orbit.alerts.<persona>`). Notices of the contracts at 180,
  * 90 and 30 days, stopped cards with the hours of each flow, obligations of
  * the contracts, and the channels. Every block says what would arrive today
  * with the choices as they are, from the live cards and contracts; a test
@@ -9,7 +9,7 @@
 import { FileSignature, Send } from 'lucide-react';
 import clsx from 'clsx';
 import { personaById, world } from '../../world';
-import type { SarimAlertWindow, SarimStuckScope } from '../../../../ui/copy/sarim-admin';
+import type { OrbitAlertWindow, OrbitStuckScope } from '../../../../ui/copy/orbit-admin';
 import { Button } from '../../../../ui/primitives/Button';
 import { Chip } from '../../../../ui/primitives/Chip';
 import { Select, Toggle } from '../../../../ui/primitives/Field';
@@ -28,9 +28,9 @@ import { SP } from '../../paths';
 import { SettingsFrame } from './frame';
 
 interface AlertChoices {
-  windows: Record<SarimAlertWindow, boolean>;
+  windows: Record<OrbitAlertWindow, boolean>;
   stuck: boolean;
-  scope: SarimStuckScope;
+  scope: OrbitStuckScope;
   obligations: boolean;
   obligationsDays: number;
   mail: boolean;
@@ -39,14 +39,14 @@ interface AlertChoices {
 
 const INITIAL: AlertChoices = { windows: { d180: true, d90: true, d30: true }, stuck: true, scope: 'mine', obligations: true, obligationsDays: 30, mail: true, phone: false };
 
-const WINDOWS: Array<[SarimAlertWindow, number, Tone]> = [['d180', 180, 'blue'], ['d90', 90, 'amber'], ['d30', 30, 'red']];
-const SCOPES: SarimStuckScope[] = ['mine', 'area', 'all'];
+const WINDOWS: Array<[OrbitAlertWindow, number, Tone]> = [['d180', 180, 'blue'], ['d90', 90, 'amber'], ['d30', 30, 'red']];
+const SCOPES: OrbitStuckScope[] = ['mine', 'area', 'all'];
 const OBLIGATION_DAYS = [7, 15, 30, 60];
 
 export function NotificationsPage({ ctx }: { ctx: ScreenCtx }) {
-  const s = ctx.copy.sarimAdmin.settings;
+  const s = ctx.copy.orbitAdmin.settings;
   const a = s.alerts;
-  const [raw, setChoices] = ctx.ui<AlertChoices>(`sarim.alerts.${ctx.persona.id}`, INITIAL);
+  const [raw, setChoices] = ctx.ui<AlertChoices>(`orbit.alerts.${ctx.persona.id}`, INITIAL);
   const choices: AlertChoices = { ...INITIAL, ...raw, windows: { ...INITIAL.windows, ...raw.windows } };
   const me = personaById(ctx.persona.id);
   const cards = liveCards(ctx.state);
@@ -128,7 +128,7 @@ export function NotificationsPage({ ctx }: { ctx: ScreenCtx }) {
             control={
               <Select
                 value={choices.scope}
-                onChange={(v) => set({ scope: v as SarimStuckScope }, a.stuckScope, a.scopes[v as SarimStuckScope])}
+                onChange={(v) => set({ scope: v as OrbitStuckScope }, a.stuckScope, a.scopes[v as OrbitStuckScope])}
                 options={SCOPES.map((x) => ({ value: x, label: a.scopes[x] }))}
                 disabled={!choices.stuck}
                 title={a.stuckScope}
@@ -153,7 +153,7 @@ export function NotificationsPage({ ctx }: { ctx: ScreenCtx }) {
                 cells: {
                   flow: flowLabel(f.id),
                   after: <span className="text-app-text-secondary">{a.stuckAfter(f.stuckAfterHours)}</span>,
-                  now: n ? <span className="font-medium text-amber-700 dark:text-amber-400">{n}</span> : ctx.copy.sarimAdmin.common.blank,
+                  now: n ? <span className="font-medium text-amber-700 dark:text-amber-400">{n}</span> : ctx.copy.orbitAdmin.common.blank,
                 },
               };
             })}

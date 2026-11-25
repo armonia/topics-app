@@ -1,20 +1,20 @@
 /**
- * SARIM edition: «Programmi», «Squadra» (people, agents, permissions) and «Impostazioni». (allow-italian: quotes the Italian interface)
- * Values in `i18n-ui-sarim-admin-it.ts` and `i18n-ui-sarim-admin-en.ts`; only product words,
- * the words of SARIM's work arrive with the data.
+ * ORBIT edition: «Programmi», «Squadra» (people, agents, permissions) and «Impostazioni». (allow-italian: quotes the Italian interface)
+ * Values in `i18n-ui-orbit-admin-it.ts` and `i18n-ui-orbit-admin-en.ts`; only product words,
+ * the words of ORBIT's work arrive with the data.
  */
-export type SarimProgramLinkWord = 'api' | 'file' | 'screen' | 'browser' | 'mailbox' | 'public';
-export type SarimProgramGroupWord = 'territory' | 'staff' | 'office' | 'tenders' | 'public';
+export type OrbitProgramLinkWord = 'api' | 'file' | 'screen' | 'browser' | 'mailbox' | 'public';
+export type OrbitProgramGroupWord = 'territory' | 'staff' | 'office' | 'tenders' | 'public';
 /** How a program connects, grouped the way the filter offers it (API and public services, files, robots, mailboxes). */
-export type SarimProgramLinkGroup = 'api' | 'file' | 'screen' | 'browser' | 'mailbox' | 'public';
-export type SarimProgramStateWord = 'connected' | 'disconnected' | 'testing' | 'failed' | 'connecting';
-export type SarimSettingsSection = 'organizzazione' | 'agenti' | 'registro' | 'aspetto' | 'notifiche'; // allow-italian: address segments, compared by value
-export type SarimNeverWord = 'sign' | 'send' | 'approve' | 'write';
-export type SarimPrincipleAction = 'sign' | 'approveContract' | 'approve' | 'send' | 'registry' | 'tender' | 'programs';
-export type SarimAlertWindow = 'd180' | 'd90' | 'd30';
-export type SarimStuckScope = 'mine' | 'area' | 'all';
+export type OrbitProgramLinkGroup = 'api' | 'file' | 'screen' | 'browser' | 'mailbox' | 'public';
+export type OrbitProgramStateWord = 'connected' | 'disconnected' | 'testing' | 'failed' | 'connecting';
+export type OrbitSettingsSection = 'organizzazione' | 'agenti' | 'registro' | 'aspetto' | 'notifiche'; // allow-italian: address segments, compared by value
+export type OrbitNeverWord = 'sign' | 'send' | 'approve' | 'write';
+export type OrbitPrincipleAction = 'sign' | 'approveContract' | 'approve' | 'send' | 'registry' | 'tender' | 'programs';
+export type OrbitAlertWindow = 'd180' | 'd90' | 'd30';
+export type OrbitStuckScope = 'mine' | 'area' | 'all';
 
-export interface SarimAdminCopy {
+export interface OrbitAdminCopy {
   title: string;
 
   common: {
@@ -27,7 +27,7 @@ export interface SarimAdminCopy {
     perMonth: (n: number) => string;
     since: (when: string) => string;
     neverTitle: string;
-    never: Record<SarimNeverWord, { label: string; hint: string }>;
+    never: Record<OrbitNeverWord, { label: string; hint: string }>;
     searchGroups: { programs: string; people: string; agents: string; settings: string };
   };
 
@@ -36,13 +36,13 @@ export interface SarimAdminCopy {
     count: (n: number) => string;
     /** The fields of the filter bar. */
     fields: { link: string; state: string; flow: string };
-    linkGroups: Record<SarimProgramLinkGroup, string>;
-    groups: Record<SarimProgramGroupWord, string>;
-    links: Record<SarimProgramLinkWord, string>;
+    linkGroups: Record<OrbitProgramLinkGroup, string>;
+    groups: Record<OrbitProgramGroupWord, string>;
+    links: Record<OrbitProgramLinkWord, string>;
     columns: { program: string; does: string; link: string; flows: string; open: string; state: string };
     /** What Topics reads and writes there, by name: `legge utenze e ordini · scrive ordini di servizio, con conferma`. allow-italian: quotes the words on screen */
     does: (gist: { reads: string; writes?: string }) => string;
-    states: Record<SarimProgramStateWord, string>;
+    states: Record<OrbitProgramStateWord, string>;
     lastRead: (when: string) => string;
     emptyTitle: string;
     emptyReset: string;
@@ -172,8 +172,8 @@ export interface SarimAdminCopy {
     prefsRoot: string;
     /** The group of the search results for the pages of the person. */
     prefsGroup: string;
-    sections: Record<SarimSettingsSection, string>;
-    search: Record<SarimSettingsSection, { detail: string; keywords: string }>;
+    sections: Record<OrbitSettingsSection, string>;
+    search: Record<OrbitSettingsSection, { detail: string; keywords: string }>;
     common: {
       saved: (label: string) => string;
       changedTo: (label: string, value: string) => string;
@@ -206,7 +206,7 @@ export interface SarimAdminCopy {
     alerts: {
       contractsTitle: string;
       contractsBody: string;
-      windows: Record<SarimAlertWindow, { label: string; hint: string }>;
+      windows: Record<OrbitAlertWindow, { label: string; hint: string }>;
       todayNone: string;
       todaySome: (n: number) => string;
       noticeLine: (date: string, days: number) => string;
@@ -214,7 +214,7 @@ export interface SarimAdminCopy {
       stuckBody: string;
       stuckToggle: string;
       stuckScope: string;
-      scopes: Record<SarimStuckScope, string>;
+      scopes: Record<OrbitStuckScope, string>;
       stuckColumns: { flow: string; after: string; now: string };
       stuckAfter: (hours: number) => string;
       stuckNow: (n: number) => string;
@@ -239,7 +239,7 @@ export interface SarimAdminCopy {
       passed: (ok: number, total: number) => string;
       neverTitle: string;
       neverBody: string;
-      actions: Record<SarimPrincipleAction, { title: string; body: string }>;
+      actions: Record<OrbitPrincipleAction, { title: string; body: string }>;
       whoCan: string;
       nobody: string;
       openPermissions: string;

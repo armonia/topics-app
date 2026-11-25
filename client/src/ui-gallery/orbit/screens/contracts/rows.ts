@@ -1,4 +1,4 @@
-import type { Contract } from '../../../../ui/fixtures/sarim-org/types';
+import type { Contract } from '../../../../ui/fixtures/orbit-org/types';
 import type { ContractRowModel } from '../../../../ui/contracts/model';
 import type { Tone } from '../../../../ui/types';
 import type { ScreenCtx } from '../../../app/kit';

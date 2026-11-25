@@ -1,5 +1,5 @@
 /**
- * «Contratti» of the SARIM edition (sarim-contracts): every contract as a (allow-italian: quotes the Italian interface)
+ * «Contratti» of the ORBIT edition (orbit-contracts): every contract as a (allow-italian: quotes the Italian interface)
  * table, with four numbers on top (in force, value in force, open alerts,
  * variations under way) and the filter bar: kind, state, team, counterparty,
  * end, next notice and the situation of the contract. The saved filters that
@@ -11,7 +11,7 @@
 import { useMemo, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { CalendarClock, CalendarDays, CircleDot, FileText, Gauge, Handshake, Users } from 'lucide-react';
-import type { Contract, ContractKind, ContractStatus, SarimCard } from '../../../../ui/fixtures/sarim-org/types';
+import type { Contract, ContractKind, ContractStatus, OrbitCard } from '../../../../ui/fixtures/orbit-org/types';
 import { world } from '../../world';
 import { FilterBar } from '../../../../ui/filters/FilterBar';
 import { Button } from '../../../../ui/primitives/Button';
@@ -71,7 +71,7 @@ export function ListPlace({ ctx }: { ctx: ScreenCtx }) {
   const t = ctx.copy.contracts;
   const l = t.list;
   const day = today(ctx);
-  const cards: SarimCard[] = liveCards(ctx.state);
+  const cards: OrbitCard[] = liveCards(ctx.state);
   const all = liveContracts(ctx.state);
   const items = all.map((c): Item => ({
     c,
@@ -91,7 +91,7 @@ export function ListPlace({ ctx }: { ctx: ScreenCtx }) {
     ],
   }), [l]);
   const presets = useMemo<SavedFilter[]>(() => SITUATIONS.map((v, i) => ({ id: v, name: l.views[v], tokens: [{ id: `p${i + 1}`, field: 'situazione', op: 'is', value: v }] })), [l]);
-  const list = useListFilters(ctx, { key: 'sarim.contracts.filters', items, schema, presets });
+  const list = useListFilters(ctx, { key: 'orbit.contracts.filters', items, schema, presets });
   const shown = list.items;
 
   // In force by the same test that lets a variation start, so the tile and the contract page agree.
@@ -105,7 +105,7 @@ export function ListPlace({ ctx }: { ctx: ScreenCtx }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* On a phone the top bar already names the page, so the header keeps only the count; on a desktop the count is in the tab, the tile and the filter bar. */}
-      <PaneHeader crumbs={orgCrumbs(ctx, [{ label: ctx.copy.sarimData.knowledge.title, to: SP.knowledge() }, ctx.phone ? { label: l.subtitle(all.length) } : { label: t.title }])}>
+      <PaneHeader crumbs={orgCrumbs(ctx, [{ label: ctx.copy.orbitData.knowledge.title, to: SP.knowledge() }, ctx.phone ? { label: l.subtitle(all.length) } : { label: t.title }])}>
         <Button icon={CalendarClock} onClick={() => ctx.go(SP.contractDeadlines())}>{l.deadlines}</Button>
       </PaneHeader>
       <KnowledgeNav ctx={ctx} active="contracts" />

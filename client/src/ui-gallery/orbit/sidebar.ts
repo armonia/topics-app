@@ -1,9 +1,9 @@
 /**
- * The sidebar of the SARIM edition: SARIM is the only organization, so there
+ * The sidebar of the ORBIT edition: ORBIT is the only organization, so there
  * is one group, always open, with the surfaces the person's role may open and
  * no selector of other organizations. Four rows: «Da fare», «Flussi», (allow-italian: quotes the Italian interface)
  * «Conoscenza» (documents, contracts, data, rules) and «Programmi»; the team,
- * the settings and the log live in the menu of the SARIM row (`menus.ts`).
+ * the settings and the log live in the menu of the ORBIT row (`menus.ts`).
  * «Da fare» counts what waits for this person, from the same live cards the (allow-italian: quotes the Italian interface)
  * kanban draws; the system strip counts the stopped cards, the flows that run and
  * the cards in the agents' hands, each number once and with its unit.
@@ -23,8 +23,8 @@ import { CHAT_COPY_EN } from '../../ui/copy/i18n-ui-chat-en';
 import { CHAT_COPY_IT } from '../../ui/copy/i18n-ui-chat-it';
 import { allChats, chatAge } from './model/chats';
 
-/** The surfaces of SARIM, in sidebar order, with their address. */
-export const SARIM_NAV: Array<[NavId & NavItemModel['kind'], string]> = [
+/** The surfaces of ORBIT, in sidebar order, with their address. */
+export const ORBIT_NAV: Array<[NavId & NavItemModel['kind'], string]> = [
   ['inbox', SP.inbox()], ['flows', SP.flows()], ['knowledge', SP.knowledge()], ['programs', SP.programs()],
 ];
 
@@ -76,20 +76,20 @@ function chatRowOf(activeId: string | undefined, state: DemoState, shown: string
   return id && shown.includes(id) ? `chat:${id}` : activeId;
 }
 
-export function sarimRowPath(id: string): string | undefined {
+export function orbitRowPath(id: string): string | undefined {
   if (id === 'chat:new') return SP.chatNew();
   if (id === 'chat:all') return SP.chats();
   if (id.startsWith('chat:')) return SP.chat(id.slice(5));
   if (id.startsWith('pin:')) return SP.program(id.slice(4));
   if (id === world().key) return SP.home();
   const nav = id.split('/')[1];
-  return SARIM_NAV.find(([n]) => n === nav)?.[1];
+  return ORBIT_NAV.find(([n]) => n === nav)?.[1];
 }
 
-export function sarimSidebar(state: DemoState, persona: Persona, can: (p: Permission) => boolean, activeId: string | undefined): SidebarModel {
+export function orbitSidebar(state: DemoState, persona: Persona, can: (p: Permission) => boolean, activeId: string | undefined): SidebarModel {
   const cards = liveCards(state);
   const mine = waitingFor(cards, persona.id);
-  const nav = SARIM_NAV.filter(([kind]) => canOpenNav(kind, can)).map(([kind]): NavItemModel => ({
+  const nav = ORBIT_NAV.filter(([kind]) => canOpenNav(kind, can)).map(([kind]): NavItemModel => ({
     id: `${world().key}/${kind}`,
     kind,
     count: kind === 'inbox' && mine.length ? mine.length : undefined,

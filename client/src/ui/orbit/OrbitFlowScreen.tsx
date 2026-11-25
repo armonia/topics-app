@@ -13,14 +13,14 @@ import type { CollectedDataModel, FlowModel, FlowView } from '../flows/model';
 const VIEWS: FlowView[] = ['steps', 'byOffice', 'runs', 'tests', 'versions', 'log'];
 
 /**
- * A SARIM flow (w07), drawn by the one canvas of a flow: what starts it, the
+ * A ORBIT flow (w07), drawn by the one canvas of a flow: what starts it, the
  * steps every report takes, then one lane per type of report side by side with
  * all its steps, and a last step that runs whatever the type. A flow without a
  * branch (`branch` has no paths) is the same column of steps. The side panel
  * lists what the flow collects. The other views and the panel belong to the
  * container.
  */
-export function SarimFlowScreen({ flow, after, collected, copy, view = 'steps', onViewChange, onTry, tryTitle, onOpenView, phone }: {
+export function OrbitFlowScreen({ flow, after, collected, copy, view = 'steps', onViewChange, onTry, tryTitle, onOpenView, phone }: {
   flow: FlowModel;
   /** The step after the branch, for every type: `marker` and its words. */
   after?: { marker: string; title: string };
@@ -50,7 +50,7 @@ export function SarimFlowScreen({ flow, after, collected, copy, view = 'steps', 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
         <div className="min-w-0 flex-1 py-4 pl-3 pr-4 md:overflow-y-auto">
           <FlowCanvas
-            model={canvasOf(flow, copy, { after: after && { ...after, badge: copy.orgs.sarim.always } })}
+            model={canvasOf(flow, copy, { after: after && { ...after, badge: copy.orgs.orbit.always } })}
             mode="edit"
             copy={copy}
             phone={phone}

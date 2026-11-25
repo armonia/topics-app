@@ -1,10 +1,10 @@
 /**
- * The contracts of the SARIM edition, with their versions, clauses, obligations,
+ * The contracts of the ORBIT edition, with their versions, clauses, obligations,
  * comments, attachments, variants and approvals.
  *
  * Seven are real contracts: counterparty, object, value, CIG and dates come from
- * public sources (TED, the ARERA portal, sarimambiente.it) and
- * `scripts/ui-fixtures/sarim-contracts.ts` pins them, so a typo fails the gate.
+ * public sources (TED, the ARERA portal, alfaimpianti.it) and
+ * `scripts/ui-fixtures/orbit-contracts.ts` pins them, so a typo fails the gate.
  * Their clause texts, repertorio numbers, policies and signature dates are
  * examples. The other six are examples with anonymous counterparties.
  *
@@ -31,7 +31,7 @@ const signedCopy = (id: string, version: number, at: string, lines: string[]): C
   id, name: `Contratto firmato, versione ${version}`, kind: 'firmato', version, at, lines, // allow-italian: fixture data, shown as written
 });
 
-const SARIM_PARTY = 'S.A.R.I.M. SRL, P.IVA 02596800652, sede legale in Corso Vittorio Emanuele 171, 84122 Salerno'; // allow-italian: fixture data, shown as written
+const ORBIT_PARTY = 'S.A.R.I.M. SRL, P.IVA 02596800652, sede legale in Corso Vittorio Emanuele 171, 84122 Salerno'; // allow-italian: fixture data, shown as written
 const COURT_CLAUSE = 'Per le controversie è competente il foro nella cui circoscrizione ha sede il Comune. È esclusa la competenza arbitrale.'; // allow-italian: fixture data, shown as written
 
 /** The clauses of the reference version of each contract (the one in force, or the only one), by contract id. */
@@ -53,7 +53,7 @@ const BASE: Record<string, Clause[]> = {
   'c-albanella': [
     art(1, 'Oggetto', 'Il Comune di Albanella affida a S.A.R.I.M. SRL il servizio di raccolta e trasporto dei rifiuti urbani e di igiene urbana, aggiudicato con determina n. 93 del 13/05/2025 (CIG B6242F1551).'), // allow-italian: fixture data, shown as written
     art(2, 'Durata e proroga', "La durata del servizio è di sette anni, dal 1° gennaio 2026 al 31 dicembre 2032; il servizio è partito in esecuzione anticipata disposta dal Comune nelle more della stipula. Il Comune può prorogare il contratto per ulteriori 12 mesi alle stesse condizioni, dandone comunicazione all'Appaltatore almeno 180 giorni prima della scadenza."), // allow-italian: fixture data, shown as written
-    art(3, 'Servizi', "L'Appaltatore svolge la raccolta porta a porta delle frazioni differenziate e del secco residuo, il ritiro degli ingombranti su prenotazione dall'app Sarim Ambiente, lo spazzamento delle strade e la gestione delle segnalazioni dei cittadini, ricevute anche su Enviro e al numero verde 800.983850."), // allow-italian: fixture data, shown as written
+    art(3, 'Servizi', "L'Appaltatore svolge la raccolta porta a porta delle frazioni differenziate e del secco residuo, il ritiro degli ingombranti su prenotazione dall'app Alfa Impianti, lo spazzamento delle strade e la gestione delle segnalazioni dei cittadini, ricevute anche su Enviro e al numero verde 800.983850."), // allow-italian: fixture data, shown as written
     art(4, 'Qualità del servizio', "L'Appaltatore rispetta gli standard di qualità della regolazione ARERA sul servizio rifiuti. Le richieste di pronto intervento sono gestite con arrivo sul luogo entro 4 ore dalla segnalazione."), // allow-italian: fixture data, shown as written
     art(5, 'Dati e rendiconti', "Entro il 15 di ogni mese l'Appaltatore trasmette al Comune i quantitativi raccolti nel mese precedente per codice EER, con i formulari di trasporto e le registrazioni RENTRI."), // allow-italian: fixture data, shown as written
     art(6, 'Penali', "Per ogni zona in cui la raccolta porta a porta non è eseguita nel giorno previsto si applica una penale di euro 250 per giorno. Le penali nel complesso non superano il 10% dell'importo del contratto."), // allow-italian: fixture data, shown as written
@@ -65,7 +65,7 @@ const BASE: Record<string, Clause[]> = {
   'c-rocca-priora': [
     art(1, 'Oggetto', 'Il Comune di Rocca Priora affida a S.A.R.I.M. SRL il servizio di igiene urbana: raccolta porta a porta, trasporto dei rifiuti agli impianti di destinazione e spazzamento delle strade.'), // allow-italian: fixture data, shown as written
     art(2, 'Durata', 'Il contratto ha durata di otto anni, dal 2 novembre 2022 al 1° novembre 2030.'), // allow-italian: fixture data, shown as written
-    art(3, 'Calendario', "La raccolta segue il calendario approvato dal Comune e pubblicato sull'app Sarim Ambiente. Ogni variazione del calendario è concordata con il Comune e comunicata agli utenti almeno 7 giorni prima."), // allow-italian: fixture data, shown as written
+    art(3, 'Calendario', "La raccolta segue il calendario approvato dal Comune e pubblicato sull'app Alfa Impianti. Ogni variazione del calendario è concordata con il Comune e comunicata agli utenti almeno 7 giorni prima."), // allow-italian: fixture data, shown as written
     art(4, 'Rendiconti', "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al Comune il riepilogo dei servizi del mese precedente e i dati per la tariffa."), // allow-italian: fixture data, shown as written
     art(5, 'Penali', 'Per ogni mancata raccolta segnalata e non recuperata entro il giorno successivo si applica una penale di euro 200.'), // allow-italian: fixture data, shown as written
     art(6, 'Corrispettivo', "L'importo complessivo del contratto è pari a euro 13.947.325,33 oltre IVA, pagato in rate mensili posticipate. La revisione dei prezzi segue l'art. 106 del D.Lgs. 50/2016 e i documenti di gara."), // allow-italian: fixture data, shown as written
@@ -74,7 +74,7 @@ const BASE: Record<string, Clause[]> = {
   'c-agropoli': [
     art(1, 'Oggetto', 'Il Comune di Agropoli affida a S.A.R.I.M. SRL, aggiudicataria della gara svolta dalla CUC Paestum Alto Cilento, il servizio di spazzamento, raccolta e trasporto dei rifiuti urbani.'), // allow-italian: fixture data, shown as written
     art(2, 'Durata e proroga', 'Il contratto ha durata di cinque anni, dal 1° ottobre 2022 al 30 settembre 2027. Il Comune può disporre una proroga di 6 mesi, nelle more della nuova gara, comunicandola almeno 120 giorni prima della scadenza.'), // allow-italian: fixture data, shown as written
-    art(3, 'Servizi', "L'Appaltatore svolge la raccolta porta a porta, il ritiro degli ingombranti su prenotazione anche dall'app Sarim Ambiente e lo spazzamento, con frequenze rafforzate da giugno a settembre nelle zone del lungomare."), // allow-italian: fixture data, shown as written
+    art(3, 'Servizi', "L'Appaltatore svolge la raccolta porta a porta, il ritiro degli ingombranti su prenotazione anche dall'app Alfa Impianti e lo spazzamento, con frequenze rafforzate da giugno a settembre nelle zone del lungomare."), // allow-italian: fixture data, shown as written
     art(4, 'Rendiconti', "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al Comune il rapporto dei servizi e dei quantitativi del mese precedente."), // allow-italian: fixture data, shown as written
     art(5, 'Penali', 'Per ogni servizio non eseguito si applica una penale da euro 150 a euro 1.000 secondo la tabella del capitolato, previa contestazione scritta.'), // allow-italian: fixture data, shown as written
     art(6, 'Corrispettivo e revisione dei prezzi', "L'importo complessivo del contratto è pari a euro 18.061.509,16 oltre IVA, pagato in 60 rate mensili posticipate di pari importo. Su richiesta dell'Appaltatore, presentata entro il 31 gennaio di ogni anno, la rata è aggiornata in base alla variazione dell'indice ISTAT FOI."), // allow-italian: fixture data, shown as written
@@ -112,33 +112,33 @@ const BASE: Record<string, Clause[]> = {
     art(7, 'Controversie', COURT_CLAUSE), // allow-italian: fixture data, shown as written
   ],
   'c-sub-lavaggio': [
-    art(1, 'Oggetto', 'S.A.R.I.M. SRL affida al Subappaltatore il lavaggio e la sanificazione dei contenitori stradali e condominiali nel Comune di Castellabate, parte del servizio che SARIM svolge con il contratto Rep. n. 1873 del 29/01/2026.'), // allow-italian: fixture data, shown as written
-    art(2, 'Autorizzazione del committente', "Il contratto è efficace solo dopo l'autorizzazione del Comune di Castellabate prevista dall'art. 11 del contratto principale e dall'art. 119 del D.Lgs. 36/2023. SARIM deposita il contratto presso il Comune almeno 20 giorni prima dell'inizio delle prestazioni, con la documentazione del Subappaltatore."), // allow-italian: fixture data, shown as written
+    art(1, 'Oggetto', 'S.A.R.I.M. SRL affida al Subappaltatore il lavaggio e la sanificazione dei contenitori stradali e condominiali nel Comune di Castellabate, parte del servizio che ORBIT svolge con il contratto Rep. n. 1873 del 29/01/2026.'), // allow-italian: fixture data, shown as written
+    art(2, 'Autorizzazione del committente', "Il contratto è efficace solo dopo l'autorizzazione del Comune di Castellabate prevista dall'art. 11 del contratto principale e dall'art. 119 del D.Lgs. 36/2023. ORBIT deposita il contratto presso il Comune almeno 20 giorni prima dell'inizio delle prestazioni, con la documentazione del Subappaltatore."), // allow-italian: fixture data, shown as written
     art(3, 'Durata', 'Le prestazioni iniziano il 1° dicembre 2026, se autorizzate, e terminano il 31 marzo 2030 insieme al contratto principale.'), // allow-italian: fixture data, shown as written
-    art(4, 'Prestazioni e frequenze', 'Il Subappaltatore lava e sanifica i contenitori stradali ogni 15 giorni da giugno a settembre e ogni mese nel resto dell\'anno, con mezzi propri. Al termine di ogni giro trasmette a SARIM il rapporto con le foto dei contenitori lavati.'), // allow-italian: fixture data, shown as written
-    art(5, 'Corrispettivo e pagamenti', "Il corrispettivo è pari a euro 168.000,00 oltre IVA per l'intera durata, fatturato a rate mensili. SARIM paga entro 60 giorni dalla fattura, previa verifica del DURC."), // allow-italian: fixture data, shown as written
-    art(6, 'Personale e sicurezza', 'Il Subappaltatore applica ai propri dipendenti un trattamento non inferiore a quello del CCNL applicato da SARIM e rispetta le misure del DUVRI del contratto principale.'), // allow-italian: fixture data, shown as written
+    art(4, 'Prestazioni e frequenze', 'Il Subappaltatore lava e sanifica i contenitori stradali ogni 15 giorni da giugno a settembre e ogni mese nel resto dell\'anno, con mezzi propri. Al termine di ogni giro trasmette a ORBIT il rapporto con le foto dei contenitori lavati.'), // allow-italian: fixture data, shown as written
+    art(5, 'Corrispettivo e pagamenti', "Il corrispettivo è pari a euro 168.000,00 oltre IVA per l'intera durata, fatturato a rate mensili. ORBIT paga entro 60 giorni dalla fattura, previa verifica del DURC."), // allow-italian: fixture data, shown as written
+    art(6, 'Personale e sicurezza', 'Il Subappaltatore applica ai propri dipendenti un trattamento non inferiore a quello del CCNL applicato da ORBIT e rispetta le misure del DUVRI del contratto principale.'), // allow-italian: fixture data, shown as written
     art(7, 'Penali', 'Per ogni giro di lavaggio non eseguito nella settimana prevista si applica una penale di euro 200, trattenuta sulla prima fattura utile.'), // allow-italian: fixture data, shown as written
     art(8, 'Risoluzione e foro', "Se il Comune nega o revoca l'autorizzazione, il contratto si risolve senza indennizzo per il Subappaltatore. Per le controversie è competente il Foro di Salerno."), // allow-italian: fixture data, shown as written
   ],
   'c-carburante': [
     art(1, 'Oggetto', 'Il Fornitore consegna a S.A.R.I.M. SRL il gasolio per autotrazione ordinato di volta in volta, nel deposito di Eboli, Via Maestri del Lavoro, Area PIP, e nei serbatoi dei cantieri indicati negli ordini.'), // allow-italian: fixture data, shown as written
     art(2, 'Durata e rinnovo', "L'accordo quadro dura 24 mesi, dal 1° febbraio 2025 al 31 gennaio 2027. Alla scadenza si rinnova tacitamente per 12 mesi, salvo disdetta inviata via PEC almeno 60 giorni prima della scadenza."), // allow-italian: fixture data, shown as written
-    art(3, 'Importo massimo', "L'importo massimo dell'accordo quadro è pari a euro 2.400.000,00 oltre IVA. Gli ordini non obbligano SARIM a raggiungere l'importo massimo."), // allow-italian: fixture data, shown as written
-    art(4, 'Ordini e consegne', 'SARIM ordina per mail o PEC indicando litri, luogo e giorno di consegna. Ogni consegna è accompagnata dal documento di trasporto con i litri a 15 gradi.'), // allow-italian: fixture data, shown as written
+    art(3, 'Importo massimo', "L'importo massimo dell'accordo quadro è pari a euro 2.400.000,00 oltre IVA. Gli ordini non obbligano ORBIT a raggiungere l'importo massimo."), // allow-italian: fixture data, shown as written
+    art(4, 'Ordini e consegne', 'ORBIT ordina per mail o PEC indicando litri, luogo e giorno di consegna. Ogni consegna è accompagnata dal documento di trasporto con i litri a 15 gradi.'), // allow-italian: fixture data, shown as written
     art(5, 'Prezzo', "Il prezzo al litro è pari al prezzo medio settimanale del gasolio per autotrazione pubblicato dal Ministero dell'Ambiente e della Sicurezza Energetica, al netto delle imposte, nella settimana della consegna, più uno spread fisso di euro 0,052 per litro. Accise e IVA sono addebitate a parte."), // allow-italian: fixture data, shown as written
-    art(6, 'Fatture e pagamenti', "Il Fornitore emette una fattura per ogni consegna, con il riferimento all'ordine, al documento di trasporto e al prezzo settimanale applicato. SARIM paga a 60 giorni data fattura fine mese."), // allow-italian: fixture data, shown as written
+    art(6, 'Fatture e pagamenti', "Il Fornitore emette una fattura per ogni consegna, con il riferimento all'ordine, al documento di trasporto e al prezzo settimanale applicato. ORBIT paga a 60 giorni data fattura fine mese."), // allow-italian: fixture data, shown as written
     art(7, 'Penali', "Per ogni consegna eseguita oltre 48 ore dall'ordine si applica una penale pari all'1 per mille del valore della consegna per ogni giorno di ritardo."), // allow-italian: fixture data, shown as written
-    art(8, 'Recesso e foro', 'SARIM può recedere con preavviso di 30 giorni via PEC. Per le controversie è competente il Foro di Salerno.'), // allow-italian: fixture data, shown as written
+    art(8, 'Recesso e foro', 'ORBIT può recedere con preavviso di 30 giorni via PEC. Per le controversie è competente il Foro di Salerno.'), // allow-italian: fixture data, shown as written
   ],
   'c-officina': [
     art(1, 'Oggetto', "L'Officina esegue la manutenzione ordinaria e straordinaria dei compattatori e delle spazzatrici di S.A.R.I.M. SRL in servizio nella sede di Eboli, secondo i piani del costruttore."), // allow-italian: fixture data, shown as written
     art(2, 'Durata e rinnovo', 'Il contratto dura 24 mesi, dal 1° luglio 2025 al 30 giugno 2027, e si rinnova tacitamente per 12 mesi salvo disdetta inviata via PEC almeno 90 giorni prima della scadenza.'), // allow-italian: fixture data, shown as written
     art(3, 'Importo', "L'importo massimo del contratto è pari a euro 380.000,00 oltre IVA, a misura, secondo il listino orario e ricambi allegato."), // allow-italian: fixture data, shown as written
-    art(4, 'Richieste di intervento', "SARIM chiede l'intervento con il modulo del responsabile flotta, indicando targa, guasto e luogo. L'Officina prende in carico il mezzo entro 24 ore dalla richiesta."), // allow-italian: fixture data, shown as written
-    art(5, 'Fatture', "L'Officina fattura ogni intervento con il rapportino firmato, la targa del mezzo, le ore e i ricambi. SARIM paga a 60 giorni data fattura fine mese."), // allow-italian: fixture data, shown as written
+    art(4, 'Richieste di intervento', "ORBIT chiede l'intervento con il modulo del responsabile flotta, indicando targa, guasto e luogo. L'Officina prende in carico il mezzo entro 24 ore dalla richiesta."), // allow-italian: fixture data, shown as written
+    art(5, 'Fatture', "L'Officina fattura ogni intervento con il rapportino firmato, la targa del mezzo, le ore e i ricambi. ORBIT paga a 60 giorni data fattura fine mese."), // allow-italian: fixture data, shown as written
     art(6, 'Penale per fermo mezzo', "Se il mezzo resta fermo oltre 72 ore dalla presa in carico per cause imputabili all'Officina, si applica una penale di euro 150 per ogni giorno di ulteriore fermo, trattenuta sulla prima fattura utile."), // allow-italian: fixture data, shown as written
-    art(7, 'Recesso e foro', 'SARIM può recedere con preavviso di 30 giorni via PEC. Per le controversie è competente il Foro di Salerno.'), // allow-italian: fixture data, shown as written
+    art(7, 'Recesso e foro', 'ORBIT può recedere con preavviso di 30 giorni via PEC. Per le controversie è competente il Foro di Salerno.'), // allow-italian: fixture data, shown as written
   ],
   'c-td-castellabate': [
     art(1, 'Oggetto e mansione', 'S.A.R.I.M. SRL assume tre lavoratori a tempo determinato con mansione di operatore ecologico, addetti allo spazzamento e alla raccolta nel cantiere di Castellabate.'), // allow-italian: fixture data, shown as written
@@ -150,10 +150,10 @@ const BASE: Record<string, Clause[]> = {
   ],
   'c-accordo-castellabate': [
     art(1, 'Premesse e oggetto', 'Le parti si incontrano per il cambio di gestione del servizio di igiene urbana del Comune di Castellabate, affidato a S.A.R.I.M. SRL dal 1° aprile 2026, e regolano il passaggio del personale della Castellabate Servizi srl in applicazione del CCNL.'), // allow-italian: fixture data, shown as written
-    art(2, 'Lavoratori interessati', "Passano alle dipendenze di SARIM gli 11 lavoratori addetti al servizio alla data del cambio di gestione, indicati nell'elenco allegato al verbale."), // allow-italian: fixture data, shown as written
+    art(2, 'Lavoratori interessati', "Passano alle dipendenze di ORBIT gli 11 lavoratori addetti al servizio alla data del cambio di gestione, indicati nell'elenco allegato al verbale."), // allow-italian: fixture data, shown as written
     art(3, 'Trattamento', "Ai lavoratori sono mantenuti il livello di inquadramento, l'anzianità maturata e la retribuzione, con l'applicazione del CCNL dei servizi ambientali FISE Assoambiente."), // allow-italian: fixture data, shown as written
-    art(4, 'Data del passaggio', 'Il passaggio decorre dal 1° aprile 2026. SARIM invia le comunicazioni di assunzione entro il giorno precedente.'), // allow-italian: fixture data, shown as written
-    art(5, 'Ferie e permessi', 'Le ferie e i permessi maturati e non goduti presso il gestore uscente sono riconosciuti da SARIM e fruiti entro il 30 giugno 2027.'), // allow-italian: fixture data, shown as written
+    art(4, 'Data del passaggio', 'Il passaggio decorre dal 1° aprile 2026. ORBIT invia le comunicazioni di assunzione entro il giorno precedente.'), // allow-italian: fixture data, shown as written
+    art(5, 'Ferie e permessi', 'Le ferie e i permessi maturati e non goduti presso il gestore uscente sono riconosciuti da ORBIT e fruiti entro il 30 giugno 2027.'), // allow-italian: fixture data, shown as written
     art(6, 'Verifica', "Le parti si incontrano entro il 30 novembre 2026 per verificare l'applicazione dell'accordo."), // allow-italian: fixture data, shown as written
   ],
   'c-accordo-turni': [
@@ -167,44 +167,44 @@ const BASE: Record<string, Clause[]> = {
   ],
 };
 
-export const SARIM_CONTRACTS: Contract[] = [
+export const ORBIT_CONTRACTS: Contract[] = [
   {
     id: 'c-castellabate', title: 'Igiene urbana e spazzamento, Comune di Castellabate', kind: 'servizio', // allow-italian: fixture data, shown as written
     counterparty: 'Comune di Castellabate', counterpartyKind: 'Comune', // allow-italian: fixture data, shown as written
     object: 'Gestione integrata dei rifiuti urbani e spazzamento delle strade per 4 anni, gara della CUC Unione dei Comuni Montedoro', // allow-italian: fixture data, shown as written
     value: 11375268.92, valuePeriod: 'totale', start: '2026-04-01', end: '2030-03-31', renewal: { kind: 'nessuno', months: 0, noticeDays: 0 }, // allow-italian: fixture data, shown as written
-    status: 'attivo', owner: 'sarim-bruno', area: 'legale', cig: 'B8B7C39D2A', // allow-italian: fixture data, shown as written
+    status: 'attivo', owner: 'orbit-bruno', area: 'legale', cig: 'B8B7C39D2A', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-bruno', at: '2025-12-18T11:00:00+01:00', reason: 'Schema di contratto dal capitolato di gara', clauses: revise(BASE['c-castellabate'], { // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-bruno', at: '2025-12-18T11:00:00+01:00', reason: 'Schema di contratto dal capitolato di gara', clauses: revise(BASE['c-castellabate'], { // allow-italian: fixture data, shown as written
         'art-2': "Il contratto ha durata di quattro anni dalla data di avvio del servizio. L'avvio del servizio risulta dal verbale di consegna firmato dal RUP e dall'Appaltatore.", // allow-italian: fixture data, shown as written
         'art-9': "L'importo complessivo del contratto è quello risultante dall'offerta economica dell'aggiudicatario, oltre IVA, compresi gli oneri per la sicurezza. Il corrispettivo è pagato in 48 rate mensili posticipate di pari importo. I prezzi sono soggetti a revisione secondo la clausola dei documenti di gara, ai sensi dell'art. 60 del D.Lgs. 36/2023.", // allow-italian: fixture data, shown as written
         'art-12': "L'Appaltatore applica al personale il CCNL dei servizi ambientali FISE Assoambiente. In applicazione della clausola sociale del bando assorbe i lavoratori del gestore uscente addetti al servizio alla data del subentro, con il livello e l'anzianità maturati. Entro il 31 gennaio di ogni anno trasmette al Comune l'elenco aggiornato del personale impiegato.", // allow-italian: fixture data, shown as written
       }) },
-      { n: 2, author: 'sarim-bruno', at: '2026-01-29T12:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-castellabate'], signed: true }, // allow-italian: fixture data, shown as written
-      { n: 3, author: 'sarim-bruno', draftedBy: 'agent:ag-contratti', at: '2026-11-03T17:10:00+01:00', reason: 'Variante: estensione dello spazzamento estivo nelle frazioni costiere', value: 11853030.2, clauses: revise(BASE['c-castellabate'], { // allow-italian: fixture data, shown as written
+      { n: 2, author: 'orbit-bruno', at: '2026-01-29T12:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-castellabate'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 3, author: 'orbit-bruno', draftedBy: 'agent:ag-contratti', at: '2026-11-03T17:10:00+01:00', reason: 'Variante: estensione dello spazzamento estivo nelle frazioni costiere', value: 11853030.2, clauses: revise(BASE['c-castellabate'], { // allow-italian: fixture data, shown as written
         'art-4': "L'Appaltatore svolge la raccolta porta a porta di umido, carta, plastica e metalli, vetro e secco residuo secondo il calendario approvato dal Comune. Lo spazzamento manuale e meccanizzato si svolge su tutto il territorio con tre passaggi settimanali. Nelle frazioni costiere di Santa Maria, San Marco, Ogliastro Marina e Lago i passaggi salgono a sette a settimana nei mesi da giugno a settembre. Nei mesi di luglio e agosto si aggiunge un secondo passaggio pomeridiano sul lungomare di Santa Maria e di San Marco.", // allow-italian: fixture data, shown as written
         'art-9': "L'importo complessivo del contratto è pari a euro 11.853.030,20 oltre IVA, compresi gli oneri per la sicurezza. La variante aggiunge euro 477.761,28 per lo spazzamento estivo nelle frazioni costiere, pari a euro 159.253,76 per ciascuna delle stagioni 2027, 2028 e 2029: un aumento del 4,2% sull'importo iniziale, nei limiti dell'art. 120 del D.Lgs. 36/2023. Il corrispettivo è pagato in 48 rate mensili posticipate di pari importo; la quota estiva in quattro rate mensili da giugno a settembre. I prezzi sono soggetti a revisione secondo la clausola dei documenti di gara, ai sensi dell'art. 60 del D.Lgs. 36/2023.", // allow-italian: fixture data, shown as written
         'art-12': "L'Appaltatore applica al personale il CCNL dei servizi ambientali FISE Assoambiente. In applicazione della clausola sociale del bando assorbe gli 11 lavoratori della Castellabate Servizi srl addetti al servizio alla data del subentro, con il livello e l'anzianità maturati. Entro il 31 gennaio di ogni anno trasmette al Comune l'elenco aggiornato del personale impiegato. Per lo spazzamento estivo nelle frazioni costiere impiega, dal 1° giugno al 30 settembre di ogni stagione, 4 operatori ecologici in più, assunti a tempo determinato con lo stesso CCNL.", // allow-italian: fixture data, shown as written
       }) },
     ],
     obligations: [
-      { id: 'ob-cast-1', clause: 'art-6', version: 2, what: 'Rapporto mensile di ottobre al RUP', owner: 'sarim-tecnico', kind: 'rendiconto', due: '2026-11-10', every: 'entro il 10 di ogni mese', quote: "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al RUP il rapporto del mese precedente" }, // allow-italian: fixture data, shown as written
-      { id: 'ob-cast-2', clause: 'art-8', version: 2, what: 'Premio annuale della polizza di garanzia definitiva', owner: 'sarim-contabilita', kind: 'garanzia', due: '2027-04-01', every: 'ogni anno, il 1° aprile', quote: "il premio è pagato all'inizio di ogni annualità del contratto" }, // allow-italian: fixture data, shown as written
-      { id: 'ob-cast-3', clause: 'art-7', version: 2, what: 'Spazzamento non eseguito in una frazione: euro 300 al giorno', owner: 'sarim-tecnico', kind: 'penale', quote: 'Per la mancata esecuzione dello spazzamento in una frazione si applica una penale di euro 300 per ogni giorno' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-cast-4', clause: 'art-12', version: 2, what: 'Elenco aggiornato del personale al Comune', owner: 'sarim-personale', kind: 'ricorrente', due: '2027-01-31', every: 'entro il 31 gennaio di ogni anno', quote: "Entro il 31 gennaio di ogni anno trasmette al Comune l'elenco aggiornato del personale impiegato" }, // allow-italian: fixture data, shown as written
-      { id: 'ob-cast-5', clause: 'art-10', version: 2, what: 'Fattura della rata mensile, con DURC valido', owner: 'sarim-contabilita', kind: 'ricorrente', every: 'ogni mese, dopo il visto del RUP', quote: 'dopo il visto del RUP sul rapporto mensile e la verifica del DURC' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-cast-6', clause: 'art-4', version: 2, what: 'Frequenze estive dello spazzamento nelle frazioni costiere', owner: 'sarim-tecnico', kind: 'scadenza', due: '2027-06-01', every: 'ogni anno, dal 1° giugno', quote: 'i passaggi salgono a sei a settimana nei mesi da giugno ad agosto' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-cast-1', clause: 'art-6', version: 2, what: 'Rapporto mensile di ottobre al RUP', owner: 'orbit-tecnico', kind: 'rendiconto', due: '2026-11-10', every: 'entro il 10 di ogni mese', quote: "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al RUP il rapporto del mese precedente" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-cast-2', clause: 'art-8', version: 2, what: 'Premio annuale della polizza di garanzia definitiva', owner: 'orbit-contabilita', kind: 'garanzia', due: '2027-04-01', every: 'ogni anno, il 1° aprile', quote: "il premio è pagato all'inizio di ogni annualità del contratto" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-cast-3', clause: 'art-7', version: 2, what: 'Spazzamento non eseguito in una frazione: euro 300 al giorno', owner: 'orbit-tecnico', kind: 'penale', quote: 'Per la mancata esecuzione dello spazzamento in una frazione si applica una penale di euro 300 per ogni giorno' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-cast-4', clause: 'art-12', version: 2, what: 'Elenco aggiornato del personale al Comune', owner: 'orbit-personale', kind: 'ricorrente', due: '2027-01-31', every: 'entro il 31 gennaio di ogni anno', quote: "Entro il 31 gennaio di ogni anno trasmette al Comune l'elenco aggiornato del personale impiegato" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-cast-5', clause: 'art-10', version: 2, what: 'Fattura della rata mensile, con DURC valido', owner: 'orbit-contabilita', kind: 'ricorrente', every: 'ogni mese, dopo il visto del RUP', quote: 'dopo il visto del RUP sul rapporto mensile e la verifica del DURC' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-cast-6', clause: 'art-4', version: 2, what: 'Frequenze estive dello spazzamento nelle frazioni costiere', owner: 'orbit-tecnico', kind: 'scadenza', due: '2027-06-01', every: 'ogni anno, dal 1° giugno', quote: 'i passaggi salgono a sei a settimana nei mesi da giugno ad agosto' }, // allow-italian: fixture data, shown as written
     ],
     comments: [
-      { id: 'cm-cast-1', clause: 'art-2', version: 2, author: 'sarim-tecnico', at: '2026-04-01T15:00:00+01:00', text: 'Avvio confermato dal verbale di consegna di oggi.', resolved: true }, // allow-italian: fixture data, shown as written
-      { id: 'cm-cast-2', clause: 'art-9', version: 3, author: 'sarim-contabilita', at: '2026-11-03T11:05:00+01:00', text: "Nella bozza l'aumento è scritto come canone annuo per quattro anni, ma le stagioni estive che restano sono tre: 2027, 2028 e 2029. Va rifatto il conto.", replies: [ // allow-italian: fixture data, shown as written
-        { author: 'sarim-bruno', at: '2026-11-03T16:40:00+01:00', text: "Hai ragione. Dopo il tuo commento ho riscritto l'articolo: ora l'importo è per stagione, euro 159.253,76, e il totale è su tre stagioni." }, // allow-italian: fixture data, shown as written
+      { id: 'cm-cast-1', clause: 'art-2', version: 2, author: 'orbit-tecnico', at: '2026-04-01T15:00:00+01:00', text: 'Avvio confermato dal verbale di consegna di oggi.', resolved: true }, // allow-italian: fixture data, shown as written
+      { id: 'cm-cast-2', clause: 'art-9', version: 3, author: 'orbit-contabilita', at: '2026-11-03T11:05:00+01:00', text: "Nella bozza l'aumento è scritto come canone annuo per quattro anni, ma le stagioni estive che restano sono tre: 2027, 2028 e 2029. Va rifatto il conto.", replies: [ // allow-italian: fixture data, shown as written
+        { author: 'orbit-bruno', at: '2026-11-03T16:40:00+01:00', text: "Hai ragione. Dopo il tuo commento ho riscritto l'articolo: ora l'importo è per stagione, euro 159.253,76, e il totale è su tre stagioni." }, // allow-italian: fixture data, shown as written
       ] },
-      { id: 'cm-cast-3', clause: 'art-4', version: 3, author: 'sarim-tecnico', at: '2026-11-04T09:50:00+01:00', text: 'Il secondo passaggio pomeridiano sul lungomare serve solo a luglio e agosto; a settembre basta quello del mattino.', resolved: true, replies: [ // allow-italian: fixture data, shown as written
-        { author: 'sarim-bruno', at: '2026-11-04T10:20:00+01:00', text: 'Va bene, resta come è scritto.' }, // allow-italian: fixture data, shown as written
+      { id: 'cm-cast-3', clause: 'art-4', version: 3, author: 'orbit-tecnico', at: '2026-11-04T09:50:00+01:00', text: 'Il secondo passaggio pomeridiano sul lungomare serve solo a luglio e agosto; a settembre basta quello del mattino.', resolved: true, replies: [ // allow-italian: fixture data, shown as written
+        { author: 'orbit-bruno', at: '2026-11-04T10:20:00+01:00', text: 'Va bene, resta come è scritto.' }, // allow-italian: fixture data, shown as written
       ] },
-      { id: 'cm-cast-4', clause: 'art-12', version: 3, author: 'sarim-personale', at: '2026-11-04T11:30:00+01:00', text: 'Per i 4 operatori estivi possiamo richiamare i lavoratori a termine di quest\'anno: lo scriviamo nella nota per il Comune?', resolved: true, replies: [ // allow-italian: fixture data, shown as written
-        { author: 'sarim-bruno', at: '2026-11-04T11:55:00+01:00', text: 'Nel contratto no, è una scelta nostra. Lo seguiamo nella card PE-118.' }, // allow-italian: fixture data, shown as written
+      { id: 'cm-cast-4', clause: 'art-12', version: 3, author: 'orbit-personale', at: '2026-11-04T11:30:00+01:00', text: 'Per i 4 operatori estivi possiamo richiamare i lavoratori a termine di quest\'anno: lo scriviamo nella nota per il Comune?', resolved: true, replies: [ // allow-italian: fixture data, shown as written
+        { author: 'orbit-bruno', at: '2026-11-04T11:55:00+01:00', text: 'Nel contratto no, è una scelta nostra. Lo seguiamo nella card PE-118.' }, // allow-italian: fixture data, shown as written
       ] },
     ],
     attachments: [
@@ -212,7 +212,7 @@ export const SARIM_CONTRACTS: Contract[] = [
         'Comune di Castellabate, Provincia di Salerno', // allow-italian: fixture data, shown as written
         "Contratto d'appalto per la gestione integrata dei rifiuti urbani e lo spazzamento, CIG B8B7C39D2A", // allow-italian: fixture data, shown as written
         'Rep. n. 1873 del 29/01/2026, in forma pubblica amministrativa a cura del Segretario comunale', // allow-italian: fixture data, shown as written
-        `Tra il Comune di Castellabate, rappresentato dal Responsabile del servizio, e ${SARIM_PARTY}`, // allow-italian: fixture data, shown as written
+        `Tra il Comune di Castellabate, rappresentato dal Responsabile del servizio, e ${ORBIT_PARTY}`, // allow-italian: fixture data, shown as written
         'Importo: euro 11.375.268,92 oltre IVA. Durata: dal 01/04/2026 al 31/03/2030', // allow-italian: fixture data, shown as written
         'Firmato digitalmente dalle parti il 29/01/2026', // allow-italian: fixture data, shown as written
       ]),
@@ -233,13 +233,13 @@ export const SARIM_CONTRACTS: Contract[] = [
       { id: 'var-castellabate-3', title: 'Spazzamento estivo nelle frazioni costiere', reason: "Il Comune chiede lo spazzamento estivo anche a settembre e un secondo passaggio sul lungomare a luglio e agosto", version: 3, status: 'in-corso', card: 'CT-V07', at: '2026-11-02T18:20:00+01:00' }, // allow-italian: fixture data, shown as written
     ],
     approvals: [
-      step('ap-1', 'sarim-bruno', 'redige', 'fatto', '2026-11-03T17:10:00+01:00', "Bozza dell'agente contratti rivista: articoli 4, 9 e 12"), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-tecnico', 'rivede', 'fatto', '2026-11-04T12:30:00+01:00', 'Frequenze e operatori verificati sul programma estivo'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'approva', 'in-attesa', undefined, 'Variante al 4,2% del valore iniziale'), // allow-italian: fixture data, shown as written
-      step('ap-4', 'sarim-dg', 'firma', 'da-fare'), // allow-italian: fixture data, shown as written
-      step('ap-5', 'sarim-bruno', 'controfirma', 'da-fare', undefined, 'Invio al RUP del Comune per la controfirma via PEC'), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-bruno', 'redige', 'fatto', '2026-11-03T17:10:00+01:00', "Bozza dell'agente contratti rivista: articoli 4, 9 e 12"), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-tecnico', 'rivede', 'fatto', '2026-11-04T12:30:00+01:00', 'Frequenze e operatori verificati sul programma estivo'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'approva', 'in-attesa', undefined, 'Variante al 4,2% del valore iniziale'), // allow-italian: fixture data, shown as written
+      step('ap-4', 'orbit-dg', 'firma', 'da-fare'), // allow-italian: fixture data, shown as written
+      step('ap-5', 'orbit-bruno', 'controfirma', 'da-fare', undefined, 'Invio al RUP del Comune per la controfirma via PEC'), // allow-italian: fixture data, shown as written
     ],
-    links: { flows: ['sarim-varianti'], cards: ['CT-V07'] },
+    links: { flows: ['orbit-varianti'], cards: ['CT-V07'] },
     tags: ['CUC Unione dei Comuni Montedoro', 'clausola sociale', 'CCNL FISE Assoambiente'], // allow-italian: fixture data, shown as written
   },
   {
@@ -247,28 +247,28 @@ export const SARIM_CONTRACTS: Contract[] = [
     counterparty: 'Comune di Albanella', counterpartyKind: 'Comune', // allow-italian: fixture data, shown as written
     object: 'Raccolta e trasporto dei rifiuti urbani e igiene urbana per 7 anni, con eventuale proroga di 12 mesi', // allow-italian: fixture data, shown as written
     value: 7559582.25, valuePeriod: 'totale', start: '2026-01-01', end: '2032-12-31', renewal: { kind: 'opzione', months: 12, noticeDays: 180 }, // allow-italian: fixture data, shown as written
-    status: 'attivo', owner: 'sarim-bruno', area: 'legale', cig: 'B6242F1551', // allow-italian: fixture data, shown as written
+    status: 'attivo', owner: 'orbit-bruno', area: 'legale', cig: 'B6242F1551', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-bruno', at: '2025-06-10T10:00:00+01:00', reason: 'Schema di contratto dopo la determina n. 93 del 13/05/2025', clauses: revise(BASE['c-albanella'], { // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-bruno', at: '2025-06-10T10:00:00+01:00', reason: 'Schema di contratto dopo la determina n. 93 del 13/05/2025', clauses: revise(BASE['c-albanella'], { // allow-italian: fixture data, shown as written
         'art-2': "La durata del servizio è di sette anni dalla data di avvio dell'esecuzione. Il Comune può prorogare il contratto per ulteriori 12 mesi alle stesse condizioni, dandone comunicazione all'Appaltatore almeno 180 giorni prima della scadenza.", // allow-italian: fixture data, shown as written
         'art-7': "L'importo complessivo del contratto è quello risultante dall'offerta economica dell'aggiudicatario, oltre IVA, pagato in rate mensili posticipate di pari importo. La revisione dei prezzi segue la clausola dei documenti di gara.", // allow-italian: fixture data, shown as written
       }) },
-      { n: 2, author: 'sarim-bruno', at: '2026-11-04T16:30:00+01:00', reason: 'Contratto firmato digitalmente', clauses: BASE['c-albanella'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 2, author: 'orbit-bruno', at: '2026-11-04T16:30:00+01:00', reason: 'Contratto firmato digitalmente', clauses: BASE['c-albanella'], signed: true }, // allow-italian: fixture data, shown as written
     ],
     obligations: [
-      { id: 'ob-alb-1', clause: 'art-2', version: 2, what: 'Sentire il Comune sulla proroga di 12 mesi', owner: 'sarim-bruno', kind: 'rinnovo', due: '2032-07-04', quote: 'almeno 180 giorni prima della scadenza' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-alb-2', clause: 'art-5', version: 2, what: 'Quantitativi di ottobre per codice EER, con formulari e RENTRI', owner: 'sarim-callcenter', kind: 'rendiconto', due: '2026-11-15', every: 'entro il 15 di ogni mese', quote: "Entro il 15 di ogni mese l'Appaltatore trasmette al Comune i quantitativi raccolti nel mese precedente per codice EER" }, // allow-italian: fixture data, shown as written
-      { id: 'ob-alb-3', clause: 'art-4', version: 2, what: 'Pronto intervento sul posto entro 4 ore', owner: 'sarim-callcenter', kind: 'ricorrente', every: 'per ogni richiesta di pronto intervento', quote: 'arrivo sul luogo entro 4 ore dalla segnalazione' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-alb-4', clause: 'art-6', version: 2, what: 'Raccolta non eseguita in una zona: euro 250 al giorno', owner: 'sarim-tecnico', kind: 'penale', quote: 'si applica una penale di euro 250 per giorno' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-alb-5', clause: 'art-8', version: 2, what: 'Elenco del personale e DURC al Comune', owner: 'sarim-personale', kind: 'ricorrente', due: '2027-01-15', every: 'ogni sei mesi, a gennaio e a luglio', quote: "trasmette al Comune ogni sei mesi l'elenco del personale e il DURC in corso di validità" }, // allow-italian: fixture data, shown as written
-      { id: 'ob-alb-6', clause: 'art-9', version: 2, what: 'Garanzia definitiva prima della stipula', owner: 'sarim-contabilita', kind: 'garanzia', due: '2026-10-15', done: true, quote: "Prima della stipula l'Appaltatore ha prestato la garanzia definitiva" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-alb-1', clause: 'art-2', version: 2, what: 'Sentire il Comune sulla proroga di 12 mesi', owner: 'orbit-bruno', kind: 'rinnovo', due: '2032-07-04', quote: 'almeno 180 giorni prima della scadenza' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-alb-2', clause: 'art-5', version: 2, what: 'Quantitativi di ottobre per codice EER, con formulari e RENTRI', owner: 'orbit-callcenter', kind: 'rendiconto', due: '2026-11-15', every: 'entro il 15 di ogni mese', quote: "Entro il 15 di ogni mese l'Appaltatore trasmette al Comune i quantitativi raccolti nel mese precedente per codice EER" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-alb-3', clause: 'art-4', version: 2, what: 'Pronto intervento sul posto entro 4 ore', owner: 'orbit-callcenter', kind: 'ricorrente', every: 'per ogni richiesta di pronto intervento', quote: 'arrivo sul luogo entro 4 ore dalla segnalazione' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-alb-4', clause: 'art-6', version: 2, what: 'Raccolta non eseguita in una zona: euro 250 al giorno', owner: 'orbit-tecnico', kind: 'penale', quote: 'si applica una penale di euro 250 per giorno' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-alb-5', clause: 'art-8', version: 2, what: 'Elenco del personale e DURC al Comune', owner: 'orbit-personale', kind: 'ricorrente', due: '2027-01-15', every: 'ogni sei mesi, a gennaio e a luglio', quote: "trasmette al Comune ogni sei mesi l'elenco del personale e il DURC in corso di validità" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-alb-6', clause: 'art-9', version: 2, what: 'Garanzia definitiva prima della stipula', owner: 'orbit-contabilita', kind: 'garanzia', due: '2026-10-15', done: true, quote: "Prima della stipula l'Appaltatore ha prestato la garanzia definitiva" }, // allow-italian: fixture data, shown as written
     ],
     comments: [
-      { id: 'cm-alb-1', clause: 'art-8', version: 2, author: 'sarim-personale', at: '2026-10-21T11:00:00+01:00', text: 'La clausola sul CCNL è quella del bando, parola per parola: la chiudiamo ai commenti?', resolved: true, replies: [ // allow-italian: fixture data, shown as written
-        { author: 'sarim-bruno', at: '2026-10-21T12:15:00+01:00', text: "Sì, resta com'è." }, // allow-italian: fixture data, shown as written
+      { id: 'cm-alb-1', clause: 'art-8', version: 2, author: 'orbit-personale', at: '2026-10-21T11:00:00+01:00', text: 'La clausola sul CCNL è quella del bando, parola per parola: la chiudiamo ai commenti?', resolved: true, replies: [ // allow-italian: fixture data, shown as written
+        { author: 'orbit-bruno', at: '2026-10-21T12:15:00+01:00', text: "Sì, resta com'è." }, // allow-italian: fixture data, shown as written
       ] },
-      { id: 'cm-alb-2', clause: 'art-2', version: 2, author: 'sarim-dg', at: '2026-10-27T09:30:00+01:00', text: "La proroga la decide il Comune, ma voglio comunque l'avviso 180 giorni prima della scadenza.", resolved: true, replies: [ // allow-italian: fixture data, shown as written
-        { author: 'sarim-bruno', at: '2026-10-27T10:05:00+01:00', text: 'Messo tra le scadenze del contratto: 04/07/2032.' }, // allow-italian: fixture data, shown as written
+      { id: 'cm-alb-2', clause: 'art-2', version: 2, author: 'orbit-dg', at: '2026-10-27T09:30:00+01:00', text: "La proroga la decide il Comune, ma voglio comunque l'avviso 180 giorni prima della scadenza.", resolved: true, replies: [ // allow-italian: fixture data, shown as written
+        { author: 'orbit-bruno', at: '2026-10-27T10:05:00+01:00', text: 'Messo tra le scadenze del contratto: 04/07/2032.' }, // allow-italian: fixture data, shown as written
       ] },
     ],
     attachments: [
@@ -276,7 +276,7 @@ export const SARIM_CONTRACTS: Contract[] = [
         'Comune di Albanella, Provincia di Salerno', // allow-italian: fixture data, shown as written
         'Contratto per il servizio di raccolta e trasporto dei rifiuti urbani e igiene urbana, CIG B6242F1551', // allow-italian: fixture data, shown as written
         'Rep. n. 412 del 04/11/2026. Aggiudicazione: determina n. 93 del 13/05/2025', // allow-italian: fixture data, shown as written
-        `Tra il Comune di Albanella e ${SARIM_PARTY}`, // allow-italian: fixture data, shown as written
+        `Tra il Comune di Albanella e ${ORBIT_PARTY}`, // allow-italian: fixture data, shown as written
         'Importo: euro 7.559.582,25 oltre IVA. Durata: dal 01/01/2026 al 31/12/2032, con eventuale proroga di 12 mesi', // allow-italian: fixture data, shown as written
         'Firmato digitalmente: per S.A.R.I.M. SRL il 04/11/2026 alle 10:15, per il Comune il 04/11/2026 alle 16:12', // allow-italian: fixture data, shown as written
       ]),
@@ -286,13 +286,13 @@ export const SARIM_CONTRACTS: Contract[] = [
     ],
     variants: [],
     approvals: [
-      step('ap-1', 'sarim-bruno', 'redige', 'fatto', '2026-10-20T16:00:00+01:00', "Schema aggiornato con la data di avvio e l'importo di aggiudicazione"), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-tecnico', 'rivede', 'fatto', '2026-10-23T11:20:00+01:00', 'Servizi uguali al progetto tecnico'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'approva', 'fatto', '2026-10-28T09:45:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-4', 'sarim-dg', 'firma', 'fatto', '2026-11-04T10:15:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
-      step('ap-5', 'sarim-bruno', 'controfirma', 'fatto', '2026-11-04T16:30:00+01:00', 'Firmato dal Comune e ricevuto via PEC'), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-bruno', 'redige', 'fatto', '2026-10-20T16:00:00+01:00', "Schema aggiornato con la data di avvio e l'importo di aggiudicazione"), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-tecnico', 'rivede', 'fatto', '2026-10-23T11:20:00+01:00', 'Servizi uguali al progetto tecnico'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'approva', 'fatto', '2026-10-28T09:45:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-4', 'orbit-dg', 'firma', 'fatto', '2026-11-04T10:15:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
+      step('ap-5', 'orbit-bruno', 'controfirma', 'fatto', '2026-11-04T16:30:00+01:00', 'Firmato dal Comune e ricevuto via PEC'), // allow-italian: fixture data, shown as written
     ],
-    links: { flows: ['sarim-varianti'], cards: ['CT-F01'] },
+    links: { flows: ['orbit-varianti'], cards: ['CT-F01'] },
     tags: ['segnalazioni dei cittadini su Enviro', 'CCNL FISE Assoambiente'], // allow-italian: fixture data, shown as written
   },
   {
@@ -300,22 +300,22 @@ export const SARIM_CONTRACTS: Contract[] = [
     counterparty: 'Comune di Rocca Priora', counterpartyKind: 'Comune', // allow-italian: fixture data, shown as written
     object: 'Servizio di igiene urbana per 8 anni', // allow-italian: fixture data, shown as written
     value: 13947325.33, valuePeriod: 'totale', start: '2022-11-02', end: '2030-11-01', renewal: { kind: 'nessuno', months: 0, noticeDays: 0 }, // allow-italian: fixture data, shown as written
-    status: 'attivo', owner: 'sarim-bruno', area: 'legale', // allow-italian: fixture data, shown as written
+    status: 'attivo', owner: 'orbit-bruno', area: 'legale', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-bruno', at: '2022-11-02T11:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-rocca-priora'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-bruno', at: '2022-11-02T11:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-rocca-priora'], signed: true }, // allow-italian: fixture data, shown as written
     ],
     obligations: [
-      { id: 'ob-rp-1', clause: 'art-4', version: 1, what: 'Riepilogo dei servizi di ottobre al Comune', owner: 'sarim-tecnico', kind: 'rendiconto', due: '2026-11-10', every: 'entro il 10 di ogni mese', quote: "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al Comune il riepilogo dei servizi del mese precedente" }, // allow-italian: fixture data, shown as written
-      { id: 'ob-rp-2', clause: 'art-3', version: 1, what: 'Avviso agli utenti 7 giorni prima di ogni cambio di calendario', owner: 'sarim-callcenter', kind: 'ricorrente', every: 'a ogni variazione del calendario', quote: 'comunicata agli utenti almeno 7 giorni prima' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-rp-3', clause: 'art-5', version: 1, what: 'Raccolta non recuperata il giorno dopo: euro 200', owner: 'sarim-tecnico', kind: 'penale', quote: 'si applica una penale di euro 200' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-rp-4', clause: 'art-2', version: 1, what: 'Fine del contratto: prepararsi alla nuova gara', owner: 'sarim-bruno', kind: 'scadenza', due: '2030-11-01', quote: 'dal 2 novembre 2022 al 1° novembre 2030' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-rp-1', clause: 'art-4', version: 1, what: 'Riepilogo dei servizi di ottobre al Comune', owner: 'orbit-tecnico', kind: 'rendiconto', due: '2026-11-10', every: 'entro il 10 di ogni mese', quote: "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al Comune il riepilogo dei servizi del mese precedente" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-rp-2', clause: 'art-3', version: 1, what: 'Avviso agli utenti 7 giorni prima di ogni cambio di calendario', owner: 'orbit-callcenter', kind: 'ricorrente', every: 'a ogni variazione del calendario', quote: 'comunicata agli utenti almeno 7 giorni prima' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-rp-3', clause: 'art-5', version: 1, what: 'Raccolta non recuperata il giorno dopo: euro 200', owner: 'orbit-tecnico', kind: 'penale', quote: 'si applica una penale di euro 200' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-rp-4', clause: 'art-2', version: 1, what: 'Fine del contratto: prepararsi alla nuova gara', owner: 'orbit-bruno', kind: 'scadenza', due: '2030-11-01', quote: 'dal 2 novembre 2022 al 1° novembre 2030' }, // allow-italian: fixture data, shown as written
     ],
     comments: [],
     attachments: [
       signedCopy('at-rp-v1', 1, '2022-11-02T11:00:00+01:00', [
         'Comune di Rocca Priora, Città metropolitana di Roma Capitale', // allow-italian: fixture data, shown as written
         'Contratto per il servizio di igiene urbana. Rep. n. 2207 del 02/11/2022', // allow-italian: fixture data, shown as written
-        `Tra il Comune di Rocca Priora e ${SARIM_PARTY}`, // allow-italian: fixture data, shown as written
+        `Tra il Comune di Rocca Priora e ${ORBIT_PARTY}`, // allow-italian: fixture data, shown as written
         'Importo: euro 13.947.325,33 oltre IVA. Durata: 8 anni, dal 02/11/2022 al 01/11/2030', // allow-italian: fixture data, shown as written
         'Firmato digitalmente dalle parti il 02/11/2022', // allow-italian: fixture data, shown as written
       ]),
@@ -323,9 +323,9 @@ export const SARIM_CONTRACTS: Contract[] = [
     ],
     variants: [],
     approvals: [
-      step('ap-1', 'sarim-bruno', 'redige', 'fatto', '2022-10-20T10:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-dg', 'approva', 'fatto', '2022-10-27T12:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'firma', 'fatto', '2022-11-02T11:00:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-bruno', 'redige', 'fatto', '2022-10-20T10:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-dg', 'approva', 'fatto', '2022-10-27T12:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'firma', 'fatto', '2022-11-02T11:00:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
     ],
     links: { flows: [], cards: [] },
   },
@@ -334,25 +334,25 @@ export const SARIM_CONTRACTS: Contract[] = [
     counterparty: 'Comune di Agropoli', counterpartyKind: 'Comune', // allow-italian: fixture data, shown as written
     object: 'Spazzamento, raccolta e trasporto dei rifiuti urbani per 5 anni, gara della CUC Paestum Alto Cilento', // allow-italian: fixture data, shown as written
     value: 18061509.16, valuePeriod: 'totale', start: '2022-10-01', end: '2027-09-30', renewal: { kind: 'opzione', months: 6, noticeDays: 120 }, // allow-italian: fixture data, shown as written
-    status: 'attivo', owner: 'sarim-bruno', area: 'legale', // allow-italian: fixture data, shown as written
+    status: 'attivo', owner: 'orbit-bruno', area: 'legale', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-bruno', at: '2022-09-27T11:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-agropoli'], signed: true }, // allow-italian: fixture data, shown as written
-      { n: 2, author: 'sarim-bruno', at: '2025-01-15T12:00:00+01:00', reason: 'Adeguamento ISTAT del canone', value: 18597936.04, signed: true, clauses: revise(BASE['c-agropoli'], { // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-bruno', at: '2022-09-27T11:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-agropoli'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 2, author: 'orbit-bruno', at: '2025-01-15T12:00:00+01:00', reason: 'Adeguamento ISTAT del canone', value: 18597936.04, signed: true, clauses: revise(BASE['c-agropoli'], { // allow-italian: fixture data, shown as written
         'art-6': "L'importo complessivo del contratto è pari a euro 18.597.936,04 oltre IVA, pagato in 60 rate mensili posticipate. Dal 1° gennaio 2025 la rata mensile è aggiornata del 5,4% per la variazione dell'indice ISTAT FOI e passa da euro 301.025,15 a euro 317.280,51 per le 33 rate che restano. Su richiesta dell'Appaltatore, presentata entro il 31 gennaio di ogni anno, la rata è aggiornata in base alla variazione dell'indice ISTAT FOI.", // allow-italian: fixture data, shown as written
       }) },
     ],
     obligations: [
-      { id: 'ob-agr-1', clause: 'art-2', version: 2, what: 'Sentire il Comune sulla proroga di 6 mesi', owner: 'sarim-bruno', kind: 'rinnovo', due: '2027-06-02', quote: 'comunicandola almeno 120 giorni prima della scadenza' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-agr-2', clause: 'art-6', version: 2, what: 'Richiesta di aggiornamento ISTAT della rata', owner: 'sarim-contabilita', kind: 'scadenza', due: '2027-01-31', every: 'entro il 31 gennaio di ogni anno', quote: 'presentata entro il 31 gennaio di ogni anno' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-agr-3', clause: 'art-4', version: 2, what: 'Rapporto di ottobre al Comune', owner: 'sarim-tecnico', kind: 'rendiconto', due: '2026-11-10', every: 'entro il 10 di ogni mese', quote: "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al Comune il rapporto dei servizi e dei quantitativi del mese precedente" }, // allow-italian: fixture data, shown as written
-      { id: 'ob-agr-4', clause: 'art-5', version: 2, what: 'Servizio non eseguito: da euro 150 a euro 1.000', owner: 'sarim-tecnico', kind: 'penale', quote: 'si applica una penale da euro 150 a euro 1.000 secondo la tabella del capitolato' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-agr-1', clause: 'art-2', version: 2, what: 'Sentire il Comune sulla proroga di 6 mesi', owner: 'orbit-bruno', kind: 'rinnovo', due: '2027-06-02', quote: 'comunicandola almeno 120 giorni prima della scadenza' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-agr-2', clause: 'art-6', version: 2, what: 'Richiesta di aggiornamento ISTAT della rata', owner: 'orbit-contabilita', kind: 'scadenza', due: '2027-01-31', every: 'entro il 31 gennaio di ogni anno', quote: 'presentata entro il 31 gennaio di ogni anno' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-agr-3', clause: 'art-4', version: 2, what: 'Rapporto di ottobre al Comune', owner: 'orbit-tecnico', kind: 'rendiconto', due: '2026-11-10', every: 'entro il 10 di ogni mese', quote: "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al Comune il rapporto dei servizi e dei quantitativi del mese precedente" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-agr-4', clause: 'art-5', version: 2, what: 'Servizio non eseguito: da euro 150 a euro 1.000', owner: 'orbit-tecnico', kind: 'penale', quote: 'si applica una penale da euro 150 a euro 1.000 secondo la tabella del capitolato' }, // allow-italian: fixture data, shown as written
     ],
     comments: [],
     attachments: [
       signedCopy('at-agr-v1', 1, '2022-09-27T11:00:00+01:00', [
         'Comune di Agropoli, Provincia di Salerno. Gara della CUC Paestum Alto Cilento', // allow-italian: fixture data, shown as written
         'Contratto per il servizio di spazzamento, raccolta e trasporto dei rifiuti urbani. Rep. n. 3318 del 27/09/2022', // allow-italian: fixture data, shown as written
-        `Tra il Comune di Agropoli e ${SARIM_PARTY}`, // allow-italian: fixture data, shown as written
+        `Tra il Comune di Agropoli e ${ORBIT_PARTY}`, // allow-italian: fixture data, shown as written
         'Importo: euro 18.061.509,16 oltre IVA. Durata: dal 01/10/2022 al 30/09/2027', // allow-italian: fixture data, shown as written
         'Firmato digitalmente dalle parti il 27/09/2022', // allow-italian: fixture data, shown as written
       ]),
@@ -368,12 +368,12 @@ export const SARIM_CONTRACTS: Contract[] = [
       { id: 'var-agropoli-2', title: 'Adeguamento ISTAT del canone', reason: "Richiesta di aggiornamento della rata per la variazione dell'indice ISTAT FOI, presentata il 20/12/2024", version: 2, status: 'firmata', at: '2024-12-20T10:00:00+01:00' }, // allow-italian: fixture data, shown as written
     ],
     approvals: [
-      step('ap-1', 'sarim-bruno', 'redige', 'fatto', '2025-01-08T10:00:00+01:00', 'Atto aggiuntivo sulla rata mensile'), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-contabilita', 'rivede', 'fatto', '2025-01-09T15:00:00+01:00', 'Conto della rata e delle 33 rate verificato'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'approva', 'fatto', '2025-01-10T09:30:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-4', 'sarim-dg', 'firma', 'fatto', '2025-01-15T12:00:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-bruno', 'redige', 'fatto', '2025-01-08T10:00:00+01:00', 'Atto aggiuntivo sulla rata mensile'), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-contabilita', 'rivede', 'fatto', '2025-01-09T15:00:00+01:00', 'Conto della rata e delle 33 rate verificato'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'approva', 'fatto', '2025-01-10T09:30:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-4', 'orbit-dg', 'firma', 'fatto', '2025-01-15T12:00:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
     ],
-    links: { flows: ['sarim-varianti'], cards: [] },
+    links: { flows: ['orbit-varianti'], cards: [] },
     tags: ['CUC Paestum Alto Cilento'], // allow-italian: fixture data, shown as written
   },
   {
@@ -381,30 +381,30 @@ export const SARIM_CONTRACTS: Contract[] = [
     counterparty: 'Comune di Sarno', counterpartyKind: 'Comune', // allow-italian: fixture data, shown as written
     object: 'Servizio integrato di igiene urbana, gara della CUC Sele-Picentini', // allow-italian: fixture data, shown as written
     value: 18840049.16, valuePeriod: 'totale', start: '2022-09-30', end: '', renewal: { kind: 'nessuno', months: 0, noticeDays: 0 }, // allow-italian: fixture data, shown as written
-    status: 'attivo', owner: 'sarim-bruno', area: 'legale', // allow-italian: fixture data, shown as written
+    status: 'attivo', owner: 'orbit-bruno', area: 'legale', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-bruno', at: '2022-09-30T11:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-sarno'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-bruno', at: '2022-09-30T11:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-sarno'], signed: true }, // allow-italian: fixture data, shown as written
     ],
     obligations: [
-      { id: 'ob-sar-1', clause: 'art-5', version: 1, what: 'Rapporto di ottobre al Comune', owner: 'sarim-tecnico', kind: 'rendiconto', due: '2026-11-10', every: 'entro il 10 di ogni mese', quote: "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al Comune il rapporto del mese precedente" }, // allow-italian: fixture data, shown as written
-      { id: 'ob-sar-2', clause: 'art-4', version: 1, what: 'Risposta scritta ai reclami degli utenti', owner: 'sarim-callcenter', kind: 'ricorrente', every: 'per ogni reclamo', quote: 'entro 30 giorni lavorativi dal ricevimento' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-sar-3', clause: 'art-7', version: 1, what: 'Servizio non eseguito: penale del capitolato', owner: 'sarim-tecnico', kind: 'penale', quote: 'si applica la penale della tabella del capitolato' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sar-1', clause: 'art-5', version: 1, what: 'Rapporto di ottobre al Comune', owner: 'orbit-tecnico', kind: 'rendiconto', due: '2026-11-10', every: 'entro il 10 di ogni mese', quote: "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al Comune il rapporto del mese precedente" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sar-2', clause: 'art-4', version: 1, what: 'Risposta scritta ai reclami degli utenti', owner: 'orbit-callcenter', kind: 'ricorrente', every: 'per ogni reclamo', quote: 'entro 30 giorni lavorativi dal ricevimento' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sar-3', clause: 'art-7', version: 1, what: 'Servizio non eseguito: penale del capitolato', owner: 'orbit-tecnico', kind: 'penale', quote: 'si applica la penale della tabella del capitolato' }, // allow-italian: fixture data, shown as written
     ],
     comments: [],
     attachments: [
       signedCopy('at-sar-v1', 1, '2022-09-30T11:00:00+01:00', [
         'Comune di Sarno, Provincia di Salerno. Gara della CUC Sele-Picentini', // allow-italian: fixture data, shown as written
         'Contratto per il servizio integrato di igiene urbana. Rep. n. 5129 del 30/09/2022', // allow-italian: fixture data, shown as written
-        `Tra il Comune di Sarno e ${SARIM_PARTY}`, // allow-italian: fixture data, shown as written
+        `Tra il Comune di Sarno e ${ORBIT_PARTY}`, // allow-italian: fixture data, shown as written
         'Importo: euro 18.840.049,16 oltre IVA', // allow-italian: fixture data, shown as written
         'Firmato digitalmente dalle parti il 30/09/2022', // allow-italian: fixture data, shown as written
       ]),
     ],
     variants: [],
     approvals: [
-      step('ap-1', 'sarim-bruno', 'redige', 'fatto', '2022-09-19T10:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-dg', 'approva', 'fatto', '2022-09-26T12:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'firma', 'fatto', '2022-09-30T11:00:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-bruno', 'redige', 'fatto', '2022-09-19T10:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-dg', 'approva', 'fatto', '2022-09-26T12:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'firma', 'fatto', '2022-09-30T11:00:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
     ],
     links: { flows: [], cards: [] },
     tags: ['CUC Sele-Picentini', 'a Sarno dal 1992'], // allow-italian: fixture data, shown as written
@@ -412,23 +412,23 @@ export const SARIM_CONTRACTS: Contract[] = [
   {
     id: 'c-smart-leaf', title: 'Smart Leaf, spazzamento delle foglie a Roma', kind: 'appalto', // allow-italian: fixture data, shown as written
     counterparty: 'AMA S.p.A.', counterpartyKind: 'Committente', // allow-italian: fixture data, shown as written
-    object: 'Concessione in project financing per lo spazzamento delle foglie di Roma, RTI con SARIM capofila, MIRAS Energia e RAVO', // allow-italian: fixture data, shown as written
+    object: 'Concessione in project financing per lo spazzamento delle foglie di Roma, RTI con ORBIT capofila, MIRAS Energia e RAVO', // allow-italian: fixture data, shown as written
     value: 96855274.52, valuePeriod: 'totale', start: '2024-10-01', end: '', renewal: { kind: 'nessuno', months: 0, noticeDays: 0 }, // allow-italian: fixture data, shown as written
-    status: 'attivo', owner: 'sarim-bruno', area: 'legale', // allow-italian: fixture data, shown as written
+    status: 'attivo', owner: 'orbit-bruno', area: 'legale', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-bruno', at: '2024-09-20T11:00:00+01:00', reason: 'Contratto di concessione firmato', clauses: BASE['c-smart-leaf'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-bruno', at: '2024-09-20T11:00:00+01:00', reason: 'Contratto di concessione firmato', clauses: BASE['c-smart-leaf'], signed: true }, // allow-italian: fixture data, shown as written
     ],
     obligations: [
-      { id: 'ob-sl-1', clause: 'art-8', version: 1, what: 'Rendiconto di ottobre ad AMA: km spazzati, foglie raccolte, segnalazioni', owner: 'sarim-callcenter', kind: 'rendiconto', due: '2026-11-05', every: 'entro il 5 di ogni mese', quote: 'Entro il giorno 5 di ogni mese il concessionario trasmette ad AMA il rendiconto del mese precedente' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-sl-2', clause: 'art-8', version: 1, what: 'Relazione trimestrale sul piano economico finanziario', owner: 'sarim-contabilita', kind: 'rendiconto', due: '2027-01-15', every: 'entro il 15 del mese dopo ogni trimestre', quote: 'Entro il giorno 15 del mese successivo alla chiusura di ogni trimestre' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-sl-3', clause: 'art-6', version: 1, what: 'Segnalazioni AMA: presa in carico entro 4 ore, chiusura entro 24', owner: 'sarim-callcenter', kind: 'ricorrente', every: 'per ogni segnalazione AMA', quote: 'sono prese in carico entro 4 ore e chiuse entro 24 ore dalla ricezione' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-sl-4', clause: 'art-7', version: 1, what: 'Segnalazione chiusa oltre le 24 ore: euro 150', owner: 'sarim-callcenter', kind: 'penale', quote: 'Per ogni segnalazione chiusa oltre le 24 ore si applica una penale di euro 150' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-sl-5', clause: 'art-4', version: 1, what: 'Programma dei passaggi della settimana dopo, per municipio', owner: 'sarim-tecnico', kind: 'ricorrente', due: '2026-11-12', every: 'ogni giovedì', quote: 'trasmette entro il giovedì di ogni settimana il programma dei passaggi della settimana successiva' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sl-1', clause: 'art-8', version: 1, what: 'Rendiconto di ottobre ad AMA: km spazzati, foglie raccolte, segnalazioni', owner: 'orbit-callcenter', kind: 'rendiconto', due: '2026-11-05', every: 'entro il 5 di ogni mese', quote: 'Entro il giorno 5 di ogni mese il concessionario trasmette ad AMA il rendiconto del mese precedente' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sl-2', clause: 'art-8', version: 1, what: 'Relazione trimestrale sul piano economico finanziario', owner: 'orbit-contabilita', kind: 'rendiconto', due: '2027-01-15', every: 'entro il 15 del mese dopo ogni trimestre', quote: 'Entro il giorno 15 del mese successivo alla chiusura di ogni trimestre' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sl-3', clause: 'art-6', version: 1, what: 'Segnalazioni AMA: presa in carico entro 4 ore, chiusura entro 24', owner: 'orbit-callcenter', kind: 'ricorrente', every: 'per ogni segnalazione AMA', quote: 'sono prese in carico entro 4 ore e chiuse entro 24 ore dalla ricezione' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sl-4', clause: 'art-7', version: 1, what: 'Segnalazione chiusa oltre le 24 ore: euro 150', owner: 'orbit-callcenter', kind: 'penale', quote: 'Per ogni segnalazione chiusa oltre le 24 ore si applica una penale di euro 150' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sl-5', clause: 'art-4', version: 1, what: 'Programma dei passaggi della settimana dopo, per municipio', owner: 'orbit-tecnico', kind: 'ricorrente', due: '2026-11-12', every: 'ogni giovedì', quote: 'trasmette entro il giovedì di ogni settimana il programma dei passaggi della settimana successiva' }, // allow-italian: fixture data, shown as written
     ],
     comments: [
-      { id: 'cm-sl-1', clause: 'art-6', version: 1, author: 'sarim-dg', at: '2026-10-12T09:10:00+01:00', text: "Le 4 ore partono dalla mail di AMA, non dalla telefonata: teniamone conto nei turni del call center.", resolved: true }, // allow-italian: fixture data, shown as written
-      { id: 'cm-sl-2', clause: 'art-8', version: 1, author: 'sarim-callcenter', at: '2026-11-05T17:30:00+01:00', text: 'Il rendiconto di ottobre è in verifica nella card SG-F10: parte per AMA appena controllati i km per municipio.', replies: [ // allow-italian: fixture data, shown as written
-        { author: 'sarim-dg', at: '2026-11-06T08:45:00+01:00', text: 'Siamo già fuori di un giorno: chiudiamolo oggi.' }, // allow-italian: fixture data, shown as written
+      { id: 'cm-sl-1', clause: 'art-6', version: 1, author: 'orbit-dg', at: '2026-10-12T09:10:00+01:00', text: "Le 4 ore partono dalla mail di AMA, non dalla telefonata: teniamone conto nei turni del call center.", resolved: true }, // allow-italian: fixture data, shown as written
+      { id: 'cm-sl-2', clause: 'art-8', version: 1, author: 'orbit-callcenter', at: '2026-11-05T17:30:00+01:00', text: 'Il rendiconto di ottobre è in verifica nella card SG-F10: parte per AMA appena controllati i km per municipio.', replies: [ // allow-italian: fixture data, shown as written
+        { author: 'orbit-dg', at: '2026-11-06T08:45:00+01:00', text: 'Siamo già fuori di un giorno: chiudiamolo oggi.' }, // allow-italian: fixture data, shown as written
       ] },
     ],
     attachments: [
@@ -443,30 +443,30 @@ export const SARIM_CONTRACTS: Contract[] = [
     ],
     variants: [],
     approvals: [
-      step('ap-1', 'sarim-bruno', 'redige', 'fatto', '2024-09-05T10:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-tecnico', 'rivede', 'fatto', '2024-09-10T16:00:00+01:00', 'Programma stagionale e mezzi'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'approva', 'fatto', '2024-09-16T09:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-4', 'sarim-dg', 'firma', 'fatto', '2024-09-20T11:00:00+01:00', 'Firma digitale per il RTI'), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-bruno', 'redige', 'fatto', '2024-09-05T10:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-tecnico', 'rivede', 'fatto', '2024-09-10T16:00:00+01:00', 'Programma stagionale e mezzi'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'approva', 'fatto', '2024-09-16T09:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-4', 'orbit-dg', 'firma', 'fatto', '2024-09-20T11:00:00+01:00', 'Firma digitale per il RTI'), // allow-italian: fixture data, shown as written
     ],
-    links: { flows: ['sarim-segnalazioni', 'sarim-foglie'], cards: ['SG-F10'] },
+    links: { flows: ['orbit-segnalazioni', 'orbit-foglie'], cards: ['SG-F10'] },
     tags: ['RTI capofila', 'project financing', 'Smart Leaf srl'], // allow-italian: fixture data, shown as written
   },
   {
     id: 'c-vallo', title: 'Igiene urbana, Comune di Vallo della Lucania', kind: 'servizio', // allow-italian: fixture data, shown as written
     counterparty: 'Comune di Vallo della Lucania', counterpartyKind: 'Comune', // allow-italian: fixture data, shown as written
-    object: 'Servizio di igiene urbana in ATI tra SARIM e Nappi Sud', // allow-italian: fixture data, shown as written
+    object: 'Servizio di igiene urbana in ATI tra ORBIT e Nappi Sud', // allow-italian: fixture data, shown as written
     value: 9298979.61, valuePeriod: 'totale', start: '2017-12-05', end: '2025-03-14', renewal: { kind: 'nessuno', months: 0, noticeDays: 0 }, // allow-italian: fixture data, shown as written
-    status: 'scaduto', owner: 'sarim-bruno', area: 'legale', // allow-italian: fixture data, shown as written
+    status: 'scaduto', owner: 'orbit-bruno', area: 'legale', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-bruno', at: '2017-12-05T11:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-vallo'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-bruno', at: '2017-12-05T11:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-vallo'], signed: true }, // allow-italian: fixture data, shown as written
     ],
     obligations: [
-      { id: 'ob-val-1', clause: 'art-6', version: 1, what: 'Proroga della polizza per il periodo di prosecuzione del servizio', owner: 'sarim-bruno', kind: 'garanzia', due: '2026-10-31', quote: "resta valida fino all'emissione del certificato di verifica di conformità" }, // allow-italian: fixture data, shown as written
-      { id: 'ob-val-2', clause: 'art-4', version: 1, what: 'Riepilogo dei servizi di ottobre al Comune', owner: 'sarim-tecnico', kind: 'rendiconto', due: '2026-11-10', every: 'entro il 10 di ogni mese', quote: "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al Comune il riepilogo dei servizi e dei quantitativi del mese precedente" }, // allow-italian: fixture data, shown as written
-      { id: 'ob-val-3', clause: 'art-2', version: 1, what: 'Prosecuzione del servizio fino al subentro del nuovo gestore', owner: 'sarim-tecnico', kind: 'scadenza', quote: 'garantisce la prosecuzione del servizio, alle stesse condizioni, per il tempo necessario al subentro del nuovo gestore' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-val-1', clause: 'art-6', version: 1, what: 'Proroga della polizza per il periodo di prosecuzione del servizio', owner: 'orbit-bruno', kind: 'garanzia', due: '2026-10-31', quote: "resta valida fino all'emissione del certificato di verifica di conformità" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-val-2', clause: 'art-4', version: 1, what: 'Riepilogo dei servizi di ottobre al Comune', owner: 'orbit-tecnico', kind: 'rendiconto', due: '2026-11-10', every: 'entro il 10 di ogni mese', quote: "Entro il giorno 10 di ogni mese l'Appaltatore trasmette al Comune il riepilogo dei servizi e dei quantitativi del mese precedente" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-val-3', clause: 'art-2', version: 1, what: 'Prosecuzione del servizio fino al subentro del nuovo gestore', owner: 'orbit-tecnico', kind: 'scadenza', quote: 'garantisce la prosecuzione del servizio, alle stesse condizioni, per il tempo necessario al subentro del nuovo gestore' }, // allow-italian: fixture data, shown as written
     ],
     comments: [
-      { id: 'cm-val-1', clause: 'art-2', version: 1, author: 'sarim-bruno', at: '2026-10-20T10:30:00+01:00', text: "Contratto scaduto il 14/03/2025 e servizio che prosegue: serve l'atto del Comune che copre il periodo dopo la scadenza. Lo seguo nella card CT-S02." }, // allow-italian: fixture data, shown as written
+      { id: 'cm-val-1', clause: 'art-2', version: 1, author: 'orbit-bruno', at: '2026-10-20T10:30:00+01:00', text: "Contratto scaduto il 14/03/2025 e servizio che prosegue: serve l'atto del Comune che copre il periodo dopo la scadenza. Lo seguo nella card CT-S02." }, // allow-italian: fixture data, shown as written
     ],
     attachments: [
       signedCopy('at-val-v1', 1, '2017-12-05T11:00:00+01:00', [
@@ -480,9 +480,9 @@ export const SARIM_CONTRACTS: Contract[] = [
     ],
     variants: [],
     approvals: [
-      step('ap-1', 'sarim-bruno', 'redige', 'fatto', '2017-11-24T10:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-dg', 'approva', 'fatto', '2017-11-30T12:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'firma', 'fatto', '2017-12-05T11:00:00+01:00', 'Firma digitale per la ATI'), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-bruno', 'redige', 'fatto', '2017-11-24T10:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-dg', 'approva', 'fatto', '2017-11-30T12:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'firma', 'fatto', '2017-12-05T11:00:00+01:00', 'Firma digitale per la ATI'), // allow-italian: fixture data, shown as written
     ],
     links: { flows: [], cards: ['CT-S02'] },
     tags: ['ATI con Nappi Sud', 'servizio proseguito dopo la scadenza'], // allow-italian: fixture data, shown as written
@@ -492,20 +492,20 @@ export const SARIM_CONTRACTS: Contract[] = [
     counterparty: 'Impresa di lavaggio contenitori (esempio)', counterpartyKind: 'Subappaltatore', // allow-italian: fixture data, shown as written
     object: "Lavaggio e sanificazione dei contenitori a Castellabate, in subappalto secondo l'art. 11 del contratto principale", // allow-italian: fixture data, shown as written
     value: 168000, valuePeriod: 'totale', start: '2026-12-01', end: '2030-03-31', renewal: { kind: 'nessuno', months: 0, noticeDays: 0 }, // allow-italian: fixture data, shown as written
-    status: 'approvazione', owner: 'sarim-bruno', area: 'legale', // allow-italian: fixture data, shown as written
+    status: 'approvazione', owner: 'orbit-bruno', area: 'legale', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-bruno', draftedBy: 'agent:ag-contratti', at: '2026-10-28T12:00:00+01:00', reason: "Bozza dal contratto principale, art. 11", clauses: BASE['c-sub-lavaggio'] }, // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-bruno', draftedBy: 'agent:ag-contratti', at: '2026-10-28T12:00:00+01:00', reason: "Bozza dal contratto principale, art. 11", clauses: BASE['c-sub-lavaggio'] }, // allow-italian: fixture data, shown as written
     ],
     obligations: [
-      { id: 'ob-sub-1', clause: 'art-2', version: 1, what: "Deposito del contratto al Comune, 20 giorni prima dell'inizio", owner: 'sarim-bruno', kind: 'scadenza', due: '2026-11-11', quote: "almeno 20 giorni prima dell'inizio delle prestazioni" }, // allow-italian: fixture data, shown as written
-      { id: 'ob-sub-2', clause: 'art-4', version: 1, what: 'Rapporto con le foto dei contenitori lavati', owner: 'sarim-tecnico', kind: 'ricorrente', every: 'a ogni giro di lavaggio', quote: 'trasmette a SARIM il rapporto con le foto dei contenitori lavati' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-sub-3', clause: 'art-5', version: 1, what: 'DURC del Subappaltatore prima di ogni pagamento', owner: 'sarim-contabilita', kind: 'ricorrente', every: 'a ogni fattura', quote: 'previa verifica del DURC' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-sub-4', clause: 'art-7', version: 1, what: 'Giro di lavaggio non eseguito: euro 200', owner: 'sarim-tecnico', kind: 'penale', quote: 'si applica una penale di euro 200, trattenuta sulla prima fattura utile' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sub-1', clause: 'art-2', version: 1, what: "Deposito del contratto al Comune, 20 giorni prima dell'inizio", owner: 'orbit-bruno', kind: 'scadenza', due: '2026-11-11', quote: "almeno 20 giorni prima dell'inizio delle prestazioni" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sub-2', clause: 'art-4', version: 1, what: 'Rapporto con le foto dei contenitori lavati', owner: 'orbit-tecnico', kind: 'ricorrente', every: 'a ogni giro di lavaggio', quote: 'trasmette a ORBIT il rapporto con le foto dei contenitori lavati' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sub-3', clause: 'art-5', version: 1, what: 'DURC del Subappaltatore prima di ogni pagamento', owner: 'orbit-contabilita', kind: 'ricorrente', every: 'a ogni fattura', quote: 'previa verifica del DURC' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-sub-4', clause: 'art-7', version: 1, what: 'Giro di lavaggio non eseguito: euro 200', owner: 'orbit-tecnico', kind: 'penale', quote: 'si applica una penale di euro 200, trattenuta sulla prima fattura utile' }, // allow-italian: fixture data, shown as written
     ],
     comments: [
-      { id: 'cm-sub-1', clause: 'art-2', version: 1, author: 'sarim-bruno', at: '2026-10-28T12:10:00+01:00', text: "Senza l'autorizzazione del Comune il subappaltatore non entra in servizio: la richiesta parte via PEC appena firmiamo." }, // allow-italian: fixture data, shown as written
-      { id: 'cm-sub-2', clause: 'art-4', version: 1, author: 'sarim-tecnico', at: '2026-10-29T15:30:00+01:00', text: "Ogni 15 giorni d'estate va bene; ad agosto sul lungomare forse serve ogni settimana.", resolved: true, replies: [ // allow-italian: fixture data, shown as written
-        { author: 'sarim-bruno', at: '2026-10-29T16:05:00+01:00', text: 'Il contratto principale non lo prevede: lo teniamo per la prossima stagione.' }, // allow-italian: fixture data, shown as written
+      { id: 'cm-sub-1', clause: 'art-2', version: 1, author: 'orbit-bruno', at: '2026-10-28T12:10:00+01:00', text: "Senza l'autorizzazione del Comune il subappaltatore non entra in servizio: la richiesta parte via PEC appena firmiamo." }, // allow-italian: fixture data, shown as written
+      { id: 'cm-sub-2', clause: 'art-4', version: 1, author: 'orbit-tecnico', at: '2026-10-29T15:30:00+01:00', text: "Ogni 15 giorni d'estate va bene; ad agosto sul lungomare forse serve ogni settimana.", resolved: true, replies: [ // allow-italian: fixture data, shown as written
+        { author: 'orbit-bruno', at: '2026-10-29T16:05:00+01:00', text: 'Il contratto principale non lo prevede: lo teniamo per la prossima stagione.' }, // allow-italian: fixture data, shown as written
       ] },
     ],
     attachments: [
@@ -513,13 +513,13 @@ export const SARIM_CONTRACTS: Contract[] = [
     ],
     variants: [],
     approvals: [
-      step('ap-1', 'sarim-bruno', 'redige', 'fatto', '2026-10-28T12:00:00+01:00', "Bozza dell'agente contratti dal contratto principale, rivista"), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-tecnico', 'rivede', 'fatto', '2026-10-29T15:40:00+01:00', 'Frequenze di lavaggio uguali al capitolato'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'approva', 'in-attesa', undefined, 'Serve prima della richiesta al Comune'), // allow-italian: fixture data, shown as written
-      step('ap-4', 'sarim-dg', 'firma', 'da-fare'), // allow-italian: fixture data, shown as written
-      step('ap-5', 'sarim-bruno', 'controfirma', 'da-fare', undefined, "Invio al Comune via PEC per l'autorizzazione al subappalto"), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-bruno', 'redige', 'fatto', '2026-10-28T12:00:00+01:00', "Bozza dell'agente contratti dal contratto principale, rivista"), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-tecnico', 'rivede', 'fatto', '2026-10-29T15:40:00+01:00', 'Frequenze di lavaggio uguali al capitolato'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'approva', 'in-attesa', undefined, 'Serve prima della richiesta al Comune'), // allow-italian: fixture data, shown as written
+      step('ap-4', 'orbit-dg', 'firma', 'da-fare'), // allow-italian: fixture data, shown as written
+      step('ap-5', 'orbit-bruno', 'controfirma', 'da-fare', undefined, "Invio al Comune via PEC per l'autorizzazione al subappalto"), // allow-italian: fixture data, shown as written
     ],
-    links: { flows: ['sarim-varianti', 'sarim-fatture'], cards: ['CT-N12'] },
+    links: { flows: ['orbit-varianti', 'orbit-fatture'], cards: ['CT-N12'] },
     tags: ['figlio di c-castellabate', 'art. 11 del contratto principale'], // allow-italian: fixture data, shown as written
   },
   {
@@ -527,32 +527,32 @@ export const SARIM_CONTRACTS: Contract[] = [
     counterparty: 'Fornitore carburanti (esempio)', counterpartyKind: 'Fornitore', // allow-italian: fixture data, shown as written
     object: 'Gasolio per autotrazione al deposito di Eboli e ai cantieri, accordo quadro di 24 mesi', // allow-italian: fixture data, shown as written
     value: 2400000, valuePeriod: 'totale', start: '2025-02-01', end: '2027-01-31', renewal: { kind: 'tacito', months: 12, noticeDays: 60 }, // allow-italian: fixture data, shown as written
-    status: 'rinnovo', owner: 'sarim-contabilita', area: 'contabilita', // allow-italian: fixture data, shown as written
+    status: 'rinnovo', owner: 'orbit-contabilita', area: 'contabilita', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-bruno', at: '2025-01-20T11:00:00+01:00', reason: 'Accordo quadro firmato', clauses: BASE['c-carburante'], signed: true }, // allow-italian: fixture data, shown as written
-      { n: 2, author: 'sarim-bruno', at: '2025-09-10T12:00:00+01:00', reason: 'Nuovo spread e penali più strette', signed: true, clauses: revise(BASE['c-carburante'], { // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-bruno', at: '2025-01-20T11:00:00+01:00', reason: 'Accordo quadro firmato', clauses: BASE['c-carburante'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 2, author: 'orbit-bruno', at: '2025-09-10T12:00:00+01:00', reason: 'Nuovo spread e penali più strette', signed: true, clauses: revise(BASE['c-carburante'], { // allow-italian: fixture data, shown as written
         'art-5': "Il prezzo al litro è pari al prezzo medio settimanale del gasolio per autotrazione pubblicato dal Ministero dell'Ambiente e della Sicurezza Energetica, al netto delle imposte, nella settimana della consegna, più uno spread fisso di euro 0,041 per litro per consegne di almeno 5.000 litri e di euro 0,048 per litro per consegne inferiori. Accise e IVA sono addebitate a parte.", // allow-italian: fixture data, shown as written
         'art-7': "Per ogni consegna eseguita oltre 24 ore dall'ordine si applica una penale pari al 2 per mille del valore della consegna per ogni giorno di ritardo. Per le consegne urgenti al deposito di Eboli il termine è di 12 ore.", // allow-italian: fixture data, shown as written
       }) },
     ],
     obligations: [
-      { id: 'ob-car-1', clause: 'art-2', version: 2, what: 'Disdetta via PEC, o rinnovo tacito di 12 mesi', owner: 'sarim-contabilita', kind: 'rinnovo', due: '2026-12-02', quote: 'salvo disdetta inviata via PEC almeno 60 giorni prima della scadenza' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-car-2', clause: 'art-5', version: 2, what: 'Prezzo in fattura: media della settimana più lo spread della versione 2', owner: 'sarim-contabilita', kind: 'ricorrente', every: 'a ogni fattura', quote: 'più uno spread fisso di euro 0,041 per litro per consegne di almeno 5.000 litri' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-car-3', clause: 'art-7', version: 2, what: 'Consegna oltre 24 ore: 2 per mille al giorno', owner: 'sarim-flotta', kind: 'penale', quote: 'si applica una penale pari al 2 per mille del valore della consegna per ogni giorno di ritardo' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-car-4', clause: 'art-6', version: 2, what: 'Pagamento delle fatture di settembre', owner: 'sarim-contabilita', kind: 'ricorrente', due: '2026-11-30', every: 'a 60 giorni data fattura fine mese', quote: 'SARIM paga a 60 giorni data fattura fine mese' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-car-5', clause: 'art-3', version: 2, what: "Ordini vicini all'importo massimo dell'accordo quadro", owner: 'sarim-contabilita', kind: 'scadenza', quote: "L'importo massimo dell'accordo quadro è pari a euro 2.400.000,00 oltre IVA" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-car-1', clause: 'art-2', version: 2, what: 'Disdetta via PEC, o rinnovo tacito di 12 mesi', owner: 'orbit-contabilita', kind: 'rinnovo', due: '2026-12-02', quote: 'salvo disdetta inviata via PEC almeno 60 giorni prima della scadenza' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-car-2', clause: 'art-5', version: 2, what: 'Prezzo in fattura: media della settimana più lo spread della versione 2', owner: 'orbit-contabilita', kind: 'ricorrente', every: 'a ogni fattura', quote: 'più uno spread fisso di euro 0,041 per litro per consegne di almeno 5.000 litri' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-car-3', clause: 'art-7', version: 2, what: 'Consegna oltre 24 ore: 2 per mille al giorno', owner: 'orbit-flotta', kind: 'penale', quote: 'si applica una penale pari al 2 per mille del valore della consegna per ogni giorno di ritardo' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-car-4', clause: 'art-6', version: 2, what: 'Pagamento delle fatture di settembre', owner: 'orbit-contabilita', kind: 'ricorrente', due: '2026-11-30', every: 'a 60 giorni data fattura fine mese', quote: 'ORBIT paga a 60 giorni data fattura fine mese' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-car-5', clause: 'art-3', version: 2, what: "Ordini vicini all'importo massimo dell'accordo quadro", owner: 'orbit-contabilita', kind: 'scadenza', quote: "L'importo massimo dell'accordo quadro è pari a euro 2.400.000,00 oltre IVA" }, // allow-italian: fixture data, shown as written
     ],
     comments: [
-      { id: 'cm-car-1', clause: 'art-5', version: 2, author: 'sarim-contabilita', at: '2026-10-30T15:10:00+01:00', text: 'Per la card FT-2611 il prezzo in fattura va confrontato con questa formula: media della settimana di consegna più lo spread della versione 2.', replies: [ // allow-italian: fixture data, shown as written
-        { author: 'sarim-bruno', at: '2026-10-30T16:00:00+01:00', text: 'Sì: lo spread della versione 1 non vale più dal 10/09/2025.' }, // allow-italian: fixture data, shown as written
+      { id: 'cm-car-1', clause: 'art-5', version: 2, author: 'orbit-contabilita', at: '2026-10-30T15:10:00+01:00', text: 'Per la card FT-2611 il prezzo in fattura va confrontato con questa formula: media della settimana di consegna più lo spread della versione 2.', replies: [ // allow-italian: fixture data, shown as written
+        { author: 'orbit-bruno', at: '2026-10-30T16:00:00+01:00', text: 'Sì: lo spread della versione 1 non vale più dal 10/09/2025.' }, // allow-italian: fixture data, shown as written
       ] },
-      { id: 'cm-car-2', clause: 'art-2', version: 2, author: 'sarim-dg', at: '2026-11-02T09:15:00+01:00', text: 'Prima di decidere sulla disdetta voglio due offerte di confronto.', replies: [ // allow-italian: fixture data, shown as written
-        { author: 'sarim-contabilita', at: '2026-11-03T10:40:00+01:00', text: 'Chieste a due fornitori, risposte entro il 20/11.' }, // allow-italian: fixture data, shown as written
+      { id: 'cm-car-2', clause: 'art-2', version: 2, author: 'orbit-dg', at: '2026-11-02T09:15:00+01:00', text: 'Prima di decidere sulla disdetta voglio due offerte di confronto.', replies: [ // allow-italian: fixture data, shown as written
+        { author: 'orbit-contabilita', at: '2026-11-03T10:40:00+01:00', text: 'Chieste a due fornitori, risposte entro il 20/11.' }, // allow-italian: fixture data, shown as written
       ] },
     ],
     attachments: [
       signedCopy('at-car-v1', 1, '2025-01-20T11:00:00+01:00', [
-        `Scrittura privata tra ${SARIM_PARTY}, e Fornitore carburanti (esempio)`, // allow-italian: fixture data, shown as written
+        `Scrittura privata tra ${ORBIT_PARTY}, e Fornitore carburanti (esempio)`, // allow-italian: fixture data, shown as written
         'Accordo quadro per la fornitura di gasolio per autotrazione, dal 01/02/2025 al 31/01/2027', // allow-italian: fixture data, shown as written
         'Importo massimo: euro 2.400.000,00 oltre IVA. Prezzo: media settimanale ministeriale più spread di euro 0,052 per litro', // allow-italian: fixture data, shown as written
         'Firmato digitalmente dalle parti il 20/01/2025', // allow-italian: fixture data, shown as written
@@ -568,32 +568,32 @@ export const SARIM_CONTRACTS: Contract[] = [
       { id: 'var-carburante-2', title: 'Nuovo spread e penali più strette', reason: 'Rinegoziazione dopo sei mesi di consegne: spread più basso per i carichi grandi, consegne entro 24 ore', version: 2, status: 'firmata', at: '2025-08-28T10:00:00+01:00' }, // allow-italian: fixture data, shown as written
     ],
     approvals: [
-      step('ap-1', 'sarim-bruno', 'redige', 'fatto', '2025-09-01T10:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-contabilita', 'rivede', 'fatto', '2025-09-03T15:00:00+01:00', 'Spread confrontato con le ultime 20 fatture'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'approva', 'fatto', '2025-09-08T09:30:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-4', 'sarim-dg', 'firma', 'fatto', '2025-09-10T12:00:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-bruno', 'redige', 'fatto', '2025-09-01T10:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-contabilita', 'rivede', 'fatto', '2025-09-03T15:00:00+01:00', 'Spread confrontato con le ultime 20 fatture'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'approva', 'fatto', '2025-09-08T09:30:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-4', 'orbit-dg', 'firma', 'fatto', '2025-09-10T12:00:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
     ],
-    links: { flows: ['sarim-varianti', 'sarim-fatture'], cards: ['CT-R03', 'FT-2611'] },
+    links: { flows: ['orbit-varianti', 'orbit-fatture'], cards: ['CT-R03', 'FT-2611'] },
   },
   {
     id: 'c-officina', title: 'Manutenzione compattatori e spazzatrici', kind: 'fornitura', // allow-italian: fixture data, shown as written
     counterparty: 'Officina mezzi pesanti (esempio)', counterpartyKind: 'Fornitore', // allow-italian: fixture data, shown as written
     object: 'Manutenzione ordinaria e straordinaria di compattatori e spazzatrici della sede di Eboli', // allow-italian: fixture data, shown as written
     value: 380000, valuePeriod: 'totale', start: '2025-07-01', end: '2027-06-30', renewal: { kind: 'tacito', months: 12, noticeDays: 90 }, // allow-italian: fixture data, shown as written
-    status: 'attivo', owner: 'sarim-contabilita', area: 'contabilita', // allow-italian: fixture data, shown as written
+    status: 'attivo', owner: 'orbit-contabilita', area: 'contabilita', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-bruno', at: '2025-06-20T11:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-officina'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-bruno', at: '2025-06-20T11:00:00+01:00', reason: 'Contratto firmato', clauses: BASE['c-officina'], signed: true }, // allow-italian: fixture data, shown as written
     ],
     obligations: [
-      { id: 'ob-off-1', clause: 'art-2', version: 1, what: 'Disdetta via PEC, o rinnovo tacito di 12 mesi', owner: 'sarim-contabilita', kind: 'rinnovo', due: '2027-04-01', quote: 'salvo disdetta inviata via PEC almeno 90 giorni prima della scadenza' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-off-2', clause: 'art-6', version: 1, what: 'Fermo oltre 72 ore: euro 150 al giorno, da trattenere in fattura', owner: 'sarim-flotta', kind: 'penale', quote: 'si applica una penale di euro 150 per ogni giorno di ulteriore fermo' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-off-3', clause: 'art-4', version: 1, what: 'Presa in carico del mezzo entro 24 ore', owner: 'sarim-flotta', kind: 'ricorrente', every: 'per ogni richiesta di intervento', quote: 'prende in carico il mezzo entro 24 ore dalla richiesta' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-off-4', clause: 'art-5', version: 1, what: 'Rapportino firmato e targa in ogni fattura', owner: 'sarim-contabilita', kind: 'ricorrente', every: 'a ogni fattura', quote: 'con il rapportino firmato, la targa del mezzo, le ore e i ricambi' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-off-1', clause: 'art-2', version: 1, what: 'Disdetta via PEC, o rinnovo tacito di 12 mesi', owner: 'orbit-contabilita', kind: 'rinnovo', due: '2027-04-01', quote: 'salvo disdetta inviata via PEC almeno 90 giorni prima della scadenza' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-off-2', clause: 'art-6', version: 1, what: 'Fermo oltre 72 ore: euro 150 al giorno, da trattenere in fattura', owner: 'orbit-flotta', kind: 'penale', quote: 'si applica una penale di euro 150 per ogni giorno di ulteriore fermo' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-off-3', clause: 'art-4', version: 1, what: 'Presa in carico del mezzo entro 24 ore', owner: 'orbit-flotta', kind: 'ricorrente', every: 'per ogni richiesta di intervento', quote: 'prende in carico il mezzo entro 24 ore dalla richiesta' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-off-4', clause: 'art-5', version: 1, what: 'Rapportino firmato e targa in ogni fattura', owner: 'orbit-contabilita', kind: 'ricorrente', every: 'a ogni fattura', quote: 'con il rapportino firmato, la targa del mezzo, le ore e i ricambi' }, // allow-italian: fixture data, shown as written
     ],
     comments: [],
     attachments: [
       signedCopy('at-off-v1', 1, '2025-06-20T11:00:00+01:00', [
-        `Scrittura privata tra ${SARIM_PARTY}, e Officina mezzi pesanti (esempio)`, // allow-italian: fixture data, shown as written
+        `Scrittura privata tra ${ORBIT_PARTY}, e Officina mezzi pesanti (esempio)`, // allow-italian: fixture data, shown as written
         'Manutenzione di compattatori e spazzatrici, dal 01/07/2025 al 30/06/2027, rinnovo tacito di 12 mesi', // allow-italian: fixture data, shown as written
         'Importo massimo: euro 380.000,00 oltre IVA', // allow-italian: fixture data, shown as written
         'Firmato digitalmente dalle parti il 20/06/2025', // allow-italian: fixture data, shown as written
@@ -602,26 +602,26 @@ export const SARIM_CONTRACTS: Contract[] = [
     ],
     variants: [],
     approvals: [
-      step('ap-1', 'sarim-bruno', 'redige', 'fatto', '2025-06-10T10:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-flotta', 'rivede', 'fatto', '2025-06-12T14:00:00+01:00', 'Tempi di presa in carico e fermo mezzo'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'approva', 'fatto', '2025-06-17T09:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-4', 'sarim-dg', 'firma', 'fatto', '2025-06-20T11:00:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-bruno', 'redige', 'fatto', '2025-06-10T10:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-flotta', 'rivede', 'fatto', '2025-06-12T14:00:00+01:00', 'Tempi di presa in carico e fermo mezzo'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'approva', 'fatto', '2025-06-17T09:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-4', 'orbit-dg', 'firma', 'fatto', '2025-06-20T11:00:00+01:00', 'Firma digitale'), // allow-italian: fixture data, shown as written
     ],
-    links: { flows: ['sarim-fatture'], cards: ['FT-2604'] },
+    links: { flows: ['orbit-fatture'], cards: ['FT-2604'] },
   },
   {
     id: 'c-td-castellabate', title: 'Contratti a termine, servizio estivo di Castellabate', kind: 'personale', // allow-italian: fixture data, shown as written
     counterparty: 'Lavoratori a tempo determinato (esempio)', counterpartyKind: 'Lavoratore', // allow-italian: fixture data, shown as written
     object: 'Tre contratti a tempo determinato di operatore ecologico per il servizio estivo e di fine stagione a Castellabate', // allow-italian: fixture data, shown as written
     value: 54600, valuePeriod: 'totale', start: '2026-06-01', end: '2026-11-30', renewal: { kind: 'opzione', months: 6, noticeDays: 15 }, // allow-italian: fixture data, shown as written
-    status: 'attivo', owner: 'sarim-personale', area: 'personale', // allow-italian: fixture data, shown as written
+    status: 'attivo', owner: 'orbit-personale', area: 'personale', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-personale', at: '2026-05-25T11:00:00+01:00', reason: 'Contratti firmati', clauses: BASE['c-td-castellabate'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-personale', at: '2026-05-25T11:00:00+01:00', reason: 'Contratti firmati', clauses: BASE['c-td-castellabate'], signed: true }, // allow-italian: fixture data, shown as written
     ],
     obligations: [
-      { id: 'ob-td-1', clause: 'art-2', version: 1, what: 'Decidere e comunicare la proroga dei 3 contratti', owner: 'sarim-personale', kind: 'rinnovo', due: '2026-11-15', quote: 'è comunicata per iscritto al lavoratore entro il 15 novembre 2026' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-td-2', clause: 'art-2', version: 1, what: 'Fine dei 3 contratti a termine', owner: 'sarim-personale', kind: 'scadenza', due: '2026-11-30', quote: 'termina il 30 novembre 2026' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-td-3', clause: 'art-6', version: 1, what: 'UNILAV al Centro per l\'impiego per proroga o cessazione', owner: 'sarim-personale', kind: 'scadenza', quote: "sono comunicate al Centro per l'impiego con il modello UNILAV nei termini di legge" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-td-1', clause: 'art-2', version: 1, what: 'Decidere e comunicare la proroga dei 3 contratti', owner: 'orbit-personale', kind: 'rinnovo', due: '2026-11-15', quote: 'è comunicata per iscritto al lavoratore entro il 15 novembre 2026' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-td-2', clause: 'art-2', version: 1, what: 'Fine dei 3 contratti a termine', owner: 'orbit-personale', kind: 'scadenza', due: '2026-11-30', quote: 'termina il 30 novembre 2026' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-td-3', clause: 'art-6', version: 1, what: 'UNILAV al Centro per l\'impiego per proroga o cessazione', owner: 'orbit-personale', kind: 'scadenza', quote: "sono comunicate al Centro per l'impiego con il modello UNILAV nei termini di legge" }, // allow-italian: fixture data, shown as written
     ],
     comments: [],
     attachments: [
@@ -635,27 +635,27 @@ export const SARIM_CONTRACTS: Contract[] = [
     ],
     variants: [],
     approvals: [
-      step('ap-1', 'sarim-personale', 'redige', 'fatto', '2026-05-20T10:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-dg', 'approva', 'fatto', '2026-05-22T12:00:00+01:00', 'Tre operatori per il servizio estivo'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'firma', 'fatto', '2026-05-25T11:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-personale', 'redige', 'fatto', '2026-05-20T10:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-dg', 'approva', 'fatto', '2026-05-22T12:00:00+01:00', 'Tre operatori per il servizio estivo'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'firma', 'fatto', '2026-05-25T11:00:00+01:00'), // allow-italian: fixture data, shown as written
     ],
-    links: { flows: ['sarim-scadenze'], cards: ['PE-118'] },
+    links: { flows: ['orbit-scadenze'], cards: ['PE-118'] },
     tags: ['CCNL FISE Assoambiente'], // allow-italian: fixture data, shown as written
   },
   {
     id: 'c-accordo-castellabate', title: 'Accordo per il passaggio dei lavoratori, Castellabate', kind: 'sindacale', // allow-italian: fixture data, shown as written
     counterparty: 'Organizzazioni sindacali di categoria (esempio)', counterpartyKind: 'Sindacati', // allow-italian: fixture data, shown as written
-    object: 'Verbale di accordo per il passaggio a SARIM degli 11 lavoratori della Castellabate Servizi srl, in applicazione del CCNL', // allow-italian: fixture data, shown as written
+    object: 'Verbale di accordo per il passaggio a ORBIT degli 11 lavoratori della Castellabate Servizi srl, in applicazione del CCNL', // allow-italian: fixture data, shown as written
     value: 418000, valuePeriod: 'anno', start: '2026-04-01', end: '', renewal: { kind: 'nessuno', months: 0, noticeDays: 0 }, // allow-italian: fixture data, shown as written
-    status: 'attivo', owner: 'sarim-personale', area: 'personale', // allow-italian: fixture data, shown as written
+    status: 'attivo', owner: 'orbit-personale', area: 'personale', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-personale', at: '2026-03-20T13:00:00+01:00', reason: 'Verbale di accordo firmato in sede sindacale', clauses: BASE['c-accordo-castellabate'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-personale', at: '2026-03-20T13:00:00+01:00', reason: 'Verbale di accordo firmato in sede sindacale', clauses: BASE['c-accordo-castellabate'], signed: true }, // allow-italian: fixture data, shown as written
     ],
     obligations: [
-      { id: 'ob-acc-1', clause: 'art-6', version: 1, what: 'Incontro di verifica con i sindacati', owner: 'sarim-personale', kind: 'scadenza', due: '2026-11-30', quote: 'Le parti si incontrano entro il 30 novembre 2026' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-acc-2', clause: 'art-5', version: 1, what: 'Ferie e permessi arretrati da far godere', owner: 'sarim-personale', kind: 'scadenza', due: '2027-06-30', quote: 'fruiti entro il 30 giugno 2027' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-acc-3', clause: 'art-4', version: 1, what: 'Comunicazioni di assunzione degli 11 lavoratori', owner: 'sarim-personale', kind: 'scadenza', due: '2026-03-31', done: true, quote: 'SARIM invia le comunicazioni di assunzione entro il giorno precedente' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-acc-4', clause: 'art-3', version: 1, what: 'Livello, anzianità e retribuzione mantenuti nel cedolino', owner: 'sarim-personale', kind: 'ricorrente', every: 'a ogni elaborazione delle paghe', quote: "sono mantenuti il livello di inquadramento, l'anzianità maturata e la retribuzione" }, // allow-italian: fixture data, shown as written
+      { id: 'ob-acc-1', clause: 'art-6', version: 1, what: 'Incontro di verifica con i sindacati', owner: 'orbit-personale', kind: 'scadenza', due: '2026-11-30', quote: 'Le parti si incontrano entro il 30 novembre 2026' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-acc-2', clause: 'art-5', version: 1, what: 'Ferie e permessi arretrati da far godere', owner: 'orbit-personale', kind: 'scadenza', due: '2027-06-30', quote: 'fruiti entro il 30 giugno 2027' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-acc-3', clause: 'art-4', version: 1, what: 'Comunicazioni di assunzione degli 11 lavoratori', owner: 'orbit-personale', kind: 'scadenza', due: '2026-03-31', done: true, quote: 'ORBIT invia le comunicazioni di assunzione entro il giorno precedente' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-acc-4', clause: 'art-3', version: 1, what: 'Livello, anzianità e retribuzione mantenuti nel cedolino', owner: 'orbit-personale', kind: 'ricorrente', every: 'a ogni elaborazione delle paghe', quote: "sono mantenuti il livello di inquadramento, l'anzianità maturata e la retribuzione" }, // allow-italian: fixture data, shown as written
     ],
     comments: [],
     attachments: [
@@ -670,10 +670,10 @@ export const SARIM_CONTRACTS: Contract[] = [
     ],
     variants: [],
     approvals: [
-      step('ap-1', 'sarim-personale', 'redige', 'fatto', '2026-03-16T10:00:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-bruno', 'rivede', 'fatto', '2026-03-18T15:00:00+01:00', 'Coerente con la clausola sociale del contratto, art. 12'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'firma', 'fatto', '2026-03-20T12:30:00+01:00'), // allow-italian: fixture data, shown as written
-      step('ap-4', 'sarim-personale', 'controfirma', 'fatto', '2026-03-20T13:00:00+01:00', "Firmato dalle organizzazioni sindacali all'incontro"), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-personale', 'redige', 'fatto', '2026-03-16T10:00:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-bruno', 'rivede', 'fatto', '2026-03-18T15:00:00+01:00', 'Coerente con la clausola sociale del contratto, art. 12'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'firma', 'fatto', '2026-03-20T12:30:00+01:00'), // allow-italian: fixture data, shown as written
+      step('ap-4', 'orbit-personale', 'controfirma', 'fatto', '2026-03-20T13:00:00+01:00', "Firmato dalle organizzazioni sindacali all'incontro"), // allow-italian: fixture data, shown as written
     ],
     links: { flows: [], cards: ['CT-T04'] },
     tags: ['clausola sociale'], // allow-italian: fixture data, shown as written
@@ -683,25 +683,25 @@ export const SARIM_CONTRACTS: Contract[] = [
     counterparty: 'RSU e organizzazioni sindacali (esempio)', counterpartyKind: 'Sindacati', // allow-italian: fixture data, shown as written
     object: 'Turni domenicali e festivi, reperibilità e indennità del personale operativo della sede di Eboli', // allow-italian: fixture data, shown as written
     value: 186000, valuePeriod: 'anno', start: '2024-07-01', end: '2027-06-30', renewal: { kind: 'tacito', months: 12, noticeDays: 90 }, // allow-italian: fixture data, shown as written
-    status: 'revisione', owner: 'sarim-personale', area: 'personale', // allow-italian: fixture data, shown as written
+    status: 'revisione', owner: 'orbit-personale', area: 'personale', // allow-italian: fixture data, shown as written
     versions: [
-      { n: 1, author: 'sarim-personale', at: '2024-06-12T13:00:00+01:00', reason: 'Accordo integrativo firmato', clauses: BASE['c-accordo-turni'], signed: true }, // allow-italian: fixture data, shown as written
-      { n: 2, author: 'sarim-personale', draftedBy: 'agent:ag-personale', at: '2026-11-02T16:30:00+01:00', reason: "Turni festivi e indennità chiesti dalla RSU all'incontro del 28/10/2026", value: 221400, clauses: revise(BASE['c-accordo-turni'], { // allow-italian: fixture data, shown as written
+      { n: 1, author: 'orbit-personale', at: '2024-06-12T13:00:00+01:00', reason: 'Accordo integrativo firmato', clauses: BASE['c-accordo-turni'], signed: true }, // allow-italian: fixture data, shown as written
+      { n: 2, author: 'orbit-personale', draftedBy: 'agent:ag-personale', at: '2026-11-02T16:30:00+01:00', reason: "Turni festivi e indennità chiesti dalla RSU all'incontro del 28/10/2026", value: 221400, clauses: revise(BASE['c-accordo-turni'], { // allow-italian: fixture data, shown as written
         'art-3': 'Ogni lavoratore copre al massimo una domenica su tre e non più di due festività infrasettimanali per trimestre, a rotazione. I turni domenicali e festivi sono comunicati entro il giorno 15 del mese precedente.', // allow-italian: fixture data, shown as written
         'art-5': "Per ogni turno domenicale o festivo è riconosciuta un'indennità di euro 32, oltre alla maggiorazione prevista dal CCNL. L'indennità di reperibilità è di euro 22 per ogni giorno feriale e di euro 34 per ogni giorno festivo. Le indennità sono pagate con la retribuzione del mese successivo.", // allow-italian: fixture data, shown as written
       }) },
     ],
     obligations: [
-      { id: 'ob-tur-1', clause: 'art-2', version: 1, what: "Disdetta o rinnovo tacito dell'accordo", owner: 'sarim-personale', kind: 'rinnovo', due: '2027-04-01', quote: 'inviata almeno 90 giorni prima della scadenza' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-tur-2', clause: 'art-3', version: 1, what: 'Turni domenicali e festivi di dicembre', owner: 'sarim-personale', kind: 'ricorrente', due: '2026-11-20', every: 'entro il 20 di ogni mese', quote: 'sono comunicati entro il giorno 20 del mese precedente' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-tur-3', clause: 'art-6', version: 1, what: 'Incontro trimestrale con la RSU sui turni', owner: 'sarim-personale', kind: 'ricorrente', due: '2026-12-15', every: 'ogni tre mesi', quote: 'Le parti si incontrano ogni tre mesi' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-tur-4', clause: 'art-5', version: 1, what: 'Indennità di turno e di reperibilità in busta paga', owner: 'sarim-personale', kind: 'ricorrente', every: 'con le paghe del mese dopo', quote: 'Le indennità sono pagate con la retribuzione del mese successivo' }, // allow-italian: fixture data, shown as written
-      { id: 'ob-tur-5', clause: 'art-4', version: 1, what: 'Reperibile sul posto entro 60 minuti', owner: 'sarim-personale', kind: 'ricorrente', every: 'ogni settimana, a turno', quote: 'con intervento sul posto entro 60 minuti dalla chiamata' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-tur-1', clause: 'art-2', version: 1, what: "Disdetta o rinnovo tacito dell'accordo", owner: 'orbit-personale', kind: 'rinnovo', due: '2027-04-01', quote: 'inviata almeno 90 giorni prima della scadenza' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-tur-2', clause: 'art-3', version: 1, what: 'Turni domenicali e festivi di dicembre', owner: 'orbit-personale', kind: 'ricorrente', due: '2026-11-20', every: 'entro il 20 di ogni mese', quote: 'sono comunicati entro il giorno 20 del mese precedente' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-tur-3', clause: 'art-6', version: 1, what: 'Incontro trimestrale con la RSU sui turni', owner: 'orbit-personale', kind: 'ricorrente', due: '2026-12-15', every: 'ogni tre mesi', quote: 'Le parti si incontrano ogni tre mesi' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-tur-4', clause: 'art-5', version: 1, what: 'Indennità di turno e di reperibilità in busta paga', owner: 'orbit-personale', kind: 'ricorrente', every: 'con le paghe del mese dopo', quote: 'Le indennità sono pagate con la retribuzione del mese successivo' }, // allow-italian: fixture data, shown as written
+      { id: 'ob-tur-5', clause: 'art-4', version: 1, what: 'Reperibile sul posto entro 60 minuti', owner: 'orbit-personale', kind: 'ricorrente', every: 'ogni settimana, a turno', quote: 'con intervento sul posto entro 60 minuti dalla chiamata' }, // allow-italian: fixture data, shown as written
     ],
     comments: [
-      { id: 'cm-tur-1', clause: 'art-3', version: 2, author: 'sarim-personale', at: '2026-11-02T17:00:00+01:00', text: "Una domenica su tre è la richiesta della RSU all'incontro del 28/10." }, // allow-italian: fixture data, shown as written
-      { id: 'cm-tur-2', clause: 'art-5', version: 2, author: 'sarim-contabilita', at: '2026-11-03T12:20:00+01:00', text: "Con le nuove indennità il costo annuo stimato passa da 186.000 a 221.400 euro, 35.400 in più. Serve l'ok della Direzione.", replies: [ // allow-italian: fixture data, shown as written
-        { author: 'sarim-personale', at: '2026-11-03T14:05:00+01:00', text: 'Lo metto nella nota per il Direttore generale.' }, // allow-italian: fixture data, shown as written
+      { id: 'cm-tur-1', clause: 'art-3', version: 2, author: 'orbit-personale', at: '2026-11-02T17:00:00+01:00', text: "Una domenica su tre è la richiesta della RSU all'incontro del 28/10." }, // allow-italian: fixture data, shown as written
+      { id: 'cm-tur-2', clause: 'art-5', version: 2, author: 'orbit-contabilita', at: '2026-11-03T12:20:00+01:00', text: "Con le nuove indennità il costo annuo stimato passa da 186.000 a 221.400 euro, 35.400 in più. Serve l'ok della Direzione.", replies: [ // allow-italian: fixture data, shown as written
+        { author: 'orbit-personale', at: '2026-11-03T14:05:00+01:00', text: 'Lo metto nella nota per il Direttore generale.' }, // allow-italian: fixture data, shown as written
       ] },
     ],
     attachments: [
@@ -717,12 +717,12 @@ export const SARIM_CONTRACTS: Contract[] = [
       { id: 'var-turni-2', title: 'Turni festivi e indennità', reason: "Richieste della RSU all'incontro del 28/10/2026", version: 2, status: 'in-corso', card: 'CT-A05', at: '2026-11-02T16:30:00+01:00' }, // allow-italian: fixture data, shown as written
     ],
     approvals: [
-      step('ap-1', 'sarim-personale', 'redige', 'fatto', '2026-11-02T16:30:00+01:00', "Bozza dell'agente turni dai dati delle presenze, rivista"), // allow-italian: fixture data, shown as written
-      step('ap-2', 'sarim-bruno', 'rivede', 'in-attesa'), // allow-italian: fixture data, shown as written
-      step('ap-3', 'sarim-dg', 'approva', 'da-fare', undefined, 'Costo annuo stimato più 35.400 euro'), // allow-italian: fixture data, shown as written
-      step('ap-4', 'sarim-dg', 'firma', 'da-fare'), // allow-italian: fixture data, shown as written
-      step('ap-5', 'sarim-personale', 'controfirma', 'da-fare', undefined, "Firma della RSU e delle organizzazioni sindacali all'incontro"), // allow-italian: fixture data, shown as written
+      step('ap-1', 'orbit-personale', 'redige', 'fatto', '2026-11-02T16:30:00+01:00', "Bozza dell'agente turni dai dati delle presenze, rivista"), // allow-italian: fixture data, shown as written
+      step('ap-2', 'orbit-bruno', 'rivede', 'in-attesa'), // allow-italian: fixture data, shown as written
+      step('ap-3', 'orbit-dg', 'approva', 'da-fare', undefined, 'Costo annuo stimato più 35.400 euro'), // allow-italian: fixture data, shown as written
+      step('ap-4', 'orbit-dg', 'firma', 'da-fare'), // allow-italian: fixture data, shown as written
+      step('ap-5', 'orbit-personale', 'controfirma', 'da-fare', undefined, "Firma della RSU e delle organizzazioni sindacali all'incontro"), // allow-italian: fixture data, shown as written
     ],
-    links: { flows: ['sarim-varianti', 'sarim-turni'], cards: ['CT-A05'] },
+    links: { flows: ['orbit-varianti', 'orbit-turni'], cards: ['CT-A05'] },
   },
 ];

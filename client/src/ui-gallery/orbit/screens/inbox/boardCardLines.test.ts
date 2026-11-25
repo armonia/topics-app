@@ -1,14 +1,14 @@
 /** @covers GENUI-01 */
 import { describe, expect, test } from 'bun:test';
-import { SARIM_CARDS } from '../../../../ui/fixtures/sarim-org/cards';
-import { SARIM_OPS_FLOWS } from '../../../../ui/fixtures/sarim-org/flows';
+import { ORBIT_CARDS } from '../../../../ui/fixtures/orbit-org/cards';
+import { ORBIT_OPS_FLOWS } from '../../../../ui/fixtures/orbit-org/flows';
 import { NOCERA_CARDS } from '../../../../ui/fixtures/nocera-org/cards';
 import { NOCERA_OPS_FLOWS } from '../../../../ui/fixtures/nocera-org/flows';
-import type { OpsFlow, SarimCard } from '../../../../ui/fixtures/sarim-org/types';
+import type { OpsFlow, OrbitCard } from '../../../../ui/fixtures/orbit-org/types';
 import { boardCardLines, shareOfWords, type BoardCardFacts } from './boardCardLines';
 
 /** The facts of a real card of the fixtures, read the way `boardCard` reads them (the checker never the worker here). */
-function factsOf(cards: SarimCard[], flows: OpsFlow[], id: string): BoardCardFacts {
+function factsOf(cards: OrbitCard[], flows: OpsFlow[], id: string): BoardCardFacts {
   const card = cards.find((c) => c.id === id);
   if (!card) throw new Error(`no card ${id}`);
   const flow = flows.find((f) => f.id === card.flow);
@@ -25,12 +25,12 @@ function factsOf(cards: SarimCard[], flows: OpsFlow[], id: string): BoardCardFac
 }
 
 describe('boardCardLines', () => {
-  test('SG-4131 (SARIM): the agent reads the report, the step is the same job, no checker yet', () => {
-    expect(boardCardLines(factsOf(SARIM_CARDS, SARIM_OPS_FLOWS, 'SG-4131'))).toEqual({ step: false, doing: true, reviewer: false });
+  test('SG-4131 (ORBIT): the agent reads the report, the step is the same job, no checker yet', () => {
+    expect(boardCardLines(factsOf(ORBIT_CARDS, ORBIT_OPS_FLOWS, 'SG-4131'))).toEqual({ step: false, doing: true, reviewer: false });
   });
 
-  test('CT-S02 (SARIM): the agent found the expired contract, step and checker add nothing now', () => {
-    expect(boardCardLines(factsOf(SARIM_CARDS, SARIM_OPS_FLOWS, 'CT-S02'))).toEqual({ step: false, doing: true, reviewer: false });
+  test('CT-S02 (ORBIT): the agent found the expired contract, step and checker add nothing now', () => {
+    expect(boardCardLines(factsOf(ORBIT_CARDS, ORBIT_OPS_FLOWS, 'CT-S02'))).toEqual({ step: false, doing: true, reviewer: false });
   });
 
   test('FT-2406 (Consorzio): blocked, only the red reason stays', () => {

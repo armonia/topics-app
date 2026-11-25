@@ -1,4 +1,4 @@
-import type { SarimAdminCopy } from './sarim-admin';
+import type { OrbitAdminCopy } from './orbit-admin';
 import { orgWords } from './org-words';
 
 const W = orgWords();
@@ -6,8 +6,8 @@ const P = W.en;
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
 
-/** English words of the `sarim-admin` area. */
-export const SARIM_ADMIN_COPY_EN: SarimAdminCopy = {
+/** English words of the `orbit-admin` area. */
+export const ORBIT_ADMIN_COPY_EN: OrbitAdminCopy = {
   title: 'Team',
 
   common: {

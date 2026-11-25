@@ -1,6 +1,6 @@
 /**
- * The two menus of the SARIM shell (`ia-sarim.md`). The menu of the
- * organization (right click or ⋯ on the SARIM row) holds what is shared and
+ * The two menus of the ORBIT shell (`ia-orbit.md`). The menu of the
+ * organization (right click or ⋯ on the ORBIT row) holds what is shared and
  * configured once: settings, team, permissions, log. The menu of the person
  * (the foot of the sidebar) holds what is theirs alone: how the app looks,
  * what reaches them, who they use it as, the way out.
@@ -27,8 +27,8 @@ function place(m: ShellMenuCtx, item: Omit<ShellMenuItem, 'run' | 'disabled' | '
   return { ...item, disabled: !allowed, title: allowed ? undefined : ctx.deniedTitle(needs), run: () => ctx.go(path) };
 }
 
-export function sarimOrgMenu(m: ShellMenuCtx): ShellMenuItem[] {
-  const o = m.ctx.copy.sarimShell.org;
+export function orbitOrgMenu(m: ShellMenuCtx): ShellMenuItem[] {
+  const o = m.ctx.copy.orbitShell.org;
   const items: ShellMenuItem[] = [
     place(m, { id: 'settings', label: o.settings, icon: Settings }, SP.settings(), 'view:settings'),
     place(m, { id: 'team', label: o.team, icon: Users }, SP.team(), 'view:team'),
@@ -42,10 +42,10 @@ export function sarimOrgMenu(m: ShellMenuCtx): ShellMenuItem[] {
   return items;
 }
 
-export function sarimUserMenu(m: ShellMenuCtx): UserMenuModel {
+export function orbitUserMenu(m: ShellMenuCtx): UserMenuModel {
   const { ctx } = m;
-  const u = ctx.copy.sarimShell.user;
-  const r = ctx.copy.sarimShell;
+  const u = ctx.copy.orbitShell.user;
+  const r = ctx.copy.orbitShell;
   const me = personaById(ctx.persona.id);
   const [followSystem, setFollowSystem] = ctx.ui<boolean>('aspetto.system', false);
   const mode: Mode = followSystem ? 'system' : ctx.state.theme;

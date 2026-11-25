@@ -1,6 +1,6 @@
 /**
- * Every address of the SARIM edition (`sarim.html`), in one place: its areas
- * link to each other only through these builders. SARIM is the only
+ * Every address of the ORBIT edition (`orbit.html`), in one place: its areas
+ * link to each other only through these builders. ORBIT is the only
  * organization here, so nothing has a prefix; slugs are Italian because the
  * address is read by the people who share it. The old addresses (`/oggi`,
  * `/contratti/…`, `/dati/…`, `/da-fare/<group>/…`) are answered by (allow-italian: quotes the Italian interface)

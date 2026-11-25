@@ -6,7 +6,7 @@
  * obligations). Pure functions: the numbers on the list, the tiles, the
  * calendar and the contract page all come from here and from `model/`.
  */
-import type { ApprovalStep, Clause, Contract, ContractStatus, ContractVersion, Obligation, SarimCard, StageId } from '../../../../ui/fixtures/sarim-org/types';
+import type { ApprovalStep, Clause, Contract, ContractStatus, ContractVersion, Obligation, OrbitCard, StageId } from '../../../../ui/fixtures/orbit-org/types';
 import { agentById, personaById, teamById, teamIdOfPerson, world } from '../../world';
 import type { Tone } from '../../../../ui/types';
 import type { ActorModel } from '../../../../ui/contracts/model';
@@ -115,7 +115,7 @@ export function expiringSoon(c: Contract, today: string): boolean {
 }
 
 /** An obligation past its day or a penalty at stake, from the same alerts the contract page shows. */
-export const hasLateWork = (c: Contract, today: string, cards: SarimCard[]) => contractAlerts(c, today, cards).some((a) => a.kind === 'obbligo' || a.kind === 'penale'); // allow-italian: alert kinds compared by value
+export const hasLateWork = (c: Contract, today: string, cards: OrbitCard[]) => contractAlerts(c, today, cards).some((a) => a.kind === 'obbligo' || a.kind === 'penale'); // allow-italian: alert kinds compared by value
 
 /* ---------- the family of a contract ---------- */
 
@@ -160,7 +160,7 @@ export function chainStage(action: ApprovalStep['action']): StageId {
 export const underApproval = (c: Contract) => c.approvals.some((s) => s.state !== 'fatto' && s.action !== 'redige'); // allow-italian: data codes compared by value
 
 /** The card of «Da fare» that follows the contract's open work: the running variation's card, else an open card of the flow of contract variations. (allow-italian: quotes the Italian interface) */
-export function linkedCard(c: Contract, cards: SarimCard[]): SarimCard | undefined {
+export function linkedCard(c: Contract, cards: OrbitCard[]): OrbitCard | undefined {
   const running = runningVariant(c)?.card;
   if (running) {
     const card = cards.find((x) => x.id === running);
@@ -170,12 +170,12 @@ export function linkedCard(c: Contract, cards: SarimCard[]): SarimCard | undefin
 }
 
 /** Every card that points at the contract, from its links and from the cards' own links. */
-export function cardsOf(c: Contract, cards: SarimCard[]): SarimCard[] {
+export function cardsOf(c: Contract, cards: OrbitCard[]): OrbitCard[] {
   return cards.filter((x) => c.links.cards.includes(x.id) || x.links?.contract === c.id);
 }
 
 /** The next free id of a variation card: `CT-V08` after `CT-V07`. */
-export function nextVariantCardId(cards: SarimCard[]): string {
+export function nextVariantCardId(cards: OrbitCard[]): string {
   const top = cards.reduce((n, c) => Math.max(n, /^CT-V(\d+)$/.test(c.id) ? Number(c.id.slice(4)) : 0), 0);
   return `CT-V${String(top + 1).padStart(2, '0')}`;
 }
@@ -196,7 +196,7 @@ export function fingerprint(text: string): string {
   return out.slice(0, 64);
 }
 
-/** The number a signed document takes in SARIM's register of contracts. */
+/** The number a signed document takes in ORBIT's register of contracts. */
 export function registerNumber(seed: string, year: string): string {
   const n = 100 + (parseInt(fingerprint(seed).slice(0, 6), 16) % 900);
   return `${world().words.refPrefix}/${year}/${String(n).padStart(4, '0')}`;

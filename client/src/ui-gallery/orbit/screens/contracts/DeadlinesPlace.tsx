@@ -1,6 +1,6 @@
 /**
- * The deadlines of every contract (sarim-contract-deadlines and
- * sarim-contract-deadlines-month), as a list or as a month, each at its own
+ * The deadlines of every contract (orbit-contract-deadlines and
+ * orbit-contract-deadlines-month), as a list or as a month, each at its own
  * address: the ends, the last day to give notice (tacit renewals and options),
  * the reminders before it the reader chooses (180, 90, 30 days), and the next
  * day of every obligation. Each item opens the clause it is read from. Past
@@ -101,7 +101,7 @@ export function DeadlinesPlace({ ctx, view }: { ctx: ScreenCtx; view: 'list' | '
     { id: 'soon', name: d.saved.soon, tokens: [{ id: 'p2', field: 'state', op: 'is', value: 'soon' }] },
     { id: 'notices', name: d.saved.notices, tokens: [{ id: 'p3', field: 'tipo', op: 'is', value: 'notice' }, { id: 'p4', field: 'day', op: 'within', value: '180' }] },
   ], [d]);
-  const list = useListFilters(ctx, { key: 'sarim.contracts.deadlines.filters', items: pool, schema, presets });
+  const list = useListFilters(ctx, { key: 'orbit.contracts.deadlines.filters', items: pool, schema, presets });
   const events = list.items;
 
   const table = (list: ContractEvent[]) => {
@@ -211,7 +211,7 @@ export function DeadlinesPlace({ ctx, view }: { ctx: ScreenCtx; view: 'list' | '
     <div className="flex h-full min-h-0 flex-col">
       <PaneHeader
         leading={<BackButton label={t.title} onClick={() => ctx.go(SP.contracts())} copy={ctx.copy} />}
-        crumbs={orgCrumbs(ctx, [{ label: ctx.copy.sarimData.knowledge.title, to: SP.knowledge() }, { label: t.title, to: SP.contracts() }, { label: d.crumb }])}
+        crumbs={orgCrumbs(ctx, [{ label: ctx.copy.orbitData.knowledge.title, to: SP.knowledge() }, { label: t.title, to: SP.contracts() }, { label: d.crumb }])}
       >
         <ViewSwitch views={views} active={view} label={d.viewsLabel} compact={ctx.phone} onPick={(id) => ctx.go(id === 'month' ? SP.contractDeadlinesMonth() : SP.contractDeadlines())} />
       </PaneHeader>

@@ -14,7 +14,7 @@
 import type { ReactNode } from 'react';
 import { CircleAlert, FileText, MessageSquare } from 'lucide-react';
 import clsx from 'clsx';
-import type { Contract } from '../../../../ui/fixtures/sarim-org/types';
+import type { Contract } from '../../../../ui/fixtures/orbit-org/types';
 import { personaById, world } from '../../world';
 import { Button } from '../../../../ui/primitives/Button';
 import { Select, TextArea } from '../../../../ui/primitives/Field';

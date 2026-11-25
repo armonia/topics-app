@@ -1,5 +1,5 @@
 /**
- * Fixture of w07, s03 and s04: SARIM, the second example organization.
+ * Fixture of w07, s03 and s04: ORBIT, the second example organization.
  * Facts come from the training questionnaire of 26-28/10 (14 answers): the
  * areas (Contabilità, Personale, Customer service, Tecnica), the programs (allow-italian: quotes the Italian interface)
  * (Excel, Word, PEC, SAP, Enviro, WinWaste, Zucchetti, the tender portals) and
@@ -13,7 +13,7 @@ import type { CollectedDataModel } from '../flows/model';
 
 /* ---------- flows ---------- */
 
-export interface SarimFlowSeed {
+export interface OrbitFlowSeed {
   id: string;
   name: string;
   /** The area of the questionnaire that owns it. */
@@ -40,13 +40,13 @@ const dots = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
 const sumPaths = Object.values(REPORTS_PATH_VOLUMES).reduce((a, b) => a + b, 0);
 
-export const SARIM_FLOWS: SarimFlowSeed[] = [
-  { id: 'sarim-segnalazioni', name: 'Segnalazioni AMA e utenze → intervento', area: 'Customer service', trigger: 'arriva una segnalazione (mail AMA, portale utenze, telefonata)', version: 2, perMonth: sumPaths, toPerson: 31, errors: 3, manualMinutes: 4 }, // allow-italian: fixture data, shown as written
-  { id: 'sarim-fatture', name: 'Fattura passiva → riconciliazione', area: 'Contabilità', trigger: 'arriva una fattura dal fornitore', version: 1, perMonth: 240, toPerson: 7, errors: 1, manualMinutes: 9, stuck: { place: 'Contabilità', count: 3 } }, // allow-italian: fixture data, shown as written
-  { id: 'sarim-fir', name: 'Formulario FIR → registrazione', area: 'Customer service', trigger: 'si chiude un ritiro con formulario', version: 1, perMonth: 180, toPerson: 4, errors: 0, manualMinutes: 6 }, // allow-italian: fixture data, shown as written
-  { id: 'sarim-scadenze', name: 'Scadenze tempi determinati', area: 'Personale', trigger: 'ogni lunedì mattina', version: 1, perMonth: 48, toPerson: 100, errors: 0, manualMinutes: 15 }, // allow-italian: fixture data, shown as written
-  { id: 'sarim-foglie', name: 'Rendiconto servizio foglie', area: 'Customer service', trigger: 'a fine mese', version: 1, perMonth: 1, toPerson: 0, errors: 0, manualMinutes: 240 }, // allow-italian: fixture data, shown as written
-  { id: 'sarim-gara', name: 'Gara → valutazione preliminare', area: 'Tecnica', trigger: 'una nuova gara sul portale', version: 1, perMonth: 6, toPerson: 100, errors: 0, manualMinutes: 160, stuck: { place: 'Tecnica', count: 1 } }, // allow-italian: fixture data, shown as written
+export const ORBIT_FLOWS: OrbitFlowSeed[] = [
+  { id: 'orbit-segnalazioni', name: 'Segnalazioni AMA e utenze → intervento', area: 'Customer service', trigger: 'arriva una segnalazione (mail AMA, portale utenze, telefonata)', version: 2, perMonth: sumPaths, toPerson: 31, errors: 3, manualMinutes: 4 }, // allow-italian: fixture data, shown as written
+  { id: 'orbit-fatture', name: 'Fattura passiva → riconciliazione', area: 'Contabilità', trigger: 'arriva una fattura dal fornitore', version: 1, perMonth: 240, toPerson: 7, errors: 1, manualMinutes: 9, stuck: { place: 'Contabilità', count: 3 } }, // allow-italian: fixture data, shown as written
+  { id: 'orbit-fir', name: 'Formulario FIR → registrazione', area: 'Customer service', trigger: 'si chiude un ritiro con formulario', version: 1, perMonth: 180, toPerson: 4, errors: 0, manualMinutes: 6 }, // allow-italian: fixture data, shown as written
+  { id: 'orbit-scadenze', name: 'Scadenze tempi determinati', area: 'Personale', trigger: 'ogni lunedì mattina', version: 1, perMonth: 48, toPerson: 100, errors: 0, manualMinutes: 15 }, // allow-italian: fixture data, shown as written
+  { id: 'orbit-foglie', name: 'Rendiconto servizio foglie', area: 'Customer service', trigger: 'a fine mese', version: 1, perMonth: 1, toPerson: 0, errors: 0, manualMinutes: 240 }, // allow-italian: fixture data, shown as written
+  { id: 'orbit-gara', name: 'Gara → valutazione preliminare', area: 'Tecnica', trigger: 'una nuova gara sul portale', version: 1, perMonth: 6, toPerson: 100, errors: 0, manualMinutes: 160, stuck: { place: 'Tecnica', count: 1 } }, // allow-italian: fixture data, shown as written
 ];
 
 /** The flow whose paths the overview counts as «doppioni evitati». */
@@ -255,7 +255,7 @@ const collected = (title: string, description: string, rows: Array<[FlowStepMode
 });
 
 export const PLAIN_FLOWS: Record<string, PlainFlow> = {
-  'sarim-scadenze': {
+  'orbit-scadenze': {
     model: {
       crumbs: [{ label: 'Flussi' }, { label: 'Ogni lunedì: scadenze dei tempi determinati' }], // allow-italian: fixture data, shown as written
       status: { text: 'Attivo · v1', tone: 'green' }, // allow-italian: fixture data, shown as written
@@ -268,7 +268,7 @@ export const PLAIN_FLOWS: Record<string, PlainFlow> = {
       collected: collected('Cosa si raccoglie', 'Le scadenze e la decisione che le chiude.', [[[{ kind: 'calendar', name: 'Scadenza' }], 'data', 'dal contratto']]), // allow-italian: fixture data, shown as written
     },
   },
-  'sarim-foglie': {
+  'orbit-foglie': {
     model: {
       crumbs: [{ label: 'Flussi' }, { label: 'A fine mese: rendiconto del servizio foglie' }], // allow-italian: fixture data, shown as written
       status: { text: 'Attivo · v1', tone: 'green' }, // allow-italian: fixture data, shown as written
@@ -281,7 +281,7 @@ export const PLAIN_FLOWS: Record<string, PlainFlow> = {
       collected: collected('Cosa si raccoglie', 'Un rendiconto al mese, composto dai passaggi.', [[[{ kind: 'file', name: 'Rendiconto' }], 'rendiconto', 'uno al mese']]), // allow-italian: fixture data, shown as written
     },
   },
-  'sarim-gara': {
+  'orbit-gara': {
     model: {
       crumbs: [{ label: 'Flussi' }, { label: 'Quando esce una nuova gara' }], // allow-italian: fixture data, shown as written
       status: { text: 'Attivo · v1', tone: 'green' }, // allow-italian: fixture data, shown as written
@@ -453,8 +453,8 @@ export function defaultService(kind: string, city: string): QueueItemSeed['servi
 /** The example order number of the nth report opened in the preview (after the four of the queue). */
 export const orderNumber = (n: number) => `45001822${34 + n}`;
 
-/** The words of the four tiles of s04: what is counted is SARIM's own vocabulary. */
-export const SARIM_OVERVIEW_WORDS = {
+/** The words of the four tiles of s04: what is counted is ORBIT's own vocabulary. */
+export const ORBIT_OVERVIEW_WORDS = {
   reports: { label: 'Segnalazioni al mese, stima', detail: 'da mail, telefono e portale' }, // allow-italian: fixture data, shown as written
   duplicates: { label: 'Doppioni evitati, stima', detail: 'uscite di mezzi risparmiate' }, // allow-italian: fixture data, shown as written
   invoices: { label: 'Fatture controllate, stima', detail: (pct: number) => `${pct}% con differenze` }, // allow-italian: fixture data, shown as written

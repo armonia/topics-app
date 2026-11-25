@@ -1,5 +1,5 @@
 /**
- * The SARIM edition's contracts agree with themselves and with the rest of its world
+ * The ORBIT edition's contracts agree with themselves and with the rest of its world
  * (called by `scripts/ui-fixtures-check.ts`).
  *
  * What it pins: the 13 contracts and their cards; the public facts of the seven
@@ -9,15 +9,15 @@
  * variants and attachments pointing at versions that exist; nothing dated after
  * the demo moment; and the word-level diff the version comparison is drawn from.
  */
-import { SARIM_CONTRACTS } from "../../client/src/ui/fixtures/sarim-org/contracts";
-import { SARIM_CARDS } from "../../client/src/ui/fixtures/sarim-org/cards";
-import { SARIM_OPS_FLOWS } from "../../client/src/ui/fixtures/sarim-org/flows";
-import { SARIM_AGENTS, SARIM_PERSONAS } from "../../client/src/ui/fixtures/sarim-org/people";
-import type { Contract, ContractKind } from "../../client/src/ui/fixtures/sarim-org/types";
+import { ORBIT_CONTRACTS } from "../../client/src/ui/fixtures/orbit-org/contracts";
+import { ORBIT_CARDS } from "../../client/src/ui/fixtures/orbit-org/cards";
+import { ORBIT_OPS_FLOWS } from "../../client/src/ui/fixtures/orbit-org/flows";
+import { ORBIT_AGENTS, ORBIT_PERSONAS } from "../../client/src/ui/fixtures/orbit-org/people";
+import type { Contract, ContractKind } from "../../client/src/ui/fixtures/orbit-org/types";
 import { DEMO_NOW, DEMO_TODAY } from "../../client/src/ui/fixtures/org/clock";
 import {
   compareVersions, contractAlerts, formatMoney, noticeDate, variantShare, versionOf, wordDiff,
-} from "../../client/src/ui-gallery/sarim/model/contracts";
+} from "../../client/src/ui-gallery/orbit/model/contracts";
 
 export type Check = (ok: boolean, msg: string) => void;
 
@@ -38,7 +38,7 @@ const EXPECTED_CARDS: Record<string, string[]> = {
   "c-accordo-turni": ["CT-A05"],
 };
 
-/** The public facts of the real contracts (TED, ARERA portal, sarimambiente.it), copied by hand. */
+/** The public facts of the real contracts (TED, ARERA portal, alfaimpianti.it), copied by hand. */
 const PUBLIC_FACTS: Record<string, { counterparty: string; value: number; cig?: string; start: string; end: string; signed?: [number, string] }> = {
   "c-castellabate": { counterparty: "Comune di Castellabate", value: 11375268.92, cig: "B8B7C39D2A", start: "2026-04-01", end: "2030-03-31", signed: [2, "2026-01-29"] },
   "c-albanella": { counterparty: "Comune di Albanella", value: 7559582.25, cig: "B6242F1551", start: "2026-01-01", end: "2032-12-31" },
@@ -51,8 +51,8 @@ const PUBLIC_FACTS: Record<string, { counterparty: string; value: number; cig?: 
 
 /** Who owns a contract, by kind. */
 const OWNER_BY_KIND: Record<ContractKind, string> = {
-  servizio: "sarim-bruno", appalto: "sarim-bruno", subappalto: "sarim-bruno",
-  fornitura: "sarim-contabilita", personale: "sarim-personale", sindacale: "sarim-personale",
+  servizio: "orbit-bruno", appalto: "orbit-bruno", subappalto: "orbit-bruno",
+  fornitura: "orbit-contabilita", personale: "orbit-personale", sindacale: "orbit-personale",
 };
 
 /** The clauses each multi-version contract changes between two versions, and nothing else. */
@@ -65,8 +65,8 @@ const EXPECTED_CHANGES: Array<[string, number, number, string[]]> = [
   ["c-accordo-turni", 1, 2, ["art-3", "art-5"]],
 ];
 
-/** Flows a contract may link to (the eight of the SARIM edition). */
-const FLOW_IDS = ["sarim-segnalazioni", "sarim-foglie", "sarim-fir", "sarim-fatture", "sarim-gara", "sarim-scadenze", "sarim-turni", "sarim-varianti"];
+/** Flows a contract may link to (the eight of the ORBIT edition). */
+const FLOW_IDS = ["orbit-segnalazioni", "orbit-foglie", "orbit-fir", "orbit-fatture", "orbit-gara", "orbit-scadenze", "orbit-turni", "orbit-varianti"];
 
 /** The kinds whose value is written in the contract text (for personnel and union agreements it is an estimate of the cost). */
 const COMMERCIAL: ContractKind[] = ["servizio", "appalto", "subappalto", "fornitura"];
@@ -77,15 +77,15 @@ const NOW = Date.parse(DEMO_NOW);
 const tokens = (s: string) => s.split(/\s+/).filter(Boolean);
 const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
-export function checkSarimContracts(check: Check): void {
-  const personas = new Set(SARIM_PERSONAS.map((p) => p.id));
-  const agents = new Set(SARIM_AGENTS.map((a) => `agent:${a.id}`));
-  const cardIds = new Set(SARIM_CARDS.map((c) => c.id));
-  const flowIds = new Set(SARIM_OPS_FLOWS.length ? SARIM_OPS_FLOWS.map((f) => f.id) : FLOW_IDS);
+export function checkOrbitContracts(check: Check): void {
+  const personas = new Set(ORBIT_PERSONAS.map((p) => p.id));
+  const agents = new Set(ORBIT_AGENTS.map((a) => `agent:${a.id}`));
+  const cardIds = new Set(ORBIT_CARDS.map((c) => c.id));
+  const flowIds = new Set(ORBIT_OPS_FLOWS.length ? ORBIT_OPS_FLOWS.map((f) => f.id) : FLOW_IDS);
 
-  const ids = SARIM_CONTRACTS.map((c) => c.id);
-  check(new Set(ids).size === ids.length, `contratti SARIM: id ripetuti (${ids.join(", ")})`);
-  check(sameList([...ids].sort(), Object.keys(EXPECTED_CARDS).sort()), `contratti SARIM: attesi ${Object.keys(EXPECTED_CARDS).join(", ")}, trovati ${ids.join(", ")}`);
+  const ids = ORBIT_CONTRACTS.map((c) => c.id);
+  check(new Set(ids).size === ids.length, `contratti ORBIT: id ripetuti (${ids.join(", ")})`);
+  check(sameList([...ids].sort(), Object.keys(EXPECTED_CARDS).sort()), `contratti ORBIT: attesi ${Object.keys(EXPECTED_CARDS).join(", ")}, trovati ${ids.join(", ")}`);
 
   const stamp = (where: string, at: string | undefined) => {
     check(!!at && STAMP.test(at), `${where}: data e ora «${at}» non in forma ISO con fuso`);
@@ -94,8 +94,8 @@ export function checkSarimContracts(check: Check): void {
 
   const obligationIds = new Set<string>();
   let overdue = 0;
-  for (const c of SARIM_CONTRACTS) checkContract(c);
-  check(overdue >= 1 && overdue <= 2, `contratti SARIM: gli obblighi in ritardo devono essere 1 o 2, sono ${overdue}`);
+  for (const c of ORBIT_CONTRACTS) checkContract(c);
+  check(overdue >= 1 && overdue <= 2, `contratti ORBIT: gli obblighi in ritardo devono essere 1 o 2, sono ${overdue}`);
 
   function checkContract(c: Contract) {
     const at = `contratto ${c.id}`;
@@ -107,7 +107,7 @@ export function checkSarimContracts(check: Check): void {
     check(c.renewal.kind === "nessuno" ? c.renewal.noticeDays === 0 && c.renewal.months === 0 : c.renewal.months > 0 && c.renewal.noticeDays > 0, `${at}: rinnovo ${c.renewal.kind} con ${c.renewal.months} mesi e ${c.renewal.noticeDays} giorni di preavviso`);
     check(c.renewal.kind === "nessuno" || c.end !== "", `${at}: rinnovo ${c.renewal.kind} senza data di fine`);
     check(c.owner === OWNER_BY_KIND[c.kind], `${at}: responsabile ${c.owner}, per un contratto di tipo ${c.kind} deve essere ${OWNER_BY_KIND[c.kind]}`);
-    check(SARIM_PERSONAS.find((p) => p.id === c.owner)?.area === c.area, `${at}: area ${c.area} diversa da quella del responsabile ${c.owner}`);
+    check(ORBIT_PERSONAS.find((p) => p.id === c.owner)?.area === c.area, `${at}: area ${c.area} diversa da quella del responsabile ${c.owner}`);
 
     const fact = PUBLIC_FACTS[c.id];
     if (fact) {
@@ -128,7 +128,7 @@ export function checkSarimContracts(check: Check): void {
 
     // links
     check(sameList(c.links.cards, EXPECTED_CARDS[c.id] ?? []), `${at}: card collegate ${c.links.cards.join(", ") || "(nessuna)"}, attese ${(EXPECTED_CARDS[c.id] ?? []).join(", ") || "(nessuna)"}`);
-    if (SARIM_CARDS.length) for (const id of c.links.cards) check(cardIds.has(id), `${at}: la card ${id} non esiste`);
+    if (ORBIT_CARDS.length) for (const id of c.links.cards) check(cardIds.has(id), `${at}: la card ${id} non esiste`);
     for (const f of c.links.flows) check(flowIds.has(f), `${at}: il flusso ${f} non esiste`);
 
     // versions and clauses
@@ -233,20 +233,20 @@ export function checkSarimContracts(check: Check): void {
   }
 
   // the screen's own facts
-  const principal = SARIM_CONTRACTS.find((c) => c.id === "c-castellabate");
+  const principal = ORBIT_CONTRACTS.find((c) => c.id === "c-castellabate");
   if (principal) {
     check(Math.round(variantShare(principal, 3) * 10) / 10 === 4.2, `c-castellabate: la variante vale ${variantShare(principal, 3).toFixed(2)}% del valore iniziale, attesa 4,2%`);
     const v3 = versionOf(principal, 3);
     check(principal.comments.some((m) => m.clause === "art-9" && m.version === 3 && !!v3 && m.at < v3.at), "c-castellabate: manca il commento all'art. 9 scritto prima dell'ultima modifica della versione 3");
   }
-  const sub = SARIM_CONTRACTS.find((c) => c.id === "c-sub-lavaggio");
+  const sub = ORBIT_CONTRACTS.find((c) => c.id === "c-sub-lavaggio");
   check(!!sub?.tags?.includes("figlio di c-castellabate") && !!principal?.versions.some((v) => v.clauses.some((k) => k.id === "art-11")), "c-sub-lavaggio: deve dirsi figlio di c-castellabate, che deve avere l'art. 11 sul subappalto");
 
   // cards that cite a contract cite a clause it has
-  for (const card of SARIM_CARDS) {
+  for (const card of ORBIT_CARDS) {
     const link = card.links;
     if (!link?.contract) continue;
-    const contract = SARIM_CONTRACTS.find((c) => c.id === link.contract);
+    const contract = ORBIT_CONTRACTS.find((c) => c.id === link.contract);
     check(!!contract, `card ${card.id}: il contratto ${link.contract} non esiste`);
     if (contract && link.clause) check(contract.versions.some((v) => v.clauses.some((k) => k.id === link.clause)), `card ${card.id}: la clausola ${link.clause} non esiste in ${contract.id}`);
   }
@@ -262,7 +262,7 @@ export function checkSarimContracts(check: Check): void {
     const got = wordDiff(a, b).map((p) => `${p.kind}:${p.text}`);
     check(sameList(got, want), `wordDiff(«${a}», «${b}»): ${got.join(" | ")}, atteso ${want.join(" | ")}`);
   }
-  const pairs = SARIM_CONTRACTS.flatMap((c) => c.versions.flatMap((v) => c.versions.filter((w) => w.n > v.n).flatMap((w) =>
+  const pairs = ORBIT_CONTRACTS.flatMap((c) => c.versions.flatMap((v) => c.versions.filter((w) => w.n > v.n).flatMap((w) =>
     v.clauses.flatMap((k) => { const other = w.clauses.find((x) => x.id === k.id); return other ? [[k.text, other.text] as const] : []; }))));
   for (const [a, b] of [...pairs, ["", "una parola"] as const, ["una parola", ""] as const]) {
     const same = wordDiff(a, a);

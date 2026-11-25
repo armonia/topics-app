@@ -1,16 +1,16 @@
 /**
- * SARIM edition, area «Squadra»: the teams with their leader and numbers, the
+ * ORBIT edition, area «Squadra»: the teams with their leader and numbers, the
  * page of one team, and the permission matrix (rows = sections, flows and
  * actions, columns = teams, a cell = a level). The person and agent pages keep
- * their words in `sarimAdmin.team`.
- * Values in `i18n-ui-sarim-team-it.ts` and `i18n-ui-sarim-team-en.ts`.
+ * their words in `orbitAdmin.team`.
+ * Values in `i18n-ui-orbit-team-it.ts` and `i18n-ui-orbit-team-en.ts`.
  */
 /** The ids the matrix is made of: the same as `AccessLevel`, `AccessSection` and `AccessAction` of the app. */
 type Level = 'none' | 'view' | 'work' | 'manage';
 type Section = 'inbox' | 'flows' | 'documents' | 'contracts' | 'data' | 'rules' | 'programs';
 type Action = 'approve:contracts' | 'sign:contracts' | 'export' | 'admin';
 
-export interface SarimTeamCopy {
+export interface OrbitTeamCopy {
   title: string;
   /** The accessible name of the strip under the header (Team, Permessi). */
   navLabel: string;

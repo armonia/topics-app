@@ -1,12 +1,12 @@
-import type { SarimWorkCopy } from './sarim-work';
+import type { OrbitWorkCopy } from './orbit-work';
 import { orgWords } from './org-words';
 
 const W = orgWords();
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
-/** English words of the `sarim-work` area. */
-export const SARIM_WORK_COPY_EN: SarimWorkCopy = {
+/** English words of the `orbit-work` area. */
+export const ORBIT_WORK_COPY_EN: OrbitWorkCopy = {
   title: 'Today',
   weekdays: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
   months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],

@@ -1,5 +1,5 @@
 /**
- * The addresses of the SARIM edition that moved (8/11: the old day page folded into the
+ * The addresses of the ORBIT edition that moved (8/11: the old day page folded into the
  * list of cards, contracts and data under the knowledge section, the groups of
  * the list became flows, the settings of the person went to the preferences):
  * each old address lands on the place that took its content, once, without a
@@ -44,7 +44,7 @@ const DOC_REDIRECTS: RedirectDef[] = world().knowledge.docs.flatMap((doc): Redir
   { from: `/conoscenza/${doc.id}/:part`, to: (p) => SP.knowledgeDoc(doc.id, p.part) },
 ]);
 
-export const SARIM_REDIRECTS: RedirectDef[] = [
+export const ORBIT_REDIRECTS: RedirectDef[] = [
   { from: '/oggi', to: () => SP.home() }, // allow-italian: old address segment, not shown
   ...Object.keys(GROUP_FLOW).flatMap(groupRedirects),
 

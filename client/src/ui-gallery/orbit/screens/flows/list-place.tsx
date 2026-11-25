@@ -1,5 +1,5 @@
 /**
- * «Flussi» of the SARIM edition (sarim-flows): the eight flows with their (allow-italian: quotes the Italian interface)
+ * «Flussi» of the ORBIT edition (orbit-flows): the eight flows with their (allow-italian: quotes the Italian interface)
  * state (a paused flow says so), what starts them, the monthly estimate, the
  * programs, how many steps an agent does and where their live cards stand,
  * step by step. Narrowed with the one filter bar of every list (team, state,
@@ -11,9 +11,9 @@ import { Bot, CircleDot, Plug, Users } from 'lucide-react';
 import type { ScreenCtx } from '../../../app/kit';
 import { useListFilters, type FilterSchema, type SavedFilter } from '../../../app/filters';
 import type { UiCopy } from '../../../../ui/copy/types';
-import type { FlowRowModel, FlowStatModel } from '../../../../ui/sarim/work-model';
-import { OpsFlowsList } from '../../../../ui/sarim/OpsFlowsList';
-import type { OpsFlow } from '../../../../ui/fixtures/sarim-org/types';
+import type { FlowRowModel, FlowStatModel } from '../../../../ui/orbit/work-model';
+import { OpsFlowsList } from '../../../../ui/orbit/OpsFlowsList';
+import type { OpsFlow } from '../../../../ui/fixtures/orbit-org/types';
 import { agentById, world } from '../../world';
 import { stuckCards } from '../../model/stages';
 import { liveCards } from '../../model/live';
@@ -39,7 +39,7 @@ function stateOf(item: FlowItem): FlowState {
 }
 
 function schemaFor(copy: UiCopy): FilterSchema<FlowItem> {
-  const f = copy.sarimWork.flows;
+  const f = copy.orbitWork.flows;
   return {
     text: ({ flow }) => [flow.name, flow.trigger, world().people.areaLabel[flow.area], ...flow.programs, ...flow.steps.map((s) => s.title)].join(' '),
     fields: [
@@ -52,7 +52,7 @@ function schemaFor(copy: UiCopy): FilterSchema<FlowItem> {
 }
 
 export function FlowsListPlace({ ctx }: { ctx: ScreenCtx }) {
-  const f = ctx.copy.sarimWork.flows;
+  const f = ctx.copy.orbitWork.flows;
   const cards = liveCards(ctx.state);
   const { paused } = flowsSlice(ctx.state);
   const items = useMemo<FlowItem[]>(() => world().opsFlows.map((flow) => ({ flow, paused: Boolean(paused[flow.id]) })), [paused]);
@@ -61,7 +61,7 @@ export function FlowsListPlace({ ctx }: { ctx: ScreenCtx }) {
   const presets = useMemo<SavedFilter[]>(() => (['active', 'testing', 'paused'] as const).map((state, i) => ({
     id: state, name: f.status[state], tokens: [{ id: `p${i + 1}`, field: 'state', op: 'is', value: state }],
   })), [f]);
-  const list = useListFilters(ctx, { key: 'sarim.flows.filters', items, schema, presets });
+  const list = useListFilters(ctx, { key: 'orbit.flows.filters', items, schema, presets });
 
   const rows: FlowRowModel[] = list.items.map(({ flow, paused: isOff }) => {
     const own = flowCards(cards, flow.id);

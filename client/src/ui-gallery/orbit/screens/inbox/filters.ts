@@ -7,7 +7,7 @@
  */
 import { Bot, CalendarDays, CircleDot, CirclePause, FileText, Flag, Hash, MapPin, Scale, User, UserCheck, Workflow, type LucideIcon } from 'lucide-react';
 import type { UiCopy } from '../../../../ui/copy/types';
-import type { SarimCard, StageId } from '../../../../ui/fixtures/sarim-org/types';
+import type { OrbitCard, StageId } from '../../../../ui/fixtures/orbit-org/types';
 import { world } from '../../world';
 import { STAGE_GLYPH } from '../../../../ui/kanban/glyphs';
 import type { FilterField, FilterSchema, SavedFilter } from '../../../app/filters';
@@ -35,7 +35,7 @@ export const YES = 'yes';
 export const NO = 'no';
 
 /** The value of the field «Chi ci lavora» for a card: the agent or the person, and «any agent» when it is an agent. */
-function whoOf(card: SarimCard): string[] {
+function whoOf(card: OrbitCard): string[] {
   return card.worker.kind === 'agent' ? [`agent:${card.worker.id}`, ANY_AGENT] : [card.worker.id];
 }
 
@@ -43,13 +43,13 @@ const contractTitle = (id: string | undefined) => world().contracts.find((c) => 
 
 /** The numbers a person types to find a card: those of a report, a booking, an invoice, a user code, read in its detail and its values. */
 const NUMBER = /[A-Z]{0,4}-?\d{2,}(?:-\d+)*/g;
-export function numbersOf(card: SarimCard): string[] {
+export function numbersOf(card: OrbitCard): string[] {
   const text = [card.detail, ...card.values.map((v) => v.value)].join(' ');
   return [...new Set(text.match(NUMBER) ?? [])].filter((n) => n.replace(/\D/g, '').length >= 3);
 }
 
 /** Everything the search box looks in: the card, its comune, its flow and stage, who works on it and who checks it, its contract and the numbers read on it. */
-function searchText(card: SarimCard): string {
+function searchText(card: OrbitCard): string {
   return [
     card.id, card.title, card.detail, card.place ?? '', flowLabel(card.flow), stageLabel(stageOf(card)),
     whoName(card.worker.kind === 'agent' ? `agent:${card.worker.id}` : card.worker.id).full,
@@ -58,10 +58,10 @@ function searchText(card: SarimCard): string {
 }
 
 /** The fields of the to-do page. `now` makes the stopped field depend on the demo clock. */
-export function todoSchema(copy: UiCopy, now: string): FilterSchema<SarimCard> {
+export function todoSchema(copy: UiCopy, now: string): FilterSchema<OrbitCard> {
   const f = copy.kanban.filters;
   const person = (id: string): LucideIcon => (id === ANY_AGENT || id.startsWith('agent:') ? Bot : User);
-  const fields: Array<FilterField<SarimCard>> = [
+  const fields: Array<FilterField<OrbitCard>> = [
     {
       id: FLOW_FIELD, label: f.fields.flow, icon: Workflow, kind: 'choice', get: (c) => c.flow,
       valueLabel: flowLabel, valueIcon: flowIcon, order: world().opsFlows.map((x) => x.id), values: world().opsFlows.map((x) => x.id),

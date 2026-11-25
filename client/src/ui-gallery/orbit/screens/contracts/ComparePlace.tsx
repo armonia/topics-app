@@ -8,7 +8,7 @@
  */
 import { ArrowLeftRight, ChevronDown, ChevronUp, FileSignature, GitCompareArrows } from 'lucide-react';
 import clsx from 'clsx';
-import type { Contract } from '../../../../ui/fixtures/sarim-org/types';
+import type { Contract } from '../../../../ui/fixtures/orbit-org/types';
 import { Button, IconButton } from '../../../../ui/primitives/Button';
 import { Checkbox, Select } from '../../../../ui/primitives/Field';
 import { EmptyState } from '../../../../ui/primitives/EmptyState';

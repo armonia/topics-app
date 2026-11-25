@@ -1,5 +1,5 @@
 /**
- * The work on the kanban of «Da fare» in the SARIM edition: the columns and (allow-italian: quotes the Italian interface)
+ * The work on the kanban of «Da fare» in the ORBIT edition: the columns and (allow-italian: quotes the Italian interface)
  * every card, each on the flow that moves it, with its history, who has it in
  * hand, who checks it, its originals and the values read on them.
  *
@@ -9,9 +9,9 @@
  * or left in its column longer than its flow's `stuckAfterHours`; every other
  * open card entered its column more recently than that. Card ids, amounts,
  * plates, invoice and form numbers are examples, coherent across screens
- * (`scripts/ui-fixtures/sarim-cards.ts` checks them).
+ * (`scripts/ui-fixtures/orbit-cards.ts` checks them).
  */
-import type { CardOriginal, CardValue, SarimCard, Stage, StageEntry, StageId, Worker } from './types';
+import type { CardOriginal, CardValue, OrbitCard, Stage, StageEntry, StageId, Worker } from './types';
 
 /* ---------- helpers ---------- */
 
@@ -23,14 +23,14 @@ const personWorker = (id: string, doing: string, since: string): Worker => ({ ki
 const paper = (id: string, name: string, kind: CardOriginal['kind'], from: string, when: string, lines: string[]): CardOriginal => ({ id, name, kind, from, at: when, lines });
 const read = (label: string, value: string, doc: string, quote: string, confidence: number): CardValue => ({ label, value, doc, quote, confidence });
 
-/** The lines every invoice to SARIM and every form SARIM carries repeat (public data of S.A.R.I.M. SRL). */
+/** The lines every invoice to ORBIT and every form ORBIT carries repeat (public data of S.A.R.I.M. SRL). */
 const BUYER = 'Cessionario/committente: S.A.R.I.M. SRL, P.IVA 02596800652';
 const CARRIER = 'Trasportatore: S.A.R.I.M. SRL, iscrizione Albo Gestori Ambientali NA00165';
 const CALL_LINE = 'numero verde 800.983850'; // allow-italian: fixture data, shown as written
 
 /* ---------- columns ---------- */
 
-export const SARIM_STAGES: Stage[] = [
+export const ORBIT_STAGES: Stage[] = [
   { id: 'arrivo', label: 'In arrivo', hint: "L'agente lo legge e lo prepara" }, // allow-italian: fixture data, shown as written
   { id: 'lavorazione', label: 'In lavorazione', hint: 'Ci lavora un agente o una persona' }, // allow-italian: fixture data, shown as written
   { id: 'verifica', label: 'Da verificare', hint: "Una persona verifica ciò che l'agente ha letto e proposto" }, // allow-italian: fixture data, shown as written
@@ -40,14 +40,14 @@ export const SARIM_STAGES: Stage[] = [
 
 /* ---------- segnalazioni: AMA, utenze, servizio foglie (14) ---------- */
 
-const REPORTS: SarimCard[] = [
+const REPORTS: OrbitCard[] = [
   {
-    id: 'SG-4131', flow: 'sarim-segnalazioni', step: 's1',
+    id: 'SG-4131', flow: 'orbit-segnalazioni', step: 's1',
     title: 'Mancato ritiro organico, utenza non domestica', // allow-italian: fixture data, shown as written
     detail: 'Roma, Municipio V · Via Prenestina 312 · segnalazione AMA 18452', place: 'Roma (AMA)', // allow-italian: fixture data, shown as written
     history: [entry('arrivo', at('11-06', '10:14'), 'agent:ag-segnalazioni')],
     worker: agentWorker('ag-segnalazioni', 'legge la mail AMA e cerca il giro saltato di giovedì', at('11-06', '10:14')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', due: '2026-11-06', priority: 'alta',
+    reviewer: 'orbit-callcenter', due: '2026-11-06', priority: 'alta',
     originals: [
       paper('mail-ama', 'Mail AMA, segnalazione 18452', 'mail', 'mail AMA', at('11-06', '10:13'), [ // allow-italian: fixture data, shown as written
         'Oggetto: segnalazione n. 18452 del 06/11/2026, mancato ritiro utenza non domestica', // allow-italian: fixture data, shown as written
@@ -66,15 +66,15 @@ const REPORTS: SarimCard[] = [
     proposal: "Recupero oggi nel giro del pomeriggio del cantiere Roma Est, e risposta ad AMA con l'ora del passaggio.", // allow-italian: fixture data, shown as written
   },
   {
-    id: 'SG-4132', flow: 'sarim-segnalazioni', step: 's1',
+    id: 'SG-4132', flow: 'orbit-segnalazioni', step: 's1',
     title: "Ritiro ingombranti prenotato dall'app", // allow-italian: fixture data, shown as written
     detail: 'Agropoli · Via Piave 18 · prenotazione 7731', place: 'Agropoli', // allow-italian: fixture data, shown as written
     history: [entry('arrivo', at('11-06', '09:58'), 'agent:ag-segnalazioni')],
     worker: agentWorker('ag-segnalazioni', 'cerca il primo turno ingombranti libero ad Agropoli', at('11-06', '09:59')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'normale',
+    reviewer: 'orbit-callcenter', priority: 'normale',
     originals: [
-      paper('prenotazione', 'Prenotazione 7731, app Sarim Ambiente', 'form', 'app Sarim Ambiente', at('11-06', '09:57'), [ // allow-italian: fixture data, shown as written
-        'App Sarim Ambiente, prenotazione ritiro ingombranti n. 7731', // allow-italian: fixture data, shown as written
+      paper('prenotazione', 'Prenotazione 7731, app Alfa Impianti', 'form', 'app Alfa Impianti', at('11-06', '09:57'), [ // allow-italian: fixture data, shown as written
+        'App Alfa Impianti, prenotazione ritiro ingombranti n. 7731', // allow-italian: fixture data, shown as written
         'Comune: Agropoli', // allow-italian: fixture data, shown as written
         'Indirizzo: Via Piave 18, ritiro a bordo strada', // allow-italian: fixture data, shown as written
         'Cosa: 1 materasso matrimoniale, 1 rete a doghe, 2 sedie', // allow-italian: fixture data, shown as written
@@ -91,12 +91,12 @@ const REPORTS: SarimCard[] = [
     proposal: "Ritiro martedì 10/11 mattina con il turno ingombranti di Agropoli, conferma all'utente nell'app.", // allow-italian: fixture data, shown as written
   },
   {
-    id: 'SG-4134', flow: 'sarim-segnalazioni', step: 's1',
+    id: 'SG-4134', flow: 'orbit-segnalazioni', step: 's1',
     title: 'Mancato ritiro del multimateriale', // allow-italian: fixture data, shown as written
     detail: 'Albanella · località Matinella · segnalazione Enviro 3308', place: 'Albanella', // allow-italian: fixture data, shown as written
     history: [entry('arrivo', at('11-06', '10:21'), 'agent:ag-segnalazioni')],
     worker: agentWorker('ag-segnalazioni', 'consulta il calendario di raccolta della zona', at('11-06', '10:22')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'normale',
+    reviewer: 'orbit-callcenter', priority: 'normale',
     originals: [
       paper('enviro', 'Segnalazione Enviro 3308', 'form', 'Enviro, segnalazioni dei cittadini', at('11-06', '10:20'), [ // allow-italian: fixture data, shown as written
         'Enviro, segnalazione n. 3308, Comune di Albanella', // allow-italian: fixture data, shown as written
@@ -115,7 +115,7 @@ const REPORTS: SarimCard[] = [
     proposal: 'Recupero sabato 07/11 mattina con il giro del multimateriale di Albanella, risposta al cittadino su Enviro.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'SG-4128', flow: 'sarim-segnalazioni', step: 's3', lane: 'pD',
+    id: 'SG-4128', flow: 'orbit-segnalazioni', step: 's3', lane: 'pD',
     title: 'Foglie non raccolte dopo lo spazzamento', // allow-italian: fixture data, shown as written
     detail: 'Roma, Municipio XII · Viale dei Colli Portuensi · segnalazione AMA 18437', place: 'Roma (AMA, Smart Leaf)', // allow-italian: fixture data, shown as written
     history: [
@@ -123,7 +123,7 @@ const REPORTS: SarimCard[] = [
       entry('lavorazione', at('11-06', '08:52'), 'agent:ag-segnalazioni'),
     ],
     worker: agentWorker('ag-segnalazioni', 'cerca in WinWaste il passaggio della squadra foglie di mercoledì', at('11-06', '08:52')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', due: '2026-11-08', priority: 'normale',
+    reviewer: 'orbit-callcenter', due: '2026-11-08', priority: 'normale',
     originals: [
       paper('mail-ama', 'Mail AMA, segnalazione 18437', 'mail', 'mail AMA', at('11-06', '08:45'), [ // allow-italian: fixture data, shown as written
         'Oggetto: segnalazione n. 18437 del 06/11/2026, servizio foglie', // allow-italian: fixture data, shown as written
@@ -144,7 +144,7 @@ const REPORTS: SarimCard[] = [
     proposal: 'Se il passaggio di mercoledì risulta in WinWaste, ripasso con la squadra foglie del Municipio XII sabato 07/11 alle 6:00 e foto ad AMA a lavoro fatto.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'SG-4129', flow: 'sarim-segnalazioni', step: 's3', lane: 'pC',
+    id: 'SG-4129', flow: 'orbit-segnalazioni', step: 's3', lane: 'pC',
     title: 'Abbandono di rifiuti da demolizione, con foto', // allow-italian: fixture data, shown as written
     detail: "Pontecagnano Faiano · area di sosta della strada per Faiano · mail dell'ufficio ambiente", place: 'Pontecagnano Faiano', // allow-italian: fixture data, shown as written
     history: [
@@ -152,7 +152,7 @@ const REPORTS: SarimCard[] = [
       entry('lavorazione', at('11-06', '09:47'), 'agent:ag-segnalazioni'),
     ],
     worker: agentWorker('ag-segnalazioni', 'riconosce dalla foto il tipo di rifiuto e stima il volume', at('11-06', '09:47')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', due: '2026-11-09', priority: 'normale',
+    reviewer: 'orbit-callcenter', due: '2026-11-09', priority: 'normale',
     originals: [
       paper('mail', "Mail dell'ufficio ambiente", 'mail', "mail dell'ufficio ambiente", at('11-06', '09:38'), [ // allow-italian: fixture data, shown as written
         'Oggetto: abbandono di rifiuti, area di sosta della strada per Faiano', // allow-italian: fixture data, shown as written
@@ -174,15 +174,15 @@ const REPORTS: SarimCard[] = [
     proposal: 'Rimozione lunedì 09/11 con il mezzo con gru del cantiere di Pontecagnano; il formulario si prepara dopo il sopralluogo.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'SG-4126', flow: 'sarim-segnalazioni', step: 's4', lane: 'pC',
+    id: 'SG-4126', flow: 'orbit-segnalazioni', step: 's4', lane: 'pC',
     title: 'Abbandono segnalato al numero verde, senza foto', // allow-italian: fixture data, shown as written
     detail: 'Capaccio Paestum · località Licinella · telefonata al numero verde', place: 'Capaccio Paestum', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-06', '08:31'), 'agent:ag-segnalazioni'),
-      entry('lavorazione', at('11-06', '08:40'), 'sarim-callcenter'),
+      entry('lavorazione', at('11-06', '08:40'), 'orbit-callcenter'),
     ],
-    worker: personWorker('sarim-callcenter', "ha chiesto la foto all'utente con un SMS e aspetta la risposta", at('11-06', '08:52')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'normale',
+    worker: personWorker('orbit-callcenter', "ha chiesto la foto all'utente con un SMS e aspetta la risposta", at('11-06', '08:52')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-callcenter', priority: 'normale',
     blocked: { reason: "manca la foto: chiesta all'utente con un SMS", since: at('11-06', '08:52') }, // allow-italian: fixture data, shown as written
     originals: [
       paper('telefonata', 'Telefonata al numero verde', 'call', CALL_LINE, at('11-06', '08:29'), [ // allow-italian: fixture data, shown as written
@@ -200,15 +200,15 @@ const REPORTS: SarimCard[] = [
     proposal: 'Appena arriva la foto: sopralluogo e rimozione con due mezzi, perché il frigorifero è un RAEE e va trasportato a parte.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'SG-4127', flow: 'sarim-segnalazioni', step: 's4', lane: 'pB',
+    id: 'SG-4127', flow: 'orbit-segnalazioni', step: 's4', lane: 'pB',
     title: 'Mancato ritiro della carta', // allow-italian: fixture data, shown as written
     detail: 'Castellabate · Santa Maria · portale utenze', place: 'Castellabate', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-06', '09:12'), 'agent:ag-segnalazioni'),
       entry('lavorazione', at('11-06', '09:20'), 'agent:ag-segnalazioni'),
     ],
-    worker: personWorker('sarim-callcenter', "richiama l'utente: nella segnalazione manca il numero civico", at('11-06', '10:05')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'normale',
+    worker: personWorker('orbit-callcenter', "richiama l'utente: nella segnalazione manca il numero civico", at('11-06', '10:05')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-callcenter', priority: 'normale',
     originals: [
       paper('portale', 'Segnalazione 5512 dal portale utenze', 'form', 'portale utenze', at('11-06', '09:11'), [ // allow-italian: fixture data, shown as written
         'Portale utenze, segnalazione n. 5512', // allow-italian: fixture data, shown as written
@@ -226,7 +226,7 @@ const REPORTS: SarimCard[] = [
     proposal: 'Con il civico: recupero sabato 07/11 con il giro della carta di Santa Maria.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'SG-4124', flow: 'sarim-segnalazioni', step: 's5', lane: 'pA',
+    id: 'SG-4124', flow: 'orbit-segnalazioni', step: 's5', lane: 'pA',
     title: 'Ingombranti lasciati accanto ai contenitori', // allow-italian: fixture data, shown as written
     detail: 'Sarno · Via Matteotti 41 · telefonata al numero verde', place: 'Sarno', // allow-italian: fixture data, shown as written
     history: [
@@ -234,8 +234,8 @@ const REPORTS: SarimCard[] = [
       entry('lavorazione', at('11-06', '08:11'), 'agent:ag-segnalazioni'),
       entry('verifica', at('11-06', '09:30'), 'agent:ag-segnalazioni'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-callcenter', 'verifica turno e mezzo proposti prima di confermare', at('11-06', '09:41')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'normale',
+    worker: personWorker('orbit-callcenter', 'verifica turno e mezzo proposti prima di confermare', at('11-06', '09:41')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-callcenter', priority: 'normale',
     originals: [
       paper('telefonata', 'Telefonata al numero verde', 'call', CALL_LINE, at('11-06', '08:03'), [ // allow-italian: fixture data, shown as written
         'Telefonata delle 08:01, operatrice del call center', // allow-italian: fixture data, shown as written
@@ -251,7 +251,7 @@ const REPORTS: SarimCard[] = [
     proposal: 'Ritiro lunedì 09/11 mattina con il turno ingombranti di Sarno: costipatore e mezzo con sponda per la lavatrice.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'SG-4130', flow: 'sarim-segnalazioni', step: 's5', lane: 'pE',
+    id: 'SG-4130', flow: 'orbit-segnalazioni', step: 's5', lane: 'pE',
     title: 'Doppione: gli stessi ingombranti di Via Matteotti', // allow-italian: fixture data, shown as written
     detail: "Sarno · Via Matteotti 39 · mail di un'utente", place: 'Sarno', // allow-italian: fixture data, shown as written
     history: [
@@ -259,8 +259,8 @@ const REPORTS: SarimCard[] = [
       entry('lavorazione', at('11-06', '10:03'), 'agent:ag-segnalazioni'),
       entry('verifica', at('11-06', '10:05'), 'agent:ag-segnalazioni'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-callcenter', 'verifica che sia la stessa segnalazione di SG-4124', at('11-06', '10:10')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'bassa',
+    worker: personWorker('orbit-callcenter', 'verifica che sia la stessa segnalazione di SG-4124', at('11-06', '10:10')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-callcenter', priority: 'bassa',
     originals: [
       paper('mail', "Mail di un'utente", 'mail', 'mail del servizio clienti', at('11-06', '10:01'), [ // allow-italian: fixture data, shown as written
         'Oggetto: rifiuti abbandonati in Via Matteotti', // allow-italian: fixture data, shown as written
@@ -276,7 +276,7 @@ const REPORTS: SarimCard[] = [
     links: { card: 'SG-4124' },
   },
   {
-    id: 'SG-4119', flow: 'sarim-segnalazioni', step: 's5',
+    id: 'SG-4119', flow: 'orbit-segnalazioni', step: 's5',
     title: 'Contenitore rotto da sostituire, utenza non domestica', // allow-italian: fixture data, shown as written
     detail: 'Roma, Municipio V · Via dei Castani 88 · segnalazione AMA 18391', place: 'Roma (AMA)', // allow-italian: fixture data, shown as written
     history: [
@@ -284,8 +284,8 @@ const REPORTS: SarimCard[] = [
       entry('lavorazione', at('11-05', '11:24'), 'agent:ag-segnalazioni'),
       entry('verifica', at('11-05', '14:10'), 'agent:ag-segnalazioni'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-callcenter', 'deve confermare la consegna del contenitore nuovo', at('11-05', '14:10')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'normale',
+    worker: personWorker('orbit-callcenter', 'deve confermare la consegna del contenitore nuovo', at('11-05', '14:10')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-callcenter', priority: 'normale',
     originals: [
       paper('mail-ama', 'Mail AMA, segnalazione 18391', 'mail', 'mail AMA', at('11-05', '11:19'), [ // allow-italian: fixture data, shown as written
         'Oggetto: segnalazione n. 18391 del 05/11/2026, contenitore danneggiato', // allow-italian: fixture data, shown as written
@@ -303,17 +303,17 @@ const REPORTS: SarimCard[] = [
     proposal: 'Consegna di un carrellato nuovo da 240 litri al passaggio del vetro di lunedì 09/11 e ritiro di quello rotto.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'SG-4121', flow: 'sarim-segnalazioni', step: 's6',
+    id: 'SG-4121', flow: 'orbit-segnalazioni', step: 's6',
     title: 'Pulizia straordinaria dopo una manifestazione', // allow-italian: fixture data, shown as written
     detail: 'Bellizzi · piazza e vie del centro · PEC del Comune', place: 'Bellizzi', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-05', '07:50'), 'agent:ag-segnalazioni'),
       entry('lavorazione', at('11-05', '07:55'), 'agent:ag-segnalazioni'),
       entry('verifica', at('11-05', '08:20'), 'agent:ag-segnalazioni'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-05', '08:55'), 'sarim-callcenter'),
+      entry('approvazione', at('11-05', '08:55'), 'orbit-callcenter'),
     ],
-    worker: personWorker('sarim-tecnico', 'decide se fare la pulizia fuori giro domenica sera', at('11-05', '08:55')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-tecnico', due: '2026-11-08', priority: 'normale',
+    worker: personWorker('orbit-tecnico', 'decide se fare la pulizia fuori giro domenica sera', at('11-05', '08:55')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-tecnico', due: '2026-11-08', priority: 'normale',
     originals: [
       paper('pec', 'PEC del Comune', 'mail', 'PEC del Comune', at('11-05', '07:48'), [ // allow-italian: fixture data, shown as written
         'Oggetto: richiesta di pulizia straordinaria, domenica 08/11/2026', // allow-italian: fixture data, shown as written
@@ -330,17 +330,17 @@ const REPORTS: SarimCard[] = [
     proposal: 'Squadra di 2 operatori con spazzatrice piccola dalle 20:00 alle 23:00: è fuori giro, serve il sì del responsabile tecnico per gli straordinari.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'SG-F10', flow: 'sarim-foglie', step: 's4',
+    id: 'SG-F10', flow: 'orbit-foglie', step: 's4',
     title: 'Rendiconto foglie di ottobre per AMA', // allow-italian: fixture data, shown as written
     detail: 'Roma, Smart Leaf · ottobre 2026 · 1.251 passaggi su 1.284', place: 'Roma (AMA, Smart Leaf)', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-02', '06:00'), 'agent:ag-segnalazioni'),
       entry('lavorazione', at('11-02', '06:05'), 'agent:ag-segnalazioni'),
       entry('verifica', at('11-04', '12:30'), 'agent:ag-segnalazioni'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-06', '09:15'), 'sarim-callcenter'),
+      entry('approvazione', at('11-06', '09:15'), 'orbit-callcenter'),
     ],
-    worker: personWorker('sarim-tecnico', "rilegge il rendiconto prima dell'invio ad AMA", at('11-06', '09:15')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-tecnico', due: '2026-11-10', priority: 'alta',
+    worker: personWorker('orbit-tecnico', "rilegge il rendiconto prima dell'invio ad AMA", at('11-06', '09:15')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-tecnico', due: '2026-11-10', priority: 'alta',
     originals: [
       paper('winwaste', 'Passaggi di ottobre da WinWaste', 'sheet', 'WinWaste', at('11-02', '06:00'), [ // allow-italian: fixture data, shown as written
         'WinWaste, servizio foglie Roma, dal 01/10/2026 al 31/10/2026', // allow-italian: fixture data, shown as written
@@ -367,17 +367,17 @@ const REPORTS: SarimCard[] = [
     links: { contract: 'c-smart-leaf', clause: 'art-8' },
   },
   {
-    id: 'SG-F09', flow: 'sarim-foglie', step: 's5',
+    id: 'SG-F09', flow: 'orbit-foglie', step: 's5',
     title: 'Rendiconto foglie di settembre, riga doppia corretta', // allow-italian: fixture data, shown as written
     detail: 'Roma, Smart Leaf · settembre 2026 · correzione chiesta da AMA', place: 'Roma (AMA, Smart Leaf)', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('10-30', '11:40'), 'agent:ag-segnalazioni'),
       entry('lavorazione', at('10-30', '11:45'), 'agent:ag-segnalazioni'),
       entry('verifica', at('11-02', '10:00'), 'agent:ag-segnalazioni'), // allow-italian: stage id, compared by value
-      entry('fatto', at('11-03', '09:20'), 'sarim-callcenter'), // allow-italian: stage id, compared by value
+      entry('fatto', at('11-03', '09:20'), 'orbit-callcenter'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-callcenter', 'ha inviato ad AMA il rendiconto corretto', at('11-03', '09:20')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-tecnico', priority: 'normale',
+    worker: personWorker('orbit-callcenter', 'ha inviato ad AMA il rendiconto corretto', at('11-03', '09:20')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-tecnico', priority: 'normale',
     originals: [
       paper('mail-ama', 'Mail AMA sul rendiconto di settembre', 'mail', 'mail AMA', at('10-30', '11:38'), [ // allow-italian: fixture data, shown as written
         'Oggetto: rendiconto foglie di settembre, richiesta di correzione', // allow-italian: fixture data, shown as written
@@ -393,7 +393,7 @@ const REPORTS: SarimCard[] = [
     proposal: 'Togliere la riga 215, che ripete la 214, e rimandare ad AMA il rendiconto di settembre corretto.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'SG-4118', flow: 'sarim-segnalazioni', step: 's7', lane: 'pB',
+    id: 'SG-4118', flow: 'orbit-segnalazioni', step: 's7', lane: 'pB',
     title: 'Mancato ritiro del vetro, recuperato', // allow-italian: fixture data, shown as written
     detail: 'Montecorvino Rovella · Via Roma 7 · telefonata al numero verde', place: 'Montecorvino Rovella', // allow-italian: fixture data, shown as written
     history: [
@@ -403,7 +403,7 @@ const REPORTS: SarimCard[] = [
       entry('fatto', at('11-05', '15:10'), 'agent:ag-segnalazioni'), // allow-italian: stage id, compared by value
     ],
     worker: agentWorker('ag-segnalazioni', "ha aperto l'ordine di servizio in SAP dopo la conferma del call center", at('11-05', '15:10')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'normale',
+    reviewer: 'orbit-callcenter', priority: 'normale',
     originals: [
       paper('telefonata', 'Telefonata al numero verde', 'call', CALL_LINE, at('11-05', '08:38'), [ // allow-italian: fixture data, shown as written
         'Telefonata delle 08:36, operatrice del call center', // allow-italian: fixture data, shown as written
@@ -422,14 +422,14 @@ const REPORTS: SarimCard[] = [
 
 /* ---------- FIR e RENTRI (8) ---------- */
 
-const FORMS: SarimCard[] = [
+const FORMS: OrbitCard[] = [
   {
-    id: 'FIR-0941', flow: 'sarim-fir', step: 's1',
+    id: 'FIR-0941', flow: 'orbit-fir', step: 's1',
     title: 'Formulario organico di Castellabate', // allow-italian: fixture data, shown as written
     detail: 'Castellabate · EER 20 01 08 · compattatore FX 218 KP', place: 'Castellabate', // allow-italian: fixture data, shown as written
     history: [entry('arrivo', at('11-06', '10:08'), 'agent:ag-fir')],
     worker: agentWorker('ag-fir', 'legge il formulario: codice EER, pesi, targa e destinatario', at('11-06', '10:08')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'normale',
+    reviewer: 'orbit-callcenter', priority: 'normale',
     originals: [
       paper('fir', 'FIR n. SRM 004521/26', 'form', "Enviro, foto dell'autista", at('11-06', '10:07'), [ // allow-italian: fixture data, shown as written
         'Formulario di identificazione del rifiuto n. SRM 004521/26', // allow-italian: fixture data, shown as written
@@ -450,7 +450,7 @@ const FORMS: SarimCard[] = [
     proposal: 'Formulario completo: manca solo il peso a destino per preparare la registrazione.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FIR-0938', flow: 'sarim-fir', step: 's4',
+    id: 'FIR-0938', flow: 'orbit-fir', step: 's4',
     title: 'Peso a destino più alto della stima', // allow-italian: fixture data, shown as written
     detail: 'Sarno · EER 20 03 01 · 8.420 kg contro 7.900 stimati', place: 'Sarno', // allow-italian: fixture data, shown as written
     history: [
@@ -458,7 +458,7 @@ const FORMS: SarimCard[] = [
       entry('lavorazione', at('11-06', '09:12'), 'agent:ag-fir'),
     ],
     worker: agentWorker('ag-fir', 'prepara la registrazione con il peso a destino e segna la differenza del 6,6%', at('11-06', '09:12')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'normale',
+    reviewer: 'orbit-callcenter', priority: 'normale',
     originals: [
       paper('fir', 'FIR n. SRM 004509/26', 'form', 'Enviro', at('11-06', '09:04'), [ // allow-italian: fixture data, shown as written
         'Formulario di identificazione del rifiuto n. SRM 004509/26', // allow-italian: fixture data, shown as written
@@ -480,15 +480,15 @@ const FORMS: SarimCard[] = [
     proposal: 'Registrare 8.420 kg, il peso a destino, e annotare la differenza del 6,6% rispetto alla stima.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FIR-0936', flow: 'sarim-fir', step: 's2',
+    id: 'FIR-0936', flow: 'orbit-fir', step: 's2',
     title: 'Manca il peso verificato a destino', // allow-italian: fixture data, shown as written
     detail: 'Rocca Priora · EER 15 01 07 · vetro', place: 'Rocca Priora', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-04', '16:30'), 'agent:ag-fir'),
       entry('lavorazione', at('11-04', '16:40'), 'agent:ag-fir'),
     ],
-    worker: personWorker('sarim-callcenter', "ha chiesto all'impianto la copia con il peso", at('11-05', '09:10')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', due: '2026-11-18', priority: 'alta',
+    worker: personWorker('orbit-callcenter', "ha chiesto all'impianto la copia con il peso", at('11-05', '09:10')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-callcenter', due: '2026-11-18', priority: 'alta',
     blocked: { reason: "manca il peso a destino: l'impianto non ha ancora rimandato la copia", since: at('11-05', '09:10') }, // allow-italian: fixture data, shown as written
     originals: [
       paper('fir', 'FIR n. SRM 004488/26', 'form', 'Enviro', at('11-04', '16:29'), [ // allow-italian: fixture data, shown as written
@@ -514,7 +514,7 @@ const FORMS: SarimCard[] = [
     proposal: "Appena l'impianto manda il peso: registrazione con quel peso, entro il 18/11.", // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FIR-0939', flow: 'sarim-fir', step: 's5',
+    id: 'FIR-0939', flow: 'orbit-fir', step: 's5',
     title: 'Formulario carta e cartone di Agropoli', // allow-italian: fixture data, shown as written
     detail: 'Agropoli · EER 20 01 01 · 5.140 kg', place: 'Agropoli', // allow-italian: fixture data, shown as written
     history: [
@@ -522,8 +522,8 @@ const FORMS: SarimCard[] = [
       entry('lavorazione', at('11-05', '15:15'), 'agent:ag-fir'),
       entry('verifica', at('11-06', '08:40'), 'agent:ag-fir'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-callcenter', 'verifica codice e pesi prima della firma', at('11-06', '09:05')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'normale',
+    worker: personWorker('orbit-callcenter', 'verifica codice e pesi prima della firma', at('11-06', '09:05')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-callcenter', priority: 'normale',
     originals: [
       paper('fir', 'FIR n. SRM 004514/26', 'form', "Enviro, foto dell'autista", at('11-05', '15:09'), [ // allow-italian: fixture data, shown as written
         'Formulario di identificazione del rifiuto n. SRM 004514/26', // allow-italian: fixture data, shown as written
@@ -544,7 +544,7 @@ const FORMS: SarimCard[] = [
     proposal: 'Registrazione pronta con 5.140 kg; la targa si legge male nella foto, controllarla sul foglio targa.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FIR-0935', flow: 'sarim-fir', step: 's5',
+    id: 'FIR-0935', flow: 'orbit-fir', step: 's5',
     title: 'Foglie con terra: quale codice EER', // allow-italian: fixture data, shown as written
     detail: 'Roma, Smart Leaf · EER 20 03 03 · 2.960 kg', place: 'Roma (AMA, Smart Leaf)', // allow-italian: fixture data, shown as written
     history: [
@@ -552,8 +552,8 @@ const FORMS: SarimCard[] = [
       entry('lavorazione', at('11-03', '18:25'), 'agent:ag-fir'),
       entry('verifica', at('11-05', '15:00'), 'agent:ag-fir'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-callcenter', 'deve decidere se il codice EER va bene per foglie miste a terra', at('11-05', '15:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-callcenter', priority: 'alta',
+    worker: personWorker('orbit-callcenter', 'deve decidere se il codice EER va bene per foglie miste a terra', at('11-05', '15:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-callcenter', priority: 'alta',
     originals: [
       paper('fir', 'FIR n. SRM 004476/26', 'form', 'Enviro', at('11-03', '18:19'), [ // allow-italian: fixture data, shown as written
         'Formulario di identificazione del rifiuto n. SRM 004476/26', // allow-italian: fixture data, shown as written
@@ -574,17 +574,17 @@ const FORMS: SarimCard[] = [
     proposal: "Il 20 03 03 va bene per foglie con terra; se l'impianto le ha accettate come verde serve il 20 02 01: chiederlo all'impianto prima di registrare.", // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FIR-0933', flow: 'sarim-fir', step: 's6',
+    id: 'FIR-0933', flow: 'orbit-fir', step: 's6',
     title: 'Ingombranti di Pontecagnano Faiano', // allow-italian: fixture data, shown as written
     detail: 'Pontecagnano Faiano · EER 20 03 07 · 2.380 kg', place: 'Pontecagnano Faiano', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-05', '12:10'), 'agent:ag-fir'),
       entry('lavorazione', at('11-05', '12:15'), 'agent:ag-fir'),
       entry('verifica', at('11-05', '16:00'), 'agent:ag-fir'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-06', '09:50'), 'sarim-callcenter'),
+      entry('approvazione', at('11-06', '09:50'), 'orbit-callcenter'),
     ],
-    worker: personWorker('sarim-tecnico', 'deve firmare la registrazione', at('11-06', '09:50')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-tecnico', priority: 'normale',
+    worker: personWorker('orbit-tecnico', 'deve firmare la registrazione', at('11-06', '09:50')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-tecnico', priority: 'normale',
     originals: [
       paper('fir', 'FIR n. SRM 004511/26', 'form', 'Enviro', at('11-05', '12:09'), [ // allow-italian: fixture data, shown as written
         'Formulario di identificazione del rifiuto n. SRM 004511/26', // allow-italian: fixture data, shown as written
@@ -605,18 +605,18 @@ const FORMS: SarimCard[] = [
     proposal: 'Registrazione di carico e scarico pronta con 2.380 kg: da firmare.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FIR-0931', flow: 'sarim-fir', step: 's7',
+    id: 'FIR-0931', flow: 'orbit-fir', step: 's7',
     title: 'Organico di Capaccio Paestum, registrato', // allow-italian: fixture data, shown as written
     detail: 'Capaccio Paestum · EER 20 01 08 · 9.120 kg', place: 'Capaccio Paestum', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-04', '09:30'), 'agent:ag-fir'),
       entry('lavorazione', at('11-04', '09:35'), 'agent:ag-fir'),
       entry('verifica', at('11-04', '14:00'), 'agent:ag-fir'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-05', '10:00'), 'sarim-callcenter'),
+      entry('approvazione', at('11-05', '10:00'), 'orbit-callcenter'),
       entry('fatto', at('11-05', '17:20'), 'agent:ag-fir'), // allow-italian: stage id, compared by value
     ],
     worker: agentWorker('ag-fir', 'ha trasmesso a RENTRI la registrazione firmata', at('11-05', '17:20')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-tecnico', priority: 'normale',
+    reviewer: 'orbit-tecnico', priority: 'normale',
     originals: [
       paper('fir', 'FIR n. SRM 004495/26', 'form', 'Enviro', at('11-04', '09:29'), [ // allow-italian: fixture data, shown as written
         'Formulario di identificazione del rifiuto n. SRM 004495/26', // allow-italian: fixture data, shown as written
@@ -635,18 +635,18 @@ const FORMS: SarimCard[] = [
     proposal: 'Registrazione firmata dal responsabile tecnico e trasmessa a RENTRI il 05/11.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FIR-0929', flow: 'sarim-fir', step: 's7',
+    id: 'FIR-0929', flow: 'orbit-fir', step: 's7',
     title: 'Multimateriale di Serre, registrato', // allow-italian: fixture data, shown as written
     detail: 'Serre · EER 15 01 06 · 1.760 kg', place: 'Serre', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-02', '11:00'), 'agent:ag-fir'),
       entry('lavorazione', at('11-02', '11:05'), 'agent:ag-fir'),
       entry('verifica', at('11-02', '15:30'), 'agent:ag-fir'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-03', '09:00'), 'sarim-callcenter'),
-      entry('fatto', at('11-03', '16:40'), 'sarim-tecnico'), // allow-italian: stage id, compared by value
+      entry('approvazione', at('11-03', '09:00'), 'orbit-callcenter'),
+      entry('fatto', at('11-03', '16:40'), 'orbit-tecnico'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-tecnico', 'ha firmato e chiuso la registrazione', at('11-03', '16:40')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-tecnico', priority: 'normale',
+    worker: personWorker('orbit-tecnico', 'ha firmato e chiuso la registrazione', at('11-03', '16:40')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-tecnico', priority: 'normale',
     originals: [
       paper('fir', 'FIR n. SRM 004470/26', 'form', 'Enviro', at('11-02', '10:59'), [ // allow-italian: fixture data, shown as written
         'Formulario di identificazione del rifiuto n. SRM 004470/26', // allow-italian: fixture data, shown as written
@@ -668,14 +668,14 @@ const FORMS: SarimCard[] = [
 
 /* ---------- fatture passive (10): imponibile + IVA 22% = totale on every one ---------- */
 
-const INVOICES: SarimCard[] = [
+const INVOICES: OrbitCard[] = [
   {
-    id: 'FT-2615', flow: 'sarim-fatture', step: 's1',
+    id: 'FT-2615', flow: 'orbit-fatture', step: 's1',
     title: 'Pneumatici per i compattatori', // allow-italian: fixture data, shown as written
     detail: 'Fornitore pneumatici (esempio) · 4.245,60 euro', // allow-italian: fixture data, shown as written
     history: [entry('arrivo', at('11-06', '10:01'), 'agent:ag-fatture')],
     worker: agentWorker('ag-fatture', 'legge righe, imponibile e IVA della fattura', at('11-06', '10:01')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-contabilita', due: '2026-12-05', priority: 'normale',
+    reviewer: 'orbit-contabilita', due: '2026-12-05', priority: 'normale',
     originals: [
       paper('fattura', 'Fattura 1092/2026', 'invoice', 'SDI', at('11-06', '10:00'), [ // allow-italian: fixture data, shown as written
         'FatturaPA, tipo documento TD01, numero 1092/2026, data 2026-11-05', // allow-italian: fixture data, shown as written
@@ -697,12 +697,12 @@ const INVOICES: SarimCard[] = [
     proposal: "Fattura con l'ordine 2026/0402: abbinarla alla bolla di consegna dell'officina.", // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FT-2616', flow: 'sarim-fatture', step: 's1',
+    id: 'FT-2616', flow: 'orbit-fatture', step: 's1',
     title: 'Energia elettrica di ottobre, sede di Eboli', // allow-italian: fixture data, shown as written
     detail: 'Fornitore energia elettrica (esempio) · 7.493,85 euro', place: 'Eboli', // allow-italian: fixture data, shown as written
     history: [entry('arrivo', at('11-06', '09:20'), 'agent:ag-fatture')],
     worker: agentWorker('ag-fatture', 'legge consumi e importi della bolletta', at('11-06', '09:21')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-contabilita', due: '2026-11-24', priority: 'normale',
+    reviewer: 'orbit-contabilita', due: '2026-11-24', priority: 'normale',
     originals: [
       paper('fattura', 'Fattura E-2026-118422', 'invoice', 'SDI', at('11-06', '09:19'), [ // allow-italian: fixture data, shown as written
         'FatturaPA, tipo documento TD01, numero E-2026-118422, data 2026-11-04', // allow-italian: fixture data, shown as written
@@ -723,7 +723,7 @@ const INVOICES: SarimCard[] = [
     proposal: "Bolletta di ottobre con consumi vicini a quelli di settembre: da abbinare all'addebito in banca del 24/11.", // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FT-2612', flow: 'sarim-fatture', step: 's2',
+    id: 'FT-2612', flow: 'orbit-fatture', step: 's2',
     title: 'Sacchetti compostabili per il porta a porta', // allow-italian: fixture data, shown as written
     detail: 'Fornitore sacchetti (esempio) · 6.588,00 euro', // allow-italian: fixture data, shown as written
     history: [
@@ -731,7 +731,7 @@ const INVOICES: SarimCard[] = [
       entry('lavorazione', at('11-05', '14:25'), 'agent:ag-fatture'),
     ],
     worker: agentWorker('ag-fatture', "abbina fattura, ordine 2026/0388 e bolla di consegna", at('11-06', '10:12')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-contabilita', due: '2026-12-31', priority: 'normale',
+    reviewer: 'orbit-contabilita', due: '2026-12-31', priority: 'normale',
     originals: [
       paper('fattura', 'Fattura 774/2026', 'invoice', 'SDI', at('11-05', '14:19'), [ // allow-italian: fixture data, shown as written
         'FatturaPA, tipo documento TD01, numero 774/2026, data 2026-11-03', // allow-italian: fixture data, shown as written
@@ -758,7 +758,7 @@ const INVOICES: SarimCard[] = [
     proposal: 'Fattura, ordine e bolla tornano: 120.000 sacchetti a 0,045 euro, pronta per il controllo della contabilità.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FT-2613', flow: 'sarim-fatture', step: 's3',
+    id: 'FT-2613', flow: 'orbit-fatture', step: 's3',
     title: 'Noleggio cassoni scarrabili di ottobre', // allow-italian: fixture data, shown as written
     detail: 'Noleggio cassoni (esempio) · 1.474,98 euro · Castellabate', place: 'Castellabate', // allow-italian: fixture data, shown as written
     history: [
@@ -766,7 +766,7 @@ const INVOICES: SarimCard[] = [
       entry('lavorazione', at('11-06', '08:12'), 'agent:ag-fatture'),
     ],
     worker: agentWorker('ag-fatture', 'conta i giorni di noleggio sul foglio del cantiere di Castellabate', at('11-06', '08:12')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-contabilita', due: '2026-12-02', priority: 'normale',
+    reviewer: 'orbit-contabilita', due: '2026-12-02', priority: 'normale',
     originals: [
       paper('fattura', 'Fattura 210/2026', 'invoice', 'SDI', at('11-06', '08:09'), [ // allow-italian: fixture data, shown as written
         'FatturaPA, tipo documento TD01, numero 210/2026, data 2026-11-02', // allow-italian: fixture data, shown as written
@@ -787,15 +787,15 @@ const INVOICES: SarimCard[] = [
     proposal: 'Controllare sul foglio del cantiere se i 6 cassoni sono rimasti tutti i 31 giorni: uno risulta ritirato il 26/10.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FT-2609', flow: 'sarim-fatture', step: 's4',
+    id: 'FT-2609', flow: 'orbit-fatture', step: 's4',
     title: 'Fattura ricambi senza ordine', // allow-italian: fixture data, shown as written
     detail: 'Fornitore ricambi (esempio) · 1.508,53 euro', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-03', '08:40'), 'agent:ag-fatture'),
       entry('lavorazione', at('11-03', '08:45'), 'agent:ag-fatture'),
     ],
-    worker: personWorker('sarim-contabilita', 'ha chiesto alla Flotta chi ha ordinato i ricambi', at('11-03', '09:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-contabilita', priority: 'normale',
+    worker: personWorker('orbit-contabilita', 'ha chiesto alla Flotta chi ha ordinato i ricambi', at('11-03', '09:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-contabilita', priority: 'normale',
     blocked: { reason: "fattura senza ordine: chiesto alla Flotta il numero d'ordine", since: at('11-03', '09:00') }, // allow-italian: fixture data, shown as written
     originals: [
       paper('fattura', 'Fattura 1511/2026', 'invoice', 'SDI', at('11-03', '08:39'), [ // allow-italian: fixture data, shown as written
@@ -817,7 +817,7 @@ const INVOICES: SarimCard[] = [
     proposal: "Senza ordine la fattura non si paga: se la Flotta indica l'ordine si abbina, altrimenti si chiede al fornitore una nota di credito.", // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FT-2611', flow: 'sarim-fatture', step: 's5',
+    id: 'FT-2611', flow: 'orbit-fatture', step: 's5',
     title: 'Gasolio di ottobre sopra il prezzo di contratto', // allow-italian: fixture data, shown as written
     detail: 'Fornitore carburanti (esempio) · 31.007,52 euro · 18.000 litri', // allow-italian: fixture data, shown as written
     history: [
@@ -825,8 +825,8 @@ const INVOICES: SarimCard[] = [
       entry('lavorazione', at('11-04', '09:12'), 'agent:ag-fatture'),
       entry('verifica', at('11-05', '15:00'), 'agent:ag-fatture'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-contabilita', "confronta il prezzo al litro con la formula dell'art. 5 del contratto", at('11-06', '09:30')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-contabilita', due: '2026-11-30', priority: 'alta',
+    worker: personWorker('orbit-contabilita', "confronta il prezzo al litro con la formula dell'art. 5 del contratto", at('11-06', '09:30')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-contabilita', due: '2026-11-30', priority: 'alta',
     originals: [
       paper('fattura', 'Fattura 2026/0417', 'invoice', 'SDI', at('11-04', '09:09'), [ // allow-italian: fixture data, shown as written
         'FatturaPA, tipo documento TD01, numero 2026/0417, data 2026-10-31', // allow-italian: fixture data, shown as written
@@ -851,7 +851,7 @@ const INVOICES: SarimCard[] = [
     links: { contract: 'c-carburante', clause: 'art-5' },
   },
   {
-    id: 'FT-2607', flow: 'sarim-fatture', step: 's5',
+    id: 'FT-2607', flow: 'orbit-fatture', step: 's5',
     title: 'Contenitori: la bolla dice 380 mastelli, la fattura 400', // allow-italian: fixture data, shown as written
     detail: 'Fornitore contenitori (esempio) · 5.636,40 euro', // allow-italian: fixture data, shown as written
     history: [
@@ -859,8 +859,8 @@ const INVOICES: SarimCard[] = [
       entry('lavorazione', at('11-02', '10:05'), 'agent:ag-fatture'),
       entry('verifica', at('11-02', '16:00'), 'agent:ag-fatture'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-contabilita', 'deve decidere se pagare 380 mastelli o aspettare gli altri 20', at('11-02', '16:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-contabilita', due: '2026-11-29', priority: 'normale',
+    worker: personWorker('orbit-contabilita', 'deve decidere se pagare 380 mastelli o aspettare gli altri 20', at('11-02', '16:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-contabilita', due: '2026-11-29', priority: 'normale',
     originals: [
       paper('fattura', 'Fattura 655/2026', 'invoice', 'SDI', at('11-02', '09:59'), [ // allow-italian: fixture data, shown as written
         'FatturaPA, tipo documento TD01, numero 655/2026, data 2026-10-30', // allow-italian: fixture data, shown as written
@@ -889,17 +889,17 @@ const INVOICES: SarimCard[] = [
     proposal: 'Pagare 380 mastelli (2.584,00 euro di riga) e chiedere una nota di credito per i 20 non consegnati, oppure aspettare la seconda consegna.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FT-2604', flow: 'sarim-fatture', step: 's6',
+    id: 'FT-2604', flow: 'orbit-fatture', step: 's6',
     title: 'Riparazione del compattatore riconsegnato in ritardo', // allow-italian: fixture data, shown as written
     detail: 'Officina veicoli industriali (esempio) · 5.011,76 euro · mezzo FZ 318 KD', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-02', '09:30'), 'agent:ag-fatture'),
       entry('lavorazione', at('11-02', '09:35'), 'agent:ag-fatture'),
       entry('verifica', at('11-03', '11:00'), 'agent:ag-fatture'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-05', '11:00'), 'sarim-contabilita'),
+      entry('approvazione', at('11-05', '11:00'), 'orbit-contabilita'),
     ],
-    worker: personWorker('sarim-dg', 'decide se pagare trattenendo la penale per il ritardo', at('11-05', '11:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-dg', due: '2026-11-29', priority: 'alta',
+    worker: personWorker('orbit-dg', 'decide se pagare trattenendo la penale per il ritardo', at('11-05', '11:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-dg', due: '2026-11-29', priority: 'alta',
     originals: [
       paper('fattura', 'Fattura 318/2026', 'invoice', 'SDI', at('11-02', '09:29'), [ // allow-italian: fixture data, shown as written
         'FatturaPA, tipo documento TD01, numero 318/2026, data 2026-10-30', // allow-italian: fixture data, shown as written
@@ -928,7 +928,7 @@ const INVOICES: SarimCard[] = [
     links: { contract: 'c-officina', clause: 'art-6' },
   },
   {
-    id: 'FT-2601', flow: 'sarim-fatture', step: 's7',
+    id: 'FT-2601', flow: 'orbit-fatture', step: 's7',
     title: 'Lubrificanti di ottobre, pagata e riconciliata', // allow-italian: fixture data, shown as written
     detail: 'Fornitore lubrificanti (esempio) · 2.257,00 euro', // allow-italian: fixture data, shown as written
     history: [
@@ -938,7 +938,7 @@ const INVOICES: SarimCard[] = [
       entry('fatto', at('11-04', '16:30'), 'agent:ag-fatture'), // allow-italian: stage id, compared by value
     ],
     worker: agentWorker('ag-fatture', 'ha abbinato il bonifico del 04/11 e chiuso la riconciliazione', at('11-04', '16:30')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-contabilita', priority: 'normale',
+    reviewer: 'orbit-contabilita', priority: 'normale',
     originals: [
       paper('fattura', 'Fattura 77/2026', 'invoice', 'SDI', at('10-30', '09:59'), [ // allow-italian: fixture data, shown as written
         'FatturaPA, tipo documento TD01, numero 77/2026, data 2026-10-29', // allow-italian: fixture data, shown as written
@@ -963,18 +963,18 @@ const INVOICES: SarimCard[] = [
     proposal: 'Il bonifico del 04/11 è uguale al totale della fattura 77/2026: riconciliazione chiusa.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'FT-2598', flow: 'sarim-fatture', step: 's7',
+    id: 'FT-2598', flow: 'orbit-fatture', step: 's7',
     title: 'Dispositivi di protezione per gli operatori', // allow-italian: fixture data, shown as written
     detail: 'Fornitore DPI (esempio) · 4.831,20 euro', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('10-27', '09:00'), 'agent:ag-fatture'),
       entry('lavorazione', at('10-27', '09:05'), 'agent:ag-fatture'),
       entry('verifica', at('10-27', '15:00'), 'agent:ag-fatture'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('10-28', '10:00'), 'sarim-contabilita'),
-      entry('fatto', at('10-30', '17:10'), 'sarim-contabilita'), // allow-italian: stage id, compared by value
+      entry('approvazione', at('10-28', '10:00'), 'orbit-contabilita'),
+      entry('fatto', at('10-30', '17:10'), 'orbit-contabilita'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-contabilita', 'ha chiuso la fattura dopo il sì della direzione', at('10-30', '17:10')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-contabilita', priority: 'normale',
+    worker: personWorker('orbit-contabilita', 'ha chiuso la fattura dopo il sì della direzione', at('10-30', '17:10')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-contabilita', priority: 'normale',
     originals: [
       paper('fattura', 'Fattura 2290/2026', 'invoice', 'SDI', at('10-27', '08:59'), [ // allow-italian: fixture data, shown as written
         'FatturaPA, tipo documento TD01, numero 2290/2026, data 2026-10-26', // allow-italian: fixture data, shown as written
@@ -996,14 +996,14 @@ const INVOICES: SarimCard[] = [
 
 /* ---------- gare (6) ---------- */
 
-const TENDERS: SarimCard[] = [
+const TENDERS: OrbitCard[] = [
   {
-    id: 'GA-034', flow: 'sarim-gara', step: 's1',
+    id: 'GA-034', flow: 'orbit-gara', step: 's1',
     title: 'Spazzamento meccanizzato, Comune costiero (esempio)', // allow-italian: fixture data, shown as written
     detail: 'provincia di Salerno · 2.180.000,00 euro · 36 mesi', place: 'Comune costiero (esempio)', // allow-italian: fixture data, shown as written
     history: [entry('arrivo', at('11-06', '09:10'), 'agent:ag-gare')],
     worker: agentWorker('ag-gare', 'legge bando e disciplinare', at('11-06', '09:10')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-tecnico', due: '2026-11-27', priority: 'normale',
+    reviewer: 'orbit-tecnico', due: '2026-11-27', priority: 'normale',
     originals: [
       paper('bando', 'Bando di gara, spazzamento', 'tender', 'portale gare', at('11-05', '17:00'), [ // allow-italian: fixture data, shown as written
         'Bando di gara: procedura aperta per il servizio di spazzamento meccanizzato e manuale', // allow-italian: fixture data, shown as written
@@ -1021,7 +1021,7 @@ const TENDERS: SarimCard[] = [
     proposal: 'Gara vicina ai cantieri del Cilento: preparare la scheda per la valutazione della Tecnica.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'GA-033', flow: 'sarim-gara', step: 's2',
+    id: 'GA-033', flow: 'orbit-gara', step: 's2',
     title: 'Raccolta porta a porta, Unione di comuni (esempio)', // allow-italian: fixture data, shown as written
     detail: 'provincia di Salerno · 6.420.000,00 euro · 60 mesi', place: 'Unione di comuni (esempio)', // allow-italian: fixture data, shown as written
     history: [
@@ -1029,7 +1029,7 @@ const TENDERS: SarimCard[] = [
       entry('lavorazione', at('11-05', '11:50'), 'agent:ag-gare'),
     ],
     worker: agentWorker('ag-gare', 'prepara la scheda: requisiti, CCNL, mezzi e personale da assorbire', at('11-06', '08:30')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-tecnico', due: '2026-11-20', priority: 'normale',
+    reviewer: 'orbit-tecnico', due: '2026-11-20', priority: 'normale',
     originals: [
       paper('bando', 'Bando di gara, porta a porta', 'tender', 'portale gare', at('11-05', '11:30'), [ // allow-italian: fixture data, shown as written
         'Bando di gara: procedura aperta per la raccolta porta a porta e il trasporto dei rifiuti urbani di 4 comuni', // allow-italian: fixture data, shown as written
@@ -1052,15 +1052,15 @@ const TENDERS: SarimCard[] = [
     proposal: 'Gara compatibile con i cantieri vicini, 23 addetti da assorbire: la scheda va alla Tecnica per mezzi e costi.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'GA-031', flow: 'sarim-gara', step: 's3',
+    id: 'GA-031', flow: 'orbit-gara', step: 's3',
     title: 'Igiene urbana, Comune collinare (esempio): manca un chiarimento', // allow-italian: fixture data, shown as written
     detail: 'provincia di Avellino · 3.950.000,00 euro · 48 mesi', place: 'Comune collinare (esempio)', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-02', '10:20'), 'agent:ag-gare'),
       entry('lavorazione', at('11-02', '10:30'), 'agent:ag-gare'),
     ],
-    worker: personWorker('sarim-tecnico', 'stima mezzi e personale, ma il numero di utenze non torna', at('11-03', '12:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-tecnico', due: '2026-11-23', priority: 'normale',
+    worker: personWorker('orbit-tecnico', 'stima mezzi e personale, ma il numero di utenze non torna', at('11-03', '12:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-tecnico', due: '2026-11-23', priority: 'normale',
     blocked: { reason: 'aspetta il chiarimento della stazione appaltante sul numero di utenze', since: at('11-03', '12:00') }, // allow-italian: fixture data, shown as written
     originals: [
       paper('bando', 'Bando di gara, igiene urbana', 'tender', 'portale gare', at('11-02', '10:10'), [ // allow-italian: fixture data, shown as written
@@ -1085,16 +1085,16 @@ const TENDERS: SarimCard[] = [
     proposal: 'Con 8.900 utenze servono 2 mezzi in più: aspettare la risposta prima di stimare i costi.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'GA-030', flow: 'sarim-gara', step: 's4',
+    id: 'GA-030', flow: 'orbit-gara', step: 's4',
     title: 'Raccolta e trasporto dei rifiuti urbani, CUC (esempio) per 3 comuni', // allow-italian: fixture data, shown as written
     detail: 'provincia di Salerno · 5.270.000,00 euro · 60 mesi', place: 'CUC (esempio)', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('10-29', '09:00'), 'agent:ag-gare'),
       entry('lavorazione', at('10-29', '09:10'), 'agent:ag-gare'),
-      entry('verifica', at('11-04', '17:00'), 'sarim-tecnico'), // allow-italian: stage id, compared by value
+      entry('verifica', at('11-04', '17:00'), 'orbit-tecnico'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-bruno', 'verifica garanzie, requisiti e clausola sociale', at('11-05', '09:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-bruno', due: '2026-11-16', priority: 'alta',
+    worker: personWorker('orbit-bruno', 'verifica garanzie, requisiti e clausola sociale', at('11-05', '09:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-bruno', due: '2026-11-16', priority: 'alta',
     originals: [
       paper('bando', 'Bando di gara, raccolta e trasporto', 'tender', 'portale gare', at('10-28', '16:00'), [ // allow-italian: fixture data, shown as written
         'Bando di gara: procedura aperta per la raccolta e il trasporto dei rifiuti urbani', // allow-italian: fixture data, shown as written
@@ -1122,17 +1122,17 @@ const TENDERS: SarimCard[] = [
     proposal: "La Tecnica dice di partecipare: chiedere subito la garanzia provvisoria di 105.400,00 euro, perché l'offerta scade il 16/11 e manca solo il controllo del Legale.", // allow-italian: fixture data, shown as written
   },
   {
-    id: 'GA-029', flow: 'sarim-gara', step: 's5',
+    id: 'GA-029', flow: 'orbit-gara', step: 's5',
     title: 'Igiene urbana, Comune dei Castelli Romani (esempio)', // allow-italian: fixture data, shown as written
     detail: 'città metropolitana di Roma · 9.800.000,00 euro · 84 mesi', place: 'Comune dei Castelli Romani (esempio)', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('10-26', '10:00'), 'agent:ag-gare'),
       entry('lavorazione', at('10-26', '10:15'), 'agent:ag-gare'),
-      entry('verifica', at('10-30', '12:00'), 'sarim-tecnico'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-05', '18:00'), 'sarim-bruno'),
+      entry('verifica', at('10-30', '12:00'), 'orbit-tecnico'), // allow-italian: stage id, compared by value
+      entry('approvazione', at('11-05', '18:00'), 'orbit-bruno'),
     ],
-    worker: personWorker('sarim-dg', 'decide se partecipare', at('11-05', '18:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-dg', due: '2026-11-19', priority: 'alta',
+    worker: personWorker('orbit-dg', 'decide se partecipare', at('11-05', '18:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-dg', due: '2026-11-19', priority: 'alta',
     originals: [
       paper('bando', 'Bando di gara, igiene urbana', 'tender', 'portale gare', at('10-26', '09:50'), [ // allow-italian: fixture data, shown as written
         'Bando di gara: procedura aperta per il servizio integrato di igiene urbana', // allow-italian: fixture data, shown as written
@@ -1156,18 +1156,18 @@ const TENDERS: SarimCard[] = [
     proposal: 'Partecipare: è a 15 km dai cantieri di Rocca Priora e Grottaferrata, margine stimato 6,8%, nessun ostacolo nei requisiti.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'GA-027', flow: 'sarim-gara', step: 's6',
+    id: 'GA-027', flow: 'orbit-gara', step: 's6',
     title: 'Gara scartata: troppo lontana dai cantieri', // allow-italian: fixture data, shown as written
     detail: 'provincia di Potenza · 2.640.000,00 euro · 48 mesi', place: 'Comune (esempio) in provincia di Potenza', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('10-28', '09:00'), 'agent:ag-gare'),
       entry('lavorazione', at('10-28', '09:20'), 'agent:ag-gare'),
-      entry('verifica', at('10-30', '10:00'), 'sarim-tecnico'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-02', '12:00'), 'sarim-bruno'),
-      entry('fatto', at('11-04', '12:00'), 'sarim-dg'), // allow-italian: stage id, compared by value
+      entry('verifica', at('10-30', '10:00'), 'orbit-tecnico'), // allow-italian: stage id, compared by value
+      entry('approvazione', at('11-02', '12:00'), 'orbit-bruno'),
+      entry('fatto', at('11-04', '12:00'), 'orbit-dg'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-dg', 'ha deciso di non partecipare', at('11-04', '12:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-dg', priority: 'bassa',
+    worker: personWorker('orbit-dg', 'ha deciso di non partecipare', at('11-04', '12:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-dg', priority: 'bassa',
     originals: [
       paper('bando', 'Bando di gara, raccolta', 'tender', 'portale gare', at('10-28', '08:40'), [ // allow-italian: fixture data, shown as written
         'Bando di gara: procedura aperta per la raccolta dei rifiuti urbani', // allow-italian: fixture data, shown as written
@@ -1191,14 +1191,14 @@ const TENDERS: SarimCard[] = [
 
 /* ---------- personale: tempi determinati, turni, ferie, fogli targa, INPS, RSU (9) ---------- */
 
-const STAFF: SarimCard[] = [
+const STAFF: OrbitCard[] = [
   {
-    id: 'PE-121', flow: 'sarim-turni', step: 's1',
+    id: 'PE-121', flow: 'orbit-turni', step: 's1',
     title: 'Ferie di Natale, cantiere di Agropoli', // allow-italian: fixture data, shown as written
     detail: 'Agropoli · 6 richieste fra il 21/12 e il 04/01', place: 'Agropoli', // allow-italian: fixture data, shown as written
     history: [entry('arrivo', at('11-06', '10:10'), 'agent:ag-personale')],
     worker: agentWorker('ag-personale', 'mette le richieste accanto ai turni di dicembre', at('11-06', '10:10')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-personale', due: '2026-11-30', priority: 'normale',
+    reviewer: 'orbit-personale', due: '2026-11-30', priority: 'normale',
     originals: [
       paper('zucchetti', 'Richieste di ferie da Zucchetti', 'sheet', 'Zucchetti', at('11-06', '10:09'), [ // allow-italian: fixture data, shown as written
         'Zucchetti, richieste di ferie, cantiere di Agropoli', // allow-italian: fixture data, shown as written
@@ -1218,12 +1218,12 @@ const STAFF: SarimCard[] = [
     proposal: 'Il 28/12 sarebbero in ferie 4 operatori del cantiere insieme: approvarle a turni alterni.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'PE-122', flow: 'sarim-turni', step: 's1',
+    id: 'PE-122', flow: 'orbit-turni', step: 's1',
     title: 'Fogli targa di giovedì, cantiere di Sarno', // allow-italian: fixture data, shown as written
     detail: 'Sarno · 2 mezzi usciti senza foglio targa', place: 'Sarno', // allow-italian: fixture data, shown as written
     history: [entry('arrivo', at('11-06', '07:30'), 'agent:ag-personale')],
     worker: agentWorker('ag-personale', 'cerca nei turni di giovedì chi guidava i 2 mezzi', at('11-06', '07:31')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-flotta', priority: 'normale',
+    reviewer: 'orbit-flotta', priority: 'normale',
     originals: [
       paper('fogli', 'Fogli targa del 05/11', 'sheet', 'Excel, fogli targa del cantiere', at('11-06', '07:29'), [ // allow-italian: fixture data, shown as written
         'Cantiere di Sarno, fogli targa di giovedì 05/11/2026', // allow-italian: fixture data, shown as written
@@ -1240,7 +1240,7 @@ const STAFF: SarimCard[] = [
     links: { card: 'FIR-0938' },
   },
   {
-    id: 'PE-118', flow: 'sarim-scadenze', step: 's3',
+    id: 'PE-118', flow: 'orbit-scadenze', step: 's3',
     title: '3 contratti a termine del servizio estivo di Castellabate scadono il 30/11', // allow-italian: fixture data, shown as written
     detail: 'Castellabate · 2 operatori ecologici e un autista · scadenza 30/11/2026', place: 'Castellabate', // allow-italian: fixture data, shown as written
     history: [
@@ -1248,7 +1248,7 @@ const STAFF: SarimCard[] = [
       entry('lavorazione', at('11-05', '16:00'), 'agent:ag-personale'),
     ],
     worker: agentWorker('ag-personale', 'prepara la scheda dei 3 contratti: mesi fatti e proroghe usate', at('11-06', '09:40')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-personale', due: '2026-11-30', priority: 'alta',
+    reviewer: 'orbit-personale', due: '2026-11-30', priority: 'alta',
     originals: [
       paper('zucchetti', 'Contratti a termine in scadenza', 'sheet', 'Zucchetti', at('11-02', '07:00'), [ // allow-italian: fixture data, shown as written
         'Zucchetti, contratti a tempo determinato in scadenza entro 60 giorni', // allow-italian: fixture data, shown as written
@@ -1267,15 +1267,15 @@ const STAFF: SarimCard[] = [
     links: { contract: 'c-td-castellabate', clause: 'art-2' },
   },
   {
-    id: 'PE-115', flow: 'sarim-turni', step: 's3',
+    id: 'PE-115', flow: 'orbit-turni', step: 's3',
     title: 'UniEmens di ottobre: 2 matricole non tornano', // allow-italian: fixture data, shown as written
     detail: 'INPS · denuncia di ottobre · da inviare entro il 30/11', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-04', '08:00'), 'agent:ag-personale'),
       entry('lavorazione', at('11-04', '09:30'), 'agent:ag-personale'),
     ],
-    worker: personWorker('sarim-personale', 'confronta presenze e cedolini delle 2 matricole', at('11-04', '15:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-personale', due: '2026-11-30', priority: 'alta',
+    worker: personWorker('orbit-personale', 'confronta presenze e cedolini delle 2 matricole', at('11-04', '15:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-personale', due: '2026-11-30', priority: 'alta',
     blocked: { reason: 'aspetta da Zucchetti i cedolini corretti delle 2 matricole', since: at('11-04', '15:00') }, // allow-italian: fixture data, shown as written
     originals: [
       paper('controllo', 'Controllo UniEmens di ottobre', 'sheet', 'Zucchetti', at('11-04', '08:00'), [ // allow-italian: fixture data, shown as written
@@ -1293,7 +1293,7 @@ const STAFF: SarimCard[] = [
     proposal: 'Correggere i 2 cedolini e inviare la denuncia di ottobre entro il 30/11.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'PE-117', flow: 'sarim-scadenze', step: 's4',
+    id: 'PE-117', flow: 'orbit-scadenze', step: 's4',
     title: '2 contratti a termine di Sarno scadono il 31/12', // allow-italian: fixture data, shown as written
     detail: 'Sarno · 2 operatori ecologici · scadenza 31/12/2026', place: 'Sarno', // allow-italian: fixture data, shown as written
     history: [
@@ -1301,8 +1301,8 @@ const STAFF: SarimCard[] = [
       entry('lavorazione', at('11-02', '07:05'), 'agent:ag-personale'),
       entry('verifica', at('11-06', '09:00'), 'agent:ag-personale'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-personale', 'decide fra rinnovo e chiusura', at('11-06', '09:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-personale', due: '2026-12-31', priority: 'normale',
+    worker: personWorker('orbit-personale', 'decide fra rinnovo e chiusura', at('11-06', '09:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-personale', due: '2026-12-31', priority: 'normale',
     originals: [
       paper('zucchetti', 'Contratti a termine in scadenza', 'sheet', 'Zucchetti', at('11-02', '07:00'), [ // allow-italian: fixture data, shown as written
         'Zucchetti, contratti a tempo determinato in scadenza entro 60 giorni', // allow-italian: fixture data, shown as written
@@ -1318,7 +1318,7 @@ const STAFF: SarimCard[] = [
     proposal: 'La matricola 0590 arriva a 24 mesi il 31/12: si sceglie fra assunzione a tempo indeterminato e chiusura; la 0587 si può rinnovare.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'PE-116', flow: 'sarim-turni', step: 's5',
+    id: 'PE-116', flow: 'orbit-turni', step: 's5',
     title: 'Fogli targa di ottobre: chilometri che non tornano', // allow-italian: fixture data, shown as written
     detail: 'Albanella · 3 mezzi · 640 km in più del GPS', place: 'Albanella', // allow-italian: fixture data, shown as written
     history: [
@@ -1326,8 +1326,8 @@ const STAFF: SarimCard[] = [
       entry('lavorazione', at('11-02', '08:10'), 'agent:ag-personale'),
       entry('verifica', at('11-04', '18:00'), 'agent:ag-personale'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-flotta', 'confronta i chilometri dei fogli targa con il GPS', at('11-05', '08:30')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-flotta', priority: 'normale',
+    worker: personWorker('orbit-flotta', 'confronta i chilometri dei fogli targa con il GPS', at('11-05', '08:30')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-flotta', priority: 'normale',
     originals: [
       paper('fogli', 'Riepilogo dei fogli targa di ottobre', 'sheet', 'Excel, fogli targa del cantiere', at('11-02', '08:00'), [ // allow-italian: fixture data, shown as written
         'Cantiere di Albanella, fogli targa di ottobre 2026', // allow-italian: fixture data, shown as written
@@ -1344,17 +1344,17 @@ const STAFF: SarimCard[] = [
     proposal: 'Chiedere ai 3 autisti i fogli del 12 e del 19/10, dove la differenza è più alta, e controllare i rifornimenti di quei giorni.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'PE-120', flow: 'sarim-turni', step: 's6',
+    id: 'PE-120', flow: 'orbit-turni', step: 's6',
     title: 'Assemblea delle RSU di giovedì 12/11: spostare i turni', // allow-italian: fixture data, shown as written
     detail: 'sede di Eboli · dalle 10:30 alle 12:30 · turni del mattino', place: 'Eboli', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-05', '15:20'), 'agent:ag-personale'),
       entry('lavorazione', at('11-05', '15:25'), 'agent:ag-personale'),
       entry('verifica', at('11-05', '17:00'), 'agent:ag-personale'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-06', '08:00'), 'sarim-personale'),
+      entry('approvazione', at('11-06', '08:00'), 'orbit-personale'),
     ],
-    worker: personWorker('sarim-personale', "approva lo spostamento dei turni per l'assemblea", at('11-06', '08:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-personale', due: '2026-11-12', priority: 'normale',
+    worker: personWorker('orbit-personale', "approva lo spostamento dei turni per l'assemblea", at('11-06', '08:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-personale', due: '2026-11-12', priority: 'normale',
     originals: [
       paper('mail', 'Mail delle RSU', 'mail', 'posta del Personale', at('11-05', '15:18'), [ // allow-italian: fixture data, shown as written
         'Oggetto: convocazione di assemblea retribuita, giovedì 12/11/2026', // allow-italian: fixture data, shown as written
@@ -1372,18 +1372,18 @@ const STAFF: SarimCard[] = [
     links: { card: 'CT-A05' },
   },
   {
-    id: 'PE-112', flow: 'sarim-scadenze', step: 's6',
+    id: 'PE-112', flow: 'orbit-scadenze', step: 's6',
     title: 'Proroga di 2 contratti a termine, Pontecagnano Faiano', // allow-italian: fixture data, shown as written
     detail: 'Pontecagnano Faiano · 2 operatori · prorogati al 28/02/2027', place: 'Pontecagnano Faiano', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('10-26', '07:00'), 'agent:ag-personale'),
       entry('lavorazione', at('10-26', '07:05'), 'agent:ag-personale'),
       entry('verifica', at('10-27', '09:00'), 'agent:ag-personale'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('10-29', '10:00'), 'sarim-personale'),
-      entry('fatto', at('11-03', '12:00'), 'sarim-personale'), // allow-italian: stage id, compared by value
+      entry('approvazione', at('10-29', '10:00'), 'orbit-personale'),
+      entry('fatto', at('11-03', '12:00'), 'orbit-personale'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-personale', 'ha consegnato le lettere e inviato le comunicazioni obbligatorie', at('11-03', '12:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-personale', priority: 'normale',
+    worker: personWorker('orbit-personale', 'ha consegnato le lettere e inviato le comunicazioni obbligatorie', at('11-03', '12:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-personale', priority: 'normale',
     originals: [
       paper('zucchetti', 'Contratti a termine in scadenza', 'sheet', 'Zucchetti', at('10-26', '07:00'), [ // allow-italian: fixture data, shown as written
         'Zucchetti, contratti a tempo determinato in scadenza entro 60 giorni', // allow-italian: fixture data, shown as written
@@ -1402,18 +1402,18 @@ const STAFF: SarimCard[] = [
     proposal: 'Proroga di 3 mesi dei 2 contratti, fino al 28/02/2027.', // allow-italian: fixture data, shown as written
   },
   {
-    id: 'PE-113', flow: 'sarim-turni', step: 's7',
+    id: 'PE-113', flow: 'orbit-turni', step: 's7',
     title: 'Presenze di ottobre chiuse, cantiere di Bellizzi', // allow-italian: fixture data, shown as written
     detail: 'Bellizzi · 22 operatori · ottobre 2026', place: 'Bellizzi', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('10-31', '13:00'), 'agent:ag-personale'),
       entry('lavorazione', at('10-31', '13:10'), 'agent:ag-personale'),
       entry('verifica', at('11-02', '09:00'), 'agent:ag-personale'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-02', '11:00'), 'sarim-personale'),
+      entry('approvazione', at('11-02', '11:00'), 'orbit-personale'),
       entry('fatto', at('11-02', '18:00'), 'agent:ag-personale'), // allow-italian: stage id, compared by value
     ],
     worker: agentWorker('ag-personale', 'ha chiuso il mese in Zucchetti dopo il sì del Personale', at('11-02', '18:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-personale', priority: 'normale',
+    reviewer: 'orbit-personale', priority: 'normale',
     originals: [
       paper('zucchetti', 'Chiusura presenze di ottobre', 'sheet', 'Zucchetti', at('10-31', '13:00'), [ // allow-italian: fixture data, shown as written
         'Zucchetti, chiusura presenze di ottobre 2026, cantiere di Bellizzi', // allow-italian: fixture data, shown as written
@@ -1431,18 +1431,18 @@ const STAFF: SarimCard[] = [
 
 /* ---------- contratti e varianti (7): the ids the contracts of `contracts.ts` link back to ---------- */
 
-const CONTRACT_CARDS: SarimCard[] = [
+const CONTRACT_CARDS: OrbitCard[] = [
   {
-    id: 'CT-S02', flow: 'sarim-varianti', step: 's1',
+    id: 'CT-S02', flow: 'orbit-varianti', step: 's1',
     title: 'Contratto di Vallo della Lucania scaduto, servizio proseguito', // allow-italian: fixture data, shown as written
     detail: 'Vallo della Lucania · scaduto il 14/03/2025 · serve un atto', place: 'Vallo della Lucania', // allow-italian: fixture data, shown as written
     history: [entry('arrivo', at('11-06', '07:00'), 'agent:ag-contratti')],
     worker: agentWorker('ag-contratti', 'ha trovato il contratto scaduto e prepara il riepilogo', at('11-06', '07:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-bruno', priority: 'alta',
+    reviewer: 'orbit-bruno', priority: 'alta',
     originals: [
       paper('scadenzario', 'Scadenzario dei contratti', 'sheet', 'Excel del Legale', at('11-06', '07:00'), [ // allow-italian: fixture data, shown as written
         'Scadenzario dei contratti, controllo del 06/11/2026', // allow-italian: fixture data, shown as written
-        'Vallo della Lucania, ATI SARIM e Nappi Sud, contratto del 05/12/2017', // allow-italian: fixture data, shown as written
+        'Vallo della Lucania, ATI ORBIT e Nappi Sud, contratto del 05/12/2017', // allow-italian: fixture data, shown as written
         'Valore: 9.298.979,61 euro', // allow-italian: fixture data, shown as written
         'Scadenza: 14/03/2025', // allow-italian: fixture data, shown as written
         "Stato: servizio proseguito dopo la scadenza, nessun atto di proroga nell'archivio", // allow-italian: fixture data, shown as written
@@ -1458,15 +1458,15 @@ const CONTRACT_CARDS: SarimCard[] = [
     links: { contract: 'c-vallo' },
   },
   {
-    id: 'CT-N12', flow: 'sarim-varianti', step: 's3',
+    id: 'CT-N12', flow: 'orbit-varianti', step: 's3',
     title: 'Autorizzazione al subappalto del lavaggio contenitori', // allow-italian: fixture data, shown as written
     detail: 'Castellabate · Subappaltatore lavaggio (esempio) · richiesta al RUP', place: 'Castellabate', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('11-03', '11:00'), 'agent:ag-contratti'),
-      entry('lavorazione', at('11-04', '10:00'), 'sarim-bruno'),
+      entry('lavorazione', at('11-04', '10:00'), 'orbit-bruno'),
     ],
-    worker: personWorker('sarim-bruno', 'scrive la richiesta di autorizzazione al RUP', at('11-05', '09:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-dg', priority: 'normale',
+    worker: personWorker('orbit-bruno', 'scrive la richiesta di autorizzazione al RUP', at('11-05', '09:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-dg', priority: 'normale',
     blocked: { reason: 'manca il DURC aggiornato del subappaltatore', since: at('11-05', '09:00') }, // allow-italian: fixture data, shown as written
     originals: [
       paper('offerta', 'Offerta del subappaltatore', 'letter', 'posta del Legale', at('11-03', '10:40'), [ // allow-italian: fixture data, shown as written
@@ -1488,7 +1488,7 @@ const CONTRACT_CARDS: SarimCard[] = [
     links: { contract: 'c-sub-lavaggio', clause: 'art-2' },
   },
   {
-    id: 'CT-R03', flow: 'sarim-varianti', step: 's4',
+    id: 'CT-R03', flow: 'orbit-varianti', step: 's4',
     title: "Rinnovo dell'accordo quadro gasolio", // allow-italian: fixture data, shown as written
     detail: 'Fornitore carburanti (esempio) · scade il 31/01/2027 · disdetta entro il 02/12/2026', // allow-italian: fixture data, shown as written
     history: [
@@ -1497,7 +1497,7 @@ const CONTRACT_CARDS: SarimCard[] = [
       entry('verifica', at('11-05', '16:00'), 'agent:ag-contratti'), // allow-italian: stage id, compared by value
     ],
     worker: agentWorker('ag-contratti', 'confronta il prezzo della v2 con le ultime 6 fatture', at('11-06', '09:50')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-contabilita', due: '2026-12-02', priority: 'normale',
+    reviewer: 'orbit-contabilita', due: '2026-12-02', priority: 'normale',
     originals: [
       paper('mail', 'Mail del fornitore', 'mail', 'posta della contabilità', at('11-02', '07:20'), [ // allow-italian: fixture data, shown as written
         'Oggetto: accordo quadro gasolio in scadenza il 31/01/2027', // allow-italian: fixture data, shown as written
@@ -1525,7 +1525,7 @@ const CONTRACT_CARDS: SarimCard[] = [
     links: { contract: 'c-carburante', clause: 'art-5', card: 'FT-2611' },
   },
   {
-    id: 'CT-A05', flow: 'sarim-varianti', step: 's4',
+    id: 'CT-A05', flow: 'orbit-varianti', step: 's4',
     title: 'Accordo integrativo su turni e reperibilità, versione 2', // allow-italian: fixture data, shown as written
     detail: "RSU · proposta di versione 2 · modifica dell'art. 3", // allow-italian: fixture data, shown as written
     history: [
@@ -1534,7 +1534,7 @@ const CONTRACT_CARDS: SarimCard[] = [
       entry('verifica', at('11-06', '08:20'), 'agent:ag-contratti'), // allow-italian: stage id, compared by value
     ],
     worker: agentWorker('ag-contratti', 'evidenzia cosa cambia fra v1 e v2', at('11-06', '08:20')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-personale', due: '2026-11-12', priority: 'normale',
+    reviewer: 'orbit-personale', due: '2026-11-12', priority: 'normale',
     originals: [
       paper('mail', 'Mail delle RSU con la versione 2', 'mail', 'posta del Personale', at('11-05', '15:25'), [ // allow-italian: fixture data, shown as written
         'Oggetto: accordo integrativo su turni e reperibilità, proposta di versione 2', // allow-italian: fixture data, shown as written
@@ -1552,17 +1552,17 @@ const CONTRACT_CARDS: SarimCard[] = [
     links: { contract: 'c-accordo-turni', clause: 'art-3', card: 'PE-120' },
   },
   {
-    id: 'CT-V07', flow: 'sarim-varianti', step: 's6',
+    id: 'CT-V07', flow: 'orbit-varianti', step: 's6',
     title: 'Variante: spazzamento estivo nelle frazioni costiere', // allow-italian: fixture data, shown as written
     detail: 'Castellabate · variante v3 · +4,2% del valore', place: 'Castellabate', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('10-26', '10:30'), 'agent:ag-contratti'),
       entry('lavorazione', at('10-26', '11:00'), 'agent:ag-contratti'),
-      entry('verifica', at('10-30', '12:00'), 'sarim-bruno'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-02', '15:00'), 'sarim-bruno'),
+      entry('verifica', at('10-30', '12:00'), 'orbit-bruno'), // allow-italian: stage id, compared by value
+      entry('approvazione', at('11-02', '15:00'), 'orbit-bruno'),
     ],
-    worker: personWorker('sarim-dg', 'deve approvare la variante prima della firma', at('11-02', '15:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-dg', priority: 'alta',
+    worker: personWorker('orbit-dg', 'deve approvare la variante prima della firma', at('11-02', '15:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-dg', priority: 'alta',
     originals: [
       paper('pec', 'PEC del Comune di Castellabate', 'mail', 'PEC del Comune', at('10-26', '10:20'), [ // allow-italian: fixture data, shown as written
         'Oggetto: contratto di gestione integrata dei rifiuti e spazzamento, CIG B8B7C39D2A, richiesta di variante', // allow-italian: fixture data, shown as written
@@ -1587,18 +1587,18 @@ const CONTRACT_CARDS: SarimCard[] = [
     links: { contract: 'c-castellabate', clause: 'art-4' },
   },
   {
-    id: 'CT-F01', flow: 'sarim-varianti', step: 's7',
+    id: 'CT-F01', flow: 'orbit-varianti', step: 's7',
     title: 'Firma della versione 2 del contratto di Albanella', // allow-italian: fixture data, shown as written
     detail: 'Albanella · firmata digitalmente il 04/11/2026', place: 'Albanella', // allow-italian: fixture data, shown as written
     history: [
       entry('arrivo', at('10-28', '09:00'), 'agent:ag-contratti'),
-      entry('lavorazione', at('10-28', '09:30'), 'sarim-bruno'),
-      entry('verifica', at('10-30', '11:00'), 'sarim-bruno'), // allow-italian: stage id, compared by value
-      entry('approvazione', at('11-02', '10:00'), 'sarim-bruno'),
-      entry('fatto', at('11-04', '16:00'), 'sarim-dg'), // allow-italian: stage id, compared by value
+      entry('lavorazione', at('10-28', '09:30'), 'orbit-bruno'),
+      entry('verifica', at('10-30', '11:00'), 'orbit-bruno'), // allow-italian: stage id, compared by value
+      entry('approvazione', at('11-02', '10:00'), 'orbit-bruno'),
+      entry('fatto', at('11-04', '16:00'), 'orbit-dg'), // allow-italian: stage id, compared by value
     ],
-    worker: personWorker('sarim-dg', 'ha firmato digitalmente la versione 2', at('11-04', '16:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-bruno', priority: 'normale',
+    worker: personWorker('orbit-dg', 'ha firmato digitalmente la versione 2', at('11-04', '16:00')), // allow-italian: fixture data, shown as written
+    reviewer: 'orbit-bruno', priority: 'normale',
     originals: [
       paper('firma', 'Pagina delle firme, versione 2', 'letter', 'Word, firmato digitalmente', at('11-04', '16:00'), [ // allow-italian: fixture data, shown as written
         'Contratto per il servizio di raccolta e trasporto dei rifiuti urbani e di igiene urbana, Comune di Albanella', // allow-italian: fixture data, shown as written
@@ -1617,7 +1617,7 @@ const CONTRACT_CARDS: SarimCard[] = [
     links: { contract: 'c-albanella' },
   },
   {
-    id: 'CT-T04', flow: 'sarim-varianti', step: 's7',
+    id: 'CT-T04', flow: 'orbit-varianti', step: 's7',
     title: 'Verbale di passaggio degli 11 lavoratori della Castellabate Servizi', // allow-italian: fixture data, shown as written
     detail: 'Castellabate · 11 lavoratori · verbale archiviato con le firme', place: 'Castellabate', // allow-italian: fixture data, shown as written
     history: [
@@ -1627,7 +1627,7 @@ const CONTRACT_CARDS: SarimCard[] = [
       entry('fatto', at('11-02', '11:00'), 'agent:ag-contratti'), // allow-italian: stage id, compared by value
     ],
     worker: agentWorker('ag-contratti', 'ha archiviato il verbale con tutte le firme, controllate dal Personale', at('11-02', '11:00')), // allow-italian: fixture data, shown as written
-    reviewer: 'sarim-personale', priority: 'normale',
+    reviewer: 'orbit-personale', priority: 'normale',
     originals: [
       paper('verbale', 'Verbale di accordo, copia firmata', 'letter', 'scansione del Personale', at('10-29', '09:50'), [ // allow-italian: fixture data, shown as written
         'Verbale di accordo per il passaggio del personale, servizio di igiene urbana del Comune di Castellabate', // allow-italian: fixture data, shown as written
@@ -1638,11 +1638,11 @@ const CONTRACT_CARDS: SarimCard[] = [
     values: [
       read('Lavoratori', '11', 'verbale', 'assume 11 lavoratori della Castellabate Servizi srl', 99), // allow-italian: fixture data, shown as written
       read('Dal', '01/04/2026', 'verbale', 'dal 01/04/2026', 96), // allow-italian: fixture data, shown as written
-      read('Firme', 'SARIM, Castellabate Servizi, sindacati', 'verbale', 'Firme: S.A.R.I.M. SRL, Castellabate Servizi srl, organizzazioni sindacali', 93), // allow-italian: fixture data, shown as written
+      read('Firme', 'ORBIT, Castellabate Servizi, sindacati', 'verbale', 'Firme: S.A.R.I.M. SRL, Castellabate Servizi srl, organizzazioni sindacali', 93), // allow-italian: fixture data, shown as written
     ],
     proposal: 'Verbale completo di tutte le firme: archiviarlo con il contratto di Castellabate.', // allow-italian: fixture data, shown as written
     links: { contract: 'c-accordo-castellabate' },
   },
 ];
 
-export const SARIM_CARDS: SarimCard[] = [...REPORTS, ...FORMS, ...INVOICES, ...TENDERS, ...STAFF, ...CONTRACT_CARDS];
+export const ORBIT_CARDS: OrbitCard[] = [...REPORTS, ...FORMS, ...INVOICES, ...TENDERS, ...STAFF, ...CONTRACT_CARDS];

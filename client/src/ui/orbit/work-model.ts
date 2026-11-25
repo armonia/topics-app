@@ -1,5 +1,5 @@
 /**
- * The view models of the SARIM edition's «Flussi»: what the flows (allow-italian: quotes the Italian interface)
+ * The view models of the ORBIT edition's «Flussi»: what the flows (allow-italian: quotes the Italian interface)
  * need to draw themselves, already worded and counted
  * by the caller. Plain data and callbacks, nothing about where it comes from.
  */

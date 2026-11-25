@@ -17,7 +17,7 @@ import type { FlowRowModel, FlowStatModel } from './work-model';
 function CardsCell({ row, copy }: { row: FlowRowModel; copy: UiCopy }) {
   return (
     <span className="flex flex-col items-start gap-1">
-      <StepStrip steps={row.steps} label={`${copy.sarimWork.flows.columns.cards}: ${row.open}`} />
+      <StepStrip steps={row.steps} label={`${copy.orbitWork.flows.columns.cards}: ${row.open}`} />
       <span className="flex flex-wrap items-center gap-1.5 text-mini text-app-text-tertiary">
         {row.open}
         {row.stuck && <Chip tone="red" icon={OctagonPause}>{row.stuck}</Chip>}
@@ -28,7 +28,7 @@ function CardsCell({ row, copy }: { row: FlowRowModel; copy: UiCopy }) {
 
 /** A flow as a card, the phone's form of a table row: everything the row says, one under the other. */
 function FlowCard({ row, copy }: { row: FlowRowModel; copy: UiCopy }) {
-  const f = copy.sarimWork.flows;
+  const f = copy.orbitWork.flows;
   return (
     <li>
       <button type="button" onClick={row.onOpen} className={clsx('block w-full rounded-lg border border-app-border bg-surface px-3.5 py-3 text-left transition-colors hover:bg-app-hover', FOCUS_RING)}>
@@ -60,7 +60,7 @@ function FlowCard({ row, copy }: { row: FlowRowModel; copy: UiCopy }) {
 }
 
 /**
- * The flows of SARIM as a list: the one filter bar of every list (team,
+ * The flows of ORBIT as a list: the one filter bar of every list (team,
  * state, program, agent, with the states as saved filters), and per flow what
  * starts it, the monthly estimate, the programs it uses, how many of its
  * steps an agent does and where its live cards stand, step by step. A row
@@ -77,7 +77,7 @@ export function OpsFlowsList({ rows, stats, filters, count, copy, phone, crumbs 
   /** Replaces the built-in crumbs when given. */
   crumbs?: CrumbModel[];
 }) {
-  const f = copy.sarimWork.flows;
+  const f = copy.orbitWork.flows;
   const c = f.columns;
   return (
     <div className="flex h-full min-h-0 flex-col">

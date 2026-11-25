@@ -13,7 +13,7 @@ import type { ChatCopy } from '../../../ui/copy/chat';
 import { answer, exampleFlowName, exampleQuestions, type AssistantEnv } from './assistant';
 import { hoursBetween } from './stages';
 
-export const CHATS_SLICE = 'sarim.chats';
+export const CHATS_SLICE = 'orbit.chats';
 
 export interface ChatRecord {
   id: string;

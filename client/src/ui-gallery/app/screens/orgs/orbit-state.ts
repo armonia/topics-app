@@ -1,15 +1,15 @@
 /**
- * What the call center remembers (`ctx.slice('sarim')`): which calls were
+ * What the call center remembers (`ctx.slice('orbit')`): which calls were
  * answered, what the operator corrected in a form, the reports opened from a
  * call, and what was done to each item of the queue. The seeds themselves
- * (`fixtures/sarim.ts`) never change.
+ * (`fixtures/orbit.ts`) never change.
  */
 import type { UiCopy } from '../../../../ui/copy/types';
-import type { AddressCheckModel, CallFieldModel, CallModel } from '../../../../ui/sarim/model';
+import type { AddressCheckModel, CallFieldModel, CallModel } from '../../../../ui/orbit/model';
 import {
   FIELD_ORDER, INCOMING_CALL, QUEUE, RECENT_CALLS, STREET_INDEX, defaultService, orderNumber,
   type CallField, type CallSeed, type QueueItemSeed,
-} from '../../../../ui/fixtures/sarim';
+} from '../../../../ui/fixtures/orbit';
 
 export interface ItemState {
   status: 'open' | 'confirmed';
@@ -20,7 +20,7 @@ export interface ItemState {
   noAnswer?: number;
 }
 
-export interface SarimState {
+export interface OrbitState {
   answered: string[];
   forms: Record<string, Partial<Record<CallField, string>>>;
   /** Reports opened from a call, after the four of the queue. */
@@ -32,23 +32,23 @@ export interface SarimState {
   seq: number;
 }
 
-export const SARIM_INITIAL: SarimState = { answered: [], forms: {}, tickets: [], items: {}, callTicket: {}, seq: 1 };
+export const ORBIT_INITIAL: OrbitState = { answered: [], forms: {}, tickets: [], items: {}, callTicket: {}, seq: 1 };
 
-export const allItems = (st: SarimState): QueueItemSeed[] => [...QUEUE, ...st.tickets];
-export const itemState = (st: SarimState, id: string): ItemState => st.items[id] ?? { status: 'open', events: [] };
-export const isOpen = (st: SarimState, id: string) => itemState(st, id).status !== 'confirmed';
-export const openItems = (st: SarimState) => allItems(st).filter((i) => isOpen(st, i.id));
-export const findItem = (st: SarimState, id: string) => allItems(st).find((i) => i.id === id);
+export const allItems = (st: OrbitState): QueueItemSeed[] => [...QUEUE, ...st.tickets];
+export const itemState = (st: OrbitState, id: string): ItemState => st.items[id] ?? { status: 'open', events: [] };
+export const isOpen = (st: OrbitState, id: string) => itemState(st, id).status !== 'confirmed';
+export const openItems = (st: OrbitState) => allItems(st).filter((i) => isOpen(st, i.id));
+export const findItem = (st: OrbitState, id: string) => allItems(st).find((i) => i.id === id);
 export const allCalls = (): CallSeed[] => [INCOMING_CALL, ...RECENT_CALLS];
 export const findCall = (id: string) => allCalls().find((c) => c.id === id);
 
 /** The item with the operator's corrections applied. */
-export function liveService(st: SarimState, item: QueueItemSeed): QueueItemSeed['service'] {
+export function liveService(st: OrbitState, item: QueueItemSeed): QueueItemSeed['service'] {
   return { ...item.service, ...itemState(st, item.id).service };
 }
 
 /** What the form holds after the first `heard` lines, with the operator's corrections on top. */
-export function callValues(st: SarimState, call: CallSeed, heard: number): Partial<Record<CallField, string>> {
+export function callValues(st: OrbitState, call: CallSeed, heard: number): Partial<Record<CallField, string>> {
   const out: Partial<Record<CallField, string>> = {};
   for (const line of call.transcript.slice(0, heard)) Object.assign(out, line.fills);
   return { ...out, ...st.forms[call.id] };
@@ -86,7 +86,7 @@ export interface CallViewOptions {
   opening?: CallModel['opening'];
 }
 
-export function callModel(st: SarimState, call: CallSeed, copy: UiCopy, opt: CallViewOptions): CallModel {
+export function callModel(st: OrbitState, call: CallSeed, copy: UiCopy, opt: CallViewOptions): CallModel {
   const c = copy.orgs.callCenter;
   const total = call.transcript.length;
   const heard = opt.status === 'ended' ? total : opt.status === 'live' ? opt.heard ?? 0 : 0;
@@ -118,7 +118,7 @@ export function callModel(st: SarimState, call: CallSeed, copy: UiCopy, opt: Cal
 }
 
 /** The item a report opened from a call becomes: the proposal comes from rules, the words of the customer from the transcript. */
-export function ticketFromCall(st: SarimState, call: CallSeed, copy: UiCopy): QueueItemSeed {
+export function ticketFromCall(st: OrbitState, call: CallSeed, copy: UiCopy): QueueItemSeed {
   const c = copy.orgs.callCenter;
   const values = callValues(st, call, call.transcript.length);
   const n = st.seq;

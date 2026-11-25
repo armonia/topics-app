@@ -1,5 +1,5 @@
 /**
- * The flows of the SARIM edition as the reader changed them, and how the live
+ * The flows of the ORBIT edition as the reader changed them, and how the live
  * cards sit on their steps:
  *  · a flow can be paused and resumed (who, when), and every screen that names
  *    the flow says so: the list, its page, the stage view; (allow-italian: quotes the Italian interface)
@@ -11,13 +11,13 @@
  */
 import { CalendarClock, Clock, Droplets, FilePen, FileText, Gavel, Headset, Landmark, Leaf, Map as MapIcon, Receipt, Truck, Users, Wallet, Workflow, Wrench, type LucideIcon } from 'lucide-react';
 import type { DemoState } from '../../app/store/state';
-import type { OpsFlow, OpsFlowStep, SarimCard } from '../../../ui/fixtures/sarim-org/types';
+import type { OpsFlow, OpsFlowStep, OrbitCard } from '../../../ui/fixtures/orbit-org/types';
 import type { FlowIconName } from '../../../ui/fixtures/world-types';
 import { world } from '../world';
 import { addDays } from '../../../ui/fixtures/org/clock';
 import { stageOf } from './live';
 
-export const FLOWS_SLICE = 'sarim.flows';
+export const FLOWS_SLICE = 'orbit.flows';
 
 /** Under this confidence a value read by an agent goes to a person (the rule of the cards). */
 export const LOW_CONFIDENCE = 85;
@@ -67,7 +67,7 @@ export function flowLabel(flowId: string): string {
   return opsFlowById(flowId)?.name ?? flowId;
 }
 
-export function flowCards(cards: SarimCard[], flowId: string): SarimCard[] {
+export function flowCards(cards: OrbitCard[], flowId: string): OrbitCard[] {
   return cards.filter((c) => c.flow === flowId);
 }
 
@@ -75,19 +75,19 @@ export function flowCards(cards: SarimCard[], flowId: string): SarimCard[] {
  * The step a card stands at now: its own step while the column agrees, else
  * the first step of the flow in the column the card was moved to.
  */
-export function liveStep(card: SarimCard, flow: OpsFlow): OpsFlowStep | undefined {
+export function liveStep(card: OrbitCard, flow: OpsFlow): OpsFlowStep | undefined {
   const stage = stageOf(card);
   const own = flow.steps.find((s) => s.id === card.step);
   if (own && own.stage === stage) return own;
   return flow.steps.find((s) => s.stage === stage) ?? own;
 }
 
-export function cardsAtStep(cards: SarimCard[], flow: OpsFlow, stepId: string): SarimCard[] {
+export function cardsAtStep(cards: OrbitCard[], flow: OpsFlow, stepId: string): OrbitCard[] {
   return flowCards(cards, flow.id).filter((c) => liveStep(c, flow)?.id === stepId);
 }
 
 /** Cards not yet in «Fatto». (allow-italian: quotes the Italian interface) */
-export function openCards(cards: SarimCard[]): SarimCard[] {
+export function openCards(cards: OrbitCard[]): OrbitCard[] {
   return cards.filter((c) => stageOf(c) !== 'fatto'); // allow-italian: stage id, compared by value
 }
 
@@ -111,17 +111,17 @@ export function personAfter(flow: OpsFlow, stepId: string): OpsFlowStep | undefi
  * The cases a try of the flow runs on: the cards of the flow that moved on
  * the day before `today`; when there were none, the two that moved last.
  */
-export function yesterdayCases(cards: SarimCard[], flowId: string, today: string): { day: string; fallback: boolean; cases: SarimCard[] } {
+export function yesterdayCases(cards: OrbitCard[], flowId: string, today: string): { day: string; fallback: boolean; cases: OrbitCard[] } {
   const day = addDays(today, -1);
   const own = flowCards(cards, flowId);
   const moved = own.filter((c) => c.history.some((h) => h.at.startsWith(day)));
   if (moved.length) return { day, fallback: false, cases: moved };
-  const last = (c: SarimCard) => c.history[c.history.length - 1]?.at ?? '';
+  const last = (c: OrbitCard) => c.history[c.history.length - 1]?.at ?? '';
   return { day, fallback: true, cases: [...own].sort((a, b) => last(b).localeCompare(last(a))).slice(0, 2) };
 }
 
 /** What a try finds on one case: the values the agent reads under the threshold. */
-export function tryCase(card: SarimCard): FlowTryCase {
+export function tryCase(card: OrbitCard): FlowTryCase {
   return { card: card.id, low: card.values.filter((v) => v.confidence < LOW_CONFIDENCE).map((v) => ({ label: v.label, confidence: v.confidence })) };
 }
 
@@ -152,11 +152,11 @@ export function flowIcon(flowId: string): LucideIcon {
 }
 
 /** Whether an agent holds the card now and it is not in «Fatto»: the one definition of «In mano agli agenti». (allow-italian: quotes the Italian interface) */
-export function isInAgentHand(card: SarimCard): boolean {
+export function isInAgentHand(card: OrbitCard): boolean {
   return stageOf(card) !== 'fatto' && card.worker.kind === 'agent'; // allow-italian: stage id, compared by value
 }
 
 /** Open cards an agent holds now, in any stage: the saved filter «In mano agli agenti» in Da fare (it reads `isInAgentHand` as a field), the agents' count in the sidebar and the box of Flussi. (allow-italian: quotes the Italian interface) */
-export function agentsInHand(cards: SarimCard[]): SarimCard[] {
+export function agentsInHand(cards: OrbitCard[]): OrbitCard[] {
   return cards.filter(isInAgentHand);
 }

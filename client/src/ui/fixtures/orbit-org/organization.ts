@@ -1,11 +1,11 @@
 /**
  * The facts of S.A.R.I.M. SRL that Settings > Organization prints, each with
- * its public source, copied from `DATI-VERI-SARIM.md` (the round on public
+ * its public source, copied from `DATI-VERI-ORBIT.md` (the round on public
  * sources of 08/11/2026, every link reopened by a second reader). Nothing here
  * is an example: a fact without a source in that file does not go in.
  *
  * The towns are not here: they are the table «Comuni serviti» of «Dati» (allow-italian: quotes the Italian interface)
- * (`data.ts`, `SARIM_TOWNS`), so the two pages count the same list. The
+ * (`data.ts`, `ORBIT_TOWNS`), so the two pages count the same list. The
  * sources disagree on the number (19 on the home page counter, 20 in the
  * Environmental Statement, 25 in a news item): the screen says so.
  */
@@ -17,32 +17,32 @@ export interface SourceLink {
   quote: string;
 }
 
-export interface SarimFact {
+export interface OrbitFact {
   id: string;
   label: string;
   value: string;
   source: SourceLink;
 }
 
-const HOME: Omit<SourceLink, 'quote'> = { label: 'sarimambiente.it', url: 'https://sarimambiente.it/' };
-const DECLARATION: Omit<SourceLink, 'quote'> = { label: 'Dichiarazione ambientale EMAS, RINA 29/06/2026', url: 'https://sarimambiente.it/wp-content/uploads/2026/07/DA-SARIM-convalidato-RINA_29.06.2026.pdf' }; // allow-italian: fixture data, shown as written
-const CERTIFICATIONS: Omit<SourceLink, 'quote'> = { label: 'sarimambiente.it, certificazioni', url: 'https://sarimambiente.it/certificazioni/' }; // allow-italian: fixture data, shown as written
-const REGULATOR_PORTAL: Omit<SourceLink, 'quote'> = { label: 'portale ARERA di SARIM', url: 'https://sarimambiente-arera.com/' }; // allow-italian: fixture data, shown as written
+const HOME: Omit<SourceLink, 'quote'> = { label: 'alfaimpianti.it', url: 'https://alfaimpianti.it/' };
+const DECLARATION: Omit<SourceLink, 'quote'> = { label: 'Dichiarazione ambientale EMAS, RINA 29/06/2026', url: 'https://alfaimpianti.it/wp-content/uploads/2026/07/DA-ORBIT-convalidato-RINA_29.06.2026.pdf' }; // allow-italian: fixture data, shown as written
+const CERTIFICATIONS: Omit<SourceLink, 'quote'> = { label: 'alfaimpianti.it, certificazioni', url: 'https://alfaimpianti.it/certificazioni/' }; // allow-italian: fixture data, shown as written
+const REGULATOR_PORTAL: Omit<SourceLink, 'quote'> = { label: 'portale ARERA di ORBIT', url: 'https://alfaimpianti-arera.com/' }; // allow-italian: fixture data, shown as written
 
-/** Who SARIM is: name, tax numbers, offices, certified mail, toll-free number, register. */
-export const SARIM_IDENTITY: SarimFact[] = [
-  { id: 'name', label: 'Denominazione', value: 'S.A.R.I.M. SRL, Società Attiva Rifiuti Industriali Meridionali', source: { label: 'sarimambiente.it, chi siamo', url: 'https://sarimambiente.it/chi-siamo/', quote: 'Sarim: acronimo di Società Attiva Rifiuti Industriali Meridionali' } }, // allow-italian: fixture data, shown as written
+/** Who ORBIT is: name, tax numbers, offices, certified mail, toll-free number, register. */
+export const ORBIT_IDENTITY: OrbitFact[] = [
+  { id: 'name', label: 'Denominazione', value: 'S.A.R.I.M. SRL, Società Attiva Rifiuti Industriali Meridionali', source: { label: 'alfaimpianti.it, chi siamo', url: 'https://alfaimpianti.it/chi-siamo/', quote: 'Orbit: acronimo di Società Attiva Rifiuti Industriali Meridionali' } }, // allow-italian: fixture data, shown as written
   { id: 'vat', label: 'Partita IVA', value: '02596800652', source: { ...HOME, quote: 'p.iva: 02596800652' } }, // allow-italian: fixture data, shown as written
   { id: 'tax', label: 'Codice fiscale', value: '04089200630', source: { label: 'avviso TED 235015-2025', url: 'https://ted.europa.eu/it/notice/235015-2025/pdf', quote: 'Numero di registrazione: 04089200630' } }, // allow-italian: fixture data, shown as written
   { id: 'legal', label: 'Sede legale', value: 'Corso Vittorio Emanuele 171, 84122 Salerno (SA)', source: { ...HOME, quote: 'Corso Vittorio Emanuele, 171' } }, // allow-italian: fixture data, shown as written
   { id: 'operations', label: 'Sede amministrativa e operativa', value: 'Eboli, Via Maestri del Lavoro, Area PIP: uffici, deposito automezzi, officina', source: { ...DECLARATION, quote: 'la sede amministrativa è ad Eboli in Via Maestri del Lavoro in Area PIP' } }, // allow-italian: fixture data, shown as written
-  { id: 'pec', label: 'PEC', value: 'info@pec.sarimambiente.it', source: { ...DECLARATION, quote: 'info@pec.sarimambiente.it' } }, // allow-italian: fixture data, shown as written
+  { id: 'pec', label: 'PEC', value: 'info@pec.alfaimpianti.it', source: { ...DECLARATION, quote: 'info@pec.alfaimpianti.it' } }, // allow-italian: fixture data, shown as written
   { id: 'freephone', label: 'Numero verde', value: '800.983850, dalle 08:00 alle 19:00', source: { ...REGULATOR_PORTAL, quote: '800.983850' } }, // allow-italian: fixture data, shown as written
   { id: 'register', label: 'Albo Nazionale Gestori Ambientali', value: 'NA00165, sezione Campania: cat. 1 classe A, 2bis, 4 classe B, 5 classe D, 8 classe C', source: { ...DECLARATION, quote: 'n° iscrizione NA00165' } }, // allow-italian: fixture data, shown as written
-  { id: 'holding', label: 'Controllata da', value: 'Bardascino Holding', source: { label: 'sarimambiente.it, chi siamo', url: 'https://sarimambiente.it/chi-siamo/', quote: 'Siamo Sarim, società controllata dalla Bardascino Holding' } }, // allow-italian: fixture data, shown as written
+  { id: 'holding', label: 'Controllata da', value: 'Bardascino Holding', source: { label: 'alfaimpianti.it, chi siamo', url: 'https://alfaimpianti.it/chi-siamo/', quote: 'Siamo Orbit, società controllata dalla Bardascino Holding' } }, // allow-italian: fixture data, shown as written
 ];
 
-export interface SarimCertification {
+export interface OrbitCertification {
   id: string;
   name: string;
   /** What it certifies, in plain words. */
@@ -51,9 +51,9 @@ export interface SarimCertification {
   expires?: string;
 }
 
-export const SARIM_CERTIFICATIONS_SOURCE: SourceLink = { ...CERTIFICATIONS, quote: 'Certificazione che attesta la qualità dell’organizzazione e dei processi aziendali.' }; // allow-italian: fixture data, shown as written
+export const ORBIT_CERTIFICATIONS_SOURCE: SourceLink = { ...CERTIFICATIONS, quote: 'Certificazione che attesta la qualità dell’organizzazione e dei processi aziendali.' }; // allow-italian: fixture data, shown as written
 
-export const SARIM_CERTIFICATIONS: SarimCertification[] = [
+export const ORBIT_CERTIFICATIONS: OrbitCertification[] = [
   { id: 'iso9001', name: 'ISO 9001', what: 'qualità dei processi' }, // allow-italian: fixture data, shown as written
   { id: 'iso14001', name: 'ISO 14001', what: 'gestione ambientale' }, // allow-italian: fixture data, shown as written
   { id: 'iso45001', name: 'ISO 45001', what: 'salute e sicurezza sul lavoro' }, // allow-italian: fixture data, shown as written
@@ -65,9 +65,9 @@ export const SARIM_CERTIFICATIONS: SarimCertification[] = [
 ];
 
 /** The counters of the home page, as they read today. */
-export const SARIM_NUMBERS_SOURCE: SourceLink = { ...HOME, quote: 'FLOTTA 930 RISORSE 1.124' };
+export const ORBIT_NUMBERS_SOURCE: SourceLink = { ...HOME, quote: 'FLOTTA 930 RISORSE 1.124' };
 
-export const SARIM_NUMBERS: Array<{ id: string; label: string; value: string }> = [
+export const ORBIT_NUMBERS: Array<{ id: string; label: string; value: string }> = [
   { id: 'fleet', label: 'mezzi della flotta', value: '930' }, // allow-italian: fixture data, shown as written
   { id: 'people', label: 'risorse', value: '1.124' }, // allow-italian: fixture data, shown as written
   { id: 'towns', label: 'comuni serviti', value: '19' }, // allow-italian: fixture data, shown as written
@@ -75,4 +75,4 @@ export const SARIM_NUMBERS: Array<{ id: string; label: string; value: string }> 
 ];
 
 /** The portal with one page per town served. */
-export const SARIM_SERVED_SOURCE: SourceLink = { ...REGULATOR_PORTAL, quote: 'servizio di gestione dei rifiuti urbani' }; // allow-italian: fixture data, shown as written
+export const ORBIT_SERVED_SOURCE: SourceLink = { ...REGULATOR_PORTAL, quote: 'servizio di gestione dei rifiuti urbani' }; // allow-italian: fixture data, shown as written

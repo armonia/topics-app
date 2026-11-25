@@ -1,16 +1,16 @@
 /**
- * The shapes of the SARIM edition's example world: the work on «Da fare» (allow-italian: quotes the Italian interface)
+ * The shapes of the ORBIT edition's example world: the work on «Da fare» (allow-italian: quotes the Italian interface)
  * (stages, cards), the flows that move it, and the contracts (allow-italian: quotes the Italian interface)
  * with their versions. Plain data, the same for every screen: the kanban, the
  * stage view, «Dati», «Contratti» and the sidebar all count from these
  * lists, so a number printed in two places cannot disagree
  * (`scripts/ui-fixtures-check.ts` checks the rest). (allow-italian: quotes the Italian interface)
  *
- * Facts about SARIM come from `DATI-VERI-SARIM.md` only (public sources and
+ * Facts about ORBIT come from `DATI-VERI-ORBIT.md` only (public sources and
  * the internal questionnaire); people other than Avv. Annarita Bruno, single
  * cards, contract values and dates are examples, coherent across screens.
  */
-import type { SarimArea } from './people';
+import type { OrbitArea } from './people';
 
 /* ---------- the kanban of «Da fare» ---------- (allow-italian: quotes the Italian interface) */
 
@@ -24,7 +24,7 @@ export interface Stage {
   hint: string;
 }
 
-/** Who has the card in hand right now: a person of SARIM or an agent of Topics. */
+/** Who has the card in hand right now: a person of ORBIT or an agent of Topics. */
 export type Worker =
   | { kind: 'person'; id: string; doing: string; since: string }
   | { kind: 'agent'; id: string; doing: string; since: string };
@@ -63,10 +63,10 @@ export interface StageEntry {
   by: string;
 }
 
-export interface SarimCard {
+export interface OrbitCard {
   /** Shown on the card and in addresses: `SG-4127`, `FIR-0931`, `FT-2611`, `GA-031`, `PE-118`, `CT-V07`. */
   id: string;
-  /** The flow that moves it (`SARIM_OPS_FLOWS`). */
+  /** The flow that moves it (`ORBIT_OPS_FLOWS`). */
   flow: string;
   /** The id of the step of that flow the card is at (for a card in «Fatto», the last step). (allow-italian: quotes the Italian interface) */
   step: string;
@@ -95,7 +95,7 @@ export interface SarimCard {
   lane?: string;
 }
 
-/* ---------- flows of the SARIM edition ---------- */
+/* ---------- flows of the ORBIT edition ---------- */
 
 export interface OpsFlowStep {
   id: string;
@@ -112,7 +112,7 @@ export interface OpsFlow {
   name: string;
   /** What the flow ends with (the thing it hands over): a subtitle where the flows are listed, never part of the name. */
   outcome?: string;
-  area: SarimArea;
+  area: OrbitArea;
   /** What enters it, in plain words. */
   source: string;
   /** The agent that prepares its cards. */
@@ -165,7 +165,7 @@ export interface Obligation {
   /** The version whose text it was read from. */
   version: number;
   what: string;
-  /** Who in SARIM has to do it. */
+  /** Who in ORBIT has to do it. */
   owner: string;
   kind: 'scadenza' | 'ricorrente' | 'penale' | 'rinnovo' | 'rendiconto' | 'garanzia'; // allow-italian: values compared by value
   /** The next date it falls on (`YYYY-MM-DD`), when it has one. */
@@ -207,7 +207,7 @@ export interface ContractVariant {
   /** The version it produces. */
   version: number;
   status: 'in-corso' | 'approvata' | 'firmata' | 'respinta'; // allow-italian: values compared by value
-  /** The card of the approval in «Da fare», flow `sarim-varianti`. (allow-italian: quotes the Italian interface) */
+  /** The card of the approval in «Da fare», flow `orbit-varianti`. (allow-italian: quotes the Italian interface) */
   card?: string;
   at: string;
 }
@@ -230,7 +230,7 @@ export interface Contract {
   counterparty: string;
   /** What the counterparty is: «Comune», «Committente», «Fornitore», «Subappaltatore», «Sindacati», «Lavoratore». (allow-italian: quotes the Italian interface) */
   counterpartyKind: string;
-  /** One line: what SARIM does or receives. */
+  /** One line: what ORBIT does or receives. */
   object: string;
   /** Value in euro (VAT excluded), and over what period. */
   value: number;
@@ -240,7 +240,7 @@ export interface Contract {
   renewal: { kind: 'tacito' | 'opzione' | 'nessuno'; months: number; noticeDays: number }; // allow-italian: values compared by value
   status: ContractStatus;
   owner: string;
-  area: SarimArea;
+  area: OrbitArea;
   /** Public tender code, when there is one (example). */
   cig?: string;
   versions: ContractVersion[];

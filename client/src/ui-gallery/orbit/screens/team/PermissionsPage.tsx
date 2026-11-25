@@ -1,8 +1,8 @@
 /**
- * sarim-permissions: what each team of SARIM may do, as a matrix. Rows are the
+ * orbit-permissions: what each team of ORBIT may do, as a matrix. Rows are the
  * sections, the eight flows and four actions; columns are the eight teams; a
  * cell is one of the four levels or, for an action, a yes or
- * no. Every change is real: it is written in the slice `sarim.access`, which
+ * no. Every change is real: it is written in the slice `orbit.access`, which
  * the container reads (`canDo`, `sectionLevel`, `flowLevel`), so the sidebar,
  * the buttons and the cards of the to-do list follow at once, and it leaves a line
  * in the log. Exceptions give one person another level than their team. The
@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import { Bot, Eye, History, Plus, RotateCcw, Trash2, UserRoundCog } from 'lucide-react';
 import { personaById, world } from '../../world';
-import type { SarimTeam } from '../../../../ui/fixtures/sarim-org/people';
+import type { OrbitTeam } from '../../../../ui/fixtures/orbit-org/people';
 import { Button, IconButton } from '../../../../ui/primitives/Button';
 import { Card } from '../../../../ui/primitives/Card';
 import { Chip } from '../../../../ui/primitives/Chip';
@@ -33,7 +33,7 @@ import { liveCards } from '../../model/live';
 import { nameOf, when } from '../../model/words';
 import { orgCrumbs } from '../../crumbs';
 import { SP } from '../../paths';
-import { canOpenNav, SARIM_NAV } from '../../sidebar';
+import { canOpenNav, ORBIT_NAV } from '../../sidebar';
 import { TeamFrame } from './TeamFrame';
 
 const SECTIONS: AccessSection[] = ['inbox', 'flows', 'documents', 'contracts', 'data', 'rules', 'programs'];
@@ -54,7 +54,7 @@ const MATRIX_MIN = FIRST_MIN + world().people.teams.length * CELL_MIN;
 const isAction = (row: AccessRow) => row.kind === 'action';
 
 export function PermissionsPage({ ctx }: { ctx: ScreenCtx }) {
-  const c = ctx.copy.sarimTeam;
+  const c = ctx.copy.orbitTeam;
   const p = c.permissions;
   const state = ctx.state;
   const [, setAccess] = ctx.slice<AccessSlice>(ACCESS_SLICE, ACCESS_INITIAL);
@@ -62,8 +62,8 @@ export function PermissionsPage({ ctx }: { ctx: ScreenCtx }) {
   const canAdmin = ctx.can('admin');
   const denied = canAdmin ? undefined : ctx.deniedTitle('admin') ?? p.onlyAdmin;
   const myTeam = teamOfPersona(ctx.persona);
-  const [pickedTeam, setPickedTeam] = ctx.ui<string>('sarim.permissions.team', myTeam);
-  const [previewId, setPreviewId] = ctx.ui<string>('sarim.permissions.preview', ctx.persona.id);
+  const [pickedTeam, setPickedTeam] = ctx.ui<string>('orbit.permissions.team', myTeam);
+  const [previewId, setPreviewId] = ctx.ui<string>('orbit.permissions.preview', ctx.persona.id);
   const [dialog, setDialog] = useState<{ person: string; row: string; value: string } | null>(null);
 
   const rowLabel = (row: AccessRow) => (row.kind === 'section' ? p.sections[row.id] : row.kind === 'flow' ? flowLabel(row.id) : p.actions[row.id].label);
@@ -73,7 +73,7 @@ export function PermissionsPage({ ctx }: { ctx: ScreenCtx }) {
 
   /* ---------- the teams ---------- */
 
-  const setTeam = (team: SarimTeam, row: AccessRow, value: AccessValue) => {
+  const setTeam = (team: OrbitTeam, row: AccessRow, value: AccessValue) => {
     const initial = defaultTeamValue(state, team.id, row);
     const apply = () => {
       write({ team: team.id }, row, value === initial ? undefined : value);
@@ -113,7 +113,7 @@ export function PermissionsPage({ ctx }: { ctx: ScreenCtx }) {
 
   /* ---------- the matrix ---------- */
 
-  const cell = (team: SarimTeam, row: AccessRow) => {
+  const cell = (team: OrbitTeam, row: AccessRow) => {
     const value = teamValue(state, team.id, row);
     const changed = handValue(slice, { team: team.id }, row) !== undefined;
     const title = p.cellTitle(team.label, rowLabel(row));
@@ -248,7 +248,7 @@ export function PermissionsPage({ ctx }: { ctx: ScreenCtx }) {
 
   const previewed = personaById(previewId) ?? world().people.personas[0];
   const can = (perm: Parameters<typeof canDo>[2]) => canDo(state, previewed, perm);
-  const sees = SARIM_NAV.filter(([kind]) => canOpenNav(kind, can));
+  const sees = ORBIT_NAV.filter(([kind]) => canOpenNav(kind, can));
   const allCards = liveCards(state);
   const visible = allCards.filter((card) => flowLevel(state, previewed, card.flow) !== 'none').length;
   const may = ACCESS_ACTIONS.filter((a) => can(a));

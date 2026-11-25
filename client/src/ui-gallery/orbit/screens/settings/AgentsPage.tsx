@@ -9,7 +9,7 @@
 import { ArrowRight, Plug, ShieldCheck } from 'lucide-react';
 import type { Permission } from '../../../../ui/fixtures/org/people';
 import { world } from '../../world';
-import type { SarimPrincipleAction } from '../../../../ui/copy/sarim-admin';
+import type { OrbitPrincipleAction } from '../../../../ui/copy/orbit-admin';
 import { Button } from '../../../../ui/primitives/Button';
 import { Chip } from '../../../../ui/primitives/Chip';
 import { Block, Callout } from '../../../../ui/settings/Block';
@@ -27,7 +27,7 @@ import { SettingsFrame } from './frame';
 /** Who may do an action: the roles holding a permission, or the people who confirm a write in some programs. */
 type Holder = { kind: 'permission'; permission: Permission } | { kind: 'programs'; programs: string[] } | { kind: 'flows'; flow: string };
 
-const ALL_ACTIONS: Array<[SarimPrincipleAction, Holder]> = [
+const ALL_ACTIONS: Array<[OrbitPrincipleAction, Holder]> = [
   ['sign', { kind: 'permission', permission: 'sign:contracts' }],
   ['approveContract', { kind: 'permission', permission: 'approve:contracts' }],
   ['approve', { kind: 'permission', permission: 'approve' }],
@@ -49,7 +49,7 @@ function peopleOfFlow(flowId: string): string[] {
 }
 
 export function AgentsPage({ ctx }: { ctx: ScreenCtx }) {
-  const p = ctx.copy.sarimAdmin.settings.agents;
+  const p = ctx.copy.orbitAdmin.settings.agents;
   const cards = liveCards(ctx.state);
   /* The same counts as the sidebar («al lavoro»), «Flussi» and the stage view. (allow-italian: quotes the Italian interface) */
   const atWork = agentsInHand(cards).length;
@@ -71,7 +71,7 @@ export function AgentsPage({ ctx }: { ctx: ScreenCtx }) {
       chips: people.map((id) => <ActorChip key={id} id={id} ctx={ctx} />),
       link: h.kind === 'programs'
         ? <Button size="sm" icon={Plug} onClick={ctx.allow('view:programs', () => ctx.go(h.programs.length === 1 ? SP.program(h.programs[0]) : SP.programs()))} title={ctx.deniedTitle('view:programs')}>{p.openProgram}</Button>
-        : <Button size="sm" icon={ArrowRight} onClick={() => openDaFare(ctx, { view: 'list', flow: h.flow })}>{ctx.copy.sarimWork.flows.openInDaFare}</Button>,
+        : <Button size="sm" icon={ArrowRight} onClick={() => openDaFare(ctx, { view: 'list', flow: h.flow })}>{ctx.copy.orbitWork.flows.openInDaFare}</Button>,
     };
   };
 

@@ -1,9 +1,9 @@
 /**
- * SARIM edition: the crumbs of every pane header follow one rule, so the
+ * ORBIT edition: the crumbs of every pane header follow one rule, so the
  * reader always knows where a page sits and can go up from it.
  *
  * Everything that belongs to the organization starts with its name (the org
- * crumb opens the settings, Organization section: the page about SARIM itself). The
+ * crumb opens the settings, Organization section: the page about ORBIT itself). The
  * preferences belong to the person, so they start with their own section
  * instead. Every crumb but the last one opens its place; on a phone only the
  * place itself is shown, the header is too narrow for the trail.
@@ -27,10 +27,10 @@ const crumb = (ctx: ScreenCtx, c: Crumb): CrumbModel => ({
   onSelect: c.onSelect ?? (c.to && c.to !== ctx.path ? () => ctx.go(c.to as string) : undefined),
 });
 
-/** The crumbs of a page of the organization: `SARIM / <trail>`. */
+/** The crumbs of a page of the organization: `ORBIT / <trail>`. */
 export function orgCrumbs(ctx: ScreenCtx, trail: Crumb[]): CrumbModel[] {
   if (ctx.phone && trail.length) return [crumb(ctx, trail[trail.length - 1])];
-  return [crumb(ctx, { label: ctx.copy.sarimAdmin.settings.org, to: SP.settings('organizzazione') }), ...trail.map((c) => crumb(ctx, c))];
+  return [crumb(ctx, { label: ctx.copy.orbitAdmin.settings.org, to: SP.settings('organizzazione') }), ...trail.map((c) => crumb(ctx, c))];
 }
 
 /** The crumbs of a page of the person: `Preferenze / <trail>`, no organization in front. */

@@ -1,5 +1,5 @@
 /**
- * sarim-programs: the programs of SARIM grouped by what they are for, with
+ * orbit-programs: the programs of ORBIT grouped by what they are for, with
  * what Topics reads and writes in each, how it connects, how many flows use
  * it, how many open cards go through it and where it stands. The one filter
  * bar of every list narrows it (how it connects, state, the flow that uses
@@ -10,8 +10,8 @@ import { useMemo } from 'react';
 import { CheckCircle2, CircleAlert, CircleDot, Clock, Plug, PlugZap, Search, Workflow } from 'lucide-react';
 import clsx from 'clsx';
 import { world } from '../../world';
-import type { ProgramGroup, SarimProgram } from '../../../../ui/fixtures/sarim-org/programs';
-import type { SarimProgramLinkGroup, SarimProgramStateWord } from '../../../../ui/copy/sarim-admin';
+import type { ProgramGroup, OrbitProgram } from '../../../../ui/fixtures/orbit-org/programs';
+import type { OrbitProgramLinkGroup, OrbitProgramStateWord } from '../../../../ui/copy/orbit-admin';
 import type { UiCopy } from '../../../../ui/copy/types';
 import { Button } from '../../../../ui/primitives/Button';
 import { EmptyState } from '../../../../ui/primitives/EmptyState';
@@ -33,22 +33,22 @@ import { LINK_KIND, STATE_TONE, flowsUsing, historyOf, openCards, programState, 
 
 const GROUPS: ProgramGroup[] = ['territory', 'staff', 'office', 'tenders', 'public'];
 /** The ways of connecting, in the order of the list; the filter says them with the words of the rows. */
-const LINK_GROUPS: SarimProgramLinkGroup[] = ['api', 'file', 'browser', 'screen', 'mailbox', 'public'];
-const STATES: SarimProgramStateWord[] = ['connected', 'failed', 'disconnected', 'testing', 'connecting'];
+const LINK_GROUPS: OrbitProgramLinkGroup[] = ['api', 'file', 'browser', 'screen', 'mailbox', 'public'];
+const STATES: OrbitProgramStateWord[] = ['connected', 'failed', 'disconnected', 'testing', 'connecting'];
 
 /** A program with where it stands now, which depends on the tests and connections of this visit. */
 interface ProgramItem {
-  p: SarimProgram;
-  state: SarimProgramStateWord;
+  p: OrbitProgram;
+  state: OrbitProgramStateWord;
 }
 
 function schemaFor(copy: UiCopy): FilterSchema<ProgramItem> {
-  const c = copy.sarimAdmin.programs;
+  const c = copy.orbitAdmin.programs;
   return {
     text: ({ p }) => [p.name, p.sub, p.how, ...p.reads, ...p.writes.map((w) => w.what), ...flowsUsing(p).map((f) => f.name), c.groups[p.group]].join(' '),
     fields: [
-      { id: 'link', label: c.fields.link, icon: PlugZap, kind: 'choice', get: ({ p }) => p.link, valueLabel: (v) => c.linkGroups[v as SarimProgramLinkGroup], order: LINK_GROUPS },
-      { id: 'state', label: c.fields.state, icon: CircleDot, kind: 'choice', get: ({ state }) => state, valueLabel: (v) => c.states[v as SarimProgramStateWord], order: STATES },
+      { id: 'link', label: c.fields.link, icon: PlugZap, kind: 'choice', get: ({ p }) => p.link, valueLabel: (v) => c.linkGroups[v as OrbitProgramLinkGroup], order: LINK_GROUPS },
+      { id: 'state', label: c.fields.state, icon: CircleDot, kind: 'choice', get: ({ state }) => state, valueLabel: (v) => c.states[v as OrbitProgramStateWord], order: STATES },
       { id: 'flow', label: c.fields.flow, icon: Workflow, kind: 'choice', get: ({ p }) => flowsUsing(p).map((f) => f.id), valueLabel: (v) => flowLabel(v) },
     ],
   };
@@ -58,7 +58,7 @@ function schemaFor(copy: UiCopy): FilterSchema<ProgramItem> {
 const TABLE_GRID = 'grid w-min min-w-full gap-x-3 grid-cols-[minmax(min-content,130fr)_minmax(min-content,150fr)_minmax(min-content,120fr)_minmax(min-content,70fr)_minmax(min-content,70fr)_minmax(min-content,110fr)]';
 const ROW_GRID = 'col-span-full grid grid-cols-subgrid items-center';
 
-export function StateGlyph({ state }: { state: SarimProgramStateWord }) {
+export function StateGlyph({ state }: { state: OrbitProgramStateWord }) {
   if (state === 'connected') return <CheckCircle2 size={12} aria-hidden="true" />;
   if (state === 'disconnected') return <Clock size={12} aria-hidden="true" />;
   if (state === 'failed') return <CircleAlert size={12} aria-hidden="true" />;
@@ -66,7 +66,7 @@ export function StateGlyph({ state }: { state: SarimProgramStateWord }) {
 }
 
 export function ProgramsListPage({ ctx }: { ctx: ScreenCtx }) {
-  const c = ctx.copy.sarimAdmin.programs;
+  const c = ctx.copy.orbitAdmin.programs;
   const [slice] = programsSlice(ctx);
   const cards = liveCards(ctx.state);
 
@@ -76,11 +76,11 @@ export function ProgramsListPage({ ctx }: { ctx: ScreenCtx }) {
   const presets = useMemo<SavedFilter[]>(() => LINK_GROUPS.filter((g) => world().programs.some((p) => p.link === g)).map((g, i) => ({
     id: g, name: c.linkGroups[g], tokens: [{ id: `p${i + 1}`, field: 'link', op: 'is', value: g }],
   })), [c]);
-  const list = useListFilters(ctx, { key: 'sarim.programs.filters', items, schema, presets });
+  const list = useListFilters(ctx, { key: 'orbit.programs.filters', items, schema, presets });
   const shown = list.items.map((x) => x.p);
   const states = items.map((x) => x.state);
 
-  const rowOf = (p: SarimProgram) => {
+  const rowOf = (p: OrbitProgram) => {
     const state = states[world().programs.indexOf(p)];
     const flows = flowsUsing(p);
     const open = openCards(cards, p);
@@ -100,8 +100,8 @@ export function ProgramsListPage({ ctx }: { ctx: ScreenCtx }) {
           <div role="cell" className="text-mini text-app-text-secondary">{c.does(p.gist)}</div>
           <div role="cell" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-mini text-app-text-secondary">
             {link}
-            <span>{ctx.copy.sarimAdmin.common.flows(flows.length)}</span>
-            <span>{ctx.copy.sarimAdmin.common.cards(open.length)}</span>
+            <span>{ctx.copy.orbitAdmin.common.flows(flows.length)}</span>
+            <span>{ctx.copy.orbitAdmin.common.cards(open.length)}</span>
           </div>
         </div>
       );
@@ -120,8 +120,8 @@ export function ProgramsListPage({ ctx }: { ctx: ScreenCtx }) {
           <div className="text-mini text-app-text-tertiary">{c.lastRead(when(ctx, p.lastRead))}</div>
         </div>
         <div role="cell" className="min-w-0">{link}</div>
-        <div role="cell" className="min-w-0 text-prose tabular-nums text-app-text-secondary">{flows.length ? ctx.copy.sarimAdmin.common.flows(flows.length) : ctx.copy.sarimAdmin.common.blank}</div>
-        <div role="cell" className="min-w-0 text-prose tabular-nums text-app-text-secondary">{open.length || ctx.copy.sarimAdmin.common.blank}</div>
+        <div role="cell" className="min-w-0 text-prose tabular-nums text-app-text-secondary">{flows.length ? ctx.copy.orbitAdmin.common.flows(flows.length) : ctx.copy.orbitAdmin.common.blank}</div>
+        <div role="cell" className="min-w-0 text-prose tabular-nums text-app-text-secondary">{open.length || ctx.copy.orbitAdmin.common.blank}</div>
         <div role="cell" className="min-w-0">{pill}</div>
       </div>
     );
@@ -160,7 +160,7 @@ export function ProgramsListPage({ ctx }: { ctx: ScreenCtx }) {
     </div>
   );
 
-  const counted = (s: SarimProgramStateWord) => states.filter((x) => x === s).length;
+  const counted = (s: OrbitProgramStateWord) => states.filter((x) => x === s).length;
   const events = historyOf(ctx, slice, world().programs).slice(0, 6);
   const side = (
     <>

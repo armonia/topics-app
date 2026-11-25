@@ -27,7 +27,7 @@ const SECTION_PATH: Record<KnowledgeSection, () => string> = {
 
 
 export function KnowledgeNav({ ctx, active }: { ctx: ScreenCtx; active: KnowledgeSection }) {
-  const s = ctx.copy.sarimData.section;
+  const s = ctx.copy.orbitData.section;
   const counts: Record<KnowledgeSection, number> = {
     documents: world().knowledge.docs.filter((d) => isCompanyDoc(d.collection)).length,
     rules: world().knowledge.docs.filter((d) => !isCompanyDoc(d.collection)).length,

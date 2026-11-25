@@ -1,16 +1,16 @@
 /**
- * One step of a SARIM flow (sarim-flow, `/flussi/:flow/passo/:step`): who (allow-italian: quotes the Italian interface)
- * does it and what, what it reads and produces (`fixtures/sarim-org/step-data.ts`),
+ * One step of a ORBIT flow (orbit-flow, `/flussi/:flow/passo/:step`): who (allow-italian: quotes the Italian interface)
+ * does it and what, what it reads and produces (`fixtures/orbit-org/step-data.ts`),
  * the state of «Da fare» it stands in, the live cards there, and for a step (allow-italian: quotes the Italian interface)
  * of an agent the person who checks it next.
  */
 import { ListChecks } from 'lucide-react';
 import type { ScreenCtx } from '../../../app/kit';
-import type { StepPageModel } from '../../../../ui/sarim/work-model';
-import { OpsStepScreen } from '../../../../ui/sarim/OpsStepScreen';
+import type { StepPageModel } from '../../../../ui/orbit/work-model';
+import { OpsStepScreen } from '../../../../ui/orbit/OpsStepScreen';
 import { Button } from '../../../../ui/primitives/Button';
 import { EmptyState } from '../../../../ui/primitives/EmptyState';
-import type { OpsFlowStep } from '../../../../ui/fixtures/sarim-org/types';
+import type { OpsFlowStep } from '../../../../ui/fixtures/orbit-org/types';
 import { agentById, personaById, world } from '../../world';
 import { isStuck } from '../../model/stages';
 import { liveCards } from '../../model/live';
@@ -23,7 +23,7 @@ import { capital, noFlow } from './common';
 
 /** What the actor of a step is, in one sentence: the agent's job, the person's role, the program, the rule. */
 function doesOf(step: OpsFlowStep, ctx: ScreenCtx): string {
-  const s = ctx.copy.sarimWork.flows.step;
+  const s = ctx.copy.orbitWork.flows.step;
   switch (step.actor.kind) {
     case 'rule': return s.ruleDoes;
     case 'program': return s.programDoes(step.actor.name);
@@ -40,7 +40,7 @@ function doesOf(step: OpsFlowStep, ctx: ScreenCtx): string {
 }
 
 export function StepPlace({ ctx, flowId, stepId }: { ctx: ScreenCtx; flowId: string; stepId: string }) {
-  const f = ctx.copy.sarimWork.flows;
+  const f = ctx.copy.orbitWork.flows;
   const flow = opsFlowById(flowId);
   if (!flow) return noFlow(ctx);
   const at = flow.steps.findIndex((s) => s.id === stepId);
@@ -79,7 +79,7 @@ export function StepPlace({ ctx, flowId, stepId }: { ctx: ScreenCtx; flowId: str
       doing: card.worker.doing,
       since: momentLabel(card.worker.since, ctx.now, ctx.copy),
       reviewer: personActor(card.reviewer),
-      stopped: isStuck(card, world().opsFlows, ctx.now) ? ctx.copy.sarimWork.flows.step.stopped : undefined,
+      stopped: isStuck(card, world().opsFlows, ctx.now) ? ctx.copy.orbitWork.flows.step.stopped : undefined,
       onOpen: () => ctx.go(SP.card(card.id)),
     })),
     after: step.actor.kind === 'agent' ? { next: after ? { actor: stepActor(after.actor, ctx.copy), step: `${flow.steps.indexOf(after) + 1}. ${after.title}`, onOpen: go(after.id) } : undefined } : undefined,

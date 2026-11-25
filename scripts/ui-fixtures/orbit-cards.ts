@@ -1,5 +1,5 @@
 /**
- * The SARIM edition's cards agree with themselves and with the rest of its world
+ * The ORBIT edition's cards agree with themselves and with the rest of its world
  * (called by `scripts/ui-fixtures-check.ts`).
  *
  *  · every card names a flow that exists and a step of that flow whose column
@@ -14,10 +14,10 @@
  *    that exist. (A flow may leave a column empty: the groups that once
  *    guaranteed a card in every column no longer exist.)
  */
-import { SARIM_CARDS, SARIM_STAGES } from "../../client/src/ui/fixtures/sarim-org/cards";
-import { SARIM_OPS_FLOWS } from "../../client/src/ui/fixtures/sarim-org/flows";
-import { SARIM_CONTRACTS } from "../../client/src/ui/fixtures/sarim-org/contracts";
-import { SARIM_AGENTS, SARIM_PERSONAS } from "../../client/src/ui/fixtures/sarim-org/people";
+import { ORBIT_CARDS, ORBIT_STAGES } from "../../client/src/ui/fixtures/orbit-org/cards";
+import { ORBIT_OPS_FLOWS } from "../../client/src/ui/fixtures/orbit-org/flows";
+import { ORBIT_CONTRACTS } from "../../client/src/ui/fixtures/orbit-org/contracts";
+import { ORBIT_AGENTS, ORBIT_PERSONAS } from "../../client/src/ui/fixtures/orbit-org/people";
 import { DEMO_NOW } from "../../client/src/ui/fixtures/org/clock";
 
 export type Check = (ok: boolean, msg: string) => void;
@@ -37,37 +37,37 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 /** `25.416,00 euro` → 25416 (Italian thousands dot, decimal comma). */
 const amount = (s: string) => Number(s.replace(/[^\d,.]/g, "").replace(/\./g, "").replace(",", "."));
 
-export function checkSarimCards(check: Check): void {
+export function checkOrbitCards(check: Check): void {
   const now = time(DEMO_NOW);
-  const personas = new Set(SARIM_PERSONAS.map((p) => p.id));
-  const agents = new Set(SARIM_AGENTS.map((a) => a.id));
-  const flows = new Map(SARIM_OPS_FLOWS.map((f) => [f.id, f]));
-  const cardIds = new Set(SARIM_CARDS.map((c) => c.id));
-  const stages = SARIM_STAGES.map((s) => s.id);
+  const personas = new Set(ORBIT_PERSONAS.map((p) => p.id));
+  const agents = new Set(ORBIT_AGENTS.map((a) => a.id));
+  const flows = new Map(ORBIT_OPS_FLOWS.map((f) => [f.id, f]));
+  const cardIds = new Set(ORBIT_CARDS.map((c) => c.id));
+  const stages = ORBIT_STAGES.map((s) => s.id);
   const first = stages[0];
   const last = stages[stages.length - 1];
-  const contracts = SARIM_CONTRACTS.length ? new Map(SARIM_CONTRACTS.map((c) => [c.id, c])) : undefined;
+  const contracts = ORBIT_CONTRACTS.length ? new Map(ORBIT_CONTRACTS.map((c) => [c.id, c])) : undefined;
   const contractIds = new Set(contracts ? contracts.keys() : PLANNED_CONTRACTS);
   const actorExists = (by: string) => (by.startsWith("agent:") ? agents.has(by.slice(6)) : personas.has(by));
 
   /* ---- flows ---- */
-  for (const f of SARIM_OPS_FLOWS) {
+  for (const f of ORBIT_OPS_FLOWS) {
     for (const s of f.steps) {
-      if (s.actor.kind === "agent") check(agents.has(s.actor.id), `SARIM, flusso ${f.id} passo ${s.id}: l'agente ${s.actor.id} non esiste`);
-      if (s.actor.kind === "person") check(personas.has(s.actor.id), `SARIM, flusso ${f.id} passo ${s.id}: la persona ${s.actor.id} non esiste`);
+      if (s.actor.kind === "agent") check(agents.has(s.actor.id), `ORBIT, flusso ${f.id} passo ${s.id}: l'agente ${s.actor.id} non esiste`);
+      if (s.actor.kind === "person") check(personas.has(s.actor.id), `ORBIT, flusso ${f.id} passo ${s.id}: la persona ${s.actor.id} non esiste`);
     }
-    check(new Set(f.steps.map((s) => s.id)).size === f.steps.length, `SARIM, flusso ${f.id}: due passi con lo stesso id`);
+    check(new Set(f.steps.map((s) => s.id)).size === f.steps.length, `ORBIT, flusso ${f.id}: due passi con lo stesso id`);
   }
-  for (const f of SARIM_OPS_FLOWS) {
-    check(agents.has(f.agent), `SARIM, flusso ${f.id}: l'agente ${f.agent} non esiste`);
-    check(f.stuckAfterHours > 0, `SARIM, flusso ${f.id}: il tempo oltre cui una card è ferma (${f.stuckAfterHours} ore) non è positivo`);
-    check(f.source.trim().length > 0, `SARIM, flusso ${f.id}: manca da dove entra`);
+  for (const f of ORBIT_OPS_FLOWS) {
+    check(agents.has(f.agent), `ORBIT, flusso ${f.id}: l'agente ${f.agent} non esiste`);
+    check(f.stuckAfterHours > 0, `ORBIT, flusso ${f.id}: il tempo oltre cui una card è ferma (${f.stuckAfterHours} ore) non è positivo`);
+    check(f.source.trim().length > 0, `ORBIT, flusso ${f.id}: manca da dove entra`);
   }
 
   /* ---- cards ---- */
-  check(cardIds.size === SARIM_CARDS.length, `SARIM: ${SARIM_CARDS.length} card ma ${cardIds.size} id diversi`);
-  for (const c of SARIM_CARDS) {
-    const where = `SARIM, card ${c.id}`;
+  check(cardIds.size === ORBIT_CARDS.length, `ORBIT: ${ORBIT_CARDS.length} card ma ${cardIds.size} id diversi`);
+  for (const c of ORBIT_CARDS) {
+    const where = `ORBIT, card ${c.id}`;
     const flow = flows.get(c.flow);
     check(!!flow, `${where}: il flusso ${c.flow} non esiste`);
 
@@ -96,7 +96,7 @@ export function checkSarimCards(check: Check): void {
     const w = c.worker;
     check(w.kind === "agent" ? agents.has(w.id) : personas.has(w.id), `${where}: chi la lavora (${w.kind} ${w.id}) non esiste`);
     check(time(w.since) <= now, `${where}: chi la lavora ha cominciato il ${w.since}, dopo il momento della demo`);
-    check(personas.has(c.reviewer), `${where}: chi la verifica (${c.reviewer}) non è una persona di SARIM`);
+    check(personas.has(c.reviewer), `${where}: chi la verifica (${c.reviewer}) non è una persona di ORBIT`);
     if (c.blocked) check(time(c.blocked.since) <= now, `${where}: ferma dal ${c.blocked.since}, dopo il momento della demo`);
     if (c.due) check(/^\d{4}-\d{2}-\d{2}$/.test(c.due), `${where}: la scadenza «${c.due}» non è un giorno AAAA-MM-GG`);
 
@@ -135,11 +135,11 @@ export function checkSarimCards(check: Check): void {
   }
 
   /* ---- every flow has work, and every column holds some ---- */
-  for (const f of SARIM_OPS_FLOWS) {
-    check(SARIM_CARDS.some((c) => c.flow === f.id), `SARIM, flusso ${f.id}: nessuna card`);
+  for (const f of ORBIT_OPS_FLOWS) {
+    check(ORBIT_CARDS.some((c) => c.flow === f.id), `ORBIT, flusso ${f.id}: nessuna card`);
   }
   for (const s of stages) {
-    const n = SARIM_CARDS.filter((c) => c.history[c.history.length - 1]?.stage === s).length;
-    check(n > 0, `SARIM: nessuna card in «${s}»`);
+    const n = ORBIT_CARDS.filter((c) => c.history[c.history.length - 1]?.stage === s).length;
+    check(n > 0, `ORBIT: nessuna card in «${s}»`);
   }
 }

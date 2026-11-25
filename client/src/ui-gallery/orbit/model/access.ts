@@ -4,7 +4,7 @@
  * on the flows of its own area (and those where one of its people has a step)
  * and only sees the others, the board of auditors sees everything and changes
  * nothing. What an admin changed on the
- * permissions page (slice `sarim.access`, written by that page) wins over the
+ * permissions page (slice `orbit.access`, written by that page) wins over the
  * default: a team or one person (an exception) can be given another level on a
  * flow or a section.
  *
@@ -14,7 +14,7 @@
 import type { DemoState } from '../../app/store/state';
 import type { Permission, Persona } from '../../../ui/fixtures/org/people';
 import { personaById, teamById, world } from '../world';
-import type { SarimTeamId } from '../../../ui/fixtures/sarim-org/people';
+import type { OrbitTeamId } from '../../../ui/fixtures/orbit-org/people';
 import {
   ACCESS_ACTIONS, accessSlice, atLeast, setSection, teamIdOf,
   type AccessAction, type AccessGrants, type AccessLevel, type AccessSection, type AccessSlice,
@@ -29,7 +29,7 @@ const MANAGER_ROLE = world().people.managerRole;
 const VIEWER_ROLE = world().people.viewerRole;
 
 /** The team of a person: their area, the board of auditors apart. */
-export function teamOfPersona(persona: Persona): SarimTeamId {
+export function teamOfPersona(persona: Persona): OrbitTeamId {
   return teamIdOf(persona) ?? world().people.managerTeam;
 }
 
@@ -87,22 +87,22 @@ function defaultFlowLevel(state: DemoState, persona: Persona, flowId: string): A
 /* ---------- the defaults of a team, for the matrix ---------- */
 
 /** The person whose role and steps stand for a team: its leader. */
-const leadOf = (team: SarimTeamId) => personaById(teamById(team)?.lead ?? '');
+const leadOf = (team: OrbitTeamId) => personaById(teamById(team)?.lead ?? '');
 
 /** The level a team has in a section before anything is set by hand. */
-export function defaultTeamSection(state: DemoState, team: SarimTeamId, section: AccessSection): AccessLevel {
+export function defaultTeamSection(state: DemoState, team: OrbitTeamId, section: AccessSection): AccessLevel {
   const lead = leadOf(team);
   return lead ? defaultSectionLevel(state, lead, section) : 'none';
 }
 
 /** The level a team has on a flow before anything is set by hand. */
-export function defaultTeamFlow(state: DemoState, team: SarimTeamId, flowId: string): AccessLevel {
+export function defaultTeamFlow(state: DemoState, team: OrbitTeamId, flowId: string): AccessLevel {
   const lead = leadOf(team);
   return lead ? defaultFlowLevel(state, lead, flowId) : 'none';
 }
 
 /** Whether the role of the team's leader gives the action before anything is set by hand. */
-export function defaultTeamAction(state: DemoState, team: SarimTeamId, action: Permission): boolean {
+export function defaultTeamAction(state: DemoState, team: OrbitTeamId, action: Permission): boolean {
   const lead = leadOf(team);
   return lead ? roleHas(state, lead, action) : false;
 }
@@ -119,7 +119,7 @@ export type AccessRow =
 export type AccessValue = AccessLevel | boolean;
 
 /** Who a change is for: a whole team or one person (an exception). */
-export type AccessScope = { team: SarimTeamId } | { person: string };
+export type AccessScope = { team: OrbitTeamId } | { person: string };
 
 const grantsOf = (slice: AccessSlice, scope: AccessScope): AccessGrants | undefined =>
   'team' in scope ? slice.teams[scope.team] : slice.people[scope.person];
@@ -159,7 +159,7 @@ export function handRows(slice: AccessSlice, scope: AccessScope): Array<{ row: A
   ];
 }
 
-/** The key of a row, for a select option and a data attribute: `section:inbox`, `flow:sarim-fir`, `action:admin`. */
+/** The key of a row, for a select option and a data attribute: `section:inbox`, `flow:orbit-fir`, `action:admin`. */
 export const rowKey = (row: AccessRow) => `${row.kind}:${row.id}`;
 
 export function parseRowKey(key: string): AccessRow | undefined {
@@ -170,13 +170,13 @@ export function parseRowKey(key: string): AccessRow | undefined {
 }
 
 /** The default of a team on a row: what its leader's role gives, before anything is set by hand. */
-export function defaultTeamValue(state: DemoState, team: SarimTeamId, row: AccessRow): AccessValue {
+export function defaultTeamValue(state: DemoState, team: OrbitTeamId, row: AccessRow): AccessValue {
   if (row.kind === 'section') return defaultTeamSection(state, team, row.id);
   if (row.kind === 'flow') return defaultTeamFlow(state, team, row.id);
   return defaultTeamAction(state, team, row.id);
 }
 
 /** What a team has on a row: the value set by hand, else its default. */
-export function teamValue(state: DemoState, team: SarimTeamId, row: AccessRow): AccessValue {
+export function teamValue(state: DemoState, team: OrbitTeamId, row: AccessRow): AccessValue {
   return handValue(accessSlice(state), { team }, row) ?? defaultTeamValue(state, team, row);
 }

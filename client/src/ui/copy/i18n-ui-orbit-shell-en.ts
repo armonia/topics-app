@@ -1,10 +1,10 @@
-import type { SarimShellCopy } from './sarim-shell';
+import type { OrbitShellCopy } from './orbit-shell';
 import { orgWords } from './org-words';
 
 const W = orgWords();
 
-/** English words of the SARIM organization and person menus. */
-export const SARIM_SHELL_COPY_EN: SarimShellCopy = {
+/** English words of the ORBIT organization and person menus. */
+export const ORBIT_SHELL_COPY_EN: OrbitShellCopy = {
   orgMenu: `${W.name} menu`,
   org: {
     settings: 'Settings',

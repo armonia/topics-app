@@ -6,7 +6,7 @@
  * the contract variations flow is not closed here: closing or approving it opens a
  * confirmation that leads to the approvals and signatures of its contract.
  */
-import type { SarimCard, StageId, Worker } from '../../../../ui/fixtures/sarim-org/types';
+import type { OrbitCard, StageId, Worker } from '../../../../ui/fixtures/orbit-org/types';
 import { world } from '../../world';
 import type { ScreenCtx } from '../../../app/kit';
 import { KANBAN_INITIAL, KANBAN_SLICE, liveContractById, stageOf, withMove, withWorker, type KanbanSlice } from '../../model/live';
@@ -15,7 +15,7 @@ import { SP } from '../../paths';
 import { DONE, INCOMING, WORKING, moveCheck, stageLabel, whoName } from './model';
 
 /** The agent that prepares the cards of the flow of a card. */
-const flowAgent = (card: SarimCard) => world().opsFlows.find((f) => f.id === card.flow)?.agent ?? '';
+const flowAgent = (card: OrbitCard) => world().opsFlows.find((f) => f.id === card.flow)?.agent ?? '';
 
 function update(ctx: ScreenCtx, fn: (slice: KanbanSlice) => KanbanSlice) {
   const [, set] = ctx.slice<KanbanSlice>(KANBAN_SLICE, KANBAN_INITIAL);
@@ -27,7 +27,7 @@ function update(ctx: ScreenCtx, fn: (slice: KanbanSlice) => KanbanSlice) {
  * of that column (a person or an agent; a rule or a program runs under the
  * flow's agent); in «Fatto», the person who closed it. (allow-italian: quotes the Italian interface)
  */
-function workerAfter(card: SarimCard, to: StageId, ctx: ScreenCtx): Worker {
+function workerAfter(card: OrbitCard, to: StageId, ctx: ScreenCtx): Worker {
   if (to === DONE) return { kind: 'person', id: ctx.persona.id, doing: ctx.copy.kanban.actions.closedDoing, since: ctx.now };
   const step = world().opsFlows.find((f) => f.id === card.flow)?.steps.find((s) => s.stage === to);
   if (!step) return card.worker;
@@ -35,13 +35,13 @@ function workerAfter(card: SarimCard, to: StageId, ctx: ScreenCtx): Worker {
   return { kind: 'agent', id: flowAgent(card), doing: step.title, since: ctx.now };
 }
 
-function done(ctx: ScreenCtx, card: SarimCard, log: string, title: string) {
+function done(ctx: ScreenCtx, card: OrbitCard, log: string, title: string) {
   const path = SP.card(card.id);
   ctx.log(log, 'case', path);
   ctx.toast({ tone: 'ok', title, body: `${card.id} · ${card.title}`, action: { label: ctx.copy.kanban.actions.openCard, path } });
 }
 
-function apply(ctx: ScreenCtx, card: SarimCard, to: StageId, approved: boolean) {
+function apply(ctx: ScreenCtx, card: OrbitCard, to: StageId, approved: boolean) {
   const a = ctx.copy.kanban.actions;
   update(ctx, (s) => withWorker(withMove(s, card, to, ctx.persona.id, ctx.now), card.id, workerAfter(card, to, ctx)));
   if (approved) done(ctx, card, a.logApproved(card.id, card.title), a.toastApproved);
@@ -49,7 +49,7 @@ function apply(ctx: ScreenCtx, card: SarimCard, to: StageId, approved: boolean) 
 }
 
 /** The confirmation that sends the approval of a contract card to its contract. */
-export function openContractGate(ctx: ScreenCtx, card: SarimCard, contractId: string) {
+export function openContractGate(ctx: ScreenCtx, card: OrbitCard, contractId: string) {
   const a = ctx.copy.kanban.actions;
   const contract = liveContractById(ctx.state, contractId);
   const version = contract?.variants.find((v) => v.card === card.id)?.version ?? (contract ? latestVersion(contract).n : 1);
@@ -66,7 +66,7 @@ export function openContractGate(ctx: ScreenCtx, card: SarimCard, contractId: st
 }
 
 /** A move asked by a drag, the «Sposta in…» menu or a button. (allow-italian: quotes the Italian interface) */
-export function moveCard(ctx: ScreenCtx, card: SarimCard, to: StageId) {
+export function moveCard(ctx: ScreenCtx, card: OrbitCard, to: StageId) {
   if (stageOf(card) === to) return;
   const check = moveCheck(card, to, ctx);
   if (check.kind === 'contract') {
@@ -81,7 +81,7 @@ export function moveCard(ctx: ScreenCtx, card: SarimCard, to: StageId) {
 }
 
 /** «Approva»: the card in «Da approvare» closes in «Fatto». (allow-italian: quotes the Italian interface) */
-export function approveCard(ctx: ScreenCtx, card: SarimCard) {
+export function approveCard(ctx: ScreenCtx, card: OrbitCard) {
   const check = moveCheck(card, DONE, ctx);
   if (check.kind === 'contract') {
     openContractGate(ctx, card, check.contract);
@@ -95,7 +95,7 @@ export function approveCard(ctx: ScreenCtx, card: SarimCard) {
 }
 
 /** «Prendo io»: the person takes the card in hand; a card just arrived goes to work. (allow-italian: quotes the Italian interface) */
-export function takeCard(ctx: ScreenCtx, card: SarimCard) {
+export function takeCard(ctx: ScreenCtx, card: OrbitCard) {
   const a = ctx.copy.kanban.actions;
   update(ctx, (s) => {
     const moved = stageOf(card) === INCOMING ? withMove(s, card, WORKING, ctx.persona.id, ctx.now) : s;
@@ -105,7 +105,7 @@ export function takeCard(ctx: ScreenCtx, card: SarimCard) {
 }
 
 /** «Rimanda all'agente»: the flow's agent picks the card up again, back at work. (allow-italian: quotes the Italian interface) */
-export function sendBackCard(ctx: ScreenCtx, card: SarimCard) {
+export function sendBackCard(ctx: ScreenCtx, card: OrbitCard) {
   const a = ctx.copy.kanban.actions;
   const agent = flowAgent(card);
   const name = whoName(`agent:${agent}`).full;
@@ -117,7 +117,7 @@ export function sendBackCard(ctx: ScreenCtx, card: SarimCard) {
 }
 
 /** A value the agent read, corrected by hand: stored by label, read back by `liveCard`. */
-export function correctValue(ctx: ScreenCtx, card: SarimCard, label: string, value: string) {
+export function correctValue(ctx: ScreenCtx, card: OrbitCard, label: string, value: string) {
   const a = ctx.copy.kanban.actions;
   update(ctx, (s) => ({ ...s, values: { ...s.values, [card.id]: { ...(s.values[card.id] ?? {}), [label]: value } } }));
   done(ctx, card, a.logValue(card.id, label, value), a.toastValue(label));

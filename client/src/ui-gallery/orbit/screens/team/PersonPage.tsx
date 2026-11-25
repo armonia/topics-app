@@ -1,5 +1,5 @@
 /**
- * sarim-person: one person or one agent of SARIM.
+ * orbit-person: one person or one agent of ORBIT.
  *
  * A person: what they have in hand, what waits for their check, the contracts
  * they follow or approve (with their step), the obligations of those
@@ -15,9 +15,9 @@
 import type { ReactNode } from 'react';
 import { ArrowLeft, Bot, CalendarClock, FileSignature, History, Kanban, Plug, ShieldCheck, UserRound } from 'lucide-react';
 import clsx from 'clsx';
-import type { ApprovalStep, Contract, OpsFlow, OpsFlowStep } from '../../../../ui/fixtures/sarim-org/types';
+import type { ApprovalStep, Contract, OpsFlow, OpsFlowStep } from '../../../../ui/fixtures/orbit-org/types';
 import { agentById, personaById, teamById, teamIdOfPerson, world } from '../../world';
-import type { SarimAgent, SarimPersona } from '../../../../ui/fixtures/sarim-org/people';
+import type { OrbitAgent, OrbitPersona } from '../../../../ui/fixtures/orbit-org/people';
 import { Button } from '../../../../ui/primitives/Button';
 import { Chip } from '../../../../ui/primitives/Chip';
 import { EmptyState } from '../../../../ui/primitives/EmptyState';
@@ -59,14 +59,14 @@ const RECENT_SHOWN = 8;
 const STEP_TONE: Record<ApprovalStep['state'], Tone> = { fatto: 'green', 'in-attesa': 'amber', 'da-fare': 'neutral' }; // allow-italian: state ids of the data
 
 export function PersonPage({ ctx, id }: { ctx: ScreenCtx; id: string }) {
-  const t = ctx.copy.sarimAdmin.team;
+  const t = ctx.copy.orbitAdmin.team;
   const person = personaById(id);
   const agent = person ? undefined : agentById(id);
   if (person) return <PersonView ctx={ctx} person={person} />;
   if (agent) return <AgentView ctx={ctx} agent={agent} />;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PaneHeader crumbs={orgCrumbs(ctx, [{ label: ctx.copy.sarimTeam.title }])} />
+      <PaneHeader crumbs={orgCrumbs(ctx, [{ label: ctx.copy.orbitTeam.title }])} />
       <EmptyState icon={UserRound} title={t.person.notFound} action={<Button icon={ArrowLeft} onClick={() => ctx.go(SP.team())}>{t.person.back}</Button>}>
         {t.person.notFoundBody}
       </EmptyState>
@@ -79,7 +79,7 @@ function personFrame(ctx: ScreenCtx, teamId: string, name: string, main: ReactNo
   const label = teamLabel(ctx, teamId);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PaneHeader crumbs={orgCrumbs(ctx, [{ label: ctx.copy.sarimTeam.title, to: SP.team() }, { label, to: SP.teamOf(teamId) }, { label: name }])}>
+      <PaneHeader crumbs={orgCrumbs(ctx, [{ label: ctx.copy.orbitTeam.title, to: SP.team() }, { label, to: SP.teamOf(teamId) }, { label: name }])}>
         <Button size="sm" icon={ArrowLeft} onClick={() => ctx.go(SP.teamOf(teamId))}>{label}</Button>
       </PaneHeader>
       {ctx.phone ? (
@@ -99,9 +99,9 @@ function personFrame(ctx: ScreenCtx, teamId: string, name: string, main: ReactNo
 
 /** The recent actions of one actor, from the same lines as the Registro. (allow-italian: quotes the Italian interface) */
 function recentSection(ctx: ScreenCtx, actorId: string, title: string) {
-  const p = ctx.copy.sarimAdmin.team.person;
-  const lines = linesOf(ctx.state, ctx.copy.sarimAdmin.log, actorId).slice(0, RECENT_SHOWN);
-  const [, setLogPerson] = ctx.ui<string>('sarim.log.person', '');
+  const p = ctx.copy.orbitAdmin.team.person;
+  const lines = linesOf(ctx.state, ctx.copy.orbitAdmin.log, actorId).slice(0, RECENT_SHOWN);
+  const [, setLogPerson] = ctx.ui<string>('orbit.log.person', '');
   const openLog = () => {
     setLogPerson(actorId);
     ctx.go(SP.settings('registro'));
@@ -135,10 +135,10 @@ const glyph = (Icon: typeof Bot, tone: 'violet' | 'blue' | 'amber' | 'neutral' =
 
 /* ---------- a person ---------- */
 
-function PersonView({ ctx, person }: { ctx: ScreenCtx; person: SarimPersona }) {
-  const t = ctx.copy.sarimAdmin.team;
+function PersonView({ ctx, person }: { ctx: ScreenCtx; person: OrbitPersona }) {
+  const t = ctx.copy.orbitAdmin.team;
   const p = t.person;
-  const common = ctx.copy.sarimAdmin.common;
+  const common = ctx.copy.orbitAdmin.common;
   const cards = liveCards(ctx.state);
   const contracts = liveContracts(ctx.state);
   const inHand = inHandOf(cards, person.id);
@@ -167,7 +167,7 @@ function PersonView({ ctx, person }: { ctx: ScreenCtx; person: SarimPersona }) {
           <h1 className="text-title font-semibold leading-7 text-app-text">{person.name}</h1>
           <div className="flex flex-wrap items-center gap-1.5 text-prose text-app-text-secondary">
             <Chip>{teamLabel(ctx, teamId)}</Chip>
-            {team?.lead === person.id && <Chip tone="violet">{ctx.copy.sarimTeam.lead}</Chip>}
+            {team?.lead === person.id && <Chip tone="violet">{ctx.copy.orbitTeam.lead}</Chip>}
             {self && <Chip tone="blue">{common.you}</Chip>}
           </div>
           {team && <p className="mt-1 text-prose leading-5 text-app-text-secondary">{team.does}</p>}
@@ -223,10 +223,10 @@ function PersonView({ ctx, person }: { ctx: ScreenCtx; person: SarimPersona }) {
 
   const side = (
     <>
-      <PanelSection label={ctx.copy.sarimTeam.person.permissionsTitle}>
+      <PanelSection label={ctx.copy.orbitTeam.person.permissionsTitle}>
         <div className="flex flex-col gap-3">
           <div>
-            <div className="mb-1 text-mini font-medium text-app-text-secondary">{ctx.copy.sarimTeam.person.team}</div>
+            <div className="mb-1 text-mini font-medium text-app-text-secondary">{ctx.copy.orbitTeam.person.team}</div>
             <button
               type="button"
               onClick={() => ctx.go(SP.teamOf(teamId))}
@@ -236,23 +236,23 @@ function PersonView({ ctx, person }: { ctx: ScreenCtx; person: SarimPersona }) {
             </button>
           </div>
           <div>
-            <div className="mb-1 text-mini font-medium text-app-text-secondary">{ctx.copy.sarimTeam.person.can}</div>
+            <div className="mb-1 text-mini font-medium text-app-text-secondary">{ctx.copy.orbitTeam.person.can}</div>
             <div className="flex flex-wrap gap-1">
               {may.length
-                ? may.map((x) => <Chip key={x} tone="blue">{ctx.copy.sarimTeam.permissions.actions[x].label}</Chip>)
-                : <span className="text-prose text-app-text-tertiary">{ctx.copy.sarimTeam.page.actionsNone}</span>}
+                ? may.map((x) => <Chip key={x} tone="blue">{ctx.copy.orbitTeam.permissions.actions[x].label}</Chip>)
+                : <span className="text-prose text-app-text-tertiary">{ctx.copy.orbitTeam.page.actionsNone}</span>}
             </div>
           </div>
           <div data-exceptions="person">
-            <div className="mb-1 text-mini font-medium text-app-text-secondary">{ctx.copy.sarimTeam.person.exceptions}</div>
-            {exceptions.length === 0 ? <p className="text-prose text-app-text-tertiary">{ctx.copy.sarimTeam.person.noExceptions}</p> : (
+            <div className="mb-1 text-mini font-medium text-app-text-secondary">{ctx.copy.orbitTeam.person.exceptions}</div>
+            {exceptions.length === 0 ? <p className="text-prose text-app-text-tertiary">{ctx.copy.orbitTeam.person.noExceptions}</p> : (
               <div className="flex flex-wrap gap-1">
                 {exceptions.map(({ row, value }) => <Chip key={`${row.kind}:${row.id}`} tone="amber">{`${accessRowLabel(ctx, row)}: ${accessValueLabel(ctx, value)}`}</Chip>)}
               </div>
             )}
           </div>
         </div>
-        <Button size="sm" icon={ShieldCheck} className="mt-3" onClick={() => ctx.go(SP.teamPermissions())}>{ctx.copy.sarimTeam.person.open}</Button>
+        <Button size="sm" icon={ShieldCheck} className="mt-3" onClick={() => ctx.go(SP.teamPermissions())}>{ctx.copy.orbitTeam.person.open}</Button>
       </PanelSection>
       {recentSection(ctx, person.id, p.recentTitle)}
     </>
@@ -272,8 +272,8 @@ function stepsOf(agentId: string): Array<{ flow: OpsFlow; step: OpsFlowStep; che
   }));
 }
 
-function AgentView({ ctx, agent }: { ctx: ScreenCtx; agent: SarimAgent }) {
-  const t = ctx.copy.sarimAdmin.team;
+function AgentView({ ctx, agent }: { ctx: ScreenCtx; agent: OrbitAgent }) {
+  const t = ctx.copy.orbitAdmin.team;
   const a = t.agent;
   const cards = liveCards(ctx.state);
   const flows = flowsOf(agent.id);
@@ -301,7 +301,7 @@ function AgentView({ ctx, agent }: { ctx: ScreenCtx; agent: SarimAgent }) {
             <span>{world().people.areaLabel[agent.area]}{flows.length ? ` · ${flows.map((x) => flowLabel(x.id)).join(', ')}` : ''}</span>
           </div>
         </div>
-        {flow && <Button icon={Kanban} onClick={() => openDaFare(ctx, { view: 'kanban', flow: flow.id })}>{ctx.copy.sarimTeam.page.openInHand}</Button>}
+        {flow && <Button icon={Kanban} onClick={() => openDaFare(ctx, { view: 'kanban', flow: flow.id })}>{ctx.copy.orbitTeam.page.openInHand}</Button>}
       </div>
       <p className="text-prose leading-6 text-app-text">{agent.does}</p>
 
@@ -367,7 +367,7 @@ function AgentView({ ctx, agent }: { ctx: ScreenCtx; agent: SarimAgent }) {
           </div>
         )}
         <Button size="sm" icon={Plug} className="mt-3" onClick={ctx.allow('view:programs', () => ctx.go(SP.programs()))} title={ctx.deniedTitle('view:programs')}>
-          {ctx.copy.sarimAdmin.programs.title}
+          {ctx.copy.orbitAdmin.programs.title}
         </Button>
       </PanelSection>
       {recentSection(ctx, `agent:${agent.id}`, a.recentTitle)}

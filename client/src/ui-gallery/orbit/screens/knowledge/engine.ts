@@ -1,5 +1,5 @@
 /**
- * What «Conoscenza» of SARIM knows besides the fixture: which procedures a (allow-italian: quotes the Italian interface)
+ * What «Conoscenza» of ORBIT knows besides the fixture: which procedures a (allow-italian: quotes the Italian interface)
  * person approved, which ones an agent rewrote on request, which questions
  * were asked. On top of that, the pieces every place of the area shares: the
  * live text of a document (its versions and the state of a procedure), the
@@ -11,8 +11,8 @@ import type { UiCopy } from '../../../../ui/copy/types';
 import type { AnswerModel, PassageModel, UsageGroupModel, VersionModel } from '../../../../ui/knowledge/model';
 import type { RichTextModel, Tone } from '../../../../ui/types';
 import { knowledgeDocById, world } from '../../world';
-import type { KnowledgeDoc, KnowledgePart, KnowledgeQuestion } from '../../../../ui/fixtures/sarim-org/knowledge';
-import type { Contract, SarimCard } from '../../../../ui/fixtures/sarim-org/types';
+import type { KnowledgeDoc, KnowledgePart, KnowledgeQuestion } from '../../../../ui/fixtures/orbit-org/knowledge';
+import type { Contract, OrbitCard } from '../../../../ui/fixtures/orbit-org/types';
 import type { ScreenCtx } from '../../../app/kit';
 import type { DemoState } from '../../../app/store/state';
 import { liveCards, liveContracts, stageOf } from '../../model/live';
@@ -22,7 +22,7 @@ import { SP } from '../../paths';
 
 /* ---------- the slice ---------- */
 
-export const KNOWLEDGE_SLICE = 'sarim.knowledge';
+export const KNOWLEDGE_SLICE = 'orbit.knowledge';
 
 export interface KnowledgeRewrite {
   /** The number the version gets: after the ones of the fixture. */
@@ -80,7 +80,7 @@ export function liveDoc(doc: KnowledgeDoc, slice: KnowledgeSlice, copy: UiCopy):
   });
   const proc = doc.procedure;
   if (!proc) return plain();
-  const k = copy.sarimData.knowledge;
+  const k = copy.orbitData.knowledge;
   const base = doc.versions;
   const added = (slice.rewrites[doc.id] ?? []).map((r) => ({
     id: `v${r.n}`,
@@ -150,7 +150,7 @@ export function refParts(ref: string, contracts: Contract[], copy: UiCopy): { he
   if (ref.startsWith('contract:')) {
     const [id, clause] = ref.slice(9).split('/');
     const contract = contractOf(contracts, id);
-    return { head: contract?.title ?? id, part: copy.sarimData.common.clause(clauseNumber(contract, clause)) };
+    return { head: contract?.title ?? id, part: copy.orbitData.common.clause(clauseNumber(contract, clause)) };
   }
   const [docId, partId] = ref.split('/');
   const doc = knowledgeDocById(docId);
@@ -207,7 +207,7 @@ export interface UsageRow {
   part: string;
 }
 
-function card(cards: SarimCard[], id: string): SarimCard | undefined {
+function card(cards: OrbitCard[], id: string): OrbitCard | undefined {
   return cards.find((c) => c.id === id);
 }
 
@@ -228,8 +228,8 @@ export function citedCount(doc: KnowledgeDoc, part: KnowledgePart): number {
 }
 
 /** What cites one part of a document, by kind. */
-function partUsage(doc: KnowledgeDoc, part: KnowledgePart, cards: SarimCard[], contracts: Contract[], copy: UiCopy): Record<'cards' | 'flows' | 'contracts' | 'procedures', UsageRow[]> {
-  const k = copy.sarimData.knowledge.doc;
+function partUsage(doc: KnowledgeDoc, part: KnowledgePart, cards: OrbitCard[], contracts: Contract[], copy: UiCopy): Record<'cards' | 'flows' | 'contracts' | 'procedures', UsageRow[]> {
+  const k = copy.orbitData.knowledge.doc;
   const out: Record<'cards' | 'flows' | 'contracts' | 'procedures', UsageRow[]> = { cards: [], flows: [], contracts: [], procedures: [] };
   for (const c of part.citedBy ?? []) {
     if (c.kind === 'card') {
@@ -252,7 +252,7 @@ function partUsage(doc: KnowledgeDoc, part: KnowledgePart, cards: SarimCard[], c
       out.contracts.push({
         id: `${c.at ? SP.clause(contract.id, c.at) : SP.contract(contract.id)}#${part.id}`,
         title: contract.title,
-        detail: `${part.short} · ${c.at ? k.usageClause(copy.sarimData.common.clause(clauseNumber(contract, c.at)), c.why) : c.why}`,
+        detail: `${part.short} · ${c.at ? k.usageClause(copy.orbitData.common.clause(clauseNumber(contract, c.at)), c.why) : c.why}`,
         part: part.id,
       });
     }
@@ -272,7 +272,7 @@ export function usageOf(doc: KnowledgeDoc, state: DemoState, copy: UiCopy): Usag
     const u = partUsage(doc, part, cards, contracts, copy);
     for (const g of ['cards', 'flows', 'contracts', 'procedures'] as const) groups[g].push(...u[g]);
   }
-  const labels = copy.sarimData.knowledge.doc.usage;
+  const labels = copy.orbitData.knowledge.doc.usage;
   return (['cards', 'flows', 'contracts', 'procedures'] as const).map((g) => ({
     id: g,
     label: labels[g],
@@ -464,9 +464,9 @@ export function suggestionsFor(docId?: string): string[] {
   return [...about, ...all.filter((x) => !about.includes(x))].slice(0, 3).map((x) => x.question);
 }
 
-/** The copy the shared question box and answer read, with SARIM's words in place of the generic ones. */
+/** The copy the shared question box and answer read, with ORBIT's words in place of the generic ones. */
 export function askCopy(copy: UiCopy, placeholder: string): UiCopy {
-  const s = copy.sarimData.knowledge.ask;
+  const s = copy.orbitData.knowledge.ask;
   return {
     ...copy,
     knowledgeMore: {
@@ -484,7 +484,7 @@ export function recordQuestion(ctx: ScreenCtx, question: string, doc?: Knowledge
     ...s,
     asked: [{ question, at: ctx.now, by: ctx.persona.id, doc: doc?.id }, ...(s.asked ?? []).filter((x) => x.question !== question)].slice(0, 12),
   }));
-  ctx.log(ctx.copy.sarimData.knowledge.ask.log(question), 'knowledge', doc ? SP.knowledgeDoc(doc.id) : SP.knowledge());
+  ctx.log(ctx.copy.orbitData.knowledge.ask.log(question), 'knowledge', doc ? SP.knowledgeDoc(doc.id) : SP.knowledge());
 }
 
 export { openExternal } from '../../external';

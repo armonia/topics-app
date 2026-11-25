@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/ui-sarim-stability.mjs - does an edition (SARIM, or the Consorzio
+ * scripts/ui-orbit-stability.mjs - does an edition (ORBIT, or the Consorzio
  * with `--entry consorzio`) stay the same after a person has gone around it
  * for a while?
  *
@@ -11,7 +11,7 @@
  * them make the app heavier and twitchier the longer it is open.
  *
  * WHAT. Serves `client/dist-ui/` (run `bun run build:ui` first), opens
- * `sarim.html` in headless WebKit at 1440x900 with a fresh state, and before
+ * `orbit.html` in headless WebKit at 1440x900 with a fresh state, and before
  * any script of the page runs it wraps `addEventListener` /
  * `removeEventListener` and the timers, so it can count what is live at any
  * moment. Then:
@@ -27,7 +27,7 @@
  * baseline (a small tolerance for the timeouts of the last screen's own
  * closing animations); no page error is allowed.
  *
- *   node scripts/ui-sarim-stability.mjs [--entry sarim|consorzio] [--rounds 5]
+ *   node scripts/ui-orbit-stability.mjs [--entry orbit|consorzio] [--rounds 5]
  *
  * Exit 0: the numbers before and after, equal. Exit 1: what grew, by type.
  */
@@ -35,7 +35,7 @@ import { webkit } from "playwright";
 import { arg, collectErrors, serveDist } from "./ui-app/serve.mjs";
 
 /* The places a person goes through, in order; each round visits them all. 10 routes x 5 rounds = 50 navigations. */
-const SARIM_ROUTES = [
+const ORBIT_ROUTES = [
   "/da-fare",
   "/da-fare/kanban",
   "/da-fare/per-stato",
@@ -47,9 +47,9 @@ const SARIM_ROUTES = [
   "/conoscenza/dati/scadenzario",
   "/squadra",
 ];
-const ENTRY = arg("entry") ?? "sarim";
-/** The screens an entry other than SARIM is walked through: the first example of each, read from the page. */
-const SCREENS = ["sarim-list", "sarim-kanban", "sarim-stages", "sarim-card", "sarim-flows", "sarim-knowledge", "sarim-contracts", "sarim-contract", "sarim-deadlines", "sarim-team"];
+const ENTRY = arg("entry") ?? "orbit";
+/** The screens an entry other than ORBIT is walked through: the first example of each, read from the page. */
+const SCREENS = ["orbit-list", "orbit-kanban", "orbit-stages", "orbit-card", "orbit-flows", "orbit-knowledge", "orbit-contracts", "orbit-contract", "orbit-deadlines", "orbit-team"];
 const ROUNDS = Number(arg("rounds") ?? "5");
 /** Pending timeouts may differ by this much: the last screen's own fades and debounces. */
 const TIMEOUT_TOLERANCE = 2;
@@ -117,7 +117,7 @@ const CHROME = () => {
   };
 };
 
-const { base, close } = await serveDist("ui-sarim-stability", ENTRY);
+const { base, close } = await serveDist("ui-orbit-stability", ENTRY);
 const browser = await webkit.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];
@@ -125,7 +125,7 @@ collectErrors(page, errors);
 await page.addInitScript(INSTRUMENT);
 await page.goto(`${base}?fresh=1&speed=0.05#/da-fare`);
 await page.waitForFunction(() => window.__demo);
-const ROUTES = ENTRY === "sarim" ? SARIM_ROUTES : await page.evaluate((screens) => {
+const ROUTES = ENTRY === "orbit" ? ORBIT_ROUTES : await page.evaluate((screens) => {
   const places = window.__demo.places();
   return screens.map((id) => places.find((x) => x.id === id)?.samples[0]).filter(Boolean);
 }, SCREENS);
@@ -201,7 +201,7 @@ if (wrongPlaces.length) console.error(`posti sbagliati:\n  ${[...new Set(wrongPl
 if (grew.length) console.error(`cresciuto:\n  ${grew.join("\n  ")}`);
 if (errors.length) console.error(`errori della pagina, ${errors.length}:\n  ${[...new Set(errors)].join("\n  ")}`);
 if (grew.length || jumps.length || errors.length || wrongPlaces.length) {
-  console.error("ui-sarim-stability: FAIL");
+  console.error("ui-orbit-stability: FAIL");
   process.exit(1);
 }
-console.log("ui-sarim-stability: ok, niente cresce, niente si sposta, nessun errore");
+console.log("ui-orbit-stability: ok, niente cresce, niente si sposta, nessun errore");

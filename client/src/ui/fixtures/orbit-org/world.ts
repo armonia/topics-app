@@ -1,44 +1,44 @@
 /**
- * SARIM as a world: the data of this folder assembled in the shape the screens
- * of `client/src/ui-gallery/sarim/` read (`../world-types.ts`), plus the words,
+ * ORBIT as a world: the data of this folder assembled in the shape the screens
+ * of `client/src/ui-gallery/orbit/` read (`../world-types.ts`), plus the words,
  * ids and samples that used to be written in those screens. Nothing here
  * changes a datum; it only gives each one its place.
  */
 import type { OrgWorld } from '../world-types';
-import { SARIM_CARDS, SARIM_STAGES } from './cards';
-import { SARIM_CONTRACTS } from './contracts';
-import { SARIM_TOWNS } from './data';
-import { SARIM_OPS_FLOWS, SARIM_SPLITS } from './flows';
-import { SARIM_KNOWLEDGE_COLLECTIONS, SARIM_KNOWLEDGE_DOCS, SARIM_KNOWLEDGE_QUESTIONS } from './knowledge';
+import { ORBIT_CARDS, ORBIT_STAGES } from './cards';
+import { ORBIT_CONTRACTS } from './contracts';
+import { ORBIT_TOWNS } from './data';
+import { ORBIT_OPS_FLOWS, ORBIT_SPLITS } from './flows';
+import { ORBIT_KNOWLEDGE_COLLECTIONS, ORBIT_KNOWLEDGE_DOCS, ORBIT_KNOWLEDGE_QUESTIONS } from './knowledge';
 import {
-  SARIM_CERTIFICATIONS, SARIM_CERTIFICATIONS_SOURCE, SARIM_IDENTITY, SARIM_NUMBERS, SARIM_NUMBERS_SOURCE, SARIM_SERVED_SOURCE,
+  ORBIT_CERTIFICATIONS, ORBIT_CERTIFICATIONS_SOURCE, ORBIT_IDENTITY, ORBIT_NUMBERS, ORBIT_NUMBERS_SOURCE, ORBIT_SERVED_SOURCE,
 } from './organization';
 import {
-  SARIM_AGENTS, SARIM_AGENTS_TEAM, SARIM_AREA_LABEL, SARIM_DEFAULT_PERSONA, SARIM_PERMISSIONS, SARIM_PERSONAS, SARIM_ROLES, SARIM_TEAMS,
+  ORBIT_AGENTS, ORBIT_AGENTS_TEAM, ORBIT_AREA_LABEL, ORBIT_DEFAULT_PERSONA, ORBIT_PERMISSIONS, ORBIT_PERSONAS, ORBIT_ROLES, ORBIT_TEAMS,
 } from './people';
-import { SARIM_PROGRAMS } from './programs';
-import { SARIM_STEP_DATA } from './step-data';
-import { SARIM_WORDS } from './words';
+import { ORBIT_PROGRAMS } from './programs';
+import { ORBIT_STEP_DATA } from './step-data';
+import { ORBIT_WORDS } from './words';
 
-export const SARIM_WORLD: OrgWorld = {
-  key: 'sarim',
-  name: 'SARIM',
-  shortName: 'SARIM',
+export const ORBIT_WORLD: OrgWorld = {
+  key: 'orbit',
+  name: 'ORBIT',
+  shortName: 'ORBIT',
   monogram: 'SA',
   color: '#b45309',
-  words: SARIM_WORDS,
+  words: ORBIT_WORDS,
 
-  stages: SARIM_STAGES,
-  cards: SARIM_CARDS,
-  opsFlows: SARIM_OPS_FLOWS,
-  contracts: SARIM_CONTRACTS,
-  towns: SARIM_TOWNS,
-  programs: SARIM_PROGRAMS,
-  stepData: SARIM_STEP_DATA,
+  stages: ORBIT_STAGES,
+  cards: ORBIT_CARDS,
+  opsFlows: ORBIT_OPS_FLOWS,
+  contracts: ORBIT_CONTRACTS,
+  towns: ORBIT_TOWNS,
+  programs: ORBIT_PROGRAMS,
+  stepData: ORBIT_STEP_DATA,
   knowledge: {
-    collections: SARIM_KNOWLEDGE_COLLECTIONS,
-    docs: SARIM_KNOWLEDGE_DOCS,
-    questions: SARIM_KNOWLEDGE_QUESTIONS,
+    collections: ORBIT_KNOWLEDGE_COLLECTIONS,
+    docs: ORBIT_KNOWLEDGE_DOCS,
+    questions: ORBIT_KNOWLEDGE_QUESTIONS,
     updated: {
       'dlgs-152-2006': '2026-01-01',
       'dm-59-2023': '2023-06-15',
@@ -53,52 +53,52 @@ export const SARIM_WORLD: OrgWorld = {
     },
   },
   organization: {
-    identity: SARIM_IDENTITY,
-    certifications: SARIM_CERTIFICATIONS,
-    certificationsSource: SARIM_CERTIFICATIONS_SOURCE,
-    numbers: SARIM_NUMBERS,
-    numbersSource: SARIM_NUMBERS_SOURCE,
-    servedSource: SARIM_SERVED_SOURCE,
+    identity: ORBIT_IDENTITY,
+    certifications: ORBIT_CERTIFICATIONS,
+    certificationsSource: ORBIT_CERTIFICATIONS_SOURCE,
+    numbers: ORBIT_NUMBERS,
+    numbersSource: ORBIT_NUMBERS_SOURCE,
+    servedSource: ORBIT_SERVED_SOURCE,
     clientTown: 'roma',
   },
   people: {
-    areaLabel: SARIM_AREA_LABEL,
-    permissions: SARIM_PERMISSIONS,
-    roles: SARIM_ROLES,
-    personas: SARIM_PERSONAS,
-    teams: SARIM_TEAMS,
-    agentsTeam: SARIM_AGENTS_TEAM,
-    defaultPersona: SARIM_DEFAULT_PERSONA,
-    agents: SARIM_AGENTS,
-    managerRole: 'sarim-direzione',
-    viewerRole: 'sarim-lettura',
+    areaLabel: ORBIT_AREA_LABEL,
+    permissions: ORBIT_PERMISSIONS,
+    roles: ORBIT_ROLES,
+    personas: ORBIT_PERSONAS,
+    teams: ORBIT_TEAMS,
+    agentsTeam: ORBIT_AGENTS_TEAM,
+    defaultPersona: ORBIT_DEFAULT_PERSONA,
+    agents: ORBIT_AGENTS,
+    managerRole: 'orbit-direzione',
+    viewerRole: 'orbit-lettura',
     managerTeam: 'direzione', // allow-italian: team id, compared by value
     viewerTeam: 'sindaci', // allow-italian: team id, compared by value
-    directorId: 'sarim-dg',
-    legalLeadId: 'sarim-bruno',
+    directorId: 'orbit-dg',
+    legalLeadId: 'orbit-bruno',
     contractsAgentId: 'ag-contratti',
   },
 
-  flowRoles: { variants: 'sarim-varianti', reports: 'sarim-segnalazioni', tender: 'sarim-gara' },
+  flowRoles: { variants: 'orbit-varianti', reports: 'orbit-segnalazioni', tender: 'orbit-gara' },
   flowIcons: {
-    'sarim-segnalazioni': 'headset',
-    'sarim-foglie': 'leaf',
-    'sarim-fir': 'truck',
-    'sarim-fatture': 'receipt',
-    'sarim-gara': 'gavel',
-    'sarim-scadenze': 'calendar-clock',
-    'sarim-turni': 'clock',
-    'sarim-varianti': 'file-pen',
+    'orbit-segnalazioni': 'headset',
+    'orbit-foglie': 'leaf',
+    'orbit-fir': 'truck',
+    'orbit-fatture': 'receipt',
+    'orbit-gara': 'gavel',
+    'orbit-scadenze': 'calendar-clock',
+    'orbit-turni': 'clock',
+    'orbit-varianti': 'file-pen',
   },
   programRoles: { send: ['posta'], registry: ['rentri'], writes: ['sap', 'enviro', 'winwaste', 'zucchetti', 'excel', 'word'] },
-  flowSplits: SARIM_SPLITS,
+  flowSplits: ORBIT_SPLITS,
   dataTables: [
-    { id: 'segnalazioni', flows: ['sarim-segnalazioni', 'sarim-foglie'] }, // allow-italian: address segment and flow ids, compared by value
-    { id: 'fir', flows: ['sarim-fir'] }, // allow-italian: address segment and flow id, compared by value
-    { id: 'fatture', flows: ['sarim-fatture'] }, // allow-italian: address segment and flow id, compared by value
-    { id: 'gare', flows: ['sarim-gara'] }, // allow-italian: address segment and flow id, compared by value
-    { id: 'personale', flows: ['sarim-scadenze', 'sarim-turni'] }, // allow-italian: address segment and flow ids, compared by value
-    { id: 'varianti', flows: ['sarim-varianti'] }, // allow-italian: address segment and flow id, compared by value
+    { id: 'segnalazioni', flows: ['orbit-segnalazioni', 'orbit-foglie'] }, // allow-italian: address segment and flow ids, compared by value
+    { id: 'fir', flows: ['orbit-fir'] }, // allow-italian: address segment and flow id, compared by value
+    { id: 'fatture', flows: ['orbit-fatture'] }, // allow-italian: address segment and flow id, compared by value
+    { id: 'gare', flows: ['orbit-gara'] }, // allow-italian: address segment and flow id, compared by value
+    { id: 'personale', flows: ['orbit-scadenze', 'orbit-turni'] }, // allow-italian: address segment and flow ids, compared by value
+    { id: 'varianti', flows: ['orbit-varianti'] }, // allow-italian: address segment and flow id, compared by value
   ],
   dataViews: [
     { id: 'stuckReports', table: 'segnalazioni', stopped: true }, // allow-italian: address segment, compared by value
@@ -112,19 +112,19 @@ export const SARIM_WORLD: OrgWorld = {
     { child: 'c-td-castellabate', parent: 'c-castellabate', relation: 'staff', clause: 'art-12' },
   ],
   legacyGroupFlows: {
-    segnalazioni: 'sarim-segnalazioni', // allow-italian: old address segment, compared by value
-    fir: 'sarim-fir', // allow-italian: old address segment, compared by value
-    fatture: 'sarim-fatture', // allow-italian: old address segment, compared by value
-    gare: 'sarim-gara', // allow-italian: old address segment, compared by value
-    personale: 'sarim-scadenze', // allow-italian: old address segment, compared by value
-    contratti: 'sarim-varianti', // allow-italian: old address segment, compared by value
+    segnalazioni: 'orbit-segnalazioni', // allow-italian: old address segment, compared by value
+    fir: 'orbit-fir', // allow-italian: old address segment, compared by value
+    fatture: 'orbit-fatture', // allow-italian: old address segment, compared by value
+    gare: 'orbit-gara', // allow-italian: old address segment, compared by value
+    personale: 'orbit-scadenze', // allow-italian: old address segment, compared by value
+    contratti: 'orbit-varianti', // allow-italian: old address segment, compared by value
   },
   samples: {
     cards: ['SG-4128', 'FT-2609', 'CT-V07', 'FIR-0931'],
     cardOriginals: [['SG-4129', 'mail'], ['CT-V07', 'variante']], // allow-italian: original ids, compared by value
-    persons: ['sarim-bruno', 'ag-contratti', 'sarim-callcenter', 'ag-segnalazioni'],
-    flows: ['sarim-segnalazioni', 'sarim-varianti', 'sarim-fatture'],
-    flowSteps: [['sarim-segnalazioni', 's3'], ['sarim-varianti', 's6']],
+    persons: ['orbit-bruno', 'ag-contratti', 'orbit-callcenter', 'ag-segnalazioni'],
+    flows: ['orbit-segnalazioni', 'orbit-varianti', 'orbit-fatture'],
+    flowSteps: [['orbit-segnalazioni', 's3'], ['orbit-varianti', 's6']],
     programs: ['sap', 'enviro', 'zucchetti', 'excel'],
     contracts: ['c-castellabate', 'c-carburante', 'c-vallo', 'c-accordo-turni'],
     clauses: [['c-castellabate', 'art-9'], ['c-carburante', 'art-5']],

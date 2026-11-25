@@ -1,5 +1,5 @@
-/** The SARIM edition of the preview (`sarim.html`): SARIM as the only organization. */
-import { SARIM_WORLD } from '../ui/fixtures/sarim-org/world';
-import { makeOrgEdition } from './sarim/edition';
+/** The ORBIT edition of the preview (`orbit.html`): ORBIT as the only organization. */
+import { ORBIT_WORLD } from '../ui/fixtures/orbit-org/world';
+import { makeOrgEdition } from './orbit/edition';
 
-export const SARIM_EDITION = makeOrgEdition(SARIM_WORLD, { id: 'sarim', storageKey: 'topics-sarim-preview' });
+export const ORBIT_EDITION = makeOrgEdition(ORBIT_WORLD, { id: 'orbit', storageKey: 'topics-orbit-preview' });

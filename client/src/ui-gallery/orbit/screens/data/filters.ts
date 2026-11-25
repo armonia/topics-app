@@ -5,7 +5,7 @@
  * board, the chart and the row page, so they all walk the same rows.
  */
 import { Bolt, CalendarDays, CircleDot, CirclePause, Flag, MapPin, Tag, User, Workflow, type LucideIcon } from 'lucide-react';
-import type { SarimDataCopy } from '../../../../ui/copy/sarim-data';
+import type { OrbitDataCopy } from '../../../../ui/copy/orbit-data';
 import { EMPTY_FILTERS, applyFilters, type FilterSchema, type ListFilterState } from '../../../app/filters';
 import type { ScreenCtx } from '../../../app/kit';
 import { columnsOf, groupRows, rowsOf, sortRows, type DataRow, type Sort, type TableId } from './tables';
@@ -16,7 +16,7 @@ const FIELD_ICON: Record<string, LucideIcon> = {
 };
 
 /** The fields a table can be filtered by, one per column that offers a filter. */
-export function tableSchema(t: TableId, s: SarimDataCopy): FilterSchema<DataRow> {
+export function tableSchema(t: TableId, s: OrbitDataCopy): FilterSchema<DataRow> {
   return {
     text: (r) => [r.id, r.title, ...Object.values(r.text)].join(' '),
     fields: columnsOf(t, s, []).filter((c) => c.filter).map((c) => (c.filter === 'within'
@@ -27,11 +27,11 @@ export function tableSchema(t: TableId, s: SarimDataCopy): FilterSchema<DataRow>
 
 /** The rows in the order the table shows them now (its filters, group and order); all of them if the row fell out. */
 export function rowsInView(ctx: ScreenCtx, t: TableId, rowId: string): DataRow[] {
-  const s = ctx.copy.sarimData;
+  const s = ctx.copy.orbitData;
   const [filters] = ctx.ui<ListFilterState>(tableFiltersKey(t), EMPTY_FILTERS);
   const base = defaultsOf(t);
-  const [group] = ctx.ui<string>(`sarim.data.t.${t}.group`, base.group);
-  const [sort] = ctx.ui<Sort | null>(`sarim.data.t.${t}.sort`, base.sort);
+  const [group] = ctx.ui<string>(`orbit.data.t.${t}.group`, base.group);
+  const [sort] = ctx.ui<Sort | null>(`orbit.data.t.${t}.sort`, base.sort);
   const all = rowsOf(t, ctx.state, s, ctx.now);
   const list = groupRows(sortRows(applyFilters(all, tableSchema(t, s), filters, ctx.now), sort), group).flatMap((g) => g.rows);
   return list.some((r) => r.id === rowId) ? list : all;

@@ -12,7 +12,7 @@ import { FlowStateChip } from './WorkParts';
 import type { FlowControlsModel, FlowJobModel, FlowStatusModel } from './work-model';
 
 /**
- * A SARIM flow page: the header opens the flow in the list of cards, tries
+ * A ORBIT flow page: the header opens the flow in the list of cards, tries
  * it on yesterday's cases and pauses it; the body is the one drawing of a flow (`FlowCanvas`, edit mode)
  * fed with the live cards at each step, and `side` the facts on the right. Where the flow splits
  * by case the lanes stand side by side inside the drawing, so the page never scrolls sideways.
@@ -40,7 +40,7 @@ export function OpsFlowScreen({ name, outcome, status, version, onBack, controls
   /** Replaces the built-in crumbs when given. */
   crumbs?: CrumbModel[];
 }) {
-  const f = copy.sarimWork.flows;
+  const f = copy.orbitWork.flows;
   const buttons = (
     <>
       <Button icon={Inbox} onClick={controls.onOpenInDaFare}>{f.openInDaFare}</Button>

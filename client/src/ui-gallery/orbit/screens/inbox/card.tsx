@@ -1,5 +1,5 @@
 /**
- * The page of one card of «Da fare» (allow-italian: quotes the Italian interface) in the SARIM edition,
+ * The page of one card of «Da fare» (allow-italian: quotes the Italian interface) in the ORBIT edition,
  * and one of its originals opened large. On a desktop the cards of the flow
  * stay in view on the left, folded into one column; on a phone the card fills
  * the screen. Every action goes through `actions.ts`, so a card taken, moved,
@@ -18,7 +18,7 @@ import { ORIGINAL_ICON } from '../../../../ui/kanban/glyphs';
 import { WorkerBadge } from '../../../../ui/kanban/parts';
 import { OriginalPage } from '../../../../ui/kanban/OriginalPage';
 import type { OriginalModel, QuoteMarkModel } from '../../../../ui/kanban/model';
-import type { CardOriginal, OpsFlow, SarimCard } from '../../../../ui/fixtures/sarim-org/types';
+import type { CardOriginal, OpsFlow, OrbitCard } from '../../../../ui/fixtures/orbit-org/types';
 import { daysFromToday, formatShortDay } from '../../../../ui/fixtures/org/clock';
 import { personaById, world } from '../../world';
 import type { Params, ScreenCtx } from '../../../app/kit';
@@ -39,13 +39,13 @@ import {
   flowIcon, moveCheck, moveOptions, nextStage, priorityTag, stageLabel, stamp, stepAt, stepLine, stopInfo, visibleCards, whoName, workDenied, workerModel,
 } from './model';
 
-const valueKey = (id: string) => `sarim.card.${id}.value`;
+const valueKey = (id: string) => `orbit.card.${id}.value`;
 
 /** Which folds of the card page the person closed; kept for every card, so a closed fold stays closed on the next one. */
-const SECTIONS_KEY = 'sarim.card.sections';
+const SECTIONS_KEY = 'orbit.card.sections';
 
 /** The step of the flow whose detail is open beside the card; kept for every card. */
-const flowStepKey = (id: string) => `sarim.card.${id}.flowStep`;
+const flowStepKey = (id: string) => `orbit.card.${id}.flowStep`;
 
 /**
  * An original as the card page and the large page draw it: «Fattura · SDI · 06/11 09:12». (allow-italian: quotes the Italian interface)
@@ -59,12 +59,12 @@ function originalModel(o: CardOriginal, ctx: ScreenCtx): OriginalModel {
   return { id: o.id, name: o.name, kind: o.kind, kindLabel: label, from: repeats ? stamp(o.at) : `${o.from} · ${stamp(o.at)}`, lines: o.lines, image: o.image };
 }
 
-function marksOf(card: SarimCard, doc: string): QuoteMarkModel[] {
+function marksOf(card: OrbitCard, doc: string): QuoteMarkModel[] {
   return card.values.filter((v) => v.doc === doc).map((v) => ({ id: v.label, quote: v.quote, label: `${v.label}: ${v.value}` }));
 }
 
 /** The card the address names, unless its flow is hidden from the person: then it is as if it were not there. */
-function cardFor(id: string, ctx: ScreenCtx): SarimCard | undefined {
+function cardFor(id: string, ctx: ScreenCtx): OrbitCard | undefined {
   const card = liveCardById(ctx.state, id);
   return card && flowLevel(ctx.state, ctx.persona, card.flow) !== 'none' ? card : undefined;
 }
@@ -84,7 +84,7 @@ function missing(ctx: ScreenCtx, title: string, body: string) {
  * leads (its contract, the clause, the signatures, another card) as the last
  * rows, so nothing about the card is told in a block of its own.
  */
-function eventsOf(card: SarimCard, ctx: ScreenCtx): CardEventModel[] {
+function eventsOf(card: OrbitCard, ctx: ScreenCtx): CardEventModel[] {
   const d = ctx.copy.kanban.detail;
   const dated: Array<CardEventModel & { sort: string }> = card.history.map((e, i) => {
     const current = i === card.history.length - 1;
@@ -132,7 +132,7 @@ function eventsOf(card: SarimCard, ctx: ScreenCtx): CardEventModel[] {
  * entered the step's column (the last time, when it went back and forth). A
  * column the card skipped (moved by hand) falls back to the first entry.
  */
-function entryFor(card: SarimCard, stage: string) {
+function entryFor(card: OrbitCard, stage: string) {
   return [...card.history].reverse().find((e) => e.stage === stage) ?? card.history[0];
 }
 
@@ -142,7 +142,7 @@ function entryFor(card: SarimCard, stage: string) {
  * the time the original came in (the first step when it came in before them
  * all). A mail sent while the card stands at a later step is that step's.
  */
-function originalStepIndex(card: SarimCard, flow: OpsFlow, reached: number, original: CardOriginal): number {
+function originalStepIndex(card: OrbitCard, flow: OpsFlow, reached: number, original: CardOriginal): number {
   let found = 0;
   for (let i = 0; i <= reached; i++) {
     if (entryFor(card, flow.steps[i].stage).at <= original.at) found = i;
@@ -159,7 +159,7 @@ function originalStepIndex(card: SarimCard, flow: OpsFlow, reached: number, orig
  * (the drawing sets them quieter). Each original sits on the step it belongs
  * to.
  */
-function flowModel(card: SarimCard, ctx: ScreenCtx): FlowCanvasModel | undefined {
+function flowModel(card: OrbitCard, ctx: ScreenCtx): FlowCanvasModel | undefined {
   const at = stepAt(card);
   const flow = at.flow;
   if (!flow) return undefined;
@@ -204,7 +204,7 @@ function flowModel(card: SarimCard, ctx: ScreenCtx): FlowCanvasModel | undefined
 }
 
 /** The buttons of the next action: forward or approve first, then take it, send it back. Off ones say why in their tip; a closed card has none. */
-function actionsOf(card: SarimCard, ctx: ScreenCtx): CardActionModel[] {
+function actionsOf(card: OrbitCard, ctx: ScreenCtx): CardActionModel[] {
   const a = ctx.copy.kanban.actions;
   const stage = stageOf(card);
   if (stage === DONE) return [];
@@ -244,7 +244,7 @@ function actionsOf(card: SarimCard, ctx: ScreenCtx): CardActionModel[] {
   return out;
 }
 
-function stripGroups(cards: SarimCard[], current: string, ctx: ScreenCtx): StripGroupModel[] {
+function stripGroups(cards: OrbitCard[], current: string, ctx: ScreenCtx): StripGroupModel[] {
   const order = columnOrder(ctx.now);
   return world().stages.map((s) => ({
     id: s.id,
@@ -261,7 +261,7 @@ function stripGroups(cards: SarimCard[], current: string, ctx: ScreenCtx): Strip
 }
 
 /** The due day with how far it is, in the tone of its urgency; none on a closed card or one with no due day. */
-function dueOf(card: SarimCard, ctx: ScreenCtx) {
+function dueOf(card: OrbitCard, ctx: ScreenCtx) {
   const tag = dueTag(card, ctx.copy);
   if (!tag || !card.due) return undefined;
   return { text: ctx.copy.kanban.detail.dueDay(formatShortDay(card.due), daysFromToday(card.due)), tone: tag.tone, title: tag.title };

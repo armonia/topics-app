@@ -48,7 +48,7 @@ export function CallCenterScreen({ incoming, onSelectIncoming, queue, recent, on
   const c = copy.orgs.callCenter;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PaneHeader crumbs={[{ label: copy.shell.nav.callcenter, detail: copy.orgs.sarim.orgName }]} status={<Count value={queue.length} tone="blue" />} />
+      <PaneHeader crumbs={[{ label: copy.shell.nav.callcenter, detail: copy.orgs.orbit.orgName }]} status={<Count value={queue.length} tone="blue" />} />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className={clsx('flex shrink-0 flex-col overflow-y-auto border-app-border md:w-[340px] md:border-r', phone && 'max-h-[40dvh] border-b')}>
           {incoming && (

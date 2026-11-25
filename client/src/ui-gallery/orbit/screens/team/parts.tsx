@@ -65,7 +65,7 @@ export const AgentMark = ({ size = 24 }: { size?: number }) => (
  * The leader of a team is named here and nowhere else on the page, so the header above never repeats them.
  */
 export function MemberLine({ ctx, m, hideNumbers }: { ctx: ScreenCtx; m: TeamMember; /** The numbers are already on the page, as the figures of the whole team. */ hideNumbers?: boolean }) {
-  const c = ctx.copy.sarimTeam;
+  const c = ctx.copy.orbitTeam;
   const you = m.id === ctx.persona.id;
   const numbers = (
     <>
@@ -82,7 +82,7 @@ export function MemberLine({ ctx, m, hideNumbers }: { ctx: ScreenCtx; m: TeamMem
         <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className="font-medium">{m.name}</span>
           {m.lead && <Chip tone="violet">{c.lead}</Chip>}
-          {you && <Chip tone="blue">{ctx.copy.sarimAdmin.common.you}</Chip>}
+          {you && <Chip tone="blue">{ctx.copy.orbitAdmin.common.you}</Chip>}
         </span>
       }
       sub={m.does || undefined}
@@ -94,7 +94,7 @@ export function MemberLine({ ctx, m, hideNumbers }: { ctx: ScreenCtx; m: TeamMem
 
 /** The numbers of a team on one line, as the list and the team page say them. */
 export function TeamNumbers({ ctx, members }: { ctx: ScreenCtx; members: TeamMember[] }) {
-  const c = ctx.copy.sarimTeam;
+  const c = ctx.copy.orbitTeam;
   const n = teamNumbers(members);
   const agents = members.length > 0 && members.every((m) => m.kind === 'agent');
   return (

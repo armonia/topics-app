@@ -9,7 +9,7 @@ import { StatTile } from '../overview/OverviewScreen';
 import type { StatTileModel } from '../overview/model';
 import clsx from 'clsx';
 
-export interface SarimFlowStatModel {
+export interface OrbitFlowStatModel {
   id: string;
   name: string;
   area: string;
@@ -32,13 +32,13 @@ function ShareBar({ value }: { value: number }) {
 }
 
 /**
- * The overview of SARIM (s04): four headline numbers and every flow's month
+ * The overview of ORBIT (s04): four headline numbers and every flow's month
  * side by side. Tiles and rows lead to what is behind them when their
  * handlers are passed.
  */
-export function SarimOverview({ tiles, flows, tileLinks, onOpenFlow, onOpenStuck, onExport, exportTitle, copy, phone }: {
+export function OrbitOverview({ tiles, flows, tileLinks, onOpenFlow, onOpenStuck, onExport, exportTitle, copy, phone }: {
   tiles: StatTileModel[];
-  flows: SarimFlowStatModel[];
+  flows: OrbitFlowStatModel[];
   tileLinks?: ItemLinks;
   onOpenFlow: (id: string) => void;
   onOpenStuck: (id: string) => void;
@@ -47,7 +47,7 @@ export function SarimOverview({ tiles, flows, tileLinks, onOpenFlow, onOpenStuck
   copy: UiCopy;
   phone?: boolean;
 }) {
-  const s = copy.orgs.sarim;
+  const s = copy.orgs.orbit;
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PaneHeader crumbs={[{ label: s.overviewTitle, detail: s.overviewDetail }]}>

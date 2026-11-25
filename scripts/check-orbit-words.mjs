@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/check-sarim-words.mjs - exit 1 when the SARIM edition names a thing
+ * scripts/check-orbit-words.mjs - exit 1 when the ORBIT edition names a thing
  * with a word the glossary has retired.
  *
  * WHY. Attilio (08/11): «Non lo chiamerei funnel: si chiamano flussi,
@@ -8,7 +8,7 @@
  * screen: a card is not also a «pratica» or a «ticket», a column of the
  * kanban is a «stato», not a «fase», the people who work together are a
  * «team», not an «ufficio» or a «reparto». The glossary is
- * `topics-app-mockup-flussi/brief/glossario-sarim.md`; the words below are
+ * `topics-app-mockup-flussi/brief/glossario-orbit.md`; the words below are
  * its «non si dice» column, and this gate keeps them from coming back.
  *
  * TWO TIERS.
@@ -16,17 +16,17 @@
  *    comments included (the address, a data attribute, a screen id, a chunk
  *    name are all «visible code»), the scripts that drive it, the build in
  *    `client/dist-ui/` and the names of the captures in
- *    `topics-app-mockup-flussi/png-reale/sarim/`.
+ *    `topics-app-mockup-flussi/png-reale/orbit/`.
  *  · SYNONYMS of a word the glossary keeps: only in the Italian words of the
- *    SARIM interface (`client/src/ui/copy/i18n-ui-{kanban,sarim-*,contracts,
+ *    ORBIT interface (`client/src/ui/copy/i18n-ui-{kanban,orbit-*,contracts,
  *    filters}-it.ts`), where they would name our own things; the text of a real
  *    document (a law, a mail in a card's original) may still say «pratica».
  *
- * The step names of the flows (`client/src/ui/fixtures/sarim-org/flows.ts` and
+ * The step names of the flows (`client/src/ui/fixtures/orbit-org/flows.ts` and
  * `nocera-org/flows.ts`, so the glossary holds for both editions)
  * are read too, with «controllo» added: a step of a person is «verifica».
  *
- *   node scripts/check-sarim-words.mjs [--src-only]
+ *   node scripts/check-orbit-words.mjs [--src-only]
  *
  * Exit 0: no retired word, with the counts read. Exit 1: `file:line - word`.
  */
@@ -38,7 +38,7 @@ import { homedir } from "node:os";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const srcOnly = process.argv.includes("--src-only");
 /* The captures live in the mockup repo next to this one; absent on a runner, where only the sources and the build are read. */
-const SHOTS = join(homedir(), "Projects/topics-app-mockup-flussi/png-reale/sarim");
+const SHOTS = join(homedir(), "Projects/topics-app-mockup-flussi/png-reale/orbit");
 
 /** Retired from everything. */
 const RETIRED = [/funnel/i];
@@ -60,7 +60,7 @@ const SYNONYMS = [
   /* The two steps a person takes before a card moves on are «verifica» and «approvazione»; «controlla» and «revisione» are not their names. */
   [/\b(chi|che|la|lo|li|le) controll(a|ano)\b|\brevision[ei]\b/i, "verifica (Verifica di, la verifica); per un contratto: versione"],
   [/\b(fiducia|confidenza|affidabilità)\b/i, "sicurezza (sicurezza 97%)"],
-  /* Permissions are given to a team (Vede, Lavora, Gestisce), with exceptions per person: SARIM has no «ruoli». */
+  /* Permissions are given to a team (Vede, Lavora, Gestisce), with exceptions per person: ORBIT has no «ruoli». */
   /* «Catasto e ruoli» is the proper name of a team of the Consorzio (the tax rolls of its members), not the word for permissions. */
   [/(?<!catasto e )\bruol[oi]\b/i, "team (permessi per team: Vede, Lavora, Gestisce)"],
 ];
@@ -108,19 +108,19 @@ function stringsOf(text) {
 
 const SOURCE_DIRS = ["client/src/ui", "client/src/ui-gallery"].map((d) => join(ROOT, d));
 const sources = SOURCE_DIRS.flatMap((d) => walk(d, [".ts", ".tsx", ".css"]));
-const scripts = walk(join(ROOT, "scripts"), [".mjs", ".ts"]).filter((f) => /\/(ui-[^/]*|check-sarim-words\.mjs)$/.test(f) || f.includes(`${sep}ui-app${sep}`) || f.includes(`${sep}ui-fixtures${sep}`));
+const scripts = walk(join(ROOT, "scripts"), [".mjs", ".ts"]).filter((f) => /\/(ui-[^/]*|check-orbit-words\.mjs)$/.test(f) || f.includes(`${sep}ui-app${sep}`) || f.includes(`${sep}ui-fixtures${sep}`));
 for (const f of [...sources, ...scripts]) {
-  if (f.endsWith("check-sarim-words.mjs")) continue;
+  if (f.endsWith("check-orbit-words.mjs")) continue;
   scanRetired(f);
 }
-for (const f of ["client/sarim.html", "client/consorzio.html", "client/app.html", "client/ui.html"].map((p) => join(ROOT, p)).filter(existsSync)) scanRetired(f);
+for (const f of ["client/orbit.html", "client/consorzio.html", "client/app.html", "client/ui.html"].map((p) => join(ROOT, p)).filter(existsSync)) scanRetired(f);
 
 let buildFiles = 0;
 if (!srcOnly) {
   const dist = join(ROOT, "client/dist-ui");
-  for (const page of ["sarim.html", "consorzio.html"]) {
+  for (const page of ["orbit.html", "consorzio.html"]) {
     if (!existsSync(join(dist, page))) {
-      console.error(`check-sarim-words: client/dist-ui/${page} is missing, run \`bun run build:ui\` first (or pass --src-only).`);
+      console.error(`check-orbit-words: client/dist-ui/${page} is missing, run \`bun run build:ui\` first (or pass --src-only).`);
       process.exit(1);
     }
   }
@@ -136,17 +136,17 @@ if (existsSync(SHOTS)) {
   for (const f of walk(SHOTS)) {
     shots++;
     const name = relative(SHOTS, f);
-    if (RETIRED.some((re) => re.test(name))) hits.push(`png-reale/sarim/${name} - file name`);
-    if (/\.(json|md|txt)$/.test(f)) scanRetired(f, `png-reale/sarim/${name}`);
+    if (RETIRED.some((re) => re.test(name))) hits.push(`png-reale/orbit/${name} - file name`);
+    if (/\.(json|md|txt)$/.test(f)) scanRetired(f, `png-reale/orbit/${name}`);
   }
 }
 
-/* ---------- synonyms, in the Italian words of the SARIM interface ---------- */
+/* ---------- synonyms, in the Italian words of the ORBIT interface ---------- */
 
 const COPY = join(ROOT, "client/src/ui/copy");
-const sarimCopy = readdirSync(COPY).filter((n) => /^i18n-ui-(kanban|sarim-[a-z-]+|contracts|filters)-it\.ts$/.test(n)).map((n) => join(COPY, n));
+const orbitCopy = readdirSync(COPY).filter((n) => /^i18n-ui-(kanban|orbit-[a-z-]+|contracts|filters)-it\.ts$/.test(n)).map((n) => join(COPY, n));
 let words = 0;
-for (const f of sarimCopy) {
+for (const f of orbitCopy) {
   const text = readFileSync(f, "utf8");
   for (const { s, at } of stringsOf(text)) {
     words++;
@@ -158,7 +158,7 @@ for (const f of sarimCopy) {
 }
 
 /* The same words in the fixtures that name the steps of the flows: the copy files do not hold them, the screens print them. */
-const fixtureFiles = ["client/src/ui/fixtures/sarim-org/flows.ts", "client/src/ui/fixtures/nocera-org/flows.ts"].map((p) => join(ROOT, p)).filter(existsSync);
+const fixtureFiles = ["client/src/ui/fixtures/orbit-org/flows.ts", "client/src/ui/fixtures/nocera-org/flows.ts"].map((p) => join(ROOT, p)).filter(existsSync);
 for (const f of fixtureFiles) {
   const text = readFileSync(f, "utf8");
   for (const { s, at } of stringsOf(text)) {
@@ -170,13 +170,13 @@ for (const f of fixtureFiles) {
   }
 }
 
-if (!sources.length || !sarimCopy.length || !words) {
-  console.error("check-sarim-words: read zero files: a gate that scans nothing is green by accident.");
+if (!sources.length || !orbitCopy.length || !words) {
+  console.error("check-orbit-words: read zero files: a gate that scans nothing is green by accident.");
   process.exit(1);
 }
 if (hits.length) {
-  console.error(`check-sarim-words: ${hits.length} retired words:`);
+  console.error(`check-orbit-words: ${hits.length} retired words:`);
   for (const h of hits) console.error(`  ${h}`);
   process.exit(1);
 }
-console.log(`check-sarim-words: ok, ${sources.length + scripts.length} sources${srcOnly ? "" : `, ${buildFiles} files of the build`}, ${shots} captures, ${words} strings of ${sarimCopy.length} copy files and ${fixtureFiles.length} fixture files (the flows of SARIM and of the Consorzio): no retired word`);
+console.log(`check-orbit-words: ok, ${sources.length + scripts.length} sources${srcOnly ? "" : `, ${buildFiles} files of the build`}, ${shots} captures, ${words} strings of ${orbitCopy.length} copy files and ${fixtureFiles.length} fixture files (the flows of ORBIT and of the Consorzio): no retired word`);

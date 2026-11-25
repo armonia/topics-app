@@ -8,14 +8,14 @@
  */
 import { FileText, ListChecks } from 'lucide-react';
 import { ChatContext, ChatPanel, SuggestionChips } from '../../../../ui/chat/ChatPanel';
-import type { SarimCard } from '../../../../ui/fixtures/sarim-org/types';
+import type { OrbitCard } from '../../../../ui/fixtures/orbit-org/types';
 import type { ScreenCtx } from '../../../app/kit';
 import { cardQuestions } from '../../model/assistant';
 import { chatsSlice } from '../../model/chats';
 import { flowIcon, liveStep, opsFlowById } from '../../model/flows';
 import { cardJob, draftKey, envOf, openFromChat, sendInCard, writing } from '../chat/conversation';
 
-export function CardChat({ card, ctx }: { card: SarimCard; ctx: ScreenCtx }) {
+export function CardChat({ card, ctx }: { card: OrbitCard; ctx: ScreenCtx }) {
   const c = ctx.copy.chat;
   const env = envOf(ctx);
   const [draft, setDraft] = ctx.ui<string>(draftKey(`card.${card.id}`), '');

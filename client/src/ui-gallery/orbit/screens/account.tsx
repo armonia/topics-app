@@ -1,5 +1,5 @@
 /**
- * SARIM edition: the page after «Esci» in the menu of the person. The preview
+ * ORBIT edition: the page after «Esci» in the menu of the person. The preview
  * has no accounts, so signing out keeps everything the reader changed and this
  * page is the way back in: «Rientra» goes to «Da fare». (allow-italian: quotes the Italian interface)
  */
@@ -11,15 +11,15 @@ import { world } from '../world';
 
 const SCREENS: ScreenDef[] = [
   {
-    id: 'sarim-signed-out',
+    id: 'orbit-signed-out',
     path: SP.signedOut(),
     org: world().key,
     nav: 'org',
     samples: [SP.signedOut()],
     transient: true,
-    title: (_p, ctx) => ctx.copy.sarimShell.signedOut.title,
+    title: (_p, ctx) => ctx.copy.orbitShell.signedOut.title,
     render: (_p, ctx) => {
-      const s = ctx.copy.sarimShell.signedOut;
+      const s = ctx.copy.orbitShell.signedOut;
       return (
         <div className="flex min-h-full flex-1 flex-col items-center justify-center gap-2 px-8 py-10 text-center">
           <span className="mb-1 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-black/[0.05] text-app-text-tertiary dark:bg-white/[0.08]">
@@ -36,4 +36,4 @@ const SCREENS: ScreenDef[] = [
   },
 ];
 
-export const SARIM_ACCOUNT_AREA: AreaModule = { screens: SCREENS };
+export const ORBIT_ACCOUNT_AREA: AreaModule = { screens: SCREENS };

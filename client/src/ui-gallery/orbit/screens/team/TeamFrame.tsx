@@ -24,7 +24,7 @@ export function TeamFrame({ ctx, place, crumbs, wide, actions, children }: {
   actions?: ReactNode;
   children: ReactNode;
 }) {
-  const c = ctx.copy.sarimTeam;
+  const c = ctx.copy.orbitTeam;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PaneHeader crumbs={crumbs}>{actions}</PaneHeader>

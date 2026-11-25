@@ -7,7 +7,7 @@
  * (`liveCards(state)`), so a card moved on the kanban moves every number here.
  * Every number can be taken for one flow or for all of them together.
  */
-import type { OpsFlow, SarimCard, StageId } from '../../../ui/fixtures/sarim-org/types';
+import type { OpsFlow, OrbitCard, StageId } from '../../../ui/fixtures/orbit-org/types';
 import { world } from '../world';
 import { stageOf, stageSince } from './live';
 
@@ -39,11 +39,11 @@ function perStage<T>(make: () => T): Record<StageId, T> {
 }
 
 /** The cards of one flow, or all of them. */
-export function scopeCards(cards: SarimCard[], scope: FlowScope): SarimCard[] {
+export function scopeCards(cards: OrbitCard[], scope: FlowScope): OrbitCard[] {
   return scope === 'all' ? cards : cards.filter((c) => c.flow === scope); // allow-italian: scope name, compared by value
 }
 
-export function stageCounts(cards: SarimCard[]): Record<StageId, number> {
+export function stageCounts(cards: OrbitCard[]): Record<StageId, number> {
   const counts = perStage(() => 0);
   for (const c of cards) counts[stageOf(c)] += 1;
   return counts;
@@ -60,7 +60,7 @@ export function hoursBetween(a: string, b: string): number {
  * until `now`. A card that came back to a column counts each stay. «Fatto» is (allow-italian: quotes the Italian interface)
  * the end of the line, not a wait: it reads 0 with no samples.
  */
-export function stageTimes(cards: SarimCard[], now: string): Record<StageId, StageTime> {
+export function stageTimes(cards: OrbitCard[], now: string): Record<StageId, StageTime> {
   const sums = perStage(() => ({ hours: 0, samples: 0 }));
   for (const c of cards) {
     c.history.forEach((e, i) => {
@@ -79,7 +79,7 @@ export function stageTimes(cards: SarimCard[], now: string): Record<StageId, Sta
 }
 
 /** Stopped: blocked on something outside it, or in the same open column longer than its flow allows. Never in «Fatto». (allow-italian: quotes the Italian interface) */
-export function isStuck(card: SarimCard, flows: OpsFlow[], now: string): boolean {
+export function isStuck(card: OrbitCard, flows: OpsFlow[], now: string): boolean {
   if (stageOf(card) === DONE) return false;
   if (card.blocked) return true;
   const flow = flows.find((f) => f.id === card.flow);
@@ -87,12 +87,12 @@ export function isStuck(card: SarimCard, flows: OpsFlow[], now: string): boolean
   return hoursBetween(stageSince(card), now) > flow.stuckAfterHours;
 }
 
-export function stuckCards(cards: SarimCard[], now: string): SarimCard[] {
+export function stuckCards(cards: OrbitCard[], now: string): OrbitCard[] {
   return cards.filter((c) => isStuck(c, world().opsFlows, now));
 }
 
 /** The open column holding the most cards; on a tie, the one where cards wait longest. None when every open column is empty. */
-export function accumulation(cards: SarimCard[], now: string): StageId | undefined {
+export function accumulation(cards: OrbitCard[], now: string): StageId | undefined {
   const counts = stageCounts(cards);
   const times = stageTimes(cards, now);
   let best: StageId | undefined;
@@ -104,14 +104,14 @@ export function accumulation(cards: SarimCard[], now: string): StageId | undefin
 }
 
 /** For a card in «Fatto»: who moved it there, from the last entry of its history. (allow-italian: quotes the Italian interface) */
-export function closedBy(card: SarimCard): 'agent' | 'person' | undefined {
+export function closedBy(card: OrbitCard): 'agent' | 'person' | undefined {
   if (stageOf(card) !== DONE) return undefined;
   const by = card.history[card.history.length - 1]?.by ?? '';
   return by.startsWith('agent:') ? 'agent' : 'person';
 }
 
 /** How many of the cards in «Fatto» an agent closed, and how many a person did. (allow-italian: quotes the Italian interface) */
-export function agentShare(cards: SarimCard[]): { agent: number; person: number } {
+export function agentShare(cards: OrbitCard[]): { agent: number; person: number } {
   const share = { agent: 0, person: 0 };
   for (const c of cards) {
     const who = closedBy(c);
@@ -120,7 +120,7 @@ export function agentShare(cards: SarimCard[]): { agent: number; person: number 
   return share;
 }
 
-export function flowSummary(cards: SarimCard[], scope: FlowScope, now: string): StagesSummary {
+export function flowSummary(cards: OrbitCard[], scope: FlowScope, now: string): StagesSummary {
   const list = scopeCards(cards, scope);
   return {
     counts: stageCounts(list),

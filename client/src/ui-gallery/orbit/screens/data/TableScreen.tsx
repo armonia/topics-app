@@ -1,5 +1,5 @@
 /**
- * sarim-data: «Dati» of SARIM. `/conoscenza/dati` is the overview (what is open, what is (allow-italian: quotes the Italian interface)
+ * orbit-data: «Dati» of ORBIT. `/conoscenza/dati` is the overview (what is open, what is (allow-italian: quotes the Italian interface)
  * stopped, the contracts, what falls due this week, every table with its
  * counts); `/conoscenza/dati/:table` is one table with the filter bar, the
  * grouping and the order, the columns to show, the ticked rows to give to
@@ -29,7 +29,7 @@ import type { ChartBarModel, GridModel, StatusColumnModel } from '../../../../ui
 import type { StageGlyph } from '../../../../ui/kanban/model';
 import type { Tone } from '../../../../ui/types';
 import { teamById, teamIdOfPerson, world } from '../../world';
-import type { SarimCard } from '../../../../ui/fixtures/sarim-org/types';
+import type { OrbitCard } from '../../../../ui/fixtures/orbit-org/types';
 import type { ScreenCtx } from '../../../app/kit';
 import { useListFilters, type FilterSchema } from '../../../app/filters';
 import { KANBAN_INITIAL, KANBAN_SLICE, liveCards, liveContracts, withWorker, type KanbanSlice } from '../../model/live';
@@ -72,7 +72,7 @@ interface TableTile {
 /* ---------------- /conoscenza/dati ---------------- */
 
 export function OverviewScreen({ ctx }: { ctx: ScreenCtx }) {
-  const s = ctx.copy.sarimData;
+  const s = ctx.copy.orbitData;
   const o = s.overview;
   const today = ctx.now.slice(0, 10);
   const cards = liveCards(ctx.state);
@@ -105,7 +105,7 @@ export function OverviewScreen({ ctx }: { ctx: ScreenCtx }) {
       { id: 'ferme', label: o.fields.stopped, icon: CircleDot, kind: 'choice', ops: ['is'], get: (x) => (x.family === 'cards' ? (x.stopped ? 'yes' : 'no') : []), valueLabel: (v) => (v === 'yes' ? s.common.yes : s.common.no), order: ['yes', 'no'] },
     ],
   }), [o, s.common.yes, s.common.no]);
-  const list = useListFilters(ctx, { key: 'sarim.data.filters', items: tiles, schema });
+  const list = useListFilters(ctx, { key: 'orbit.data.filters', items: tiles, schema });
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -169,7 +169,7 @@ const VIEW_PATH: Record<DataView, (t: TableId) => string> = {
 };
 
 export function TableScreen({ ctx, table, view }: { ctx: ScreenCtx; table: string; view: DataView }) {
-  const s = ctx.copy.sarimData;
+  const s = ctx.copy.orbitData;
   if (!isTable(table)) {
     return (
       <div className="flex h-full min-h-0 flex-col">
@@ -185,19 +185,19 @@ export function TableScreen({ ctx, table, view }: { ctx: ScreenCtx; table: strin
 }
 
 function TableView({ ctx, t, view }: { ctx: ScreenCtx; t: TableId; view: DataView }) {
-  const s = ctx.copy.sarimData;
+  const s = ctx.copy.orbitData;
   const d = ctx.copy.dataMore;
   const base = defaultsOf(t);
   const [picker, setPicker] = useState(false);
-  const [sort, setSort] = ctx.ui<Sort | null>(`sarim.data.t.${t}.sort`, base.sort);
-  const [group, setGroup] = ctx.ui<string>(`sarim.data.t.${t}.group`, base.group);
-  const [selected, setSelected] = ctx.ui<string[]>(`sarim.data.t.${t}.selected`, []);
+  const [sort, setSort] = ctx.ui<Sort | null>(`orbit.data.t.${t}.sort`, base.sort);
+  const [group, setGroup] = ctx.ui<string>(`orbit.data.t.${t}.group`, base.group);
+  const [selected, setSelected] = ctx.ui<string[]>(`orbit.data.t.${t}.selected`, []);
   const columns = columnsOf(t, s, cardsOfTable(ctx.state, t));
   const initialCols = columns.filter((c) => c.shown).map((c) => c.id);
-  const [visible, setVisible] = ctx.ui<string[]>(`sarim.data.t.${t}.cols`, initialCols);
+  const [visible, setVisible] = ctx.ui<string[]>(`orbit.data.t.${t}.cols`, initialCols);
   const sameCols = visible.length === initialCols.length && initialCols.every((id) => visible.includes(id));
   const groupColumns = columns.filter((c) => c.group);
-  const [chartBy, setChartBy] = ctx.ui<string>(`sarim.data.t.${t}.chartBy`, groupColumns[0]?.id ?? '');
+  const [chartBy, setChartBy] = ctx.ui<string>(`orbit.data.t.${t}.chartBy`, groupColumns[0]?.id ?? '');
   const all = rowsOf(t, ctx.state, s, ctx.now);
   const schema = useMemo(() => tableSchema(t, s), [t, s]);
   const presets = useMemo(() => presetsOf(t, s), [t, s]);
@@ -247,7 +247,7 @@ function TableView({ ctx, t, view }: { ctx: ScreenCtx; t: TableId; view: DataVie
   const assign = (personId: string) => {
     const person = world().people.personas.find((p) => p.id === personId);
     if (!person || !ctx.can('edit:data')) return;
-    const part = selectedShown.map((id) => rowsById.get(id)?.card).filter((c): c is SarimCard => c !== undefined);
+    const part = selectedShown.map((id) => rowsById.get(id)?.card).filter((c): c is OrbitCard => c !== undefined);
     const [, setKanban] = ctx.slice<KanbanSlice>(KANBAN_SLICE, KANBAN_INITIAL);
     setKanban((prev) => part.reduce((acc, c) => withWorker(acc, c.id, { kind: 'person', id: person.id, doing: s.table.assignDoing, since: ctx.now }), { ...KANBAN_INITIAL, ...prev }));
     for (const c of part) ctx.log(s.table.logAssigned(c.id, person.short), 'case', SP.card(c.id));

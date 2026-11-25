@@ -1,5 +1,5 @@
 /**
- * The contracts of the SARIM edition as every screen reads them: the version
+ * The contracts of the ORBIT edition as every screen reads them: the version
  * in force, the word-level difference between two versions, the notice date
  * computed from the end date, the value a variant sets, and the alerts that
  * the dates, the obligations and the open cards raise.
@@ -8,7 +8,7 @@
  * one. A date printed on the list, on the contract page and in the calendar
  * comes from the same function, so the three cannot disagree.
  */
-import type { ApprovalStep, Clause, Contract, ContractKind, ContractStatus, ContractVersion, Obligation, SarimCard } from '../../../ui/fixtures/sarim-org/types';
+import type { ApprovalStep, Clause, Contract, ContractKind, ContractStatus, ContractVersion, Obligation, OrbitCard } from '../../../ui/fixtures/orbit-org/types';
 import { personaById, world } from '../world';
 import { DEMO_TODAY, addDays, parseDay } from '../../../ui/fixtures/org/clock';
 import { stageOf } from './live';
@@ -225,7 +225,7 @@ export interface ContractAlert {
 
 const TONE_RANK: Record<ContractAlert['tone'], number> = { error: 0, warn: 1, info: 2 };
 
-const days = (n: number) => `${n} ${n === 1 ? 'giorno' : 'giorni'}`; // allow-italian: alert copy of the SARIM edition, shown as written
+const days = (n: number) => `${n} ${n === 1 ? 'giorno' : 'giorni'}`; // allow-italian: alert copy of the ORBIT edition, shown as written
 
 const clauseNumber = (contract: Contract, clauseId: string) => clauseIn(currentVersion(contract), clauseId)?.n ?? clauseId;
 
@@ -235,15 +235,15 @@ const clauseNumber = (contract: Contract, clauseId: string) => clauseIn(currentV
  * with an open card on them, variants in progress. Computed from the dates
  * every time, never stored: an obligation becomes late by itself.
  */
-export function contractAlerts(contract: Contract, today: string = DEMO_TODAY, cards: SarimCard[] = world().cards): ContractAlert[] {
+export function contractAlerts(contract: Contract, today: string = DEMO_TODAY, cards: OrbitCard[] = world().cards): ContractAlert[] {
   const out: ContractAlert[] = [];
   const durationClause = currentVersion(contract).clauses.find((c) => c.title.startsWith('Durata'))?.id; // allow-italian: compares the clause title by value
 
   if (contract.end && (contract.status === 'scaduto' || contract.end < today)) {
     out.push({
       id: `${contract.id}:scaduto`, tone: 'error', kind: 'scaduto', clause: durationClause, // allow-italian: values compared by value
-      title: `Scaduto il ${dayLabel(contract.end, today)}`, // allow-italian: alert copy of the SARIM edition, shown as written
-      body: `Scaduto da ${days(daysTo(today, contract.end))}: se il servizio prosegue, serve l'atto che copre il periodo dopo la scadenza.`, // allow-italian: alert copy of the SARIM edition, shown as written
+      title: `Scaduto il ${dayLabel(contract.end, today)}`, // allow-italian: alert copy of the ORBIT edition, shown as written
+      body: `Scaduto da ${days(daysTo(today, contract.end))}: se il servizio prosegue, serve l'atto che copre il periodo dopo la scadenza.`, // allow-italian: alert copy of the ORBIT edition, shown as written
     });
   }
 
@@ -255,16 +255,16 @@ export function contractAlerts(contract: Contract, today: string = DEMO_TODAY, c
     if (left >= 0 && left <= 90) {
       out.push({
         id: `${contract.id}:preavviso`, tone: left <= 30 ? 'error' : 'warn', kind: 'preavviso', clause, // allow-italian: values compared by value
-        title: tacit ? `Disdetta entro il ${dayLabel(notice, today)}` : `Proroga da decidere entro il ${dayLabel(notice, today)}`, // allow-italian: alert copy of the SARIM edition, shown as written
-        body: tacit // allow-italian: alert copy of the SARIM edition, shown as written
-          ? `Mancano ${days(left)}. Senza disdetta il contratto si rinnova da solo per ${contract.renewal.months} mesi.` // allow-italian: alert copy of the SARIM edition, shown as written
-          : `Mancano ${days(left)}. La proroga vale ${contract.renewal.months} mesi alle stesse condizioni.`, // allow-italian: alert copy of the SARIM edition, shown as written
+        title: tacit ? `Disdetta entro il ${dayLabel(notice, today)}` : `Proroga da decidere entro il ${dayLabel(notice, today)}`, // allow-italian: alert copy of the ORBIT edition, shown as written
+        body: tacit // allow-italian: alert copy of the ORBIT edition, shown as written
+          ? `Mancano ${days(left)}. Senza disdetta il contratto si rinnova da solo per ${contract.renewal.months} mesi.` // allow-italian: alert copy of the ORBIT edition, shown as written
+          : `Mancano ${days(left)}. La proroga vale ${contract.renewal.months} mesi alle stesse condizioni.`, // allow-italian: alert copy of the ORBIT edition, shown as written
       });
     } else if (left > 90 && left <= 180) {
       out.push({
         id: `${contract.id}:rinnovo`, tone: 'info', kind: 'rinnovo', clause, // allow-italian: values compared by value
-        title: tacit ? `Rinnovo tacito: disdetta entro il ${dayLabel(notice, today)}` : `Proroga da valutare entro il ${dayLabel(notice, today)}`, // allow-italian: alert copy of the SARIM edition, shown as written
-        body: `Mancano ${days(left)} al termine per ${tacit ? 'la disdetta' : 'la decisione'}.`, // allow-italian: alert copy of the SARIM edition, shown as written
+        title: tacit ? `Rinnovo tacito: disdetta entro il ${dayLabel(notice, today)}` : `Proroga da valutare entro il ${dayLabel(notice, today)}`, // allow-italian: alert copy of the ORBIT edition, shown as written
+        body: `Mancano ${days(left)} al termine per ${tacit ? 'la disdetta' : 'la decisione'}.`, // allow-italian: alert copy of the ORBIT edition, shown as written
       });
     }
   }
@@ -273,8 +273,8 @@ export function contractAlerts(contract: Contract, today: string = DEMO_TODAY, c
     if (o.done || !o.due || o.due >= today) continue;
     out.push({
       id: `${contract.id}:${o.id}`, tone: 'error', kind: 'obbligo', clause: o.clause, // allow-italian: values compared by value
-      title: `In ritardo: ${o.what}`, // allow-italian: alert copy of the SARIM edition, shown as written
-      body: `Scadeva il ${dayLabel(o.due, today)}, ${days(daysTo(today, o.due))} fa (art. ${clauseNumber(contract, o.clause)}).`, // allow-italian: alert copy of the SARIM edition, shown as written
+      title: `In ritardo: ${o.what}`, // allow-italian: alert copy of the ORBIT edition, shown as written
+      body: `Scadeva il ${dayLabel(o.due, today)}, ${days(daysTo(today, o.due))} fa (art. ${clauseNumber(contract, o.clause)}).`, // allow-italian: alert copy of the ORBIT edition, shown as written
     });
   }
 
@@ -283,7 +283,7 @@ export function contractAlerts(contract: Contract, today: string = DEMO_TODAY, c
     for (const card of open) {
       out.push({
         id: `${contract.id}:${o.id}:${card.id}`, tone: 'warn', kind: 'penale', clause: o.clause, // allow-italian: values compared by value
-        title: `Penale in gioco, art. ${clauseNumber(contract, o.clause)}`, // allow-italian: alert copy of the SARIM edition, shown as written
+        title: `Penale in gioco, art. ${clauseNumber(contract, o.clause)}`, // allow-italian: alert copy of the ORBIT edition, shown as written
         body: `${card.id}: ${card.title}. ${o.what}.`,
       });
     }
@@ -294,8 +294,8 @@ export function contractAlerts(contract: Contract, today: string = DEMO_TODAY, c
     const who = waiting ? `${personaById(waiting.who)?.name ?? waiting.who}, ${actionLabel[waiting.action].toLowerCase()}` : '';
     out.push({
       id: `${contract.id}:${v.id}`, tone: 'info', kind: 'variante', // allow-italian: values compared by value
-      title: `Variante in corso: ${v.title}`, // allow-italian: alert copy of the SARIM edition, shown as written
-      body: `Versione ${v.version}, ${formatShare(variantShare(contract, v.version))} sul valore della prima versione firmata.${who ? ` Aspetta: ${who}.` : ''}`, // allow-italian: alert copy of the SARIM edition, shown as written
+      title: `Variante in corso: ${v.title}`, // allow-italian: alert copy of the ORBIT edition, shown as written
+      body: `Versione ${v.version}, ${formatShare(variantShare(contract, v.version))} sul valore della prima versione firmata.${who ? ` Aspetta: ${who}.` : ''}`, // allow-italian: alert copy of the ORBIT edition, shown as written
     });
   }
 

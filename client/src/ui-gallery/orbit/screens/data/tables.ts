@@ -8,10 +8,10 @@
  */
 import type { CellModel } from '../../../../ui/data/model';
 import type { Tone } from '../../../../ui/types';
-import type { SarimDataCopy } from '../../../../ui/copy/sarim-data';
-import type { Contract, ContractStatus, SarimCard, StageId } from '../../../../ui/fixtures/sarim-org/types';
+import type { OrbitDataCopy } from '../../../../ui/copy/orbit-data';
+import type { Contract, ContractStatus, OrbitCard, StageId } from '../../../../ui/fixtures/orbit-org/types';
 import { personaById, townOfPlace, world } from '../../world';
-import type { SarimTown } from '../../../../ui/fixtures/sarim-org/data';
+import type { OrbitTown } from '../../../../ui/fixtures/orbit-org/data';
 import { formatDay, formatShortDay } from '../../../../ui/fixtures/org/clock';
 import type { DemoState } from '../../../app/store/state';
 import { liveCards, liveContracts, stageOf, stageSince } from '../../model/live';
@@ -33,7 +33,7 @@ export const isTable = (id: string | undefined): id is TableId => Boolean(id) &&
 /** The main flow of a table of cards, when it has one. */
 export const flowOfTable = (t: TableId): string | undefined => FLOWS_OF[t]?.[0];
 /** The table a card's row lives in. */
-export const tableOfCard = (card: SarimCard): TableId => TABLE_IDS.find((t) => FLOWS_OF[t]?.includes(card.flow)) ?? TABLE_IDS[0];
+export const tableOfCard = (card: OrbitCard): TableId => TABLE_IDS.find((t) => FLOWS_OF[t]?.includes(card.flow)) ?? TABLE_IDS[0];
 export type TableFamily = 'cards' | 'contracts' | 'towns';
 export const familyOf = (t: TableId): TableFamily => (FLOWS_OF[t] ? 'cards' : t === 'contratti' ? 'contracts' : 'towns'); // allow-italian: address segment, compared by value
 
@@ -65,34 +65,34 @@ export interface DataRow {
   cells: Record<string, CellModel>;
   /** Where a link cell leads: a path of the app, or an `https://` page. */
   links: Record<string, string>;
-  card?: SarimCard;
+  card?: OrbitCard;
   contract?: Contract;
-  town?: SarimTown;
+  town?: OrbitTown;
 }
 
 /** The same tones «Contratti» gives each state, so a contract reads the same in both places. (allow-italian: quotes the Italian interface) */
 export const STATUS_TONE: Record<ContractStatus, Tone> = { bozza: 'neutral', revisione: 'amber', approvazione: 'amber', firma: 'blue', attivo: 'green', rinnovo: 'blue', scaduto: 'red' }; // allow-italian: status ids, compared by value
-const PRIORITY_RANK: Record<SarimCard['priority'], number> = { alta: 0, normale: 1, bassa: 2 }; // allow-italian: data codes, compared by value
+const PRIORITY_RANK: Record<OrbitCard['priority'], number> = { alta: 0, normale: 1, bassa: 2 }; // allow-italian: data codes, compared by value
 const STAGE_RANK: Record<StageId, number> = Object.fromEntries(world().stages.map((s, i) => [s.id, i])) as Record<StageId, number>;
 const DONE: StageId = 'fatto'; // allow-italian: stage id, compared by value
 
 /** The tone and the name of a stage are the ones every other screen uses (`model/words.ts`): a card reads the same here and in «Da fare». (allow-italian: quotes the Italian interface) */
 export { STAGE_TONE, stageLabel };
-export const isOpenCard = (c: SarimCard) => stageOf(c) !== DONE;
+export const isOpenCard = (c: OrbitCard) => stageOf(c) !== DONE;
 export const flowOf = (id: string) => world().opsFlows.find((f) => f.id === id);
 export const personShort = (id: string) => personaById(id)?.short ?? id;
 
-export function cardsOfTable(state: DemoState, t: TableId): SarimCard[] {
+export function cardsOfTable(state: DemoState, t: TableId): OrbitCard[] {
   const flows = FLOWS_OF[t];
   return flows ? liveCards(state).filter((c) => flows.includes(c.flow)) : [];
 }
 
-export function townCards(state: DemoState, town: SarimTown): SarimCard[] {
+export function townCards(state: DemoState, town: OrbitTown): OrbitCard[] {
   return liveCards(state).filter((c) => townOfPlace(c.place)?.id === town.id);
 }
 
 /** Every column a table can show, in order; the value columns come from what the agents read on its cards. */
-export function columnsOf(t: TableId, s: SarimDataCopy, cards: SarimCard[]): ColumnDef[] {
+export function columnsOf(t: TableId, s: OrbitDataCopy, cards: OrbitCard[]): ColumnDef[] {
   const c = s.columns;
   if (familyOf(t) === 'contracts') {
     return [
@@ -152,7 +152,7 @@ export const dueTone = (day: string, today: string, open: boolean): Tone | undef
   return n <= 0 ? 'red' : n <= 3 ? 'amber' : undefined;
 };
 
-function cardRow(card: SarimCard, s: SarimDataCopy, now: string): DataRow {
+function cardRow(card: OrbitCard, s: OrbitDataCopy, now: string): DataRow {
   const v = s.values;
   const today = now.slice(0, 10);
   const stage = stageOf(card);
@@ -221,7 +221,7 @@ export function nextObligation(c: Contract) {
   return [...c.obligations].filter((o) => !o.done && o.due).sort((a, b) => (a.due ?? '').localeCompare(b.due ?? ''))[0];
 }
 
-function contractRow(c: Contract, s: SarimDataCopy, today: string, cards: SarimCard[]): DataRow {
+function contractRow(c: Contract, s: OrbitDataCopy, today: string, cards: OrbitCard[]): DataRow {
   const v = s.values;
   const notice = noticeDate(c);
   const current = currentVersion(c);
@@ -276,7 +276,7 @@ function contractRow(c: Contract, s: SarimDataCopy, today: string, cards: SarimC
   };
 }
 
-function townRow(town: SarimTown, s: SarimDataCopy, state: DemoState): DataRow {
+function townRow(town: OrbitTown, s: OrbitDataCopy, state: DemoState): DataRow {
   const v = s.values;
   const open = townCards(state, town).filter(isOpenCard).length;
   const text: Record<string, string> = {
@@ -311,7 +311,7 @@ function townRow(town: SarimTown, s: SarimDataCopy, state: DemoState): DataRow {
 }
 
 /** The rows of a table, in the order of the source. */
-export function rowsOf(t: TableId, state: DemoState, s: SarimDataCopy, now: string): DataRow[] {
+export function rowsOf(t: TableId, state: DemoState, s: OrbitDataCopy, now: string): DataRow[] {
   const family = familyOf(t);
   if (family === 'contracts') {
     const cards = liveCards(state);

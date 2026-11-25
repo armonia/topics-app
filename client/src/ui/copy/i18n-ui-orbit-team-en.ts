@@ -1,12 +1,12 @@
-import type { SarimTeamCopy } from './sarim-team';
+import type { OrbitTeamCopy } from './orbit-team';
 import { orgWords } from './org-words';
 
 const W = orgWords();
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
 
-/** English words of the SARIM teams and permissions. */
-export const SARIM_TEAM_COPY_EN: SarimTeamCopy = {
+/** English words of the ORBIT teams and permissions. */
+export const ORBIT_TEAM_COPY_EN: OrbitTeamCopy = {
   title: 'Team',
   navLabel: 'Parts of the team area',
   nav: { team: 'Teams', permissions: 'Permissions' },

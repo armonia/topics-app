@@ -1,20 +1,20 @@
 /**
- * SARIM edition: «Dati» (tables, rows, deadlines) and «Conoscenza» (documents, procedures, laws). (allow-italian: quotes the Italian interface)
- * Values in `i18n-ui-sarim-data-it.ts` and `i18n-ui-sarim-data-en.ts`; only product words,
- * the words of SARIM's work arrive with the data.
+ * ORBIT edition: «Dati» (tables, rows, deadlines) and «Conoscenza» (documents, procedures, laws). (allow-italian: quotes the Italian interface)
+ * Values in `i18n-ui-orbit-data-it.ts` and `i18n-ui-orbit-data-en.ts`; only product words,
+ * the words of ORBIT's work arrive with the data.
  */
 
 /** A table of «Dati», by address segment: the ones the world lists, then `contratti` and `comuni`. (allow-italian: quotes the Italian interface) */
-export type SarimTableWord = string;
-export type SarimDataViewWord = 'table' | 'board' | 'chart';
-export type SarimDeadlineKind = 'card' | 'end' | 'notice' | 'obligation';
-export type SarimDeadlineState = 'late' | 'soon' | 'open' | 'done';
+export type OrbitTableWord = string;
+export type OrbitDataViewWord = 'table' | 'board' | 'chart';
+export type OrbitDeadlineKind = 'card' | 'end' | 'notice' | 'obligation';
+export type OrbitDeadlineState = 'late' | 'soon' | 'open' | 'done';
 /** The id of a saved filter that ships with a table: the ones the world lists in `dataViews`, `noticeSoon` and `pastTowns`. */
-export type SarimBuiltInView = string;
-export type SarimKnowledgeCollectionWord = 'norme' | 'azienda' | 'procedure'; // allow-italian: address segments, compared by value
-export type SarimUsageWord = 'cards' | 'flows' | 'contracts' | 'procedures';
+export type OrbitBuiltInView = string;
+export type OrbitKnowledgeCollectionWord = 'norme' | 'azienda' | 'procedure'; // allow-italian: address segments, compared by value
+export type OrbitUsageWord = 'cards' | 'flows' | 'contracts' | 'procedures';
 
-export interface SarimDataCopy {
+export interface OrbitDataCopy {
   title: string;
 
   /** The strip under the header of «Conoscenza»: its four sections. (allow-italian: quotes the Italian interface) */
@@ -40,7 +40,7 @@ export interface SarimDataCopy {
     searchGroups: { tables: string; towns: string; documents: string; parts: string; procedures: string };
   };
 
-  tables: Record<SarimTableWord, { label: string; about: string }>;
+  tables: Record<OrbitTableWord, { label: string; about: string }>;
 
   nav: {
     deadlines: string;
@@ -129,11 +129,11 @@ export interface SarimDataCopy {
   };
 
   views: {
-    builtIn: Record<SarimBuiltInView, string>;
+    builtIn: Record<OrbitBuiltInView, string>;
   };
 
   table: {
-    views: Record<SarimDataViewWord, string>;
+    views: Record<OrbitDataViewWord, string>;
     viewsLabel: string;
     groupLabel: string;
     columnsButton: string;
@@ -208,16 +208,16 @@ export interface SarimDataCopy {
 
   deadlines: {
     title: string;
-    kinds: Record<'all' | SarimDeadlineKind, string>;
+    kinds: Record<'all' | OrbitDeadlineKind, string>;
     fields: { kind: string; area: string; state: string; within: string; day: string };
     saved: { late: string; soon: string; notices: string; week: string };
     showDone: string;
     view: { label: string; list: string; calendar: string };
-    states: Record<SarimDeadlineState, string>;
+    states: Record<OrbitDeadlineState, string>;
     what: { end: string; noticeTacit: string; noticeOption: string };
     columns: { day: string; what: string; about: string; area: string; owner: string; status: string };
     empty: { title: string; body: string; clear: string };
-    tag: Record<SarimDeadlineKind, string>;
+    tag: Record<OrbitDeadlineKind, string>;
     exportCsv: string;
     exported: (n: number) => string;
     logExported: (n: number) => string;
@@ -227,7 +227,7 @@ export interface SarimDataCopy {
 
   knowledge: {
     title: string;
-    collections: Record<SarimKnowledgeCollectionWord, string>;
+    collections: Record<OrbitKnowledgeCollectionWord, string>;
     home: {
       recent: string;
       recentEmpty: string;
@@ -271,7 +271,7 @@ export interface SarimDataCopy {
       checksInline: string;
       officialButton: string;
       officialPart: string;
-      usage: Record<SarimUsageWord, string>;
+      usage: Record<OrbitUsageWord, string>;
       usageCard: (stage: string, why: string) => string;
       usageFlow: (step: string, why: string) => string;
       usageClause: (clause: string, why: string) => string;

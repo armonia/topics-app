@@ -1,9 +1,9 @@
 /**
- * SARIM edition: «Oggi» (the day of a person) and «Flussi» (the flows and their steps). (allow-italian: quotes the Italian interface)
- * Values in `i18n-ui-sarim-work-it.ts` and `i18n-ui-sarim-work-en.ts`; only product words,
- * the words of SARIM's work arrive with the data.
+ * ORBIT edition: «Oggi» (the day of a person) and «Flussi» (the flows and their steps). (allow-italian: quotes the Italian interface)
+ * Values in `i18n-ui-orbit-work-it.ts` and `i18n-ui-orbit-work-en.ts`; only product words,
+ * the words of ORBIT's work arrive with the data.
  */
-export interface SarimWorkCopy {
+export interface OrbitWorkCopy {
   title: string;
   /** Day names, Sunday first, as `Date.getUTCDay()` counts them. */
   weekdays: string[];
@@ -88,7 +88,7 @@ export interface SarimWorkCopy {
       at: (when: string, who: string) => string;
     };
     step: {
-      /** The first two crumbs of a step: `SARIM / Flussi`. (allow-italian: quotes the Italian interface) */
+      /** The first two crumbs of a step: `ORBIT / Flussi`. (allow-italian: quotes the Italian interface) */
       org: string;
       flows: string;
       crumb: (n: string) => string;

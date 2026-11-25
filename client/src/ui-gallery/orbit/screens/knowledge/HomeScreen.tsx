@@ -1,5 +1,5 @@
 /**
- * sarim-knowledge and sarim-rules: the two lists of «Conoscenza» that hold
+ * orbit-knowledge and orbit-rules: the two lists of «Conoscenza» that hold
  * documents. «Documents» are the papers of the company, «Rules» are the laws
  * and the procedures the flows follow. Each has the question box over every
  * document (answers only with the parts it quotes), the questions asked
@@ -83,12 +83,12 @@ function DocState({ doc, waiting }: { doc: LiveDoc; waiting: string }) {
 
 export function HomeScreen({ ctx, section }: { ctx: ScreenCtx; section: Extract<KnowledgeSection, 'documents' | 'rules'> }) {
   const copy = ctx.copy;
-  const k = copy.sarimData.knowledge;
+  const k = copy.orbitData.knowledge;
   const h = k.home;
   const l = k.list;
   const [slice] = ctx.slice<KnowledgeSlice>(KNOWLEDGE_SLICE, KNOWLEDGE_INITIAL);
-  const [input, setInput] = ctx.ui<string>('sarim.k.input.home', '');
-  const [asked, setAsked] = ctx.ui<string | null>('sarim.k.ask.home', null);
+  const [input, setInput] = ctx.ui<string>('orbit.k.input.home', '');
+  const [asked, setAsked] = ctx.ui<string | null>('orbit.k.ask.home', null);
   const everyDoc = liveDocs(slice, copy);
   const isRules = section === 'rules';
   const listLabel = isRules ? h.rulesLabel : h.documentsLabel;
@@ -150,12 +150,12 @@ export function HomeScreen({ ctx, section }: { ctx: ScreenCtx; section: Extract<
       { id: 'procedure', name: l.saved.procedure, tokens: [{ id: 'p3', field: 'tipo', op: 'is', value: 'procedure' }] },
     ]
     : []), [isRules, l]);
-  const list = useListFilters(ctx, { key: `sarim.k.filters.${section}`, items: docs, schema, presets });
+  const list = useListFilters(ctx, { key: `orbit.k.filters.${section}`, items: docs, schema, presets });
   const shown = list.items;
   /* When every document on show comes from the same issuer the column repeats one name on each row: it is left out. */
   const sameIssuer = shown.length > 1 && new Set(shown.map((d) => issuerShort(d.doc.issuer))).size === 1;
 
-  const crumbs = orgCrumbs(ctx, [{ label: k.title, to: SP.knowledge() }, { label: copy.sarimData.section[section], detail: (isRules ? h.ruleCount : h.docCount)(docs.length) }]);
+  const crumbs = orgCrumbs(ctx, [{ label: k.title, to: SP.knowledge() }, { label: copy.orbitData.section[section], detail: (isRules ? h.ruleCount : h.docCount)(docs.length) }]);
 
   const recentCard = (
     <RowCard title={h.recent} icon={MessageSquareText} empty={recent.length ? undefined : h.recentEmpty}>
@@ -233,7 +233,7 @@ export function HomeScreen({ ctx, section }: { ctx: ScreenCtx; section: Extract<
                 ),
                 ...(sameIssuer ? {} : { issuer: issuerShort(d.doc.issuer) }),
                 status: <DocState doc={d} waiting={k.versions.toApprove} />,
-                updated: <span className={updated ? 'tabular-nums' : 'text-app-text-faint'}>{updated ? formatDay(updated) : copy.sarimData.common.blank}</span>,
+                updated: <span className={updated ? 'tabular-nums' : 'text-app-text-faint'}>{updated ? formatDay(updated) : copy.orbitData.common.blank}</span>,
                 cited: String(docCited(d)),
               },
             };

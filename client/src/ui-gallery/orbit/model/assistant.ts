@@ -15,9 +15,9 @@ import type { ChatBlock, ChatRef, ChatReply, ChatSeg } from '../../../ui/chat/mo
 import type { ChatCopy, ChatWord } from '../../../ui/copy/chat';
 import type { Persona } from '../../../ui/fixtures/org/people';
 import { DEMO_TODAY, addDays, daysFromToday, formatDay, formatShortDay } from '../../../ui/fixtures/org/clock';
-import type { Contract, OpsFlow, SarimCard, StageId } from '../../../ui/fixtures/sarim-org/types';
+import type { Contract, OpsFlow, OrbitCard, StageId } from '../../../ui/fixtures/orbit-org/types';
 import type { DemoState } from '../../app/store/state';
-import type { SarimTown } from '../../../ui/fixtures/sarim-org/data';
+import type { OrbitTown } from '../../../ui/fixtures/orbit-org/data';
 import { agentById, personaById, townOfPlace, world } from '../world';
 import { SP } from '../paths';
 import { flowLevel, sectionLevel } from './access';
@@ -82,7 +82,7 @@ function named<T>(text: string, items: T[], namesOf: (t: T) => string[], loose: 
 /* ---------- what the person may see ---------- */
 
 interface Scope {
-  cards: SarimCard[];
+  cards: OrbitCard[];
   contracts: Contract[];
   flows: OpsFlow[];
 }
@@ -100,9 +100,9 @@ function scopeOf(env: AssistantEnv): Scope {
 
 const stageLabel = (id: StageId): string => world().stages.find((s) => s.id === id)?.label ?? id;
 
-const isOpen = (c: SarimCard): boolean => stageOf(c) !== 'fatto'; // allow-italian: stage id, compared by value
+const isOpen = (c: OrbitCard): boolean => stageOf(c) !== 'fatto'; // allow-italian: stage id, compared by value
 
-function cardRef(c: SarimCard, env: AssistantEnv): ChatRef {
+function cardRef(c: OrbitCard, env: AssistantEnv): ChatRef {
   return { kind: 'card', id: c.id, label: c.id, detail: c.title, flow: c.flow, path: SP.card(c.id), tone: isOpen(c) && isStuck(c, world().opsFlows, env.now) ? 'red' : undefined };
 }
 
@@ -187,7 +187,7 @@ function contractToAsk(contracts: Contract[]): Contract | undefined {
 }
 
 /** The flow with most open cards, the one most worth explaining. */
-function flowToAsk(flows: OpsFlow[], cards: SarimCard[]): OpsFlow | undefined {
+function flowToAsk(flows: OpsFlow[], cards: OrbitCard[]): OpsFlow | undefined {
   return [...flows].sort((a, b) => openCards(cards.filter((c) => c.flow === b.id)).length - openCards(cards.filter((c) => c.flow === a.id)).length)[0];
 }
 
@@ -230,7 +230,7 @@ export function exampleFlowName(env: AssistantEnv): string | undefined {
 type CardIdea = 'summary' | 'missing' | 'approver' | 'value';
 
 /** The questions suggested in the chat of a card, all about that card. */
-export function cardQuestions(card: SarimCard, env: AssistantEnv): string[] {
+export function cardQuestions(card: OrbitCard, env: AssistantEnv): string[] {
   const q = env.copy.card.questions;
   const first = card.values[0];
   return [q.summary, q.missing, q.approver, ...(first ? [q.value(first.label)] : [])];
@@ -238,13 +238,13 @@ export function cardQuestions(card: SarimCard, env: AssistantEnv): string[] {
 
 /* ---------- answers about a card ---------- */
 
-function stepOf(card: SarimCard): { flow?: OpsFlow; index: number } {
+function stepOf(card: OrbitCard): { flow?: OpsFlow; index: number } {
   const flow = opsFlowById(card.flow);
   const step = flow ? liveStep(card, flow) : undefined;
   return { flow, index: flow && step ? flow.steps.indexOf(step) : -1 };
 }
 
-function cardSummary(card: SarimCard, env: AssistantEnv): ChatBlock[] {
+function cardSummary(card: OrbitCard, env: AssistantEnv): ChatBlock[] {
   const r = env.copy.reply.summary;
   const { flow, index } = stepOf(card);
   const stage = stageOf(card);
@@ -272,7 +272,7 @@ function cardSummary(card: SarimCard, env: AssistantEnv): ChatBlock[] {
   return next.length ? [text(...first), text(next.join(' '))] : [text(...first)];
 }
 
-function cardMissing(card: SarimCard, env: AssistantEnv): ChatBlock[] {
+function cardMissing(card: OrbitCard, env: AssistantEnv): ChatBlock[] {
   const r = env.copy.reply;
   const head = text(...r.about.missing(cardRef(card, env)));
   if (!isOpen(card)) return [head, text(r.missingDone)];
@@ -294,7 +294,7 @@ function cardMissing(card: SarimCard, env: AssistantEnv): ChatBlock[] {
   return blocks;
 }
 
-function cardApprover(card: SarimCard, env: AssistantEnv): ChatBlock[] {
+function cardApprover(card: OrbitCard, env: AssistantEnv): ChatBlock[] {
   const r = env.copy.reply;
   const flow = opsFlowById(card.flow);
   const items: ChatSeg[][] = [];
@@ -310,7 +310,7 @@ function cardApprover(card: SarimCard, env: AssistantEnv): ChatBlock[] {
   return [text(...r.about.approver(cardRef(card, env))), list(items)];
 }
 
-function cardValues(card: SarimCard, question: string, env: AssistantEnv): ChatBlock[] {
+function cardValues(card: OrbitCard, question: string, env: AssistantEnv): ChatBlock[] {
   const r = env.copy.reply;
   const head = text(...r.about.value(cardRef(card, env)));
   if (!card.values.length) return [head, text(r.valuesNone)];
@@ -324,7 +324,7 @@ function cardValues(card: SarimCard, question: string, env: AssistantEnv): ChatB
   return [head, text(r.valuesIntro(card.values.length)), list(card.values.map((v) => [{ strong: v.label }, `: ${v.value} · ${v.confidence}%`]))];
 }
 
-function pickCardIdea(question: string, card: SarimCard, env: AssistantEnv): CardIdea | undefined {
+function pickCardIdea(question: string, card: OrbitCard, env: AssistantEnv): CardIdea | undefined {
   const asked = ` ${stemmed(question)} `;
   if (asks(question, env.copy, 'value') || card.values.some((v) => asked.includes(` ${stemmed(v.label)} `))) return 'value';
   if (asks(question, env.copy, 'approver')) return 'approver';
@@ -333,7 +333,7 @@ function pickCardIdea(question: string, card: SarimCard, env: AssistantEnv): Car
   return undefined;
 }
 
-function cardAnswer(card: SarimCard, idea: CardIdea, question: string, env: AssistantEnv): ChatBlock[] {
+function cardAnswer(card: OrbitCard, idea: CardIdea, question: string, env: AssistantEnv): ChatBlock[] {
   switch (idea) {
     case 'summary': return cardSummary(card, env);
     case 'missing': return cardMissing(card, env);
@@ -346,11 +346,11 @@ function cardAnswer(card: SarimCard, idea: CardIdea, question: string, env: Assi
 
 interface Filters {
   flow?: OpsFlow;
-  town?: SarimTown;
+  town?: OrbitTown;
   who?: Persona;
 }
 
-function filtered(cards: SarimCard[], f: Filters): SarimCard[] {
+function filtered(cards: OrbitCard[], f: Filters): OrbitCard[] {
   return cards.filter((c) => (!f.flow || c.flow === f.flow.id) && (!f.town || townOfPlace(c.place)?.id === f.town.id));
 }
 
@@ -387,7 +387,7 @@ function dueAnswer(scope: Scope, f: Filters, env: AssistantEnv): ChatBlock[] {
   const late = due.filter((c) => daysFromToday(c.due as string) < 0);
   const soon = due.filter((c) => daysFromToday(c.due as string) >= 0);
   const where = scopeText(f, env.copy);
-  const line = (c: SarimCard): ChatSeg[] => [cardRef(c, env), ' · ', r.dueLine(daysFromToday(c.due as string), formatShortDay(c.due as string))];
+  const line = (c: OrbitCard): ChatSeg[] => [cardRef(c, env), ' · ', r.dueLine(daysFromToday(c.due as string), formatShortDay(c.due as string))];
   const dates = f.flow || f.town
     ? []
     : contractDates(scope.contracts).filter((d) => !d.done && d.day >= DEMO_TODAY && d.day <= end).sort((a, b) => a.day.localeCompare(b.day));
@@ -473,7 +473,7 @@ function flowsOverview(scope: Scope, env: AssistantEnv): ChatBlock[] {
   return [text(r.flowsIntro(scope.flows.length)), ...capped(scope.flows.map((f): ChatSeg[] => [flowRef(f), ...(f.outcome ? [' · ', f.outcome] : [])]), env.copy, FLOWS_LINK)];
 }
 
-function townAnswer(town: SarimTown, scope: Scope, env: AssistantEnv): ChatBlock[] {
+function townAnswer(town: OrbitTown, scope: Scope, env: AssistantEnv): ChatBlock[] {
   const r = env.copy.reply;
   const name = withoutNote(town.name);
   const cards = filtered(scope.cards, { town }).filter(isOpen);
@@ -493,7 +493,7 @@ function unknownAnswer(env: AssistantEnv, examples: string[]): ChatReply {
 /* ---------- the answer ---------- */
 
 /** What the chat answers to one question. `card` is the card the chat belongs to, when it is the chat of a card. */
-export function answer(question: string, env: AssistantEnv, card?: SarimCard): ChatReply {
+export function answer(question: string, env: AssistantEnv, card?: OrbitCard): ChatReply {
   const copy = env.copy;
   const scope = scopeOf(env);
   const padded = ` ${norm(question)} `;

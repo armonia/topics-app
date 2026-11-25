@@ -1,5 +1,5 @@
 /**
- * sarim-program: one program of SARIM. What Topics reads there (on its own)
+ * orbit-program: one program of ORBIT. What Topics reads there (on its own)
  * and what it writes (only after the named person confirms, said once in that section), the flows that
  * use it and the steps done inside it, the open cards that go through it, and
  * on the side how it is connected, the controls to test, connect and
@@ -8,7 +8,7 @@
 import { ArrowLeft, CheckCircle2, CircleAlert, Eye, FlaskConical, Landmark, PenLine, Plug, PlugZap, Unplug } from 'lucide-react';
 import clsx from 'clsx';
 import { personaById, programById, world } from '../../world';
-import type { SarimProgram } from '../../../../ui/fixtures/sarim-org/programs';
+import type { OrbitProgram } from '../../../../ui/fixtures/orbit-org/programs';
 import { Button } from '../../../../ui/primitives/Button';
 import { Chip } from '../../../../ui/primitives/Chip';
 import { EmptyState } from '../../../../ui/primitives/EmptyState';
@@ -36,7 +36,7 @@ const statusTone = (status: string) => (status === 'attivo' ? 'green' : status =
 const CARDS_SHOWN = 8;
 
 export function ProgramPage({ ctx, id }: { ctx: ScreenCtx; id: string }) {
-  const c = ctx.copy.sarimAdmin.programs;
+  const c = ctx.copy.orbitAdmin.programs;
   const p = programById(id);
   if (!p) {
     return (
@@ -49,10 +49,10 @@ export function ProgramPage({ ctx, id }: { ctx: ScreenCtx; id: string }) {
   return <Program ctx={ctx} p={p} />;
 }
 
-function Program({ ctx, p }: { ctx: ScreenCtx; p: SarimProgram }) {
-  const c = ctx.copy.sarimAdmin.programs;
+function Program({ ctx, p }: { ctx: ScreenCtx; p: OrbitProgram }) {
+  const c = ctx.copy.orbitAdmin.programs;
   const g = c.page;
-  const common = ctx.copy.sarimAdmin.common;
+  const common = ctx.copy.orbitAdmin.common;
   const [slice] = programsSlice(ctx);
   const state = programState(ctx, slice, p);
   const connected = isConnected(slice, p);

@@ -9,7 +9,7 @@ import { Select, TextField } from '../primitives/Field';
 import { Table } from '../primitives/Table';
 import { PaneHeader } from '../shell/PaneHeader';
 
-export interface SarimFlowRowModel {
+export interface OrbitFlowRowModel {
   id: string;
   name: string;
   area: string;
@@ -22,9 +22,9 @@ export interface SarimFlowRowModel {
   onOpen: () => void;
 }
 
-/** The flows of SARIM as a list (the way into w07): filter by area, search, open one. */
-export function SarimFlowsList({ rows, areas, area, onArea, query, onQuery, onNew, newTitle, onClear, copy }: {
-  rows: SarimFlowRowModel[];
+/** The flows of ORBIT as a list (the way into w07): filter by area, search, open one. */
+export function OrbitFlowsList({ rows, areas, area, onArea, query, onQuery, onNew, newTitle, onClear, copy }: {
+  rows: OrbitFlowRowModel[];
   areas: Array<{ value: string; label: string }>;
   area: string;
   onArea: (a: string) => void;
@@ -35,7 +35,7 @@ export function SarimFlowsList({ rows, areas, area, onArea, query, onQuery, onNe
   onClear: () => void;
   copy: UiCopy;
 }) {
-  const s = copy.orgs.sarim;
+  const s = copy.orgs.orbit;
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PaneHeader crumbs={[{ label: copy.flows.root, detail: `${s.orgName} · ${s.flowsCount(rows.length)}` }]}>

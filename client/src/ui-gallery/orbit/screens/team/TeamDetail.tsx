@@ -1,5 +1,5 @@
 /**
- * sarim-team-of: one team on its own page: its leader, the numbers, its
+ * orbit-team-of: one team on its own page: its leader, the numbers, its
  * people, the flows it works on and its permissions in brief. The agents are
  * a team too: their page lists the flows they prepare instead of permissions.
  */
@@ -33,7 +33,7 @@ function FlowGlyph({ icon: Icon }: { icon: LucideIcon }) {
 const LEVEL_TONE: Record<AccessLevel, Tone> = { none: 'neutral', view: 'blue', work: 'green', manage: 'violet' };
 
 export function TeamDetail({ ctx, id }: { ctx: ScreenCtx; id: string }) {
-  const c = ctx.copy.sarimTeam;
+  const c = ctx.copy.orbitTeam;
   const team = teamById(id);
   const agents = id === world().people.agentsTeam.id;
   if (!team && !agents) {

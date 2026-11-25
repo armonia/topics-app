@@ -5,12 +5,12 @@
 import { webkit } from "playwright";
 import { serveDist } from "./ui-app/serve.mjs";
 
-const { base, close } = await serveDist("ui-variant-shield", "sarim");
+const { base, close } = await serveDist("ui-variant-shield", "orbit");
 const browser = await webkit.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 await page.goto(`${base}?fresh=1&speed=0.02#/da-fare`);
 await page.waitForFunction(() => window.__demo);
-const place = (await page.evaluate(() => window.__demo.places())).find((x) => x.id === "sarim-contract");
+const place = (await page.evaluate(() => window.__demo.places())).find((x) => x.id === "orbit-contract");
 let sample;
 for (const s of place.samples) {
   await page.evaluate((x) => window.__demo.reset(x), s);

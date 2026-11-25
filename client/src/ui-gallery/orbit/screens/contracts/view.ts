@@ -4,7 +4,7 @@
  * kinds of obligations and attachments (the signed copies made here among
  * them), the steps of the approval chain. No drawing here: the places do it.
  */
-import type { ApprovalStep, Contract, Obligation } from '../../../../ui/fixtures/sarim-org/types';
+import type { ApprovalStep, Contract, Obligation } from '../../../../ui/fixtures/orbit-org/types';
 import { personaById } from '../../world';
 import type { AlertModel, ApprovalStepModel } from '../../../../ui/contracts/model';
 import type { Tone } from '../../../../ui/types';

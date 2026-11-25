@@ -1,5 +1,5 @@
 /**
- * sarim-team: the teams of SARIM one under the other, each with how many
+ * orbit-team: the teams of ORBIT one under the other, each with how many
  * people it has, the cards they hold and what waits for them (a team of one
  * says it on the person's own line), and its members (a person with their
  * avatar and the «Responsabile» badge, the leader named there and nowhere
@@ -24,31 +24,31 @@ import { AgentMark, MemberLine, TeamNumbers } from './parts';
 import { teamLabel } from './labels';
 
 /** Where the filters of the team list are kept (`ctx.ui`). */
-export const TEAM_FILTERS_KEY = 'sarim.squadra.filters';
+export const TEAM_FILTERS_KEY = 'orbit.squadra.filters';
 
 const TEAM_ORDER = [...world().people.teams.map((t) => t.id), world().people.agentsTeam.id];
 
 export function TeamPage({ ctx }: { ctx: ScreenCtx }) {
-  const c = ctx.copy.sarimTeam;
+  const c = ctx.copy.orbitTeam;
   const cards = liveCards(ctx.state);
   const members = useMemo(() => teamMembers(cards), [cards]);
 
   const copy = ctx.copy;
   const schema = useMemo((): FilterSchema<TeamMember> => {
-    const f = copy.sarimTeam.filters;
+    const f = copy.orbitTeam.filters;
     const nameOfMember = (id: string) => members.find((m) => m.id === id)?.name ?? id;
     return {
       text: (m) => `${m.name} ${m.short} ${m.team}`,
       fields: [
-        { id: 'team', label: f.team, icon: Users, kind: 'choice', get: (m) => m.team, valueLabel: (id) => (id === world().people.agentsTeam.id ? copy.sarimTeam.agentsTeam : world().people.teams.find((t) => t.id === id)?.label ?? id), order: TEAM_ORDER, values: TEAM_ORDER },
+        { id: 'team', label: f.team, icon: Users, kind: 'choice', get: (m) => m.team, valueLabel: (id) => (id === world().people.agentsTeam.id ? copy.orbitTeam.agentsTeam : world().people.teams.find((t) => t.id === id)?.label ?? id), order: TEAM_ORDER, values: TEAM_ORDER },
         { id: 'person', label: f.person, icon: UserRound, kind: 'choice', get: (m) => m.id, valueLabel: nameOfMember, order: members.map((m) => m.id) },
         { id: 'inHand', label: f.inHand, icon: Inbox, kind: 'choice', get: (m) => (m.inHand > 0 ? 'yes' : 'no'), valueLabel: (v) => (v === 'yes' ? f.yes : f.no), order: ['yes', 'no'], suggest: false },
       ],
     };
   }, [copy, members]);
   const presets = useMemo((): SavedFilter[] => [
-    { id: 'with-cards', name: copy.sarimTeam.filters.withCards, tokens: [{ id: 't1', field: 'inHand', op: 'is', value: 'yes' }] },
-    { id: 'agents-only', name: copy.sarimTeam.filters.onlyAgents, tokens: [{ id: 't1', field: 'team', op: 'is', value: world().people.agentsTeam.id }] },
+    { id: 'with-cards', name: copy.orbitTeam.filters.withCards, tokens: [{ id: 't1', field: 'inHand', op: 'is', value: 'yes' }] },
+    { id: 'agents-only', name: copy.orbitTeam.filters.onlyAgents, tokens: [{ id: 't1', field: 'team', op: 'is', value: world().people.agentsTeam.id }] },
   ], [copy]);
   const filtered = useListFilters(ctx, { key: TEAM_FILTERS_KEY, items: members, schema, presets });
 

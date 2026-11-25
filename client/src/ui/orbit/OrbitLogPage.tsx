@@ -30,13 +30,13 @@ function Actor({ actor, copy }: { actor: LogActorModel; copy: UiCopy }) {
 }
 
 /**
- * The log of SARIM that cannot be edited: what anybody or anything did, who,
+ * The log of ORBIT that cannot be edited: what anybody or anything did, who,
  * about what, with the fingerprint that chains each line to the one before.
  * The lines are narrowed with the one filter bar of every list (who, which
  * person or agent, what kind of action, which day), not with tabs; the
  * caller owns the filters and the lines.
  */
-export function SarimLogPage({ rows, filters, chain, copy, onVerify, onExport, exportTitle, phone }: {
+export function OrbitLogPage({ rows, filters, chain, copy, onVerify, onExport, exportTitle, phone }: {
   rows: LogRowModel[];
   filters: FilterBarModel;
   chain: { checked: boolean; text: string; last: string };
@@ -61,7 +61,7 @@ export function SarimLogPage({ rows, filters, chain, copy, onVerify, onExport, e
       </div>
       <FilterBar copy={copy} {...filters} placeholder={copy.filters.on.log} phone={phone} />
       <Table
-        ariaLabel={copy.sarimAdmin.settings.sections.registro}
+        ariaLabel={copy.orbitAdmin.settings.sections.registro}
         dense
         columns={[
           { id: 'when', label: l.columns.when, width: 120 },
@@ -78,8 +78,8 @@ export function SarimLogPage({ rows, filters, chain, copy, onVerify, onExport, e
             when: <span className="font-mono text-compact text-app-text-secondary" data-tip={r.when}>{r.when}</span>,
             who: <Actor actor={r.actor} copy={copy} />,
             what: <span data-tip={r.what}>{r.what}</span>,
-            subject: <span className="text-app-text-secondary" data-tip={r.subject || undefined}>{r.subject || copy.sarimAdmin.common.blank}</span>,
-            detail: <span className="text-app-text-secondary" data-tip={r.detail || undefined}>{r.detail || copy.sarimAdmin.common.blank}</span>,
+            subject: <span className="text-app-text-secondary" data-tip={r.subject || undefined}>{r.subject || copy.orbitAdmin.common.blank}</span>,
+            detail: <span className="text-app-text-secondary" data-tip={r.detail || undefined}>{r.detail || copy.orbitAdmin.common.blank}</span>,
             hash: <span className="font-mono text-mini text-app-text-faint" data-tip={r.hash}>{r.hash.slice(0, 8)}</span>,
           },
         }))}

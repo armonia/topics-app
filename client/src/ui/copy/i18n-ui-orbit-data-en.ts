@@ -1,4 +1,4 @@
-import type { SarimDataCopy } from './sarim-data';
+import type { OrbitDataCopy } from './orbit-data';
 import { orgWords } from './org-words';
 
 const W = orgWords();
@@ -6,8 +6,8 @@ const P = W.en;
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
 
-/** English words of the `sarim-data` area. */
-export const SARIM_DATA_COPY_EN: SarimDataCopy = {
+/** English words of the `orbit-data` area. */
+export const ORBIT_DATA_COPY_EN: OrbitDataCopy = {
   title: 'Data',
 
   section: { label: 'Sections of Knowledge', documents: 'Documents', contracts: 'Contracts', data: 'Data', rules: 'Rules' },

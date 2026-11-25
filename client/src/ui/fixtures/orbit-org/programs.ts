@@ -1,16 +1,16 @@
 /**
- * The programs SARIM works in, from the internal questionnaire (29/10): SAP in
+ * The programs ORBIT works in, from the internal questionnaire (29/10): SAP in
  * the customer service, Enviro, WinWaste, Zucchetti, Excel, Word, mail and
- * PEC, the tender portals, plus RENTRI, the national registry SARIM files to
- * (a public system, not SARIM's own). For each one: what Topics reads there,
+ * PEC, the tender portals, plus RENTRI, the national registry ORBIT files to
+ * (a public system, not ORBIT's own). For each one: what Topics reads there,
  * what it writes and which person confirms first, how it connects, and the
  * steps of a connection test.
  *
- * `flowName` is the name the flows use (`SARIM_OPS_FLOWS[].programs` and the
+ * `flowName` is the name the flows use (`ORBIT_OPS_FLOWS[].programs` and the
  * program steps), so the flows a program serves are counted from the flows,
  * never written twice. Accounts, folders, times and the connection set-up are
  * examples; the facts with a source (Enviro at Albanella, SAP in the «Metodo (allow-italian: quotes the Italian interface)
- * Sarim», the PEC address) come from `DATI-VERI-SARIM.md`.
+ * Orbit», the PEC address) come from `DATI-VERI-ORBIT.md`.
  *
  * An agent never writes in a program without the confirmation of a person.
  */
@@ -36,11 +36,11 @@ export interface ProgramEvent {
   what: string;
 }
 
-export interface SarimProgram {
+export interface OrbitProgram {
   /** Address segment (`/programmi/sap`) and the pin of the sidebar. (allow-italian: address segment) */
   id: string;
   name: string;
-  /** What it is for at SARIM, one line. */
+  /** What it is for at ORBIT, one line. */
   sub: string;
   monogram: string;
   color: string;
@@ -58,7 +58,7 @@ export interface SarimProgram {
   gist: { reads: string; writes?: string };
   reads: string[];
   writes: ProgramWrite[];
-  /** Set for a system that is not SARIM's: who runs it, in words. */
+  /** Set for a system that is not ORBIT's: who runs it, in words. */
   external?: string;
   /** Last successful read (ISO). */
   lastRead: string;
@@ -73,7 +73,7 @@ export interface SarimProgram {
 
 const at = (day: string, time: string) => `2026-${day}T${time}:00+01:00`;
 
-export const SARIM_PROGRAMS: SarimProgram[] = [
+export const ORBIT_PROGRAMS: OrbitProgram[] = [
   {
     id: 'sap', name: 'SAP', sub: 'gestionale del customer service', monogram: 'S', color: '#1d4ed8', group: 'territory', flowName: 'SAP', link: 'api', // allow-italian: fixture data, shown as written
     how: "API del gestionale con un utente tecnico di Topics: legge utenze e ordini e apre gli ordini di servizio.", // allow-italian: fixture data, shown as written
@@ -86,22 +86,22 @@ export const SARIM_PROGRAMS: SarimProgram[] = [
       'Segnalazioni degli ultimi 7 giorni per indirizzo, per trovare i doppioni', // allow-italian: fixture data, shown as written
     ],
     writes: [
-      { what: "Apre l'ordine di servizio di una segnalazione", confirmedBy: 'sarim-callcenter' }, // allow-italian: fixture data, shown as written
-      { what: "Chiude l'ordine con l'ora del passaggio", confirmedBy: 'sarim-callcenter' }, // allow-italian: fixture data, shown as written
+      { what: "Apre l'ordine di servizio di una segnalazione", confirmedBy: 'orbit-callcenter' }, // allow-italian: fixture data, shown as written
+      { what: "Chiude l'ordine con l'ora del passaggio", confirmedBy: 'orbit-callcenter' }, // allow-italian: fixture data, shown as written
     ],
     lastRead: at('11-06', '10:25'),
     test: ['Raggiunge il server SAP', "Entra con l'utente tecnico", "Legge un'utenza di prova di Agropoli", 'Controlla il permesso sugli ordini di servizio'], // allow-italian: fixture data, shown as written
-    source: { label: 'sarimambiente.it, il nostro metodo', url: 'https://sarimambiente.it/il-nostro-metodo/' }, // allow-italian: fixture data, shown as written
+    source: { label: 'alfaimpianti.it, il nostro metodo', url: 'https://alfaimpianti.it/il-nostro-metodo/' }, // allow-italian: fixture data, shown as written
     history: [
-      { at: at('10-27', '09:40'), who: 'sarim-dg', kind: 'connect', what: 'Ha collegato SAP con il profilo customer service' }, // allow-italian: fixture data, shown as written
-      { at: at('11-02', '08:30'), who: 'sarim-dg', kind: 'test', what: 'Ha provato il collegamento: tutto a posto' }, // allow-italian: fixture data, shown as written
+      { at: at('10-27', '09:40'), who: 'orbit-dg', kind: 'connect', what: 'Ha collegato SAP con il profilo customer service' }, // allow-italian: fixture data, shown as written
+      { at: at('11-02', '08:30'), who: 'orbit-dg', kind: 'test', what: 'Ha provato il collegamento: tutto a posto' }, // allow-italian: fixture data, shown as written
       { at: at('11-06', '06:00'), who: 'program:sap', kind: 'read', what: 'Lettura completa delle utenze di stanotte: nessuna differenza' }, // allow-italian: fixture data, shown as written
     ],
   },
   {
     id: 'enviro', name: 'Enviro', sub: 'segnalazioni e servizi sul territorio', monogram: 'E', color: '#15803d', group: 'territory', flowName: 'Enviro', link: 'api', // allow-italian: fixture data, shown as written
     how: "API della piattaforma: legge segnalazioni dei cittadini, passaggi dei mezzi e formulari dei ritiri; scrive solo l'esito di una segnalazione confermata.", // allow-italian: fixture data, shown as written
-    account: 'chiave API di SARIM, lettura più esito delle segnalazioni', // allow-italian: fixture data, shown as written
+    account: 'chiave API di ORBIT, lettura più esito delle segnalazioni', // allow-italian: fixture data, shown as written
     every: 'ogni 10 minuti', // allow-italian: fixture data, shown as written
     gist: { reads: "segnalazioni, passaggi dei mezzi e formulari", writes: "stato delle segnalazioni" }, // allow-italian: fixture data, shown as written
     reads: [
@@ -110,14 +110,14 @@ export const SARIM_PROGRAMS: SarimProgram[] = [
       'Formulari dei ritiri chiusi, con pesi e targhe', // allow-italian: fixture data, shown as written
     ],
     writes: [
-      { what: 'Segna la segnalazione del cittadino come presa in carico, poi risolta', confirmedBy: 'sarim-callcenter' }, // allow-italian: fixture data, shown as written
+      { what: 'Segna la segnalazione del cittadino come presa in carico, poi risolta', confirmedBy: 'orbit-callcenter' }, // allow-italian: fixture data, shown as written
     ],
     lastRead: at('11-06', '10:20'),
-    test: ['Raggiunge la piattaforma Enviro', 'Controlla la chiave API di SARIM', 'Legge le segnalazioni di Albanella di oggi', 'Legge un formulario chiuso di prova'], // allow-italian: fixture data, shown as written
-    source: { label: 'sarimambiente.it, igiene urbana ad Albanella', url: 'https://sarimambiente.it/igiene-urbana-albanella-sarim/' }, // allow-italian: fixture data, shown as written
+    test: ['Raggiunge la piattaforma Enviro', 'Controlla la chiave API di ORBIT', 'Legge le segnalazioni di Albanella di oggi', 'Legge un formulario chiuso di prova'], // allow-italian: fixture data, shown as written
+    source: { label: 'alfaimpianti.it, igiene urbana ad Albanella', url: 'https://alfaimpianti.it/igiene-urbana-albanella-orbit/' }, // allow-italian: fixture data, shown as written
     history: [
-      { at: at('10-28', '11:15'), who: 'sarim-dg', kind: 'connect', what: 'Ha collegato Enviro con la chiave API di SARIM' }, // allow-italian: fixture data, shown as written
-      { at: at('11-04', '07:50'), who: 'sarim-dg', kind: 'test', what: 'Ha provato il collegamento: tutto a posto' }, // allow-italian: fixture data, shown as written
+      { at: at('10-28', '11:15'), who: 'orbit-dg', kind: 'connect', what: 'Ha collegato Enviro con la chiave API di ORBIT' }, // allow-italian: fixture data, shown as written
+      { at: at('11-04', '07:50'), who: 'orbit-dg', kind: 'test', what: 'Ha provato il collegamento: tutto a posto' }, // allow-italian: fixture data, shown as written
     ],
   },
   {
@@ -132,14 +132,14 @@ export const SARIM_PROGRAMS: SarimProgram[] = [
       'Pesate a fine giro', // allow-italian: fixture data, shown as written
     ],
     writes: [
-      { what: 'Aggiunge un giro di recupero alla squadra di zona', confirmedBy: 'sarim-callcenter' }, // allow-italian: fixture data, shown as written
-      { what: 'Registra un passaggio fuori giro già approvato', confirmedBy: 'sarim-tecnico' }, // allow-italian: fixture data, shown as written
+      { what: 'Aggiunge un giro di recupero alla squadra di zona', confirmedBy: 'orbit-callcenter' }, // allow-italian: fixture data, shown as written
+      { what: 'Registra un passaggio fuori giro già approvato', confirmedBy: 'orbit-tecnico' }, // allow-italian: fixture data, shown as written
     ],
     lastRead: at('11-06', '10:12'),
     test: ['Trova acceso il PC CS-EBOLI-02', "Apre WinWaste con l'utenza del customer service", 'Legge i giri di oggi del cantiere di Agropoli', 'Chiude WinWaste senza salvare'], // allow-italian: fixture data, shown as written
     history: [
-      { at: at('10-29', '15:20'), who: 'sarim-dg', kind: 'connect', what: "Ha installato l'agente sul PC CS-EBOLI-02 e collegato WinWaste" }, // allow-italian: fixture data, shown as written
-      { at: at('11-05', '08:10'), who: 'sarim-dg', kind: 'test', what: 'Ha provato il collegamento: tutto a posto' }, // allow-italian: fixture data, shown as written
+      { at: at('10-29', '15:20'), who: 'orbit-dg', kind: 'connect', what: "Ha installato l'agente sul PC CS-EBOLI-02 e collegato WinWaste" }, // allow-italian: fixture data, shown as written
+      { at: at('11-05', '08:10'), who: 'orbit-dg', kind: 'test', what: 'Ha provato il collegamento: tutto a posto' }, // allow-italian: fixture data, shown as written
     ],
   },
   {
@@ -154,12 +154,12 @@ export const SARIM_PROGRAMS: SarimProgram[] = [
       'Turni e fogli targa dei capi cantiere', // allow-italian: fixture data, shown as written
     ],
     writes: [
-      { what: 'Prepara il file di import delle presenze corrette', confirmedBy: 'sarim-personale' }, // allow-italian: fixture data, shown as written
+      { what: 'Prepara il file di import delle presenze corrette', confirmedBy: 'orbit-personale' }, // allow-italian: fixture data, shown as written
     ],
     lastRead: at('11-06', '06:00'),
     test: ['Apre la cartella condivisa degli export', 'Trova il file di stanotte delle 02:00', 'Legge timbrature e contratti a termine', 'Confronta il numero di righe con ieri'], // allow-italian: fixture data, shown as written
     history: [
-      { at: at('10-26', '10:00'), who: 'sarim-dg', kind: 'connect', what: "Ha collegato la cartella degli export di Zucchetti" }, // allow-italian: fixture data, shown as written
+      { at: at('10-26', '10:00'), who: 'orbit-dg', kind: 'connect', what: "Ha collegato la cartella degli export di Zucchetti" }, // allow-italian: fixture data, shown as written
       { at: at('11-05', '06:00'), who: 'program:zucchetti', kind: 'read', what: 'Export di stanotte letto: timbrature, ferie e contratti a termine, nessun file mancante' }, // allow-italian: fixture data, shown as written
       { at: at('11-06', '06:00'), who: 'program:zucchetti', kind: 'read', what: 'Export di stanotte letto: timbrature, ferie e contratti a termine, nessun file mancante' }, // allow-italian: fixture data, shown as written
     ],
@@ -176,14 +176,14 @@ export const SARIM_PROGRAMS: SarimProgram[] = [
       'Fogli di riconciliazione bancaria del mese', // allow-italian: fixture data, shown as written
     ],
     writes: [
-      { what: 'Compila il rendiconto foglie del mese in un file nuovo', confirmedBy: 'sarim-tecnico' }, // allow-italian: fixture data, shown as written
-      { what: 'Aggiunge la riga della fattura abbinata al foglio di riconciliazione', confirmedBy: 'sarim-contabilita' }, // allow-italian: fixture data, shown as written
+      { what: 'Compila il rendiconto foglie del mese in un file nuovo', confirmedBy: 'orbit-tecnico' }, // allow-italian: fixture data, shown as written
+      { what: 'Aggiunge la riga della fattura abbinata al foglio di riconciliazione', confirmedBy: 'orbit-contabilita' }, // allow-italian: fixture data, shown as written
     ],
     lastRead: at('11-06', '09:30'),
     test: ['Apre la cartella condivisa', 'Apre il foglio dei servizi dei cantieri', 'Legge le righe di oggi', 'Controlla di poter creare un file nuovo'], // allow-italian: fixture data, shown as written
     firstFails: { step: 1, why: "Il foglio dei servizi è aperto in modifica da un'altra persona: Topics ha letto la copia delle 09:30. Riprova quando lo chiude." }, // allow-italian: fixture data, shown as written
     history: [
-      { at: at('10-26', '10:20'), who: 'sarim-dg', kind: 'connect', what: 'Ha collegato le cartelle dei fogli condivisi' }, // allow-italian: fixture data, shown as written
+      { at: at('10-26', '10:20'), who: 'orbit-dg', kind: 'connect', what: 'Ha collegato le cartelle dei fogli condivisi' }, // allow-italian: fixture data, shown as written
       { at: at('11-06', '09:30'), who: 'program:excel', kind: 'read', what: "Foglio dei servizi aperto da un'altra persona: letta la copia delle 09:30" }, // allow-italian: fixture data, shown as written
     ],
   },
@@ -198,20 +198,20 @@ export const SARIM_PROGRAMS: SarimProgram[] = [
       'Versioni firmate dei contratti', // allow-italian: fixture data, shown as written
     ],
     writes: [
-      { what: 'Crea la bozza della variante con le modifiche visibili', confirmedBy: 'sarim-bruno' }, // allow-italian: fixture data, shown as written
-      { what: 'Crea la scheda di valutazione di una gara', confirmedBy: 'sarim-bruno' }, // allow-italian: fixture data, shown as written
+      { what: 'Crea la bozza della variante con le modifiche visibili', confirmedBy: 'orbit-bruno' }, // allow-italian: fixture data, shown as written
+      { what: 'Crea la scheda di valutazione di una gara', confirmedBy: 'orbit-bruno' }, // allow-italian: fixture data, shown as written
     ],
     lastRead: at('11-06', '09:05'),
     test: ['Apre la cartella dei modelli', 'Legge il modello di variante', 'Crea e cancella un documento di prova'], // allow-italian: fixture data, shown as written
     history: [
-      { at: at('10-26', '10:30'), who: 'sarim-dg', kind: 'connect', what: 'Ha collegato le cartelle del Legale' }, // allow-italian: fixture data, shown as written
-      { at: at('11-02', '18:20'), who: 'sarim-bruno', kind: 'use', what: 'Ha aperto la bozza della variante di Castellabate preparata da Topics' }, // allow-italian: fixture data, shown as written
+      { at: at('10-26', '10:30'), who: 'orbit-dg', kind: 'connect', what: 'Ha collegato le cartelle del Legale' }, // allow-italian: fixture data, shown as written
+      { at: at('11-02', '18:20'), who: 'orbit-bruno', kind: 'use', what: 'Ha aperto la bozza della variante di Castellabate preparata da Topics' }, // allow-italian: fixture data, shown as written
     ],
   },
   {
     id: 'posta', name: 'Posta e PEC', sub: 'mail AMA, PEC aziendale e casella segnalazioni', monogram: 'P', color: '#475569', group: 'office', flowName: 'Posta e PEC', link: 'mailbox', // allow-italian: fixture data, shown as written
-    how: 'Legge le caselle; ogni mail o PEC che esce da SARIM la prepara Topics e la manda una persona.', // allow-italian: fixture data, shown as written
-    account: 'info@pec.sarimambiente.it e casella segnalazioni del customer service', // allow-italian: fixture data, shown as written
+    how: 'Legge le caselle; ogni mail o PEC che esce da ORBIT la prepara Topics e la manda una persona.', // allow-italian: fixture data, shown as written
+    account: 'info@pec.alfaimpianti.it e casella segnalazioni del customer service', // allow-italian: fixture data, shown as written
     every: 'ogni 2 minuti', // allow-italian: fixture data, shown as written
     gist: { reads: "mail di AMA, fatture e ricevute SDI, risposte di comuni ed enti", writes: "bozze di risposta e di PEC" }, // allow-italian: fixture data, shown as written
     reads: [
@@ -220,20 +220,20 @@ export const SARIM_PROGRAMS: SarimProgram[] = [
       'Risposte di comuni, fornitori, INPS, INAIL e sindacati', // allow-italian: fixture data, shown as written
     ],
     writes: [
-      { what: "Prepara la risposta ad AMA con l'ora del passaggio", confirmedBy: 'sarim-callcenter' }, // allow-italian: fixture data, shown as written
-      { what: "Prepara la PEC dell'atto firmato al Comune", confirmedBy: 'sarim-bruno' }, // allow-italian: fixture data, shown as written
+      { what: "Prepara la risposta ad AMA con l'ora del passaggio", confirmedBy: 'orbit-callcenter' }, // allow-italian: fixture data, shown as written
+      { what: "Prepara la PEC dell'atto firmato al Comune", confirmedBy: 'orbit-bruno' }, // allow-italian: fixture data, shown as written
     ],
     lastRead: at('11-06', '10:29'),
     test: ['Entra nella casella PEC', 'Entra nella casella segnalazioni', 'Legge le ultime 10 mail senza segnarle come lette', 'Controlla che nessun invio parta da solo'], // allow-italian: fixture data, shown as written
-    source: { label: 'Dichiarazione ambientale, PEC aziendale', url: 'https://sarimambiente.it/wp-content/uploads/2026/07/DA-SARIM-convalidato-RINA_29.06.2026.pdf' }, // allow-italian: fixture data, shown as written
+    source: { label: 'Dichiarazione ambientale, PEC aziendale', url: 'https://alfaimpianti.it/wp-content/uploads/2026/07/DA-ORBIT-convalidato-RINA_29.06.2026.pdf' }, // allow-italian: fixture data, shown as written
     history: [
-      { at: at('10-26', '09:30'), who: 'sarim-dg', kind: 'connect', what: 'Ha collegato la PEC aziendale e la casella segnalazioni' }, // allow-italian: fixture data, shown as written
-      { at: at('11-03', '08:45'), who: 'sarim-dg', kind: 'test', what: 'Ha provato il collegamento: tutto a posto' }, // allow-italian: fixture data, shown as written
+      { at: at('10-26', '09:30'), who: 'orbit-dg', kind: 'connect', what: 'Ha collegato la PEC aziendale e la casella segnalazioni' }, // allow-italian: fixture data, shown as written
+      { at: at('11-03', '08:45'), who: 'orbit-dg', kind: 'test', what: 'Ha provato il collegamento: tutto a posto' }, // allow-italian: fixture data, shown as written
     ],
   },
   {
     id: 'gare', name: 'Portali gare / Innova', sub: 'bandi, disciplinari e chiarimenti', monogram: 'G', color: '#7c3aed', group: 'tenders', flowName: 'Portali gare / Innova', link: 'browser', // allow-italian: fixture data, shown as written
-    how: "Robot nel browser: entra nei portali con l'utenza di SARIM, legge i bandi nuovi e scarica i documenti. Non carica mai un'offerta.", // allow-italian: fixture data, shown as written
+    how: "Robot nel browser: entra nei portali con l'utenza di ORBIT, legge i bandi nuovi e scarica i documenti. Non carica mai un'offerta.", // allow-italian: fixture data, shown as written
     account: "utenza dell'Ufficio gare e contratti sui portali", // allow-italian: fixture data, shown as written
     every: 'ogni mattina alle 07:30 e su richiesta', // allow-italian: fixture data, shown as written
     gist: { reads: "bandi, disciplinari, chiarimenti e scadenze di gara" }, // allow-italian: fixture data, shown as written
@@ -246,13 +246,13 @@ export const SARIM_PROGRAMS: SarimProgram[] = [
     lastRead: at('11-06', '07:30'),
     test: ['Apre il portale gare', "Entra con l'utenza dell'Ufficio gare", 'Legge la lista dei bandi di oggi', 'Esce senza scaricare niente'], // allow-italian: fixture data, shown as written
     history: [
-      { at: at('10-27', '12:00'), who: 'sarim-dg', kind: 'connect', what: "Ha collegato i portali gare con l'utenza dell'Ufficio gare" }, // allow-italian: fixture data, shown as written
+      { at: at('10-27', '12:00'), who: 'orbit-dg', kind: 'connect', what: "Ha collegato i portali gare con l'utenza dell'Ufficio gare" }, // allow-italian: fixture data, shown as written
       { at: at('11-06', '07:30'), who: 'program:gare', kind: 'read', what: 'Giro del mattino: 2 bandi nuovi, uno di interesse' }, // allow-italian: fixture data, shown as written
     ],
   },
   {
     id: 'rentri', name: 'RENTRI', sub: 'registro nazionale per la tracciabilità dei rifiuti', monogram: 'R', color: '#0369a1', group: 'public', flowName: 'RENTRI', link: 'public', // allow-italian: fixture data, shown as written
-    how: "Servizi di interoperabilità del registro, con il certificato di SARIM: Topics prepara le registrazioni di carico e scarico e le trasmette solo dopo la firma del responsabile tecnico.", // allow-italian: fixture data, shown as written
+    how: "Servizi di interoperabilità del registro, con il certificato di ORBIT: Topics prepara le registrazioni di carico e scarico e le trasmette solo dopo la firma del responsabile tecnico.", // allow-italian: fixture data, shown as written
     account: 'certificato di interoperabilità di S.A.R.I.M. SRL', // allow-italian: fixture data, shown as written
     every: 'a ogni registrazione firmata', // allow-italian: fixture data, shown as written
     external: 'sistema pubblico nazionale', // allow-italian: fixture data, shown as written
@@ -262,12 +262,12 @@ export const SARIM_PROGRAMS: SarimProgram[] = [
       'Registro di carico e scarico già trasmesso', // allow-italian: fixture data, shown as written
     ],
     writes: [
-      { what: 'Trasmette la registrazione di carico e scarico firmata', confirmedBy: 'sarim-tecnico' }, // allow-italian: fixture data, shown as written
+      { what: 'Trasmette la registrazione di carico e scarico firmata', confirmedBy: 'orbit-tecnico' }, // allow-italian: fixture data, shown as written
     ],
     lastRead: at('11-05', '17:20'),
-    test: ['Raggiunge i servizi del registro', 'Controlla il certificato di SARIM', "Legge l'esito dell'ultima trasmissione", 'Non trasmette niente: la prova non manda registrazioni al registro'], // allow-italian: fixture data, shown as written
+    test: ['Raggiunge i servizi del registro', 'Controlla il certificato di ORBIT', "Legge l'esito dell'ultima trasmissione", 'Non trasmette niente: la prova non manda registrazioni al registro'], // allow-italian: fixture data, shown as written
     history: [
-      { at: at('10-28', '16:00'), who: 'sarim-dg', kind: 'connect', what: 'Ha caricato il certificato di interoperabilità di SARIM' }, // allow-italian: fixture data, shown as written
+      { at: at('10-28', '16:00'), who: 'orbit-dg', kind: 'connect', what: 'Ha caricato il certificato di interoperabilità di ORBIT' }, // allow-italian: fixture data, shown as written
       { at: at('11-05', '17:20'), who: 'program:rentri', kind: 'read', what: 'Registrazione FIR-0931 trasmessa dopo la firma: accettata' }, // allow-italian: fixture data, shown as written
     ],
   },

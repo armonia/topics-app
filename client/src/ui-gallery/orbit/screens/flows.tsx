@@ -1,6 +1,6 @@
 /**
- * SARIM edition, area `flows`: the list of the flows (sarim-flows), one flow
- * with its steps and the live cards at each, and one step (sarim-flow). Search
+ * ORBIT edition, area `flows`: the list of the flows (orbit-flows), one flow
+ * with its steps and the live cards at each, and one step (orbit-flow). Search
  * finds flows and steps. The wiring is in `flows/`, the state of the flows
  * (pause, tries) in `../model/flows.ts`.
  */
@@ -16,14 +16,14 @@ import { StepPlace } from './flows/step-place';
 import { stepTitle } from './flows/common';
 
 /** One tab for the section, named for it: a flow's name is longer than the tab and the page says which flow it is. */
-const flowTab = (_p: Params, ctx: ScreenCtx) => ({ label: ctx.copy.sarimWork.flows.title, kind: 'flows' as const });
-const flowTitle = (p: Params, ctx: ScreenCtx) => opsFlowById(p.flow)?.name ?? ctx.copy.sarimWork.flows.notFound;
+const flowTab = (_p: Params, ctx: ScreenCtx) => ({ label: ctx.copy.orbitWork.flows.title, kind: 'flows' as const });
+const flowTitle = (p: Params, ctx: ScreenCtx) => opsFlowById(p.flow)?.name ?? ctx.copy.orbitWork.flows.notFound;
 
 function search(ctx: ScreenCtx): SearchEntry[] {
-  const f = ctx.copy.sarimWork.flows;
+  const f = ctx.copy.orbitWork.flows;
   return world().opsFlows.flatMap((flow): SearchEntry[] => [
     {
-      id: `sarim-flow:${flow.id}`,
+      id: `orbit-flow:${flow.id}`,
       group: f.searchFlows,
       title: flow.name,
       detail: `${world().people.areaLabel[flow.area]} · ${flow.trigger}`,
@@ -33,7 +33,7 @@ function search(ctx: ScreenCtx): SearchEntry[] {
       needs: 'view:flows',
     },
     ...flow.steps.map((s, i): SearchEntry => ({
-      id: `sarim-step:${flow.id}:${s.id}`,
+      id: `orbit-step:${flow.id}:${s.id}`,
       group: f.searchSteps,
       title: s.title,
       detail: `${flow.name} · ${f.step.crumb(String(i + 1))}`,
@@ -45,27 +45,27 @@ function search(ctx: ScreenCtx): SearchEntry[] {
   ]);
 }
 
-export const SARIM_FLOWS_AREA: AreaModule = {
+export const ORBIT_FLOWS_AREA: AreaModule = {
   screens: [
     {
-      id: 'sarim-flows', path: '/flussi', org: world().key, nav: 'flows', samples: [SP.flows()], needs: 'view:flows',
-      tabKey: () => 'sarim-flows',
-      tab: (_p, ctx) => ({ label: ctx.copy.sarimWork.flows.title, kind: 'flows' }),
-      title: (_p, ctx) => ctx.copy.sarimWork.flows.title,
+      id: 'orbit-flows', path: '/flussi', org: world().key, nav: 'flows', samples: [SP.flows()], needs: 'view:flows',
+      tabKey: () => 'orbit-flows',
+      tab: (_p, ctx) => ({ label: ctx.copy.orbitWork.flows.title, kind: 'flows' }),
+      title: (_p, ctx) => ctx.copy.orbitWork.flows.title,
       render: (_p, ctx) => <FlowsListPlace ctx={ctx} />,
     },
     {
-      id: 'sarim-flow', path: '/flussi/:flow', org: world().key, nav: 'flows', needs: 'view:flows',
+      id: 'orbit-flow', path: '/flussi/:flow', org: world().key, nav: 'flows', needs: 'view:flows',
       samples: world().samples.flows.map((id) => SP.flow(id)),
-      tabKey: () => 'sarim-flows',
+      tabKey: () => 'orbit-flows',
       tab: flowTab,
       title: flowTitle,
       render: (p, ctx) => <FlowPlace ctx={ctx} id={p.flow} />,
     },
     {
-      id: 'sarim-flow', path: '/flussi/:flow/passo/:step', org: world().key, nav: 'flows', needs: 'view:flows',
+      id: 'orbit-flow', path: '/flussi/:flow/passo/:step', org: world().key, nav: 'flows', needs: 'view:flows',
       samples: world().samples.flowSteps.map(([flow, step]) => SP.flowStep(flow, step)),
-      tabKey: () => 'sarim-flows',
+      tabKey: () => 'orbit-flows',
       tab: flowTab,
       title: (p, ctx) => {
         const step = stepTitle(opsFlowById(p.flow), p.step);

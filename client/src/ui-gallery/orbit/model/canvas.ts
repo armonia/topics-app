@@ -8,7 +8,7 @@
  */
 import type { UiCopy } from '../../../ui/copy/types';
 import type { ActorModel, CanvasActor, CanvasLane, CanvasNode, CanvasStep, FlowCanvasModel } from '../../../ui/flows/model';
-import type { OpsFlow, OpsFlowStep } from '../../../ui/fixtures/sarim-org/types';
+import type { OpsFlow, OpsFlowStep } from '../../../ui/fixtures/orbit-org/types';
 import type { FlowSplitDef, FlowSplitLane } from '../../../ui/fixtures/world-types';
 import { agentById, world } from '../world';
 import { stepActor } from './who';
@@ -24,7 +24,7 @@ export const laneStepId = (laneId: string, stepId: string) => `${laneId}-${stepI
 /** Who does a step of a lane, in the words of this edition: an agent by name, a rule, a program. */
 function laneActor(actor: ActorModel, copy: UiCopy, agent?: string): CanvasActor {
   switch (actor.kind) {
-    case 'rule': return { kind: 'rule', label: copy.sarimWork.flows.rule };
+    case 'rule': return { kind: 'rule', label: copy.orbitWork.flows.rule };
     case 'ai': return { kind: 'agent', name: actor.name ?? agent ?? copy.common.ai };
     case 'person': return { kind: 'person', name: actor.name ?? copy.flows.person };
     case 'program': return { kind: 'program', name: actor.name ?? '' };

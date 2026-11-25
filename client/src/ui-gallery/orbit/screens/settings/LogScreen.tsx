@@ -1,45 +1,45 @@
 /**
- * Settings · Registro: the log that cannot be edited, for SARIM. The lines
+ * Settings · Registro: the log that cannot be edited, for ORBIT. The lines
  * the world already holds (moves of the cards, approval steps and versions of
  * the contracts, readings and tests of the programs, last 30 days) and every
  * action done in the preview, chained by fingerprint. Narrowed with the one
  * filter bar of every list (who, person or agent, what kind, day), with the
  * old tabs kept as saved filters. The words of the shared log page
- * (`ui/team/LogPage`) with SARIM's: «Agenti» and «Programmi» in place of AI (allow-italian: quotes the Italian interface)
+ * (`ui/team/LogPage`) with ORBIT's: «Agenti» and «Programmi» in place of AI (allow-italian: quotes the Italian interface)
  * and robot, «Su cosa» in place of the case.
  */
 import { useMemo } from 'react';
 import { CalendarDays, Shapes, User, Users } from 'lucide-react';
 import type { UiCopy } from '../../../../ui/copy/types';
-import { SarimLogPage } from '../../../../ui/sarim/SarimLogPage';
+import { OrbitLogPage } from '../../../../ui/orbit/OrbitLogPage';
 import type { LogRowModel } from '../../../../ui/team/model';
 import { NO_BREAK_SPACE } from '../../../../ui/units';
 import type { ScreenCtx } from '../../../app/kit';
 import { useListFilters, type FilterSchema, type SavedFilter } from '../../../app/filters';
 import { chainIsIntact } from '../../../app/screens/team/chain';
 import { agoLabel, dayOf, secondsOf, shortDay, timeOf } from '../../../app/screens/team/format';
-import { actorOf, sarimLogLines, type SarimLogLine } from '../../model/audit-log';
+import { actorOf, orbitLogLines, type OrbitLogLine } from '../../model/audit-log';
 import { SettingsFrame } from './frame';
 
-const STRUCTURE_KINDS: Array<SarimLogLine['kind']> = ['structure', 'permission', 'test', 'setting'];
-const ACCESS_KINDS: Array<SarimLogLine['kind']> = ['access', 'share'];
+const STRUCTURE_KINDS: Array<OrbitLogLine['kind']> = ['structure', 'permission', 'test', 'setting'];
+const ACCESS_KINDS: Array<OrbitLogLine['kind']> = ['access', 'share'];
 
 type ActorKind = 'people' | 'agents' | 'programs';
 type ActionKind = 'structure' | 'access' | 'work';
 
 /** Who did it, by kind; a line of the system itself is none of these. */
-function actorKindOf(l: SarimLogLine): ActorKind | '' {
+function actorKindOf(l: OrbitLogLine): ActorKind | '' {
   return l.actor.kind === 'person' ? 'people' : l.actor.kind === 'ai' ? 'agents' : l.actor.kind === 'robot' ? 'programs' : '';
 }
 
 /** What was done, by kind: the structure and its permissions, an access, the work itself (cards, contracts, documents). */
-function actionKindOf(l: SarimLogLine): ActionKind {
+function actionKindOf(l: OrbitLogLine): ActionKind {
   if (STRUCTURE_KINDS.includes(l.kind)) return 'structure';
   return l.actor.kind === 'access' || ACCESS_KINDS.includes(l.kind) ? 'access' : 'work';
 }
 
-function schemaFor(copy: UiCopy): FilterSchema<SarimLogLine> {
-  const f = copy.sarimAdmin.settings.log;
+function schemaFor(copy: UiCopy): FilterSchema<OrbitLogLine> {
+  const f = copy.orbitAdmin.settings.log;
   return {
     text: (x) => `${x.what} ${x.subject} ${x.detail} ${x.actor.label}`.replaceAll(NO_BREAK_SPACE, ' '),
     fields: [
@@ -59,10 +59,10 @@ interface ChainCheck {
   n: number;
 }
 
-/** The words of the log, with SARIM's in place of those that speak of cases. */
-function sarimLogCopy(copy: UiCopy): UiCopy {
+/** The words of the log, with ORBIT's in place of those that speak of cases. */
+function orbitLogCopy(copy: UiCopy): UiCopy {
   const l = copy.team.log;
-  const w = copy.sarimAdmin.settings.log;
+  const w = copy.orbitAdmin.settings.log;
   return {
     ...copy,
     team: {
@@ -79,12 +79,12 @@ function sarimLogCopy(copy: UiCopy): UiCopy {
 }
 
 export function LogScreen({ ctx }: { ctx: ScreenCtx }) {
-  const copy = sarimLogCopy(ctx.copy);
+  const copy = orbitLogCopy(ctx.copy);
   const l = copy.team.log;
-  const w = ctx.copy.sarimAdmin.settings.log;
-  const [check, setCheck] = ctx.ui<ChainCheck | null>('sarim.log.chain', null);
+  const w = ctx.copy.orbitAdmin.settings.log;
+  const [check, setCheck] = ctx.ui<ChainCheck | null>('orbit.log.chain', null);
 
-  const lines = sarimLogLines(ctx.state.audit, ctx.copy.sarimAdmin.log);
+  const lines = orbitLogLines(ctx.state.audit, ctx.copy.orbitAdmin.log);
   const today = dayOf(ctx.now);
   const schema = useMemo(() => schemaFor(ctx.copy), [ctx.copy]);
   /* The tabs the page used to have, kept as saved filters: one press and the filter is on, another and it is off. */
@@ -95,10 +95,10 @@ export function LogScreen({ ctx }: { ctx: ScreenCtx }) {
     { id: 'structure', name: w.kinds.structure, tokens: [{ id: 'p4', field: 'kind', op: 'is', value: 'structure' }] },
     { id: 'access', name: w.kinds.access, tokens: [{ id: 'p5', field: 'kind', op: 'is', value: 'access' }] },
   ], [w]);
-  const list = useListFilters(ctx, { key: 'sarim.log.filters', items: lines, schema, presets });
+  const list = useListFilters(ctx, { key: 'orbit.log.filters', items: lines, schema, presets });
   const shown = [...list.items].reverse();
 
-  const whenOf = (x: SarimLogLine) => (dayOf(x.at) === today ? secondsOf(x.at) : `${shortDay(x.at)} ${timeOf(x.at)}`);
+  const whenOf = (x: OrbitLogLine) => (dayOf(x.at) === today ? secondsOf(x.at) : `${shortDay(x.at)} ${timeOf(x.at)}`);
   const rows: LogRowModel[] = shown.map((x) => ({
     id: x.id,
     when: whenOf(x),
@@ -116,7 +116,7 @@ export function LogScreen({ ctx }: { ctx: ScreenCtx }) {
 
   const verify = () => {
     ctx.startJob({
-      id: 'sarim-log-verify',
+      id: 'orbit-log-verify',
       title: l.verifyJob.title,
       steps: [
         { label: l.verifyJob.steps.read, ms: 500 },
@@ -146,11 +146,11 @@ export function LogScreen({ ctx }: { ctx: ScreenCtx }) {
     ctx.toast({ tone: 'ok', title: l.exportToast, body: l.exportBody(shown.length, file) });
   };
 
-  const verifying = ctx.job('sarim-log-verify')?.status === 'running';
+  const verifying = ctx.job('orbit-log-verify')?.status === 'running';
 
   return (
     <SettingsFrame ctx={ctx} section="registro">
-      <SarimLogPage
+      <OrbitLogPage
         rows={rows}
         filters={list.bar}
         chain={{

@@ -6,7 +6,7 @@
  * chain and its card. Each change goes through `model/live.ts`, writes the
  * log, says so in a toast, and tells the next person.
  */
-import type { ApprovalStep, Contract, ContractVariant, ContractVersion, SarimCard, StageId } from '../../../../ui/fixtures/sarim-org/types';
+import type { ApprovalStep, Contract, ContractVariant, ContractVersion, OrbitCard, StageId } from '../../../../ui/fixtures/orbit-org/types';
 import { personaById, world } from '../../world';
 import type { ReceiptModel } from '../../../../ui/record/model';
 import type { ScreenCtx } from '../../../app/kit';
@@ -108,7 +108,7 @@ export function signStep(ctx: ScreenCtx, c: Contract, step: ApprovalStep, onRece
       const next = stepAfter(c.approvals, step.id);
       /* The card stays open while a step is left (the countersignature): it goes to whoever does that step. Only a chain that ends with the signature closes it. */
       const card = linkedCard(c, liveCards(ctx.state));
-      let moved: { card: SarimCard; stage: string } | undefined;
+      let moved: { card: OrbitCard; stage: string } | undefined;
       if (next) moved = moveCard(ctx, c, next, ctx.persona.id);
       else if (card) {
         setKanban(ctx, (prev) => withWorker(withMove(prev, card, 'fatto', ctx.persona.id, at), card.id, { kind: 'person', id: ctx.persona.id, doing: t.common.doing.signed(t.common.version(v)), since: at })); // allow-italian: stage id compared by value
@@ -252,7 +252,7 @@ export function draftVariant(ctx: ScreenCtx, c: Contract, answers: { reason: str
   const clauseList = answers.clauses.map((id) => t.common.clause(base.clauses.find((x) => x.id === id)?.n ?? id)).join(', ');
   const valueLine = amount ? vt.card.lines.value(`${t.common.euro(amount)}, ${share}`) : vt.card.lines.valueSame;
   const lines = [vt.card.lines.contract(c.cig ? `${c.title}, CIG ${c.cig}` : c.title), vt.card.lines.reason(answers.reason), vt.card.lines.clauses(clauseList), valueLine, vt.card.lines.by(ctx.persona.name, stamp(at))];
-  const card: SarimCard = {
+  const card: OrbitCard = {
     id: cardId, flow: world().flowRoles.variants, step: 's1',
     title: vt.card.title(answers.reason),
     detail: vt.card.detail(c.counterparty, n, share),

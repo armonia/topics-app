@@ -24,10 +24,10 @@ function systemTheme(): Theme {
 
 export function AppearancePage({ ctx }: { ctx: ScreenCtx }) {
   const a = ctx.copy.settings.appearance;
-  const common = ctx.copy.sarimAdmin.settings.common;
-  const language = ctx.copy.sarimAdmin.settings.language;
+  const common = ctx.copy.orbitAdmin.settings.common;
+  const language = ctx.copy.orbitAdmin.settings.language;
   /* The three choices carry the same words as the menu of the person. */
-  const u = ctx.copy.sarimShell.user;
+  const u = ctx.copy.orbitShell.user;
   const modeLabel: Record<Mode, string> = { light: u.themeLight, dark: u.themeDark, system: u.themeSystem };
   const [followSystem, setFollowSystem] = ctx.ui<boolean>('aspetto.system', false);
   const [density, setDensity] = ctx.ui<Density>('aspetto.density', 'comfortable');

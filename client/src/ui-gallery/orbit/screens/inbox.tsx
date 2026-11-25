@@ -1,5 +1,5 @@
 /**
- * SARIM edition, area `inbox`: «Da fare» (allow-italian: quotes the Italian interface), the landing page of
+ * ORBIT edition, area `inbox`: «Da fare» (allow-italian: quotes the Italian interface), the landing page of
  * the app, as one list of cards grouped by flow (first), the same cards on a
  * kanban and per stage, a card, and one of its originals large (addresses in
  * `../paths.ts`). Which flow or stage is on show is a filter, not an address.
@@ -25,39 +25,39 @@ const title = (_p: Params, ctx: ScreenCtx) => ctx.copy.kanban.title;
 
 const SCREENS: ScreenDef[] = [
   {
-    id: 'sarim-list', path: '/da-fare', org: world().key, nav: 'inbox', needs: 'view:inbox', tab,
+    id: 'orbit-list', path: '/da-fare', org: world().key, nav: 'inbox', needs: 'view:inbox', tab,
     samples: [SP.inbox()],
     title,
     render: (_p, ctx) => <ListScreen ctx={ctx} />,
   },
   {
-    id: 'sarim-kanban', path: '/da-fare/kanban', org: world().key, nav: 'inbox', needs: 'view:inbox', tab,
+    id: 'orbit-kanban', path: '/da-fare/kanban', org: world().key, nav: 'inbox', needs: 'view:inbox', tab,
     samples: [SP.inboxKanban()],
     title,
     render: (_p, ctx) => <KanbanScreen ctx={ctx} />,
   },
   {
-    id: 'sarim-stages', path: '/da-fare/per-stato', org: world().key, nav: 'inbox', needs: 'view:inbox', tab,
+    id: 'orbit-stages', path: '/da-fare/per-stato', org: world().key, nav: 'inbox', needs: 'view:inbox', tab,
     samples: [SP.inboxStages()],
     title,
     render: (_p, ctx) => <StagesScreen ctx={ctx} />,
   },
   {
-    id: 'sarim-card', path: '/da-fare/card/:card', org: world().key, nav: 'inbox', needs: 'view:inbox',
+    id: 'orbit-card', path: '/da-fare/card/:card', org: world().key, nav: 'inbox', needs: 'view:inbox',
     samples: world().samples.cards.map((id) => SP.card(id)),
     paneKey: (p) => `card:${p.card}`,
     title: cardTitle,
     render: (p, ctx) => renderCard(p, ctx),
   },
   {
-    id: 'sarim-card-flow', path: '/da-fare/card/:card/flusso', org: world().key, nav: 'inbox', needs: 'view:inbox',
+    id: 'orbit-card-flow', path: '/da-fare/card/:card/flusso', org: world().key, nav: 'inbox', needs: 'view:inbox',
     samples: world().samples.cards.map((id) => SP.cardFlow(id)),
     paneKey: (p) => `card:${p.card}`,
     title: cardTitle,
     render: (p, ctx) => renderCard(p, ctx, { flow: true }),
   },
   {
-    id: 'sarim-card-original', path: '/da-fare/card/:card/originale/:doc', org: world().key, nav: 'inbox', needs: 'view:inbox',
+    id: 'orbit-card-original', path: '/da-fare/card/:card/originale/:doc', org: world().key, nav: 'inbox', needs: 'view:inbox',
     samples: world().samples.cardOriginals.map(([card, doc]) => SP.cardOriginal(card, doc)),
     title: originalTitle,
     render: (p, ctx) => renderOriginal(p, ctx),
@@ -65,4 +65,4 @@ const SCREENS: ScreenDef[] = [
 ];
 
 /* What search finds among the cards is in `../search.ts`, with everything else the edition can find. */
-export const SARIM_INBOX_AREA: AreaModule = { screens: SCREENS };
+export const ORBIT_INBOX_AREA: AreaModule = { screens: SCREENS };

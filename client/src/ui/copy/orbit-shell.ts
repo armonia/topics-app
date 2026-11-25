@@ -1,10 +1,10 @@
 /**
- * SARIM edition: the menu of the organization (right click or the more
+ * ORBIT edition: the menu of the organization (right click or the more
  * button on its sidebar row), the menu of the person at the foot of the
  * sidebar, and the page shown after signing out.
- * Values in `i18n-ui-sarim-shell-it.ts` and `i18n-ui-sarim-shell-en.ts`.
+ * Values in `i18n-ui-orbit-shell-it.ts` and `i18n-ui-orbit-shell-en.ts`.
  */
-export interface SarimShellCopy {
+export interface OrbitShellCopy {
   /** The accessible name of the organization's menu. */
   orgMenu: string;
   /** What belongs to the organization as a whole. */
@@ -36,7 +36,7 @@ export interface SarimShellCopy {
   tabsMenu: string;
   /** The tooltip of the preview tab: it is replaced by the next place unless it is pinned, and how to pin it. */
   tabPreviewTip: string;
-  /** What the messages about permissions say: in SARIM a person's group is a team, not a role. */
+  /** What the messages about permissions say: in ORBIT a person's group is a team, not a role. */
   access: {
     switchedBody: string;
     /** The page a person may not open. */

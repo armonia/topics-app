@@ -17,7 +17,7 @@ function Fields({ fields, empty }: { fields: StepPageModel['reads']; empty: stri
 }
 
 function StepCardRow({ card, copy }: { card: StepCardModel; copy: UiCopy }) {
-  const s = copy.sarimWork.flows.step;
+  const s = copy.orbitWork.flows.step;
   return (
     <li className="border-b border-app-border py-2.5 last:border-b-0">
       <button type="button" onClick={card.onOpen} className={clsx('block w-full rounded-md text-left', FOCUS_RING)}>
@@ -43,14 +43,14 @@ function StepCardRow({ card, copy }: { card: StepCardModel; copy: UiCopy }) {
 }
 
 /**
- * One step of a SARIM flow as its own page: the steps of the flow on the left
+ * One step of a ORBIT flow as its own page: the steps of the flow on the left
  * (the current one selected), then who does it and what, what it reads and
  * produces, the state of «Da fare» a card here stands in, the cards here now (allow-italian: quotes the Italian interface)
  * and, for a step an agent does, who checks it next.
  * Under 768px the steps become a strip that scrolls sideways.
  */
 export function OpsStepScreen({ page, copy, phone, crumbs }: { page: StepPageModel; copy: UiCopy; phone?: boolean; /** Replaces the built-in crumbs when given. */ crumbs?: CrumbModel[] }) {
-  const s = copy.sarimWork.flows.step;
+  const s = copy.orbitWork.flows.step;
   const nav = (
     <div role="tablist" aria-label={s.navLabel} aria-orientation={phone ? 'horizontal' : 'vertical'} className={clsx(phone ? 'flex gap-1.5 overflow-x-auto px-4 py-2' : 'space-y-1.5')}>
       {page.nav.map((n) => {
@@ -145,7 +145,7 @@ export function OpsStepScreen({ page, copy, phone, crumbs }: { page: StepPageMod
               <span className="font-normal tabular-nums text-app-text-tertiary">{page.cards.length}</span>
             </h3>
             {page.cards.length === 0 ? (
-              <p className="py-3 text-prose text-app-text-tertiary">{copy.sarimWork.flows.noCardsHere}</p>
+              <p className="py-3 text-prose text-app-text-tertiary">{copy.orbitWork.flows.noCardsHere}</p>
             ) : (
               <ul>{page.cards.map((c) => <StepCardRow key={c.id} card={c} copy={copy} />)}</ul>
             )}

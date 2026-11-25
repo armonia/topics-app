@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { BadgeCheck, MapPin, Users } from 'lucide-react';
 import clsx from 'clsx';
 import { world } from '../../world';
-import type { SarimArea } from '../../../../ui/fixtures/sarim-org/people';
+import type { OrbitArea } from '../../../../ui/fixtures/orbit-org/people';
 import { Button } from '../../../../ui/primitives/Button';
 import { Chip } from '../../../../ui/primitives/Chip';
 import { Block } from '../../../../ui/settings/Block';
@@ -20,14 +20,14 @@ import { SP } from '../../paths';
 import { SettingsFrame } from './frame';
 
 export function OrganizationPage({ ctx }: { ctx: ScreenCtx }) {
-  const o = ctx.copy.sarimAdmin.settings.organization;
+  const o = ctx.copy.orbitAdmin.settings.organization;
   /* The same rows as «Dati» > «Comuni serviti», without the past services. (allow-italian: quotes the Italian interface) */
   const served = world().towns.filter((t) => !t.past);
-  /* The row of a town whose client is another body (SARIM's Rome, for AMA) is not counted among the towns. */
+  /* The row of a town whose client is another body (ORBIT's Rome, for AMA) is not counted among the towns. */
   const towns = served.filter((t) => t.id !== world().organization.clientTown);
   const townPath = (id: string) => SP.dataRow('comuni', id); // allow-italian: address segment, not shown
   const seesData = ctx.can('view:data');
-  const areas = Object.keys(world().people.areaLabel) as SarimArea[];
+  const areas = Object.keys(world().people.areaLabel) as OrbitArea[];
   /* The source of a block sits beside its title; on a phone it goes under the description, which would otherwise shrink to a narrow column. */
   const sourced = (description: string, source: ReactNode) =>
     ctx.phone

@@ -1,9 +1,9 @@
 /**
- * How the SARIM admin places (programs, team, settings) say a column, a
+ * How the ORBIT admin places (programs, team, settings) say a column, a
  * moment and a name: the tone and label of a stage, `oggi 10:25` for a time, (allow-italian: quotes the Italian interface)
  * the full name of a persona or agent id.
  */
-import type { StageId } from '../../../ui/fixtures/sarim-org/types';
+import type { StageId } from '../../../ui/fixtures/orbit-org/types';
 import { agentById, personaById, world } from '../world';
 import type { Tone } from '../../../ui/types';
 import type { ScreenCtx } from '../../app/kit';

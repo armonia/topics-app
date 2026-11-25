@@ -1,5 +1,5 @@
 /**
- * The log of the SARIM edition: what the world already holds (every column a
+ * The log of the ORBIT edition: what the world already holds (every column a
  * card entered and who moved it there, every approval step done on a
  * contract, every version written, the connection events of the programs)
  * from 30 days before the demo's today, then every action of this visit
@@ -9,7 +9,7 @@
  * Settings > Log draws all of it; a person's or an agent's page draws their
  * own lines. One function, so the two never disagree.
  */
-import type { SarimAdminCopy } from '../../../ui/copy/sarim-admin';
+import type { OrbitAdminCopy } from '../../../ui/copy/orbit-admin';
 import type { LogActorModel } from '../../../ui/team/model';
 import { agentById, personaById, world } from '../world';
 import { DEMO_TODAY, addDays } from '../../../ui/fixtures/org/clock';
@@ -18,7 +18,7 @@ import { chainOf, type ChainLine } from '../../app/screens/team/chain';
 import { actionLabel } from './contracts';
 import { SP } from '../paths';
 
-export interface SarimLogLine extends ChainLine {
+export interface OrbitLogLine extends ChainLine {
   id: string;
   /** A persona id, `agent:<id>` or `program:<id>`. */
   actorId: string;
@@ -48,9 +48,9 @@ export function actorOf(id: string): LogActorModel {
 /** The first day the log keeps (30 days before the demo's today). */
 export const LOG_FROM = addDays(DEMO_TODAY, -30);
 
-type Seed = Omit<SarimLogLine, 'hash' | 'actor'>;
+type Seed = Omit<OrbitLogLine, 'hash' | 'actor'>;
 
-function seedLines(words: SarimAdminCopy['log']): Seed[] {
+function seedLines(words: OrbitAdminCopy['log']): Seed[] {
   const out: Seed[] = [];
   const stageLabel = (id: string) => world().stages.find((s) => s.id === id)?.label ?? id;
 
@@ -94,7 +94,7 @@ function seedLines(words: SarimAdminCopy['log']): Seed[] {
 }
 
 /** Every line, oldest first, each with its fingerprint. */
-export function sarimLogLines(audit: AuditEntry[], words: SarimAdminCopy['log']): SarimLogLine[] {
+export function orbitLogLines(audit: AuditEntry[], words: OrbitAdminCopy['log']): OrbitLogLine[] {
   const seed = seedLines(words).sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id));
   const live: Seed[] = [...audit].reverse().map((a) => ({
     id: a.id, at: a.at, who: a.who, actorId: a.who, what: a.what, subject: '', detail: '', kind: a.kind, path: a.path ?? SP.settings('registro'), live: true,
@@ -105,6 +105,6 @@ export function sarimLogLines(audit: AuditEntry[], words: SarimAdminCopy['log'])
 }
 
 /** The lines of one actor, newest first. */
-export function linesOf(state: DemoState, words: SarimAdminCopy['log'], actorId: string): SarimLogLine[] {
-  return sarimLogLines(state.audit, words).filter((l) => l.actorId === actorId).reverse();
+export function linesOf(state: DemoState, words: OrbitAdminCopy['log'], actorId: string): OrbitLogLine[] {
+  return orbitLogLines(state.audit, words).filter((l) => l.actorId === actorId).reverse();
 }

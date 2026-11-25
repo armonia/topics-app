@@ -1,5 +1,5 @@
 /**
- * From the live cards of SARIM to what the kanban, the list, the stage view
+ * From the live cards of ORBIT to what the kanban, the list, the stage view
  * and the card page draw: who has a card and since when, the step of the flow
  * it is at in words, its dates and states, the columns it may move to and why
  * not. Every number comes from `model/live.ts` and `model/stages.ts`, so the
@@ -8,7 +8,7 @@
 import type { UiCopy } from '../../../../ui/copy/types';
 import type { Tone } from '../../../../ui/types';
 import type { CardRowModel, FlowRefModel, KanbanCardModel, MoveOptionModel, StageGlyph, TagModel, WorkerModel } from '../../../../ui/kanban/model';
-import type { OpsFlow, OpsFlowStep, SarimCard, StageId } from '../../../../ui/fixtures/sarim-org/types';
+import type { OpsFlow, OpsFlowStep, OrbitCard, StageId } from '../../../../ui/fixtures/orbit-org/types';
 import { agentById, personaById, world } from '../../world';
 import { daysFromToday, formatDay, formatShortDay } from '../../../../ui/fixtures/org/clock';
 import type { ScreenCtx } from '../../../app/kit';
@@ -46,7 +46,7 @@ export function stageLabel(id: StageId): string {
   return world().stages.find((s) => s.id === id)?.label ?? id;
 }
 
-export const isOpen = (card: SarimCard) => stageOf(card) !== DONE;
+export const isOpen = (card: OrbitCard) => stageOf(card) !== DONE;
 
 /* ---------- times and people ---------- */
 
@@ -75,7 +75,7 @@ export function isFresh(since: string, now: string): boolean {
   return hoursBetween(since, now) < 1 / 60;
 }
 
-export function workerModel(card: SarimCard, ctx: ScreenCtx): WorkerModel {
+export function workerModel(card: OrbitCard, ctx: ScreenCtx): WorkerModel {
   const w = card.worker;
   const c = ctx.copy.kanban.card;
   const since = isFresh(w.since, ctx.now) ? c.justNow : c.since(ageOf(w.since, ctx.now));
@@ -101,7 +101,7 @@ export interface StepAt {
  * The step a card is at: its own step while it stands in that step's column;
  * after a move by hand, the first step of its flow in the column it went to.
  */
-export function stepAt(card: SarimCard): StepAt {
+export function stepAt(card: OrbitCard): StepAt {
   const flow = world().opsFlows.find((f) => f.id === card.flow);
   if (!flow) return { index: -1, total: 0 };
   const stage = stageOf(card);
@@ -127,7 +127,7 @@ export function nextStage(stage: StageId): StageId | undefined {
 /* ---------- dates and states ---------- */
 
 /** Red when past or today, amber within three days, grey after; none on a closed card. */
-export function dueTag(card: SarimCard, copy: UiCopy): TagModel | undefined {
+export function dueTag(card: OrbitCard, copy: UiCopy): TagModel | undefined {
   if (!card.due || !isOpen(card)) return undefined;
   const c = copy.kanban.card;
   const days = daysFromToday(card.due);
@@ -137,7 +137,7 @@ export function dueTag(card: SarimCard, copy: UiCopy): TagModel | undefined {
   return { text, tone, title: c.due(formatDay(card.due)) };
 }
 
-export function priorityTag(card: SarimCard, copy: UiCopy): TagModel | undefined {
+export function priorityTag(card: OrbitCard, copy: UiCopy): TagModel | undefined {
   const c = copy.kanban.card;
   if (card.priority === 'alta') return { text: c.high, tone: 'red', title: c.priority(c.high) }; // allow-italian: priority value, compared by value
   if (card.priority === 'bassa') return { text: c.low, tone: 'neutral', title: c.priority(c.low) }; // allow-italian: priority value, compared by value
@@ -150,7 +150,7 @@ export interface StopInfo {
 }
 
 /** Why an open card is stopped: blocked on something outside it, or left in its column past its flow's limit. */
-export function stopInfo(card: SarimCard, ctx: ScreenCtx): StopInfo {
+export function stopInfo(card: OrbitCard, ctx: ScreenCtx): StopInfo {
   if (!isOpen(card)) return {};
   const c = ctx.copy.kanban.card;
   if (card.blocked) return { blocked: { text: c.stuck(ageOf(card.blocked.since, ctx.now)), reason: card.blocked.reason, title: c.blockedTitle(card.blocked.reason, stamp(card.blocked.since)) } };
@@ -162,7 +162,7 @@ export function stopInfo(card: SarimCard, ctx: ScreenCtx): StopInfo {
 /* ---------- who may see and move what ---------- */
 
 /** The cards the person on show may see: a flow at level «none» hides its cards everywhere. */
-export function visibleCards(state: DemoState, persona: Persona): SarimCard[] {
+export function visibleCards(state: DemoState, persona: Persona): OrbitCard[] {
   return liveCards(state).filter((c) => flowLevel(state, persona, c.flow) !== 'none');
 }
 
@@ -180,7 +180,7 @@ export function workDenied(flowId: string, ctx: ScreenCtx): string | undefined {
   return undefined;
 }
 
-const PRIORITY_RANK: Record<SarimCard['priority'], number> = { alta: 0, normale: 1, bassa: 2 };
+const PRIORITY_RANK: Record<OrbitCard['priority'], number> = { alta: 0, normale: 1, bassa: 2 };
 
 /**
  * The order inside a column: what is stopped first, then the high priority,
@@ -188,7 +188,7 @@ const PRIORITY_RANK: Record<SarimCard['priority'], number> = { alta: 0, normale:
  * «Fatto» the last closed comes first. (allow-italian: quotes the Italian interface)
  */
 export function columnOrder(now: string) {
-  return (a: SarimCard, b: SarimCard): number => {
+  return (a: OrbitCard, b: OrbitCard): number => {
     if (stageOf(a) === DONE) return stageSince(b).localeCompare(stageSince(a));
     const stopA = isStuck(a, world().opsFlows, now) ? 0 : 1;
     const stopB = isStuck(b, world().opsFlows, now) ? 0 : 1;
@@ -204,7 +204,7 @@ export function columnOrder(now: string) {
 export type MoveCheck = { kind: 'ok' } | { kind: 'denied'; reason: string } | { kind: 'contract'; contract: string };
 
 /** The reviewer of the card, or anyone allowed to approve. */
-export function canClose(card: SarimCard, ctx: ScreenCtx): boolean {
+export function canClose(card: OrbitCard, ctx: ScreenCtx): boolean {
   return ctx.persona.id === card.reviewer || ctx.can('approve');
 }
 
@@ -214,7 +214,7 @@ export function canClose(card: SarimCard, ctx: ScreenCtx): boolean {
  * of the contract variations flow is approved in its contract, so closing it leads
  * there instead.
  */
-export function moveCheck(card: SarimCard, to: StageId, ctx: ScreenCtx): MoveCheck {
+export function moveCheck(card: OrbitCard, to: StageId, ctx: ScreenCtx): MoveCheck {
   const why = workDenied(card.flow, ctx);
   if (why) return { kind: 'denied', reason: why };
   if (to !== DONE) return { kind: 'ok' };
@@ -223,7 +223,7 @@ export function moveCheck(card: SarimCard, to: StageId, ctx: ScreenCtx): MoveChe
   return { kind: 'ok' };
 }
 
-export function moveOptions(card: SarimCard, ctx: ScreenCtx): MoveOptionModel[] {
+export function moveOptions(card: OrbitCard, ctx: ScreenCtx): MoveOptionModel[] {
   return STAGE_IDS.filter((s) => s !== stageOf(card)).map((s) => {
     const check = moveCheck(card, s, ctx);
     return {
@@ -237,11 +237,11 @@ export function moveOptions(card: SarimCard, ctx: ScreenCtx): MoveOptionModel[] 
 
 /* ---------- view models ---------- */
 
-export function flowRef(card: SarimCard): FlowRefModel {
+export function flowRef(card: OrbitCard): FlowRefModel {
   return { label: flowLabel(card.flow), icon: flowIcon(card.flow), title: opsFlowById(card.flow)?.source };
 }
 
-export function kanbanCardModel(card: SarimCard, ctx: ScreenCtx): KanbanCardModel {
+export function kanbanCardModel(card: OrbitCard, ctx: ScreenCtx): KanbanCardModel {
   const stop = stopInfo(card, ctx);
   return {
     id: card.id,
@@ -266,7 +266,7 @@ export function kanbanCardModel(card: SarimCard, ctx: ScreenCtx): KanbanCardMode
  * in the column, so the table has one measure under one name: for a blocked
  * card the time since it was blocked is in the tooltip, not in the cell.
  */
-export function inStageTag(card: SarimCard, ctx: ScreenCtx): TagModel | undefined {
+export function inStageTag(card: OrbitCard, ctx: ScreenCtx): TagModel | undefined {
   if (!isOpen(card)) return undefined;
   const c = ctx.copy.kanban.card;
   const since = stageSince(card);
@@ -276,7 +276,7 @@ export function inStageTag(card: SarimCard, ctx: ScreenCtx): TagModel | undefine
   return { text, tone: 'amber', title: c.stuckTitle(stageLabel(stageOf(card)), formatHours(opsFlowById(card.flow)?.stuckAfterHours ?? 0)) };
 }
 
-export function rowModel(card: SarimCard, ctx: ScreenCtx): CardRowModel {
+export function rowModel(card: OrbitCard, ctx: ScreenCtx): CardRowModel {
   const stage = stageOf(card);
   return {
     id: card.id,

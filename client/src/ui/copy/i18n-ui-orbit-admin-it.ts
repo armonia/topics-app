@@ -1,4 +1,4 @@
-import type { SarimAdminCopy } from './sarim-admin';
+import type { OrbitAdminCopy } from './orbit-admin';
 import { orgWords } from './org-words';
 
 const W = orgWords();
@@ -8,8 +8,8 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` :
 /** Thousands with a dot, as Italian writes them (`1.412`): the Italian locale leaves four digits ungrouped. */
 const dots = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
-/** Italian words of the `sarim-admin` area. */
-export const SARIM_ADMIN_COPY_IT: SarimAdminCopy = {
+/** Italian words of the `orbit-admin` area. */
+export const ORBIT_ADMIN_COPY_IT: OrbitAdminCopy = {
   title: 'Squadra',
 
   common: {
@@ -258,7 +258,7 @@ export const SARIM_ADMIN_COPY_IT: SarimAdminCopy = {
     },
     log: {
       subject: 'Su cosa',
-      fileName: 'registro-sarim',
+      fileName: 'registro-orbit',
       caseKind: 'card',
       fields: { who: 'Chi', person: 'Persona o agente', kind: 'Cosa', day: 'Giorno' },
       actors: { people: 'Persone', agents: 'Agenti', programs: 'Programmi' },

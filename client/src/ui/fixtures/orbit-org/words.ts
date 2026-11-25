@@ -1,23 +1,23 @@
 /**
- * The words of SARIM: its name, the phrases of the copy that name its clients,
+ * The words of ORBIT: its name, the phrases of the copy that name its clients,
  * programs and public sources. They stand in the shape of `OrgWords`
- * (`../../copy/org-words.ts`); `sarim-org/world.ts` hands them to the world.
+ * (`../../copy/org-words.ts`); `orbit-org/world.ts` hands them to the world.
  */
 import type { OrgWords } from '../../copy/org-words';
 
-export const SARIM_WORDS: OrgWords = {
-  name: 'SARIM',
-  articled: { the: 'SARIM', of: 'di SARIM', from: 'da SARIM', for: 'per SARIM', inAll: 'in tutta SARIM' }, // allow-italian: fixture data, shown as written
+export const ORBIT_WORDS: OrgWords = {
+  name: 'ORBIT',
+  articled: { the: 'ORBIT', of: 'di ORBIT', from: 'da ORBIT', for: 'per ORBIT', inAll: 'in tutta ORBIT' }, // allow-italian: fixture data, shown as written
   legalName: 'S.A.R.I.M. SRL',
-  slug: 'sarim',
-  refPrefix: 'SARIM',
+  slug: 'orbit',
+  refPrefix: 'ORBIT',
   registryName: 'RENTRI',
   it: {
     townsLabel: 'Comuni serviti',
-    townsAbout: 'I comuni e i committenti di SARIM, dalle fonti pubbliche',
+    townsAbout: 'I comuni e i committenti di ORBIT, dalle fonti pubbliche',
     servedTitle: (n) => `${n} comuni serviti, e Roma per AMA`,
     servedBody: 'Il numero è quello del contatore della home page; la Dichiarazione ambientale parla di 20 comuni, una notizia di giugno 2026 di 25.',
-    numbersBody: 'I contatori della home page di sarimambiente.it, come li legge oggi.',
+    numbersBody: 'I contatori della home page di alfaimpianti.it, come li legge oggi.',
     organizationKeywords: 'partita iva sede legale salerno eboli pec numero verde comuni certificazioni iso emas albo gestori flotta',
     sendExamples: 'ad AMA, ai Comuni, ai fornitori',
     programsExamples: 'un ordine in SAP, un giro in WinWaste, le presenze in Zucchetti',
@@ -39,15 +39,15 @@ export const SARIM_WORDS: OrgWords = {
       personale: { label: 'Personale', about: 'Contratti a termine, presenze, ferie e turni' },
       varianti: { label: 'Varianti e atti', about: 'Varianti, rinnovi, subappalti e accordi in lavorazione' },
       contratti: { label: 'Contratti', about: 'Ogni contratto con la versione in vigore, il valore e le scadenze' },
-      comuni: { label: 'Comuni serviti', about: 'I comuni e i committenti di SARIM, dalle fonti pubbliche' },
+      comuni: { label: 'Comuni serviti', about: 'I comuni e i committenti di ORBIT, dalle fonti pubbliche' },
     },
   },
   en: {
     townsLabel: 'Towns served',
-    townsAbout: 'The towns and clients of SARIM, from public sources',
+    townsAbout: 'The towns and clients of ORBIT, from public sources',
     servedTitle: (n) => `${n} towns served, and Rome for AMA`,
     servedBody: 'The number is the counter of the home page; the Environmental Statement says 20 towns, a news item of June 2026 says 25.',
-    numbersBody: 'The counters of the sarimambiente.it home page, as it reads today.',
+    numbersBody: 'The counters of the alfaimpianti.it home page, as it reads today.',
     organizationKeywords: 'vat registered office salerno eboli certified mail toll free towns certifications iso emas register fleet',
     sendExamples: 'to AMA, the towns, suppliers',
     programsExamples: 'an order in SAP, a round in WinWaste, attendance in Zucchetti',
@@ -69,7 +69,7 @@ export const SARIM_WORDS: OrgWords = {
       personale: { label: 'Staff', about: 'Fixed-term contracts, attendance, leave and shifts' },
       varianti: { label: 'Variations and deeds', about: 'Variations, renewals, subcontracts and agreements in progress' },
       contratti: { label: 'Contracts', about: 'Every contract with the version in force, its value and its dates' },
-      comuni: { label: 'Towns served', about: 'The towns and clients of SARIM, from public sources' },
+      comuni: { label: 'Towns served', about: 'The towns and clients of ORBIT, from public sources' },
     },
   },
 };

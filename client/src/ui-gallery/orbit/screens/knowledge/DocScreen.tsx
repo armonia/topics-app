@@ -1,5 +1,5 @@
 /**
- * sarim-doc: one document or rule of «Conoscenza», split in its parts (articles, (allow-italian: quotes the Italian interface)
+ * orbit-doc: one document or rule of «Conoscenza», split in its parts (articles, (allow-italian: quotes the Italian interface)
  * paragraphs, steps of a procedure). Its text, its versions and the places
  * that use it are three pages with their own address, chosen in the strip
  * under the title. On the text page the parts are in the middle, each with
@@ -30,7 +30,7 @@ import { FOCUS_RING } from '../../../../ui/shell/pressable';
 import { SubNav } from '../../../../ui/shell/SubNav';
 import { formatDay } from '../../../../ui/fixtures/org/clock';
 import { knowledgeDocById, world } from '../../world';
-import type { KnowledgeDoc } from '../../../../ui/fixtures/sarim-org/knowledge';
+import type { KnowledgeDoc } from '../../../../ui/fixtures/orbit-org/knowledge';
 import type { ScreenCtx } from '../../../app/kit';
 import { liveContracts } from '../../model/live';
 import { opsFlowById } from '../../model/flows';
@@ -60,14 +60,14 @@ const TAB_OF: Record<DocPageId, KnowledgeTab> = { text: 'text', versions: 'versi
 
 export function DocScreen({ ctx, docId, partId, page = 'text' }: { ctx: ScreenCtx; docId: string; partId?: string; page?: DocPageId }) {
   const copy = ctx.copy;
-  const k = copy.sarimData.knowledge;
+  const k = copy.orbitData.knowledge;
   const d = k.doc;
   const [slice, setSlice] = ctx.slice<KnowledgeSlice>(KNOWLEDGE_SLICE, KNOWLEDGE_INITIAL);
-  const [input, setInput] = ctx.ui<string>(`sarim.k.input.${docId}`, '');
-  const [asked, setAsked] = ctx.ui<string | null>(`sarim.k.ask.${docId}`, null);
-  const [changesOpen, setChangesOpen] = ctx.ui<boolean>(`sarim.k.changes.open.${docId}`, false);
-  const [note, setNote] = ctx.ui<string>(`sarim.k.changes.note.${docId}`, '');
-  const [noteError, setNoteError] = ctx.ui<string>(`sarim.k.changes.error.${docId}`, '');
+  const [input, setInput] = ctx.ui<string>(`orbit.k.input.${docId}`, '');
+  const [asked, setAsked] = ctx.ui<string | null>(`orbit.k.ask.${docId}`, null);
+  const [changesOpen, setChangesOpen] = ctx.ui<boolean>(`orbit.k.changes.open.${docId}`, false);
+  const [note, setNote] = ctx.ui<string>(`orbit.k.changes.note.${docId}`, '');
+  const [noteError, setNoteError] = ctx.ui<string>(`orbit.k.changes.error.${docId}`, '');
   const base = knowledgeDocById(docId);
   const focusId = base && partId && base.parts.some((p) => p.id === partId) ? partId : undefined;
 
@@ -82,11 +82,11 @@ export function DocScreen({ ctx, docId, partId, page = 'text' }: { ctx: ScreenCt
   const section = company ? 'documents' : 'rules';
   const listPath = company ? SP.documents() : SP.rules();
   /* on the desk the crumb of the list already leads back; the arrow is for the phone, which shows only the last crumb */
-  const back = ctx.phone ? <BackButton label={copy.sarimData.section[section]} onClick={() => ctx.go(listPath)} copy={copy} /> : undefined;
+  const back = ctx.phone ? <BackButton label={copy.orbitData.section[section]} onClick={() => ctx.go(listPath)} copy={copy} /> : undefined;
 
   if (!base) {
     const empty: KnowledgeModel = {
-      crumbs: orgCrumbs(ctx, [{ label: k.title, to: SP.knowledge() }, { label: copy.sarimData.section[section], to: listPath }, { label: docId }]),
+      crumbs: orgCrumbs(ctx, [{ label: k.title, to: SP.knowledge() }, { label: copy.orbitData.section[section], to: listPath }, { label: docId }]),
       status: { text: '', tone: 'neutral' },
       collections: [],
       selectedId: '',
@@ -139,13 +139,13 @@ export function DocScreen({ ctx, docId, partId, page = 'text' }: { ctx: ScreenCt
     onConfirm: () => {
       setSlice((s) => ({ ...s, approved: { ...s.approved, [doc.id]: { at: ctx.now, by: ctx.persona.id, version: live.latest } } }));
       ctx.log(k.approve.log(doc.label, latestLabel), 'knowledge', path);
-      ctx.toast({ tone: 'ok', title: k.approve.toast, body: k.approve.notifyBody(ctx.persona.name), action: { label: copy.sarimData.common.open, path } });
+      ctx.toast({ tone: 'ok', title: k.approve.toast, body: k.approve.notifyBody(ctx.persona.name), action: { label: copy.orbitData.common.open, path } });
       ctx.notify({ title: k.approve.notifyTitle(doc.label), body: k.approve.notifyBody(ctx.persona.name), path, tone: 'ok' });
     },
   }) : false;
 
   /* ---- asking the agent for changes ---- */
-  const jobId = `sarim-k-rewrite-${doc.id}`;
+  const jobId = `orbit-k-rewrite-${doc.id}`;
   const agentBusy = ctx.job(jobId)?.status === 'running';
   const openChanges = ctx.allow('edit:data', () => {
     setNoteError('');
@@ -178,7 +178,7 @@ export function DocScreen({ ctx, docId, partId, page = 'text' }: { ctx: ScreenCt
         if (!ok) return;
         setSlice((s) => ({ ...s, rewrites: { ...s.rewrites, [doc.id]: [...(s.rewrites[doc.id] ?? []), { n, at: ctx.now, by: ctx.persona.id, note: text }] } }));
         ctx.log(k.changes.log(doc.label, text), 'knowledge', path);
-        ctx.toast({ tone: 'ok', title: k.changes.toast, body: k.changes.versionLabel(n), action: { label: copy.sarimData.common.open, path } });
+        ctx.toast({ tone: 'ok', title: k.changes.toast, body: k.changes.versionLabel(n), action: { label: copy.orbitData.common.open, path } });
         ctx.notify({ title: k.changes.notifyTitle(doc.label), body: k.changes.versionDetail(nameOf(proc.writtenBy), text), path, tone: 'info', to: [approver] });
       },
     });
@@ -217,7 +217,7 @@ export function DocScreen({ ctx, docId, partId, page = 'text' }: { ctx: ScreenCt
       const flowShort = flow ? flow.name.split(' → ')[0] : '';
       rules.push({
         label: c.label,
-        value: step ? copy.sarimData.common.step(flowShort, stepAt + 1) : flow?.name ?? part.short,
+        value: step ? copy.orbitData.common.step(flowShort, stepAt + 1) : flow?.name ?? part.short,
         action: flow ? (step ? `step:${flow.id}/${step.id}` : `flow:${flow.id}`) : `part:${part.id}`,
       });
     }
@@ -230,7 +230,7 @@ export function DocScreen({ ctx, docId, partId, page = 'text' }: { ctx: ScreenCt
     usedBy: usedByPart(doc, p, ctx.state, copy),
   }));
   const model: KnowledgeModel = {
-    crumbs: orgCrumbs(ctx, [{ label: k.title, to: SP.knowledge() }, { label: copy.sarimData.section[section], to: listPath }, ...(page === 'text' ? [{ label: doc.label }] : [{ label: doc.label, to: path }, { label: d.pages[page] }])]),
+    crumbs: orgCrumbs(ctx, [{ label: k.title, to: SP.knowledge() }, { label: copy.orbitData.section[section], to: listPath }, ...(page === 'text' ? [{ label: doc.label }] : [{ label: doc.label, to: path }, { label: d.pages[page] }])]),
     status: live.status,
     collections: [],
     selectedId: doc.id,

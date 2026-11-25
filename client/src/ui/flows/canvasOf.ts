@@ -48,7 +48,7 @@ function laneOf(path: FlowPathModel, copy: UiCopy): CanvasLane {
 }
 
 export interface CanvasOfOptions {
-  /** A step that runs whatever the case, after the lanes meet again (SARIM's last step of the report flow). */
+  /** A step that runs whatever the case, after the lanes meet again (ORBIT's last step of the report flow). */
   after?: { marker: string; title: string; /** Printed before the title, e.g. «Sempre». (allow-italian: quotes the Italian interface) */ badge?: string };
   /** What tells the cases apart, in the sentence «in base al …»; the word for a type by default. (allow-italian: quotes the Italian interface) */
   by?: string;

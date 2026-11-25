@@ -1,5 +1,5 @@
 /**
- * The SARIM world as the reader changed it, on top of the fixtures:
+ * The ORBIT world as the reader changed it, on top of the fixtures:
  *  · the cards of the kanban, with the moves made by hand (drag, «Sposta in…», (allow-italian: quotes the Italian interface)
  *    a check, an approval), who took a card in hand, and the cards added in
  *    the preview (a new variation of a contract starts one);
@@ -12,12 +12,12 @@
  * on its card too. Changes go through the functions below, never by hand.
  */
 import type { DemoState } from '../../app/store/state';
-import type { ApprovalStep, ClauseComment, Contract, ContractStatus, ContractVariant, ContractVersion, SarimCard, StageEntry, StageId, Worker } from '../../../ui/fixtures/sarim-org/types';
+import type { ApprovalStep, ClauseComment, Contract, ContractStatus, ContractVariant, ContractVersion, OrbitCard, StageEntry, StageId, Worker } from '../../../ui/fixtures/orbit-org/types';
 import { world } from '../world';
 
 /* ---------- cards ---------- */
 
-export const KANBAN_SLICE = 'sarim.kanban';
+export const KANBAN_SLICE = 'orbit.kanban';
 
 export interface KanbanSlice {
   /** Columns entered by hand, per card, oldest first (appended to the card's history). */
@@ -25,7 +25,7 @@ export interface KanbanSlice {
   /** Who took a card in hand by hand. */
   workers: Record<string, Worker>;
   /** Cards made in the preview (a variation, a card from an obligation), newest last. */
-  added: SarimCard[];
+  added: OrbitCard[];
   /** Values corrected by hand, per card, by value label. */
   values: Record<string, Record<string, string>>;
 }
@@ -37,7 +37,7 @@ export function kanbanSlice(state: DemoState): KanbanSlice {
 }
 
 /** A card with the reader's changes applied. */
-export function liveCard(card: SarimCard, slice: KanbanSlice): SarimCard {
+export function liveCard(card: OrbitCard, slice: KanbanSlice): OrbitCard {
   const moves = slice.moves[card.id];
   const worker = slice.workers[card.id];
   const values = slice.values[card.id];
@@ -50,22 +50,22 @@ export function liveCard(card: SarimCard, slice: KanbanSlice): SarimCard {
   };
 }
 
-export function liveCards(state: DemoState): SarimCard[] {
+export function liveCards(state: DemoState): OrbitCard[] {
   const slice = kanbanSlice(state);
   return [...world().cards, ...slice.added].map((c) => liveCard(c, slice));
 }
 
-export function liveCardById(state: DemoState, id: string): SarimCard | undefined {
+export function liveCardById(state: DemoState, id: string): OrbitCard | undefined {
   return liveCards(state).find((c) => c.id === id);
 }
 
 /** The column a card stands in now: the last one it entered. */
-export function stageOf(card: SarimCard): StageId {
+export function stageOf(card: OrbitCard): StageId {
   return card.history[card.history.length - 1]?.stage ?? 'arrivo';
 }
 
 /** When the card entered the column it stands in. */
-export function stageSince(card: SarimCard): string {
+export function stageSince(card: OrbitCard): string {
   return card.history[card.history.length - 1]?.at ?? '';
 }
 
@@ -85,7 +85,7 @@ export interface CardMoment {
  * the stop with its reason. A screen that prints the story of the card adds
  * these between the column entries, so the story and the head never differ.
  */
-export function cardMoments(card: SarimCard): CardMoment[] {
+export function cardMoments(card: OrbitCard): CardMoment[] {
   const out: CardMoment[] = [];
   const last = card.history[card.history.length - 1];
   const workerBy = card.worker.kind === 'agent' ? `agent:${card.worker.id}` : card.worker.id;
@@ -97,12 +97,12 @@ export function cardMoments(card: SarimCard): CardMoment[] {
 }
 
 /** What waits for a person: the cards they must check or approve, not yet done. */
-export function waitingFor(cards: SarimCard[], personaId: string): SarimCard[] {
+export function waitingFor(cards: OrbitCard[], personaId: string): OrbitCard[] {
   return cards.filter((c) => c.reviewer === personaId && (stageOf(c) === 'verifica' || stageOf(c) === 'approvazione')); // allow-italian: stage and state ids, compared by value
 }
 
 /** The slice after moving a card to a column (`by`: a persona id or `agent:<id>`). Moving to the column it is in changes nothing. */
-export function withMove(slice: KanbanSlice, card: SarimCard, stage: StageId, by: string, at: string): KanbanSlice {
+export function withMove(slice: KanbanSlice, card: OrbitCard, stage: StageId, by: string, at: string): KanbanSlice {
   if (stageOf(card) === stage) return slice;
   return { ...slice, moves: { ...slice.moves, [card.id]: [...(slice.moves[card.id] ?? []), { stage, at, by }] } };
 }
@@ -113,13 +113,13 @@ export function withWorker(slice: KanbanSlice, cardId: string, worker: Worker): 
 }
 
 /** The slice with a new card (its id must be new). */
-export function withCard(slice: KanbanSlice, card: SarimCard): KanbanSlice {
+export function withCard(slice: KanbanSlice, card: OrbitCard): KanbanSlice {
   return { ...slice, added: [...slice.added, card] };
 }
 
 /* ---------- contracts ---------- */
 
-export const CONTRACTS_SLICE = 'sarim.contracts';
+export const CONTRACTS_SLICE = 'orbit.contracts';
 
 export interface ContractsSlice {
   /** Approval steps marked done in the preview, by `<contract>:<step id>`. */

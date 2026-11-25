@@ -1,5 +1,5 @@
 /**
- * The three views of «Da fare» in the SARIM edition (allow-italian: quotes the Italian interface): the
+ * The three views of «Da fare» in the ORBIT edition (allow-italian: quotes the Italian interface): the
  * list of the cards by flow (first, and the page the app opens on), the kanban,
  * and the table of flows against stages. They share one header: the view
  * switch on the right of the crumbs and, under it, the filter bar with the four
@@ -21,7 +21,7 @@ import { HeaderBand, ViewSwitch } from '../../../../ui/kanban/KanbanHeader';
 import { FlowStageTable } from '../../../../ui/kanban/StagesView';
 import { CardGroups } from '../../../../ui/kanban/CardGroups';
 import type { CardGroupModel, ChoiceModel, FlowRowModel, KanbanCardModel, KanbanColumnModel, StageColumnModel } from '../../../../ui/kanban/model';
-import type { OpsFlow, SarimCard, StageId } from '../../../../ui/fixtures/sarim-org/types';
+import type { OpsFlow, OrbitCard, StageId } from '../../../../ui/fixtures/orbit-org/types';
 import { agentById, world } from '../../world';
 import type { ScreenCtx } from '../../../app/kit';
 import { EMPTY_FILTERS, applyFilters, useListFilters, type FilterToken, type ListFilterState } from '../../../app/filters';
@@ -39,7 +39,7 @@ import { APPROVAL, DONE, STAGE_GLYPH_OF, columnOrder, flowIcon, isOpen, kanbanCa
 export type InboxView = DaFareView;
 
 /** The flows folded in the list, by id (`ctx.ui`, so a folded flow stays folded). */
-const FOLDED_KEY = 'sarim.dafare.folded';
+const FOLDED_KEY = 'orbit.dafare.folded';
 
 /**
  * A card of the kanban says each fact once (the rule is `boardCardLines`): a
@@ -48,7 +48,7 @@ const FOLDED_KEY = 'sarim.dafare.folded';
  * what the worker is doing; the checker shows at the check and the approval.
  * In «Da approvare» the line is the approver's. (allow-italian: quotes the Italian interface)
  */
-function boardCard(card: SarimCard, ctx: ScreenCtx, stage: StageId): KanbanCardModel {
+function boardCard(card: OrbitCard, ctx: ScreenCtx, stage: StageId): KanbanCardModel {
   const m = kanbanCardModel(card, ctx);
   const actor = stepAt(card).step?.actor;
   const stepIsWorkers = (actor?.kind === 'agent' || actor?.kind === 'person') && actor.id === card.worker.id;
@@ -126,7 +126,7 @@ function openList(ctx: ScreenCtx, opts: { flow?: string; stage?: string; stuck?:
 /* ---------- list ---------- */
 
 /** The nearest due day among the open cards of a flow (`9999` when none has one). */
-const nearestDue = (cards: SarimCard[]) => cards.filter(isOpen).reduce((best, c) => (c.due && c.due < best ? c.due : best), '9999');
+const nearestDue = (cards: OrbitCard[]) => cards.filter(isOpen).reduce((best, c) => (c.due && c.due < best ? c.due : best), '9999');
 
 /**
  * The cards of the list grouped by flow, the most urgent group first: the one
@@ -134,10 +134,10 @@ const nearestDue = (cards: SarimCard[]) => cards.filter(isOpen).reduce((best, c)
  * the one whose due day is nearest. Inside a group the open cards come first,
  * the stopped ones on top.
  */
-function cardGroups(items: SarimCard[], folded: string[], ctx: ScreenCtx): CardGroupModel[] {
+function cardGroups(items: OrbitCard[], folded: string[], ctx: ScreenCtx): CardGroupModel[] {
   const mine = new Set(waitingFor(items, ctx.persona.id).map((c) => c.id));
   const order = columnOrder(ctx.now);
-  const byFlow = new Map<string, SarimCard[]>();
+  const byFlow = new Map<string, OrbitCard[]>();
   for (const c of items) byFlow.set(c.flow, [...(byFlow.get(c.flow) ?? []), c]);
   return [...byFlow]
     .map(([flow, cards]) => ({
@@ -259,7 +259,7 @@ function pileSentence(s: StagesSummary, ctx: ScreenCtx): string | undefined {
 }
 
 /** One row of the table: a flow, or all of them (`flow` undefined). */
-function flowRow(cards: SarimCard[], flow: OpsFlow | undefined, flowCount: number, ctx: ScreenCtx): FlowRowModel {
+function flowRow(cards: OrbitCard[], flow: OpsFlow | undefined, flowCount: number, ctx: ScreenCtx): FlowRowModel {
   const f = ctx.copy.kanban.stages;
   const scope: FlowScope = flow?.id ?? 'all';
   const s = flowSummary(cards, scope, ctx.now);

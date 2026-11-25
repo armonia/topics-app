@@ -1,5 +1,5 @@
 /**
- * Every deadline of SARIM in one list, computed from the live world: the due
+ * Every deadline of ORBIT in one list, computed from the live world: the due
  * day of every card of the kanban, and for every contract its end, the last
  * day to give notice and the next day of each obligation, read the way
  * «Contratti» reads them (a notice whose day has passed drops out, an (allow-italian: quotes the Italian interface)
@@ -7,10 +7,10 @@
  * place that opens it: the card, or the clause it comes from.
  */
 import type { Tone } from '../../../../ui/types';
-import type { SarimDeadlineKind, SarimDeadlineState } from '../../../../ui/copy/sarim-data';
-import type { Contract, Obligation, SarimCard } from '../../../../ui/fixtures/sarim-org/types';
+import type { OrbitDeadlineKind, OrbitDeadlineState } from '../../../../ui/copy/orbit-data';
+import type { Contract, Obligation, OrbitCard } from '../../../../ui/fixtures/orbit-org/types';
 import { agentById, teamById, teamIdOfPerson, world } from '../../world';
-import type { SarimArea } from '../../../../ui/fixtures/sarim-org/people';
+import type { OrbitArea } from '../../../../ui/fixtures/orbit-org/people';
 import type { DemoState } from '../../../app/store/state';
 import type { ScreenCtx } from '../../../app/kit';
 import { EMPTY_FILTERS, type ListFilterState } from '../../../app/filters';
@@ -23,12 +23,12 @@ import { relDay } from '../contracts/actions';
 export interface Deadline {
   id: string;
   day: string;
-  kind: SarimDeadlineKind;
-  area: SarimArea;
+  kind: OrbitDeadlineKind;
+  area: OrbitArea;
   /** Who has to act: a persona id, or an agent id for a card an agent holds. */
   owner: string;
   done: boolean;
-  card?: SarimCard;
+  card?: OrbitCard;
   contract?: Contract;
   obligation?: Obligation;
   /** The clause it is read from, for a contract deadline. */
@@ -37,15 +37,15 @@ export interface Deadline {
 }
 
 /** Late when the day has passed, soon within 30 days (as «Contratti» counts it). (allow-italian: quotes the Italian interface) */
-export function stateOf(d: Deadline, today: string): SarimDeadlineState {
+export function stateOf(d: Deadline, today: string): OrbitDeadlineState {
   if (d.done) return 'done';
   const n = daysTo(d.day, today);
   return n < 0 ? 'late' : n <= 30 ? 'soon' : 'open';
 }
 
-export const STATE_TONE: Record<SarimDeadlineState, Tone> = { late: 'red', soon: 'amber', open: 'blue', done: 'green' };
+export const STATE_TONE: Record<OrbitDeadlineState, Tone> = { late: 'red', soon: 'amber', open: 'blue', done: 'green' };
 
-const areaOfFlow = (flow: string): SarimArea => world().opsFlows.find((x) => x.id === flow)?.area ?? world().people.managerTeam;
+const areaOfFlow = (flow: string): OrbitArea => world().opsFlows.find((x) => x.id === flow)?.area ?? world().people.managerTeam;
 
 export function contractDeadlines(contracts: Contract[], today: string): Deadline[] {
   return contractDates(contracts)
@@ -57,7 +57,7 @@ export function contractDeadlines(contracts: Contract[], today: string): Deadlin
     }));
 }
 
-export function cardDeadlines(cards: SarimCard[]): Deadline[] {
+export function cardDeadlines(cards: OrbitCard[]): Deadline[] {
   return cards.filter((c) => c.due).map((c) => ({
     id: `card:${c.id}`,
     day: c.due as string,
@@ -95,8 +95,8 @@ export function dueWithin(list: Deadline[], today: string): Deadline[] {
 
 /** Where the schedule keeps its filters (`ctx.ui`), so another screen can open it already filtered. */
 export const DEADLINE_KEYS = {
-  filters: 'sarim.data.deadlines.filters',
-  done: 'sarim.dl.done',
+  filters: 'orbit.data.deadlines.filters',
+  done: 'orbit.dl.done',
 } as const;
 
 /** Opens the schedule showing only what falls due within the week (late ones included), every other filter off. */
@@ -108,7 +108,7 @@ export function openWeek(ctx: Pick<ScreenCtx, 'ui' | 'go'>) {
 
 /** What a deadline is, in words. */
 export function whatOf(ctx: Pick<ScreenCtx, 'copy'>, d: Deadline): string {
-  const w = ctx.copy.sarimData.deadlines.what;
+  const w = ctx.copy.orbitData.deadlines.what;
   if (d.kind === 'card') return d.card?.title ?? '';
   if (d.kind === 'end') return w.end;
   if (d.kind === 'notice') return d.contract?.renewal.kind === 'tacito' ? w.noticeTacit : w.noticeOption; // allow-italian: data code compared by value
@@ -120,7 +120,7 @@ export function aboutOf(ctx: Pick<ScreenCtx, 'copy'>, d: Deadline): string {
   if (d.card) return [d.card.id, d.card.place].filter(Boolean).join(' · ');
   const c = d.contract as Contract;
   const n = d.clause ? currentVersion(c).clauses.find((x) => x.id === d.clause)?.n : undefined;
-  return n ? `${c.title} · ${ctx.copy.sarimData.common.clause(n)}` : c.title;
+  return n ? `${c.title} · ${ctx.copy.orbitData.common.clause(n)}` : c.title;
 }
 
 /** The same words as the deadlines of the contracts: `oggi`, `domani`, `tra 12 giorni`, `3 giorni fa`, `1 anno e 8 mesi fa`. (allow-italian: quotes the Italian interface) */

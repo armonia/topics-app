@@ -1,22 +1,22 @@
 /**
- * One SARIM flow (sarim-flow, `/flussi/:flow`): the one drawing of a flow (`FlowCanvas`) with the
+ * One ORBIT flow (orbit-flow, `/flussi/:flow`): the one drawing of a flow (`FlowCanvas`) with the
  * live cards at each step, the way to the list of cards with the flow on the filter, the pause (needs
  * `edit:structure`) and the try on yesterday's cases (needs `run:tests`, a
  * job with progress whose result stays on the page). Where the flow splits by case (the reports
- * of SARIM, the PEC of the Consorzio) the lanes stand side by side inside the drawing and the
+ * of ORBIT, the PEC of the Consorzio) the lanes stand side by side inside the drawing and the
  * cards at the split step go to the lane they belong to.
  */
 import type { ReactNode } from 'react';
 import { Bot } from 'lucide-react';
 import clsx from 'clsx';
 import type { ScreenCtx } from '../../../app/kit';
-import { OpsFlowScreen } from '../../../../ui/sarim/OpsFlowScreen';
-import { ActorBadge, CardLink } from '../../../../ui/sarim/WorkParts';
+import { OpsFlowScreen } from '../../../../ui/orbit/OpsFlowScreen';
+import { ActorBadge, CardLink } from '../../../../ui/orbit/WorkParts';
 import { Chip } from '../../../../ui/primitives/Chip';
 import { KeyValue, PanelHeading, PanelSection, SidePanel } from '../../../../ui/primitives/Panel';
 import { FOCUS_RING } from '../../../../ui/shell/pressable';
 import type { CanvasNode } from '../../../../ui/flows/model';
-import type { OpsFlow, SarimCard } from '../../../../ui/fixtures/sarim-org/types';
+import type { OpsFlow, OrbitCard } from '../../../../ui/fixtures/orbit-org/types';
 import { agentById, personaById, world } from '../../world';
 import { dayLabel } from '../../model/contracts';
 import { opsCanvas, splitOf } from '../../model/canvas';
@@ -33,7 +33,7 @@ import { capital, cardLink, flowStatus, noFlow, tryJobId } from './common';
 const CARDS_PER_STEP = 4;
 
 function SideRows({ flow, ctx }: { flow: OpsFlow; ctx: ScreenCtx }) {
-  const f = ctx.copy.sarimWork.flows;
+  const f = ctx.copy.orbitWork.flows;
   const side = f.side;
   const test = f.test;
   const all = liveCards(ctx.state);
@@ -128,7 +128,7 @@ function SideRows({ flow, ctx }: { flow: OpsFlow; ctx: ScreenCtx }) {
 }
 
 export function FlowPlace({ ctx, id }: { ctx: ScreenCtx; id: string }) {
-  const f = ctx.copy.sarimWork.flows;
+  const f = ctx.copy.orbitWork.flows;
   const flow = opsFlowById(id);
   const [, setFlows] = ctx.slice<FlowsSlice>(FLOWS_SLICE, FLOWS_INITIAL);
   if (!flow) return noFlow(ctx);
@@ -140,7 +140,7 @@ export function FlowPlace({ ctx, id }: { ctx: ScreenCtx; id: string }) {
   const running = job?.status === 'running';
 
   /** The cards of a step as small links, with the way to the rest in the list of cards. */
-  const cardsOf = (here: SarimCard[], stage: string): ReactNode => {
+  const cardsOf = (here: OrbitCard[], stage: string): ReactNode => {
     if (here.length === 0) return undefined;
     const shown = here.slice(0, CARDS_PER_STEP).map((c) => cardLink(c, ctx));
     return (

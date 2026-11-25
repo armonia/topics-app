@@ -7,7 +7,7 @@
  */
 import clsx from 'clsx';
 import { CircleCheck, FileSignature, Lock, PenLine, Send, ShieldCheck, Undo2 } from 'lucide-react';
-import type { ApprovalStep, Contract } from '../../../../ui/fixtures/sarim-org/types';
+import type { ApprovalStep, Contract } from '../../../../ui/fixtures/orbit-org/types';
 import type { Permission } from '../../../../ui/fixtures/org/people';
 import type { Tone } from '../../../../ui/types';
 import { accessSlice, type AccessLevel } from '../../../app/store/access-grants';
@@ -93,7 +93,7 @@ const LEVEL_TONE: Record<AccessLevel, Tone> = { none: 'neutral', view: 'neutral'
  */
 function matrixRows(ctx: ScreenCtx, c: Contract): PermissionRowModel[] {
   const t = ctx.copy.contracts.signatures;
-  const levels = ctx.copy.sarimTeam.levels;
+  const levels = ctx.copy.orbitTeam.levels;
   const slice = accessSlice(ctx.state);
   const mine = teamOfPersona(ctx.persona);
   const section: AccessRow = { kind: 'section', id: 'contracts' };

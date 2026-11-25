@@ -19,7 +19,7 @@ export function dueSoonBefore(today: string): string {
 }
 
 /** Where the filters of the inbox are kept (`ctx.ui`). */
-export const INBOX_FILTERS_KEY = 'sarim.dafare.filters';
+export const INBOX_FILTERS_KEY = 'orbit.dafare.filters';
 
 /** The fields of the inbox a token may name; values are ids (a flow, a stage). */
 export const FLOW_FIELD = 'flusso'; // allow-italian: field id of the filter state, compared by value

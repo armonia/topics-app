@@ -1,5 +1,5 @@
 /**
- * Small pieces the SARIM admin places share (programs, team, settings): who
+ * Small pieces the ORBIT admin places share (programs, team, settings): who
  * did or holds something (a person with their monogram, an agent with the
  * Bot glyph), one line per card that opens it, a link to a public source, a
  * list with its empty line. Pure drawing from the ctx, no state.
@@ -7,7 +7,7 @@
 import type { ComponentProps, ReactNode } from 'react';
 import { Bot, ChevronRight, ExternalLink } from 'lucide-react';
 import clsx from 'clsx';
-import type { SarimCard } from '../../ui/fixtures/sarim-org/types';
+import type { OrbitCard } from '../../ui/fixtures/orbit-org/types';
 import { agentById, personaById } from './world';
 import { StatCard } from '../../ui/primitives/Card';
 import { Chip } from '../../ui/primitives/Chip';
@@ -53,7 +53,7 @@ export function ActorChip({ id, ctx, short = true, className }: { id: string; ct
 }
 
 /** One card as a line: its id, its title, the column it stands in and who has it; pressing it opens the card. The arrow stays at the far right; on a phone the id and the column sit above the title. */
-export function CardLine({ card, ctx, note }: { card: SarimCard; ctx: ScreenCtx; note?: ReactNode }) {
+export function CardLine({ card, ctx, note }: { card: OrbitCard; ctx: ScreenCtx; note?: ReactNode }) {
   const stage = stageOf(card);
   const sub = note ?? card.blocked?.reason;
   const id = <span className="shrink-0 font-mono text-mini text-app-text-tertiary">{card.id}</span>;

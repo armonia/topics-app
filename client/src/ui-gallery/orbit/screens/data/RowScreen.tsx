@@ -1,5 +1,5 @@
 /**
- * sarim-data-row: one row of a table of «Dati», with everything it carries. (allow-italian: quotes the Italian interface)
+ * orbit-data-row: one row of a table of «Dati», with everything it carries. (allow-italian: quotes the Italian interface)
  * A card shows its fields, the values the agent read with the passage and the
  * confidence, the proposal, the stages it went through, its originals, and
  * the laws and procedures that cite it; it opens on the kanban, in the stages
@@ -20,11 +20,11 @@ import { Table } from '../../../../ui/primitives/Table';
 import { Timeline } from '../../../../ui/primitives/Timeline';
 import { BackButton, PaneHeader } from '../../../../ui/shell/PaneHeader';
 import { FOCUS_RING } from '../../../../ui/shell/pressable';
-import type { Contract, SarimCard } from '../../../../ui/fixtures/sarim-org/types';
+import type { Contract, OrbitCard } from '../../../../ui/fixtures/orbit-org/types';
 import type { Tone } from '../../../../ui/types';
 import { partsCiting, world } from '../../world';
-import type { KnowledgeCitation } from '../../../../ui/fixtures/sarim-org/knowledge';
-import type { SarimTown } from '../../../../ui/fixtures/sarim-org/data';
+import type { KnowledgeCitation } from '../../../../ui/fixtures/orbit-org/knowledge';
+import type { OrbitTown } from '../../../../ui/fixtures/orbit-org/data';
 import { formatDay } from '../../../../ui/fixtures/org/clock';
 import type { ScreenCtx } from '../../../app/kit';
 import { liveCards, liveContracts, stageOf } from '../../model/live';
@@ -43,7 +43,7 @@ import {
 } from './tables';
 import { PAGE_GUTTER } from '../../../../ui/shell/layout';
 
-const HIGH: SarimCard['priority'] = 'alta'; // allow-italian: data code, compared by value
+const HIGH: OrbitCard['priority'] = 'alta'; // allow-italian: data code, compared by value
 
 function Section({ title, icon, children, actions }: { title: string; icon?: typeof Database; children: ReactNode; actions?: ReactNode }) {
   return <Card title={title} icon={icon} actions={actions}>{children}</Card>;
@@ -66,7 +66,7 @@ function LinkRow({ onOpen, title, detail, chip }: { onOpen: () => void; title: s
 
 /** The laws and procedures that cite a card or a contract, each opening its part. */
 function Cited({ ctx, kind, id }: { ctx: ScreenCtx; kind: KnowledgeCitation['kind']; id: string }) {
-  const s = ctx.copy.sarimData;
+  const s = ctx.copy.orbitData;
   const list = partsCiting(kind, id);
   return (
     <Section title={s.row.sections.cited} icon={BookOpen}>
@@ -86,8 +86,8 @@ function Cited({ ctx, kind, id }: { ctx: ScreenCtx; kind: KnowledgeCitation['kin
   );
 }
 
-function CardBody({ ctx, card }: { ctx: ScreenCtx; card: SarimCard }) {
-  const s = ctx.copy.sarimData;
+function CardBody({ ctx, card }: { ctx: ScreenCtx; card: OrbitCard }) {
+  const s = ctx.copy.orbitData;
   const stage = stageOf(card);
   const row = rowsOf(tableOfCard(card), ctx.state, s, ctx.now).find((r) => r.id === card.id);
   const high = card.priority === HIGH;
@@ -186,7 +186,7 @@ function CardBody({ ctx, card }: { ctx: ScreenCtx; card: SarimCard }) {
 }
 
 function ContractBody({ ctx, contract: c }: { ctx: ScreenCtx; contract: Contract }) {
-  const s = ctx.copy.sarimData;
+  const s = ctx.copy.orbitData;
   const today = ctx.now.slice(0, 10);
   const cards = liveCards(ctx.state);
   const row = rowsOf('contratti', ctx.state, s, ctx.now).find((r) => r.id === c.id); // allow-italian: address segment, compared by value
@@ -275,8 +275,8 @@ function ContractBody({ ctx, contract: c }: { ctx: ScreenCtx; contract: Contract
   );
 }
 
-function TownBody({ ctx, town }: { ctx: ScreenCtx; town: SarimTown }) {
-  const s = ctx.copy.sarimData;
+function TownBody({ ctx, town }: { ctx: ScreenCtx; town: OrbitTown }) {
+  const s = ctx.copy.orbitData;
   const today = ctx.now.slice(0, 10);
   const contracts = liveContracts(ctx.state).filter((c) => town.contracts.includes(c.id));
   const open = townCards(ctx.state, town).filter(isOpenCard);
@@ -339,7 +339,7 @@ function TownBody({ ctx, town }: { ctx: ScreenCtx; town: SarimTown }) {
 }
 
 export function RowScreen({ ctx, table, rowId }: { ctx: ScreenCtx; table: string; rowId: string }) {
-  const s = ctx.copy.sarimData;
+  const s = ctx.copy.orbitData;
   const t: TableId = isTable(table) ? table : TABLE_IDS[0];
   const list = isTable(table) ? rowsInView(ctx, t, rowId) : [];
   const index = list.findIndex((r) => r.id === rowId);
@@ -365,7 +365,7 @@ export function RowScreen({ ctx, table, rowId }: { ctx: ScreenCtx; table: string
       {card && <Button icon={Layers} onClick={() => openDaFare(ctx, { view: 'stages', flow: card.flow })}>{s.row.openStages}</Button>}
       {card && <Button variant="primary" icon={ArrowRight} onClick={() => ctx.go(SP.card(card.id))}>{s.row.openCard}</Button>}
       {row.contract && <Button variant="primary" icon={ArrowRight} onClick={() => ctx.go(SP.contract(row.id))}>{s.row.openContract}</Button>}
-      {row.town && <Button icon={ExternalLink} onClick={() => openExternal(ctx, (row.town as SarimTown).source.url)}>{s.row.openSource}</Button>}
+      {row.town && <Button icon={ExternalLink} onClick={() => openExternal(ctx, (row.town as OrbitTown).source.url)}>{s.row.openSource}</Button>}
     </>
   );
   return (
@@ -380,7 +380,7 @@ export function RowScreen({ ctx, table, rowId }: { ctx: ScreenCtx; table: string
       <KnowledgeNav ctx={ctx} active="data" />
       {ctx.phone && <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-app-border px-4 py-2">{actions}</div>}
       <div className={`min-h-0 flex-1 overflow-y-auto ${PAGE_GUTTER} py-5`}>
-        {row.card ? <CardBody ctx={ctx} card={row.card} /> : row.contract ? <ContractBody ctx={ctx} contract={row.contract} /> : <TownBody ctx={ctx} town={row.town as SarimTown} />}
+        {row.card ? <CardBody ctx={ctx} card={row.card} /> : row.contract ? <ContractBody ctx={ctx} contract={row.contract} /> : <TownBody ctx={ctx} town={row.town as OrbitTown} />}
       </div>
     </div>
   );

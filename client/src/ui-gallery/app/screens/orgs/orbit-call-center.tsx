@@ -1,22 +1,22 @@
 /**
- * s03 «Call center» of SARIM: the call that rings, the form the AI fills from
+ * s03 «Call center» of ORBIT: the call that rings, the form the AI fills from
  * what is said, the items that wait for a person, and the calls already
- * handled. A call and an item each have an address (`/sarim/call-center/<id>`).
+ * handled. A call and an item each have an address (`/orbit/call-center/<id>`).
  */
 import { Headset } from 'lucide-react';
 import { Button } from '../../../../ui/primitives/Button';
 import { EmptyState } from '../../../../ui/primitives/EmptyState';
-import { CallCenterScreen } from '../../../../ui/sarim/CallCenterScreen';
-import { CallDetail } from '../../../../ui/sarim/CallDetail';
-import { TicketDetail } from '../../../../ui/sarim/TicketDetail';
-import type { CallRowModel, TicketModel } from '../../../../ui/sarim/model';
-import { INCOMING_CALL, RECENT_CALLS, TURN_CHOICES, type CallField, type QueueItemSeed } from '../../../../ui/fixtures/sarim';
+import { CallCenterScreen } from '../../../../ui/orbit/CallCenterScreen';
+import { CallDetail } from '../../../../ui/orbit/CallDetail';
+import { TicketDetail } from '../../../../ui/orbit/TicketDetail';
+import type { CallRowModel, TicketModel } from '../../../../ui/orbit/model';
+import { INCOMING_CALL, RECENT_CALLS, TURN_CHOICES, type CallField, type QueueItemSeed } from '../../../../ui/fixtures/orbit';
 import type { ScreenCtx } from '../../kit';
 import { P } from '../../paths';
 import {
-  SARIM_INITIAL, callModel, callValues, findCall, findItem, itemState, liveService, openItems, ticketFromCall,
-  type SarimState,
-} from './sarim-state';
+  ORBIT_INITIAL, callModel, callValues, findCall, findItem, itemState, liveService, openItems, ticketFromCall,
+  type OrbitState,
+} from './orbit-state';
 
 const STEP_MS = 1100;
 
@@ -25,7 +25,7 @@ const clockTime = (iso: string) => iso.slice(11, 16);
 
 export function renderCallCenter(selected: string | undefined, ctx: ScreenCtx) {
   const c = ctx.copy.orgs.callCenter;
-  const [st, setSt] = ctx.slice<SarimState>('sarim', SARIM_INITIAL);
+  const [st, setSt] = ctx.slice<OrbitState>('orbit', ORBIT_INITIAL);
   const [showErrors, setShowErrors] = ctx.ui<Record<string, boolean>>('callcenter.errors', {});
   const open = openItems(st);
   const time = clockTime(ctx.now);
@@ -102,9 +102,9 @@ export function renderCallCenter(selected: string | undefined, ctx: ScreenCtx) {
               },
             };
           });
-          log(c.logConfirmed(item.title, item.order), P.sarimCallCenter(id));
-          ctx.notify({ title: c.notifyOrder(item.order), body: item.title, path: P.sarimCallCenter(id), tone: 'ok' });
-          ctx.toast({ tone: 'ok', title: c.toastConfirmed, body: c.orderOpened(item.order), action: { label: c.toastOpen, path: P.sarimCallCenter(id) } });
+          log(c.logConfirmed(item.title, item.order), P.orbitCallCenter(id));
+          ctx.notify({ title: c.notifyOrder(item.order), body: item.title, path: P.orbitCallCenter(id), tone: 'ok' });
+          ctx.toast({ tone: 'ok', title: c.toastConfirmed, body: c.orderOpened(item.order), action: { label: c.toastOpen, path: P.orbitCallCenter(id) } });
         },
       });
     };
@@ -114,7 +114,7 @@ export function renderCallCenter(selected: string | undefined, ctx: ScreenCtx) {
       const next = TURN_CHOICES[(at + 1) % TURN_CHOICES.length];
       setService({ turn: next });
       addEvent(id, c.eventTurn(next));
-      log(c.logTurn(item.title, next), P.sarimCallCenter(id));
+      log(c.logTurn(item.title, next), P.orbitCallCenter(id));
       ctx.toast({ tone: 'info', title: c.toastTurn(next) });
     };
     const callBack = () => {
@@ -134,7 +134,7 @@ export function renderCallCenter(selected: string | undefined, ctx: ScreenCtx) {
             });
             ctx.toast({ tone: 'error', title: c.toastNoAnswer, body: c.toastNoAnswerBody });
           }
-          log(c.logCalledBack(item.title, ok), P.sarimCallCenter(id));
+          log(c.logCalledBack(item.title, ok), P.orbitCallCenter(id));
         },
       });
     };
@@ -168,7 +168,7 @@ export function renderCallCenter(selected: string | undefined, ctx: ScreenCtx) {
         onDone: (ok) => {
           if (!ok) return;
           setSt((prev) => ({ ...prev, answered: [...prev.answered, seed.id] }));
-          log(c.logAnswered(seed.caller), P.sarimCallCenter(seed.id));
+          log(c.logAnswered(seed.caller), P.orbitCallCenter(seed.id));
           ctx.toast({ tone: 'ok', title: c.toastAnswered });
         },
       });
@@ -188,9 +188,9 @@ export function renderCallCenter(selected: string | undefined, ctx: ScreenCtx) {
         onDone: (ok) => {
           if (!ok) return;
           setSt((prev) => ({ ...prev, seq: prev.seq + 1, tickets: [...prev.tickets, created], callTicket: { ...prev.callTicket, [seed.id]: created.id } }));
-          log(c.logOpened(created.title), P.sarimCallCenter(created.id));
+          log(c.logOpened(created.title), P.orbitCallCenter(created.id));
           ctx.toast({ tone: 'ok', title: c.toastOpened, body: created.title });
-          ctx.go(P.sarimCallCenter(created.id));
+          ctx.go(P.orbitCallCenter(created.id));
         },
       });
     };
@@ -202,7 +202,7 @@ export function renderCallCenter(selected: string | undefined, ctx: ScreenCtx) {
         onField={(field, value) => setSt((prev) => ({ ...prev, forms: { ...prev.forms, [seed.id]: { ...prev.forms[seed.id], [field as CallField]: value } } }))}
         onUseSuggestion={(street) => setSt((prev) => ({ ...prev, forms: { ...prev.forms, [seed.id]: { ...prev.forms[seed.id], street } } }))}
         onOpenReport={ctx.allow('edit:data', openReport)}
-        onGoReport={() => { const t = model.ticketId; if (t) ctx.go(P.sarimCallCenter(t)); }}
+        onGoReport={() => { const t = model.ticketId; if (t) ctx.go(P.orbitCallCenter(t)); }}
         reportTitle={denied}
       />
     );
@@ -213,7 +213,7 @@ export function renderCallCenter(selected: string | undefined, ctx: ScreenCtx) {
   else if (call) detail = renderCall(call);
   else if (selected) {
     detail = (
-      <EmptyState icon={Headset} title={c.notFound} action={<Button onClick={() => ctx.go(P.sarimCallCenter())}>{c.backToQueue}</Button>}>{c.notFoundBody}</EmptyState>
+      <EmptyState icon={Headset} title={c.notFound} action={<Button onClick={() => ctx.go(P.orbitCallCenter())}>{c.backToQueue}</Button>}>{c.notFoundBody}</EmptyState>
     );
   }
 
@@ -221,10 +221,10 @@ export function renderCallCenter(selected: string | undefined, ctx: ScreenCtx) {
   return (
     <CallCenterScreen
       incoming={{ id: INCOMING_CALL.id, caller: INCOMING_CALL.caller, status: incomingStatus, selected: incomingSelected }}
-      onSelectIncoming={() => ctx.go(P.sarimCallCenter(INCOMING_CALL.id))}
+      onSelectIncoming={() => ctx.go(P.orbitCallCenter(INCOMING_CALL.id))}
       queue={queueRows}
       recent={recentRows}
-      onSelect={(id) => ctx.go(P.sarimCallCenter(id))}
+      onSelect={(id) => ctx.go(P.orbitCallCenter(id))}
       copy={ctx.copy}
       phone={ctx.phone}
     >
