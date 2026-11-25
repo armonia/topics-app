@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MAX_REDUCED, coversOf, scopeE2e, specFilesOfList } from "./ci-impact";
+import { MAX_REDUCED, coversOf, failedImpact, planFiles, scopeE2e, specFilesOfList } from "./ci-impact";
 
 const spec = (name: string, text = "") => ({ file: `tests/e2e/${name}`, text });
 const SPECS = [
@@ -65,15 +65,40 @@ describe("scopeE2e", () => {
     expect(scope.kind === "reduced" && scope.files).toHaveLength(4);
   });
 
+  test("a css, sql or shell file is traced to no spec and runs the whole tier", () => {
+    const read = () => "x";
+    for (const f of ["client/src/index.css", "server/migrations/001_init.sql", "scripts/start-test-server.sh"]) {
+      expect(scopeE2e([f], SPECS, read).kind).toBe("full");
+    }
+  });
+
+  test("prose and assets stay inert, and a deleted untraceable file blames nobody", () => {
+    expect(scopeE2e(["CHANGELOG.md", "client/public/logo.png"], SPECS, () => "x").kind).toBe("reduced");
+    expect(scopeE2e(["scripts/gone.sh"], SPECS, noFile).kind).toBe("reduced");
+  });
+
   test("a change that reaches more than the cap is the whole tier", () => {
     const many = Array.from({ length: MAX_REDUCED + 1 }, (_, i) => `tests/e2e/spec-${i}.spec.ts`);
     expect(scopeE2e(many, SPECS, noFile).kind).toBe("full");
   });
 });
 
+describe("failedImpact", () => {
+  test("runs the whole tier and does not mark the tree as judged", () => {
+    const i = failedImpact(new Error("boom"));
+    expect(i.e2e.kind).toBe("full");
+    expect(i.unit.kind).toBe("full");
+    expect(i.reduced).toBe(true);
+  });
+});
+
 describe("helpers", () => {
   test("coversOf reads every requirement id", () => {
     expect(coversOf(" * @covers A-1\n * @covers BB2-30")).toEqual(["A-1", "BB2-30"]);
+  });
+
+  test("planFiles merges the selection with --only-changed, sorted and unique", () => {
+    expect(planFiles(["b.spec.ts", "a.spec.ts"], ["c.spec.ts", "a.spec.ts"])).toEqual(["a.spec.ts", "b.spec.ts", "c.spec.ts"]);
   });
 
   test("specFilesOfList names the spec files of a Playwright list", () => {

@@ -60,6 +60,9 @@ const EVERYTHING_PATTERNS: readonly RegExp[] = [
 /** Paths a source change can be traced from, to the specs that draw them. */
 const LINKABLE_SOURCE = /^(client\/src|server|shared|relay|cli)\/.*\.(ts|tsx)$/;
 
+/** Tracked files no spec can read: prose and assets. Anything else unlinked is blamed, never skipped. */
+const INERT_FILE = /\.(md|mdx|txt|png|jpe?g|gif|svg|ico|webp|woff2?)$/i;
+
 export type E2eScope = { kind: "full"; reason: string } | { kind: "reduced"; files: string[]; reason: string };
 
 const isTestFile = (f: string) => /\.test\.tsx?$/.test(f);
@@ -99,7 +102,11 @@ export function scopeE2e(
       }
       continue;
     }
-    if (!LINKABLE_SOURCE.test(file)) continue;
+    if (!LINKABLE_SOURCE.test(file)) {
+      // A css, sql or shell file is read by the bundle or the test server, with no import path to a spec.
+      if (INERT_FILE.test(file) || read(file) === null) continue;
+      return { kind: "full", reason: `${file} is not traceable to a spec` };
+    }
     const linked = selectSpecs([file], specs as { file: string; text: string }[]);
     if (linked.length === 0) {
       // Deleted files and pure type files have no DOM to trace: only a file that still exists is blamed.
@@ -136,11 +143,34 @@ export function specFilesOfList(json: string): string[] {
   return [...files].sort();
 }
 
+/** The reduced selection plus what `--only-changed` added, sorted and without repeats. */
+export function planFiles(selected: readonly string[], onlyChanged: readonly string[]): string[] {
+  return [...new Set([...selected, ...onlyChanged])].sort();
+}
+
+/** Specs `playwright test --only-changed` (1.46+) reads from the import graph. Throws when Playwright cannot answer. */
+export function onlyChangedSpecs(base: string, cwd: string = process.cwd()): string[] {
+  const listed = spawnSync("npx", ["playwright", "test", "--list", "--reporter=json", `--only-changed=${base}`], {
+    cwd,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    shell: process.platform === "win32",
+  });
+  if (listed.status !== 0) throw new Error(`playwright exited ${listed.status}`);
+  return specFilesOfList(listed.stdout);
+}
+
 export interface Impact {
   e2e: E2eScope;
   unit: { kind: "tests"; tests: string[] } | { kind: "full"; reason: string };
   /** True when this run is a strict subset of the push run: its tree is not judged. */
   reduced: boolean;
+}
+
+/** The impact when the estimate itself failed: the whole tier, and NO judged mark (`reduced: true`). */
+export function failedImpact(e: unknown): Impact {
+  const reason = `impact failed: ${(e as Error).message}`;
+  return { e2e: { kind: "full", reason }, unit: { kind: "full", reason }, reduced: true };
 }
 
 export function impactOf(base: string, cwd: string = process.cwd()): Impact {
@@ -175,21 +205,14 @@ if (import.meta.main) {
   try {
     impact = impactOf(base);
   } catch (e) {
-    const reason = `impact failed: ${(e as Error).message}`;
-    impact = { e2e: { kind: "full", reason }, unit: { kind: "full", reason }, reduced: false };
+    impact = failedImpact(e);
   }
   console.log(`ci-impact: e2e ${impact.e2e.kind} (${impact.e2e.reason}); unit ${impact.unit.kind}${impact.unit.kind === "tests" ? ` (${impact.unit.tests.length} files)` : ` (${impact.unit.reason})`}`);
   if (out) writeFileSync(out, JSON.stringify(impact, null, 2));
   const planOut = arg("--plan-out");
   if (planOut && impact.e2e.kind === "reduced") {
-    const listed = spawnSync("npx", ["playwright", "test", "--list", "--reporter=json", `--only-changed=${base}`], {
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      shell: process.platform === "win32",
-    });
     try {
-      if (listed.status !== 0) throw new Error(`playwright exited ${listed.status}`);
-      const files = [...new Set([...impact.e2e.files, ...specFilesOfList(listed.stdout)])].sort();
+      const files = planFiles(impact.e2e.files, onlyChangedSpecs(base));
       writeFileSync(planOut, JSON.stringify({ files }));
       console.log(`ci-impact: reduced e2e plan of ${files.length} specs (${files.length - impact.e2e.files.length} from --only-changed)`);
     } catch (e) {

@@ -14,10 +14,10 @@
  * USAGE (needs `gh` logged in and network)
  *   bun run scripts/ci-impact-measure.ts [--reds 30] [--limit 200]
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { impactOf } from "./ci-impact.ts";
+import { impactOf, onlyChangedSpecs, planFiles } from "./ci-impact.ts";
 
 const REPO = "armonia/topics-app";
 const REPO_URL = `https://github.com/${REPO}.git`;
@@ -70,6 +70,8 @@ function replay(run: Run): { e2e: Set<string> | "full"; unit: Set<string> | "ful
   try {
     sh(["git", "fetch", "--quiet", REPO_URL, run.headSha]);
     sh(["git", "worktree", "add", "--detach", "--quiet", dir, run.headSha]);
+    // The replay worktree has no dependencies of its own: borrow ours so Playwright can answer `--only-changed`.
+    if (existsSync(join(process.cwd(), "node_modules"))) symlinkSync(join(process.cwd(), "node_modules"), join(dir, "node_modules"), "junction");
     const base = sh(["git", "rev-parse", `${run.headSha}^1`], dir).trim();
     sh(["git", "fetch", "--quiet", REPO_URL, base], dir);
     // selectSpecs reads the changed sources relative to the working directory.
@@ -81,10 +83,21 @@ function replay(run: Run): { e2e: Set<string> | "full"; unit: Set<string> | "ful
     } finally {
       process.chdir(here);
     }
+    // The real plan adds what `--only-changed` reads from the import graph; when Playwright cannot
+    // answer, ci.yml runs the whole tier, so the replay counts it as full too.
+    let e2e: Set<string> | "full" = "full";
+    let e2eWhy = impact.e2e.reason;
+    if (impact.e2e.kind === "reduced") {
+      try {
+        e2e = new Set(planFiles(impact.e2e.files, onlyChangedSpecs(base, dir)));
+      } catch (e) {
+        e2eWhy = `--only-changed unusable: ${(e as Error).message}`;
+      }
+    }
     return {
-      e2e: impact.e2e.kind === "full" ? "full" : new Set(impact.e2e.files),
+      e2e,
       unit: impact.unit.kind === "full" ? "full" : new Set(impact.unit.tests),
-      why: { e2e: impact.e2e.reason, unit: impact.unit.kind === "full" ? impact.unit.reason : "" },
+      why: { e2e: e2eWhy, unit: impact.unit.kind === "full" ? impact.unit.reason : "" },
     };
   } finally {
     Bun.spawnSync(["git", "worktree", "remove", "--force", dir]);

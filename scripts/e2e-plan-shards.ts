@@ -120,6 +120,19 @@ export function selectorCollisions(files: string[]): Array<{ selector: string; m
   return out;
 }
 
+/** The tier's files a reduced plan keeps. */
+export function restrictToOnly(files: string[], only: ReadonlySet<string>): string[] {
+  return files.filter((f) => only.has(f));
+}
+
+/**
+ * The text of a shard file. A piece with nothing in it is the EMPTY string: the shard step then
+ * runs nothing instead of falling back to `--shard=i/N` and running a slice of the whole tier.
+ */
+export function shardFileBody(files: string[]): string {
+  return files.length ? files.map(specSelector).join("\n") + "\n" : "";
+}
+
 /** LPT: dal più lento al più veloce, ognuno nel secchio finora meno carico. */
 export function planShards(
   files: string[],
@@ -186,7 +199,7 @@ if (import.meta.main) {
     console.error("[plan] nessuna spec elencata.");
     process.exit(1);
   }
-  if (only) files = files.filter((f) => only.has(f));
+  if (only) files = restrictToOnly(files, only);
   // Più shard che file significherebbe secchi vuoti, e uno shard senza elenco
   // non ha modo di dire "non eseguire niente": tornerebbe alla ripartizione
   // nativa e rifarebbe 1/N di TUTTA la suite. Meglio dirlo e lasciare che chi
@@ -213,7 +226,7 @@ if (import.meta.main) {
     mkdirSync(outDir, { recursive: true });
     buckets.forEach((b, i) => {
       // SELETTORI, non nomi: vedi `specSelector`.
-      writeFileSync(resolve(outDir, `shard-${i + 1}.txt`), b.files.length ? b.files.map(specSelector).join("\n") + "\n" : "");
+      writeFileSync(resolve(outDir, `shard-${i + 1}.txt`), shardFileBody(b.files));
     });
   }
 
