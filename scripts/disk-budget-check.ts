@@ -12,7 +12,8 @@
  *     `.jsonl` under `<app data>/agents/*\/sessions` older than
  *     `TOPICS_TRANSCRIPT_COMPRESS_DAYS` (default 7) is gzipped IN PLACE, never
  *     deleted (`server/lib/transcript-retention.ts`).
- *   - BACKUPS (`backups`, `db-backups`): only the newest `TOPICS_BACKUP_KEEP` (default 3) copies stay.
+ *   - AUTOMATIC DB COPIES in `db-backups` (`topics-pre-<hash>-<date>.db`): only the newest
+ *     `TOPICS_BACKUP_KEEP` (default 3) stay. Named copies and `backups` are never touched.
  *   - MEDIA stays opt-in (`server/lib/media-retention.ts`): a file here can be
  *     referenced by a live message or task preview, and this script never
  *     opens the live database to check, so nothing is deleted unless an
@@ -25,7 +26,7 @@
  * Exit code: 0 within budget, 1 over budget.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, statSync, unlinkSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, statSync, unlinkSync, readFileSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -139,20 +140,21 @@ function pruneExpiredMedia(mediaDir: string, env: NodeJS.ProcessEnv): string[] {
   return expired;
 }
 
-/** Keeps the newest `TOPICS_BACKUP_KEEP` copies in a backup folder (top-level entries) and removes the rest. */
+/** Keeps the newest `TOPICS_BACKUP_KEEP` automatic copies (files named by Topics) and removes the older ones. */
 function pruneOldBackups(dir: string, env: NodeJS.ProcessEnv): string[] {
   if (!existsSync(dir)) return [];
   const keep = backupKeepCount(env);
   const entries = readdirSync(dir).flatMap((name) => {
     try {
-      return [{ id: join(dir, name), name, mtimeMs: statSync(join(dir, name)).mtimeMs }];
+      const st = statSync(join(dir, name));
+      return st.isFile() ? [{ id: join(dir, name), name, mtimeMs: st.mtimeMs }] : [];
     } catch {
       return [];
     }
   });
   const expired = expiredBackupEntries(entries, keep);
   for (const path of expired) {
-    try { rmSync(path, { recursive: true, force: true }); } catch { /* best effort */ }
+    try { unlinkSync(path); } catch { /* best effort */ }
   }
   return expired;
 }
@@ -177,7 +179,7 @@ if (dbBytes === 0) {
 
 const prunedLogs = pruneExpiredLogs(join(home, "logs"), process.env);
 const compressedTranscripts = compressExpiredTranscripts(join(appDataDir, "agents"), process.env);
-const prunedBackups = ["backups", "db-backups"].flatMap((n) => pruneOldBackups(join(homedir(), ".topics", n), process.env));
+const prunedBackups = pruneOldBackups(join(homedir(), ".topics", "db-backups"), process.env);
 const prunedMedia = pruneExpiredMedia(join(homedir(), ".topics", "media"), process.env);
 
 /**

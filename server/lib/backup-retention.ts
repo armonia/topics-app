@@ -1,6 +1,9 @@
 /**
- * GENERIC EXPIRY FOR BACKUP FOLDERS (`db-backups`, `backups`): keep the
- * newest N copies, drop the rest. A SQLite copy is a `.db` plus optional
+ * EXPIRY FOR THE AUTOMATIC DATABASE COPIES in `db-backups`: keep the newest N,
+ * drop the rest. ONLY entries named the way Topics writes them
+ * (`topics-pre-<hash>-<date>.db`) are candidates; anything else (named copies
+ * made by hand before an irreversible operation, lists, recovery folders) is
+ * never listed as expired. `backups` is not pruned at all. A SQLite copy is a `.db` plus optional
  * `-wal` / `-shm` siblings: they form ONE copy and go together.
  *
  * `TOPICS_BACKUP_KEEP` sets N (default 3). Zero or a negative value disables
@@ -25,15 +28,23 @@ export function backupKeepCount(env: NodeJS.ProcessEnv = process.env): number {
   return Number.isFinite(n) ? Math.floor(n) : DEFAULT_KEEP;
 }
 
+/** `topics-pre-<hex hash>-<date>[-<time>].db` and its `-wal` / `-shm` siblings. */
+const AUTOMATIC_COPY = /^topics-pre-[0-9a-f]{7,40}-\d{8}(?:-\d{4,6})?\.db(?:-wal|-shm)?$/;
+
+function isAutomaticBackupName(name: string): boolean {
+  return AUTOMATIC_COPY.test(name);
+}
+
 function copyName(name: string): string {
   return name.replace(/-(wal|shm)$/, "");
 }
 
-/** The ids of the entries belonging to copies older than the newest `keep`. Empty when `keep` is not positive. */
+/** The ids of the automatic copies older than the newest `keep`. Empty when `keep` is not positive. */
 export function expiredBackupEntries(entries: readonly BackupEntryStat[], keep: number): string[] {
   if (keep <= 0) return [];
   const copies = new Map<string, { newest: number; ids: string[] }>();
   for (const e of entries) {
+    if (!isAutomaticBackupName(e.name)) continue;
     const key = copyName(e.name);
     const c = copies.get(key) ?? { newest: 0, ids: [] };
     c.newest = Math.max(c.newest, e.mtimeMs);
