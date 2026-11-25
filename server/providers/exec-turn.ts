@@ -5,6 +5,7 @@
  */
 import { spawn, type ChildProcess } from "child_process";
 import { PROVIDER_TURN_TIMEOUT_MS } from "../lib/turn-deadline";
+import { childExited } from "./child-exit";
 
 export const KILL_GRACE_MS = 3_000;
 
@@ -100,4 +101,16 @@ export function spawnCollected(bin: string, args: string[], cwd: string, env: Re
     } catch { /* The process may already have closed. */ }
   }, Math.min(PROVIDER_TURN_TIMEOUT_MS, Math.max(1, timeoutMs ?? PROVIDER_TURN_TIMEOUT_MS)));
   return { child, out, timer };
+}
+
+/** Terminates every running child (SIGTERM, then SIGKILL after the grace) and resolves once they have exited. */
+export function stopAllChildren(children: Map<string, ChildProcess>): Promise<void> {
+  const exits: Promise<void>[] = [];
+  for (const child of children.values()) {
+    try { child.kill("SIGTERM"); } catch { /* best-effort: the child may already have exited */ }
+    setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* best-effort: the child may already have exited */ } }, KILL_GRACE_MS);
+    exits.push(childExited(child, KILL_GRACE_MS + 500));
+  }
+  children.clear();
+  return Promise.all(exits).then(() => undefined);
 }

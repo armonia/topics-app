@@ -199,7 +199,7 @@ async function seedChat(request: APIRequestContext, name: string, count: number,
 async function openAtRest(page: Page, request: APIRequestContext, chat: { topicId: string; name: string }, needle: string) {
   const topicId = chat.topicId;
   await resetPaneStore(request, [topicId]);
-  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
   await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), topicId);
   await goToApp(page);
   await page.keyboard.press("Escape");

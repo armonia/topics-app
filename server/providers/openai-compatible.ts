@@ -33,6 +33,7 @@ import {
 } from "./openai-wire";
 import { EndpointUrlError, fetchCheckedEndpoint } from "../lib/private-endpoint-url";
 import { providerNameForEndpoint, type DirectEndpointConfig } from "../../shared/direct-endpoints";
+import { RunRegistry } from "./run-registry";
 
 const DEFAULT_TIMEOUT_MS = 180_000;
 const MODELS_TIMEOUT_MS = 8_000;
@@ -83,8 +84,7 @@ export class OpenAICompatibleProvider implements AIProvider {
   private endpoint: DirectEndpointConfig;
   private token: string | undefined;
   private started = false;
-  private active = new Map<string, AbortController>();
-  private runIdToSessionKey = new Map<string, string>();
+  private runs = new RunRegistry();
   private catalog: { until: number; result: ModelCatalog } | null = null;
   private pendingCatalog: Promise<ModelCatalog> | null = null;
 
@@ -115,9 +115,7 @@ export class OpenAICompatibleProvider implements AIProvider {
   start(): void { this.started = true; }
 
   stop(): void {
-    for (const controller of this.active.values()) controller.abort();
-    this.active.clear();
-    this.runIdToSessionKey.clear();
+    this.runs.abortAll();
     this.started = false;
   }
 
@@ -160,10 +158,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     handler: StreamHandler,
     options?: { model?: string; history?: ChatMessage[]; tools?: Tool[] },
   ): Promise<{ runId?: string }> {
-    const runId = crypto.randomUUID();
-    const controller = new AbortController();
-    this.active.set(runId, controller);
-    this.runIdToSessionKey.set(runId, sessionKey);
+    const { runId, controller } = this.runs.start(sessionKey);
 
     const model = options?.model ?? this.defaultModel();
     const history = options?.history ?? [];
@@ -256,8 +251,7 @@ export class OpenAICompatibleProvider implements AIProvider {
       else handler.onError(err?.message ?? String(error));
     } finally {
       clearTimeout(timer);
-      this.active.delete(runId);
-      this.runIdToSessionKey.delete(runId);
+      this.runs.finish(runId);
     }
 
     return { runId };
@@ -295,18 +289,7 @@ export class OpenAICompatibleProvider implements AIProvider {
   }
 
   async abort(sessionKey: string, runId?: string): Promise<void> {
-    if (runId) {
-      this.active.get(runId)?.abort();
-      this.active.delete(runId);
-      this.runIdToSessionKey.delete(runId);
-      return;
-    }
-    for (const [id, key] of this.runIdToSessionKey) {
-      if (key !== sessionKey) continue;
-      this.active.get(id)?.abort();
-      this.active.delete(id);
-      this.runIdToSessionKey.delete(id);
-    }
+    this.runs.abort(sessionKey, runId);
   }
 
   async diagnose(): Promise<ProviderDiagnostic> {
