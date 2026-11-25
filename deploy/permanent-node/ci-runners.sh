@@ -21,7 +21,7 @@
 # - persistent runners: caches in each HOME (bun, Playwright browsers) survive between
 #   jobs, and no admin token lives here to re-register ephemeral ones;
 # - HOME=/srv/rh-<i>: ci.yml derives the e2e port band from it (13910 + (i-1)*10);
-# - ci.slice with a high CPU weight (500) and a memory ceiling: on this box the CI comes first on CPU
+# - ci.slice with a high CPU weight (500) and a memory ceiling (high 16G, max 20G of 30G, floors for system.slice and topics): on this box the CI comes first on CPU
 #   and Topics (100) takes the machine when the CI is idle (decision of 10/11, applied 22/11);
 # - a job-completed hook kills what a job left running in the runner's cgroup;
 # - ci-governor (ci-governor.py): at most CI_MAX_JOBS jobs at once on the whole server, all repos, and a
@@ -82,9 +82,15 @@ cat > /etc/systemd/system/ci.slice <<'EOS'
 Description=CI runners (CI comes first on CPU, Topics when idle)
 [Slice]
 CPUWeight=500
-MemoryHigh=22G
-MemoryMax=26G
+MemoryHigh=16G
+MemoryMax=20G
 EOS
+# Keep an OOM inside ci.slice: 10 GB of the 30 GB box stay out of the CI's reach, and the kernel
+# reclaims from ci.slice before touching the node, ssh or systemd (22/11: a 3.6 GB bun froze PID 1
+# for ~3 minutes under global OOM, with ci.slice at 22G/26G).
+mkdir -p /etc/systemd/system/system.slice.d /etc/systemd/system/topics.service.d
+printf '[Slice]\nMemoryMin=2G\n' > /etc/systemd/system/system.slice.d/riserva.conf
+printf '[Service]\nMemoryMin=4G\nOOMScoreAdjust=-500\n' > /etc/systemd/system/topics.service.d/riserva.conf
 mkdir -p /etc/systemd/system/topics.service.d
 printf '[Service]\nCPUWeight=100\n' > /etc/systemd/system/topics.service.d/precedenza.conf
 # The node answers only on loopback (the Mac comes through the ssh tunnel): a server made
