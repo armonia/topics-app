@@ -1,3 +1,6 @@
+/**
+ * @covers LAND-21
+ */
 import { describe, expect, test } from "bun:test";
 import { landViaPullRequest } from "./land-via-pull-request";
 import type { GithubPort } from "./ci-evidence";
