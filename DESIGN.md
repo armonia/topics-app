@@ -210,4 +210,5 @@ barra dei menu.
 - 25/11 «c'è ancora la tabbar progetto. va bene solo il titolo e tenere la tab all'hover sul
   titolo, così da sfruttarlo per il dnd dello split» → con le tab di lato la finestra di un
   progetto non ha barra sua: il titolo è la tab (fondo al passaggio, si trascina nello split) e
-  i comandi del progetto col suo «+» stanno a destra del titolo.
+  i comandi del progetto stanno a destra del titolo. Il «+» lì no («ma il + serve ancora la?»):
+  c'è già sulla riga del progetto nella colonna.

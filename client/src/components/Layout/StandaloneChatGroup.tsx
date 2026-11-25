@@ -1125,7 +1125,7 @@ export function StandaloneChatGroup({
                   {inSplit && activePaneId && (
                     <CellHeaderCommands paneId={activePaneId} canZoom={canZoom} isZoomed={isZoomed} onToggleZoom={onToggleZoom} onReattach={handleUnsolo} />
                   )}
-                  {/* A project in front brings its own "+", which adds into it. */}
+                  {/* No "+" on a project's title: its row in the column adds into it (25/11). */}
                   {!projectInTitle && (newChatInCell || availableTypes.length > 0) && <PaneAddMenu
                     scope="standalone"
                     onNewChat={newChatInCell}

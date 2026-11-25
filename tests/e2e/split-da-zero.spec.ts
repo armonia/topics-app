@@ -291,7 +291,6 @@ test.describe("split, from zero", () => {
     mkdirSync(projectPath, { recursive: true });
     const projectName = projectPath.split("/").pop()!;
     const inner = await createTopic(request, `title-tab-in-${Date.now()}`, { projectPath, provider: "claude-code" });
-    const created: string[] = [];
     const fill = (el: HTMLElement): number => {
       const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g) ?? [];
       return m.length === 4 ? Number(m[3]) : m.length === 3 ? 1 : 0;
@@ -336,17 +335,8 @@ test.describe("split, from zero", () => {
       await expect.poll(() => title.evaluate(fill)).toBeGreaterThan(0);
       await page.screenshot({ path: test.info().outputPath("project-title-hover-1440.png") });
 
-      // Its "+" adds into the project, as the bar it replaces did.
-      const inProject = async (): Promise<string[]> => {
-        const res = await request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true });
-        const { topics } = (await res.json()) as { topics: Record<string, { id: string; projectPath?: string }> };
-        return Object.values(topics).filter((t) => t.projectPath?.endsWith(projectName)).map((t) => t.id);
-      };
-      await tools.getByTestId("pane-add-menu-trigger").click();
-      await page.getByTestId("pane-add-menu").getByTestId("pane-add-menu-new-chat").click();
-      await expect.poll(async () => (await inProject()).length, { timeout: 10_000 }).toBe(2);
-      for (const id of await inProject()) if (id !== inner.id) created.push(id);
-      await expect(win.locator("[role=\"tab\"][data-pane-id]")).toHaveCount(0);
+      // No "+" on the title: the project's row in the column has it.
+      await expect(page.locator(".pane-chrome-bar", { has: title }).getByTestId("pane-add-menu-trigger")).toHaveCount(0);
 
       // The title drags into a split: from the left of a chat to its right.
       await openBeside(page, a.name, /^(Apri a destra|Open on the right)$/);
@@ -366,7 +356,7 @@ test.describe("split, from zero", () => {
       await expect(page.locator("[data-cell-lit]")).toHaveCount(2);
       await page.screenshot({ path: test.info().outputPath("project-title-dragged-1440.png") });
     } finally {
-      for (const id of [inner.id, ...created]) await deleteTopic(request, id).catch(() => {});
+      await deleteTopic(request, inner.id).catch(() => {});
       removeTmpDir(projectPath);
     }
   });

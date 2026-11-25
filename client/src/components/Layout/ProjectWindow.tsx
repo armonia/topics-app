@@ -2,9 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, laz
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, CompactionMarker } from '../../types';
-import { createPortal } from 'react-dom';
 import { LazyPane } from './LazyPane';
-import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import { lazyWarm } from '../../lib/lazyWarm';
 import { loadBoard, loadBrowser, loadChatPane, loadDashboard, loadFileExplorer, loadFilePane, loadGitChanges, loadProcessLog, loadProjectSidebar, loadTerminal } from '../../state/pane/panePreload';
 import { useTopics, useTopicsPending } from '../../contexts/TopicsContext';
@@ -226,21 +224,14 @@ export function ProjectWindowPane({
    * valore stabile da PASSARE, non da leggere.
    */
   const railSlot = useMemo(() => document.createElement('div'), []);
-  // The bar's "+" when there is no bar: it adds INTO the project, as the bar's did.
-  const plusSlot = useMemo(() => {
-    const el = document.createElement('div');
-    el.className = 'flex items-center';
-    return el;
-  }, []);
-  // Without a bar of its own the commands sit on the window's title row, then
-  // the "+". The nodes move, so the portals inside them never remount.
+  // Without a bar of its own the commands sit on the window's title row. The
+  // node moves, so the portal inside it never remounts. No "+" there: the
+  // project's row in the column has it (asked on 25/11).
   useLayoutEffect(() => {
     if (!chromeless || !titleSlot) return;
-    titleSlot.append(railSlot, plusSlot);
-    return () => {
-      for (const node of [railSlot, plusSlot]) if (node.parentNode === titleSlot) titleSlot.removeChild(node);
-    };
-  }, [chromeless, titleSlot, railSlot, plusSlot]);
+    titleSlot.appendChild(railSlot);
+    return () => { if (railSlot.parentNode === titleSlot) titleSlot.removeChild(railSlot); };
+  }, [chromeless, titleSlot, railSlot]);
 
   // Publish this project's internal split extent (leaf columns/rows) into the
   // module registry so the STANDALONE grid can weight this project's cell when
@@ -650,22 +641,8 @@ export function ProjectWindowPane({
     windowVisible, startMission,
   ]);
 
-  // The group the title's "+" adds into: the one with the focus, else the first.
-  const plusGroupId = (focusedGroupId && groups.some((g) => g.id === focusedGroupId) ? focusedGroupId : groups[0]?.id) ?? '';
-  const plusGroupType = groups.find((g) => g.id === plusGroupId)?.type ?? 'chat';
-
   return (
     <>
-      {chromeless && createPortal(
-        <PaneAddMenu
-          scope="project"
-          onNewChat={onNewChat ? () => handleNewChatInGroup(plusGroupId) : undefined}
-          onAddPane={(type, subType) => (plusGroupId ? handleAddPaneToGroup(plusGroupId, type, subType) : handleAddPaneWhenEmpty(type, subType))}
-          availableTypes={availableTypesForGroup(plusGroupType, plusGroupId)}
-          noElectronDrag
-        />,
-        plusSlot,
-      )}
       {/* data-testid: the e2e suite scopes "project window's own tabs" queries
           to this wrapper (grid-split flatten invariant). It used to live on the
           long-dead ProjectWindow wrapper component — matching nothing — which
