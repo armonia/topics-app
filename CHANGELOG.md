@@ -2,10 +2,49 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.108 — 2026-11-25
+
+### Correzioni
+- **board** · table shows the project first, with its icon, on the design system tokens
+- **ci** · main gates green again after two lands
+- **ci** · the request_login land and the wait-branch land, made green
+- **test** · check-e2e-touched reads the fetch of its own step
+- **layout** · with tabs at the side the title is the real tab, and the project column is islands
+- **layout** · keep the front on close only on the desktop title
+- a new chat comes back after a reload; the queue chip scene leaves flight
+
+### Sotto il cofano
+- **design** · a project's window with only its title is approved
+- spec-flow D20 design system gate with the recorded debt as baseline
+- un contenitore non viene richiesto due volte, e il rimando di una card del nodo torna al nodo
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-25 [skip ci]
+- la cura dei contenitori torna d'accordo con i suoi test e con il piano
+- clear four unit reds main carries since today's lands
+- **design** · the board's table view of 25/11 is approved
+- **e2e** · the File section's card is its island, the header a row in it
+- **e2e** · the table view's seed reads like a real board
+- **e2e** · focus-pane carries the daemon token; the rail step is measured to the File island
+- **e2e** · the parked-children question starts from a step that was being worked
+
+## 2.4.107 — 2026-11-25
+
+### Correzioni
+- **tasks** · a declared wait keeps the worktree branch; a phantom delivery branch no longer pins the overflow
+
+### Sotto il cofano
+- Build OAuth popups on about:blank so the engine keeps their opener
+
 ## 2.4.106 — 2026-11-25
 
 ### Correzioni
 - **ci-governor** · a starving runner keeps its turn, a real message wakes it
+- **dispatcher** · a card cut on an open question is not resumed with the interrupted-turn nudge
+
+### Sotto il cofano
+- test expects per-host tab name, tool-surface golden regenerated (card 27cb396b)
+- Il rifiuto del land non pretende le righe github-ci nemmeno in modo before: la coda CI le misura
+- Il test dell'adozione passa dal percorso vero: la figlia rilancia, viene archiviata, il servizio del genitore resta vivo
+- register browser:login-request in outbound schema tests, undo unrelated json reformat
 
 ## 2.4.105 — 2026-11-25
 
@@ -22,21 +61,28 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio
 - La compressione notturna tocca solo i transcript delle sessioni, non il lavoro degli agenti
 - E2E-VIDEO-01: dichiara il requisito dei video e2e e il @covers del test
+- Il controllo sui check non misurati non aspetta in modo after le righe github-ci che la CI scrive dopo il land
+- one tab per host, MCP tool-list tests know the new tool (card d20d270b)
 - Sul Mac la cartella temporanea dei test sta in /tmp: i socket non passano più 104 caratteri
 
 ## 2.4.103 — 2026-11-25
 
 ### Sotto il cofano
 - lower ci.slice memory ceiling and reserve memory for system.slice and topics (card 0ecda178)
+- Un figlio che rilancia senza wake il servizio fermato del genitore lo lascia al genitore
 - Split server/services/tasks/shared.ts into six factory modules behind the same barrel
 - Split tasks/shared.ts: baselines and unused type exports
 - Land guard: a card's own branches include its spawned children and worktree branch
 - Main verde: covers del test usage-limit e baseline dopo i land della notte
+- Land refuses a delivery with null checks on a board that declares a bar
 - E2E clips sized to the viewport, not Playwright's 800x500
+- Chat nuova: il primo messaggio in volo si salva su disco e torna nel campo dopo un riavvio
 - Test di contratto: leggono i moduli di shared/board.ts dopo lo split
+- Spazio mancante nell'import di firstSend
 - Node deliveries emit task-deliver so the retrospective hook sees them
 - Re-measure the pre-review gate: failures are the 401 auth env, same on the parent commit
 - Re-measure the pre-review gate after bun install restored jscpd
+- Land also refuses a delivery whose bar was measured only in part
 - Sub-agent no-news replies on a later turn no longer wake the parent
 - seed-before-navigation uses /manifest.json, not /favicon.ico
 - Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290
@@ -44,6 +90,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La spazzata del land-push spinge main una volta per repo, e ripete un rifiuto solo se cambia
 - Una corsa vecchia che il nodo non ha più non si scrive come errore
 - Un transcript troppo grande per cercarci un fork si dice una volta, non a ogni giro
+- Land refuses an unmeasured delivery on every path, not only the automatic one
+- Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13
+- declare BROWSER-LOGIN-01, move the login branch out of browser-bridge (card 2d18548c)
 - Main verde dopo lo split di tasks/shared.ts: import rimasti e test che leggevano il file vecchio
 
 ## 2.4.102 — 2026-11-25
@@ -145,6 +194,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Rimette verdi i rossi della PR dei worktree standard
 
 ## 2.4.96 — 2026-11-24
+
+### Novità
+- **agent** · request_login records a notice linking to the topic, plus a 1440 px e2e
 
 ### Correzioni
 - bring main's any budget and identifier gate back to green
@@ -369,6 +421,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Test dei rami su origin: tetto di 120 s ai test con repo veri
 
 ## 2.4.76 — 2026-11-22
+
+### Novità
+- **agent** · request_login opens a login tab, raises it and waits for the sign-in
 
 ### Sotto il cofano
 - Restore live-code tests deleted with dead helpers, rewritten on the live functions; fix Card.test for the removed LiveToolLine
