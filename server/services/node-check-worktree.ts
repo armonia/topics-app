@@ -20,18 +20,17 @@
  * stopped for lack of disk. So what a previous process left is discarded when
  * the server starts (`sweep`), which needs nothing from the process that died.
  *
- * ONE ROOT PER TOPICS HOME. The e2e servers run with a TOPICS_HOME of their own
- * but share $TMPDIR with production: on a shared root the boot sweep of a test
- * server would discard the checkouts production is measuring on. The daemon
- * lock is per home, so a root has one live server, and its sweep only has to
- * spare the leases of its own process.
+ * ONE ROOT PER TOPICS HOME. The checkouts live in `{worktree root}/_scratch/node-checks`
+ * (they lived in $TMPDIR until worktree-standard T2), and the worktree root derives
+ * from the server's Topics home: an e2e server (a TOPICS_HOME of its own) never
+ * shares it with production, so its boot sweep cannot discard the checkouts
+ * production is measuring on. The daemon lock is per home, so a root has one live
+ * server, and its sweep only has to spare the leases of its own process.
  */
-import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
-import { ASIDE_MARK, discardWorktree, type DiscardDeps, type DiscardGit } from "../lib/worktree-discard";
-import { topicsHome } from "./daemon-state";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { ASIDE_MARK, discardWorktree, worktreeRepoOf, type DiscardDeps, type DiscardGit } from "../lib/worktree-discard";
+import { scratchDir } from "./worktree-scratch";
 import type { NodeDeliveryCheckout } from "./node-delivery-meter";
 
 export interface NodeCheckWorktreeInput {
@@ -46,14 +45,13 @@ export interface NodeCheckWorktreeInput {
 }
 
 /**
- * The folder the server living in `home` keeps its checkouts in. Production
- * runs on the default home and keeps the folder it always had, so whatever an
- * older process left there is swept by the next boot.
+ * The folder this server keeps its checkouts in: `{worktree root}/_scratch/node-checks`.
+ * The worktree root derives from the server's own Topics home, so two servers
+ * with different homes (production, an e2e server) never share it, and no sweep
+ * of one can reach the checkouts of the other.
  */
-export function nodeCheckRoot(home: string = topicsHome(), tmp: string = tmpdir(), defaultHome: string = topicsHome({})): string {
-  const base = join(tmp, "topics-node-checks");
-  if (resolve(home) === resolve(defaultHome)) return base;
-  return `${base}-${createHash("sha1").update(resolve(home)).digest("hex").slice(0, 8)}`;
+export function nodeCheckRoot(root?: string): string {
+  return scratchDir("node-checks", root);
 }
 
 function checkPath(root: string, taskId: string): string {
@@ -77,26 +75,6 @@ export async function openNodeCheckWorktree(input: NodeCheckWorktreeInput): Prom
     head: () => input.resolveHead(path),
     release: () => discardWorktree(git, repoPath, path, input.discard),
   };
-}
-
-/**
- * The repository a linked worktree belongs to, read from its `.git` file
- * (`gitdir: <common dir>/worktrees/<name>`). Null when the file is gone or does
- * not describe a linked worktree: then no git command is run for it, only the
- * folder goes, and its registration (prunable) goes with the next discard in
- * that repository. Such a folder was what the macOS $TMPDIR cleaner made of a
- * checkout left unread for three days; with this sweep at every start none
- * gets that old.
- */
-function worktreeRepo(dir: string): string | null {
-  let text: string;
-  try { text = readFileSync(join(dir, ".git"), "utf8"); } catch { return null; }
-  const line = /^gitdir:\s*(.+)$/m.exec(text)?.[1]?.trim();
-  if (!line) return null;
-  const adminDir = resolve(dir, line);
-  if (basename(dirname(adminDir)) !== "worktrees") return null;
-  const common = dirname(dirname(adminDir));
-  return basename(common) === ".git" ? dirname(common) : common;
 }
 
 export interface NodeCheckWorktrees {
@@ -143,7 +121,7 @@ export function createNodeCheckWorktrees(deps: Omit<NodeCheckWorktreeInput, "rep
       if (leased.has(path)) continue;
       // The registration is read from the folder, or from the copy a cut release moved aside.
       const repo = [card, ...names.filter((n) => n.startsWith(card + ASIDE_MARK))]
-        .map((n) => worktreeRepo(join(deps.root, n)))
+        .map((n) => worktreeRepoOf(join(deps.root, n)))
         .find((r): r is string => r !== null) ?? null;
       await discardWorktree(deps.git, repo, path, deps.discard);
       gone.push(path);

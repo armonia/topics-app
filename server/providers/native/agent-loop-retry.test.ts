@@ -24,6 +24,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
+import { resetExhaustedAccountsForTests } from "./auth";
 import type { StreamHandler } from "../types";
 import type { RetryPolicy } from "./retry";
 import { clearProviderHold, holdForApiDown, providerHold, resetProviderHoldStore } from "../../lib/provider-hold";
@@ -311,5 +312,67 @@ describe("the native loop tries again when the API's failure is transient", () =
     expect(calls()).toBe(1);
     expect(reg.retries.length).toBe(1);
     expect(reg.errors).toEqual([]);
+  });
+});
+
+describe("the native loop goes on with the next account when one is spent", () => {
+  const creditBody = '{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}';
+  const credit400 = () => new Response(creditBody, { status: 400 });
+  let secondPath: string;
+
+  function writeAccounts() {
+    const live = Date.now() + 3_600_000;
+    writeFileSync(credentialsPath, JSON.stringify({ claudeAiOauth: { accessToken: "token-A", refreshToken: "r-A", expiresAt: live } }));
+    writeFileSync(secondPath, JSON.stringify({ anthropic_accounts: [{ access: "token-B", refresh: "r-B", expires: live }] }));
+  }
+
+  beforeAll(() => {
+    homeDir = mkdtempSync(join(tmpdir(), "native-failover-home-"));
+    ws = mkdtempSync(join(tmpdir(), "native-failover-ws-"));
+    mkdirSync(join(homeDir, ".claude"), { recursive: true });
+    mkdirSync(join(homeDir, ".jcode"), { recursive: true });
+    credentialsPath = join(homeDir, ".claude", ".credentials.json");
+    secondPath = join(homeDir, ".jcode", "auth.json");
+    process.env.HOME = homeDir;
+    delete process.env.TOPICS_CREDENTIALS_KEYCHAIN;
+  });
+
+  beforeEach(() => { resetExhaustedAccountsForTests(); writeAccounts(); });
+
+  afterAll(() => {
+    globalThis.fetch = realFetch;
+    resetExhaustedAccountsForTests();
+    if (HOME_VERA === undefined) delete process.env.HOME; else process.env.HOME = HOME_VERA;
+    for (const d of [homeDir, ws]) { try { rmSync(d, { recursive: true, force: true }); } catch { /* scratch */ } }
+  });
+
+  test("first account answers 400 credit balance, the second 200: the turn ends on the second and the first stays out", async () => {
+    const reg = fresh();
+    const calls = scriptFetch([credit400, ok(healthyRound), ok(healthyRound)], reg);
+    const out = await turn(reg);
+    expect(out.turnEnd.end).toBe("end_turn");
+    expect(reg.text).toBe("fatto");
+    expect(reg.errors).toEqual([]);
+    expect(reg.authHeaders).toEqual(["Bearer token-A", "Bearer token-B"]);
+    expect(reg.retries[0]!.delayMs).toBe(0);
+    // The next turn does not even try the spent account.
+    await turn(fresh());
+    expect(calls()).toBe(3);
+    expect(reg.authHeaders.at(-1)).toBe("Bearer token-B");
+  });
+
+  test("every account spent: one error naming them and the reset, no loop of attempts", async () => {
+    const reg = fresh();
+    const calls = scriptFetch([credit400], reg);
+    let msg = "";
+    await turn(reg).catch((e: Error) => { msg = e.message; });
+    expect(calls()).toBe(2);
+    expect(msg).toContain(".credentials.json");
+    expect(msg).toContain("auth.json");
+    expect(msg).toMatch(/resets at \d{4}-\d{2}-\d{2}T/);
+    // A turn started now does not ask the API at all.
+    const next = await turn(fresh());
+    expect(calls()).toBe(2);
+    expect(next.turnEnd).toMatchObject({ end: "error", cause: "rate-limit" });
   });
 });

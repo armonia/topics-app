@@ -15,7 +15,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import type { Worktree } from "../types";
+import type { Worktree, WorktreeSource } from "../types";
 import { randomUUID } from "node:crypto";
 
 export class WorktreeNameConflictError extends Error {
@@ -40,6 +40,10 @@ export interface WorktreeStore {
     baseRef: string | null;
     mode: "branch" | "reuse" | "detached";
     absPath: string;
+    /** Who made the checkout (migration 20261124120000); omitted = `topics`, the column default. */
+    source?: WorktreeSource;
+    /** The creator's session: its id or its transcript path. */
+    sessionRef?: string | null;
   }): Worktree;
   get(id: string): Worktree | null;
   getByName(projectId: string, name: string): Worktree | null;
@@ -65,6 +69,8 @@ export interface WorktreeStore {
       branchRenamed: boolean;
       status: "pending" | "ready" | "error";
       errorMessage: string | null;
+      /** Only a by-hand move of a checkout changes where it lives (`worktree-relocate.ts`). */
+      absPath: string;
     }>,
   ): Worktree | null;
   delete(id: string): boolean;
@@ -100,6 +106,9 @@ export function createWorktreeStore(db: Database): WorktreeStore {
     ),
     deleteRow: db.prepare(`DELETE FROM worktrees WHERE id = ?`),
   };
+  // Prepared on first use: an older schema (hand-written test tables) has no such columns,
+  // and only a row made by another creator ever writes them.
+  let setOrigin: ReturnType<typeof db.prepare> | null = null;
 
   function rowToWorktree(row: any): Worktree {
     return {
@@ -116,11 +125,13 @@ export function createWorktreeStore(db: Database): WorktreeStore {
       errorMessage: row.error_message ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      source: (row.source ?? "topics") as WorktreeSource,
+      sessionRef: row.session_ref ?? null,
     };
   }
 
   return {
-    create({ projectId, name, branchName, baseRef, mode, absPath }) {
+    create({ projectId, name, branchName, baseRef, mode, absPath, source, sessionRef }) {
       const now = new Date().toISOString();
       const id = randomUUID();
       try {
@@ -146,6 +157,10 @@ export function createWorktreeStore(db: Database): WorktreeStore {
         // SQLite UNIQUE INDEX errors mention the index name; fall through
         // for other constraint violations.
         throw err;
+      }
+      if ((source && source !== "topics") || sessionRef) {
+        setOrigin ??= db.prepare(`UPDATE worktrees SET source = ?, session_ref = ? WHERE id = ?`);
+        setOrigin.run(source ?? "topics", sessionRef ?? null, id);
       }
       const row = stmts.getById.get(id);
       if (!row) throw new Error("Worktree insert succeeded but row missing");
@@ -203,6 +218,7 @@ export function createWorktreeStore(db: Database): WorktreeStore {
               : 0
             : existing.branch_renamed,
         status: patch.status ?? existing.status,
+        abs_path: patch.absPath ?? existing.abs_path,
         error_message:
           patch.errorMessage !== undefined
             ? patch.errorMessage
@@ -210,7 +226,7 @@ export function createWorktreeStore(db: Database): WorktreeStore {
       };
       try {
         db.prepare(
-          `UPDATE worktrees SET name = ?, branch_name = ?, base_ref = ?, is_pushed = ?, branch_renamed = ?, status = ?, error_message = ?, updated_at = ? WHERE id = ?`,
+          `UPDATE worktrees SET name = ?, branch_name = ?, base_ref = ?, is_pushed = ?, branch_renamed = ?, status = ?, abs_path = ?, error_message = ?, updated_at = ? WHERE id = ?`,
         ).run(
           next.name,
           next.branch_name,
@@ -218,6 +234,7 @@ export function createWorktreeStore(db: Database): WorktreeStore {
           next.is_pushed,
           next.branch_renamed,
           next.status,
+          next.abs_path,
           next.error_message,
           now,
           id,

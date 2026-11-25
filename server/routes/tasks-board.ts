@@ -523,6 +523,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             tasks: svc.list({
               scope: "project", projectId, status: asTaskStatus(status), rootsOnly: true,
               includeOrphanSubtasks: true,
+              // The parent's board also shows the projects merged into it (accorpa).
+              includeChildBoards: true,
               labels: parseLabelsParam(params.get("labels")),
               archived,
             }),

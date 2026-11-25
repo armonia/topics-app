@@ -99,7 +99,7 @@ export function OrgRow({ org, copy, focused, onClick, onMenuSelect }: {
   const toggles = Boolean(onClick && org.nav?.length);
   const menu = onMenuSelect && org.menu?.length ? org.menu : undefined;
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
-  const label = copy.sarimShell.orgMenu;
+  const label = copy.orbitShell.orgMenu;
   return (
     <RowShell
       attention={org.attention}

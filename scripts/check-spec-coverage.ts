@@ -78,6 +78,9 @@ const SPECS = join(ROOT, "openspec", "specs");
 const CHANGES = join(ROOT, "openspec", "changes");
 const BASELINE = join(ROOT, "openspec", "coverage-baseline.json");
 
+/** The shape of a requirement id on the claim side: the same vocabulary `check-untraced-tests` reads. */
+const ID_SHAPE = /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/;
+
 /** Roots where a test can live. Outside these, a `@covers` is never seen. */
 const TEST_ROOTS = ["tests", "client/src", "server", "shared", "relay", "cli", "scripts", "native"];
 
@@ -89,7 +92,19 @@ type Requirement = {
   /** The spec says out loud that this describes code nobody wrote. */
   notBuilt: boolean;
 };
-type FileTest = { path: string; covers: string[]; annotated: string[]; titles: { id: string; title: string }[] };
+/**
+ * ONE executed unit that names two or more requirements together (D19, spec-flow "intrecci"): a single
+ * annotation `{type:"spec", description:"A B"}` (per-test) or a `@covers A+B` group (per-file).
+ * Two separate claims in one file are NOT a joint: they are two claims.
+ */
+type JointUnit = { ids: string[]; channel: "annotation" | "covers" };
+type FileTest = {
+  path: string;
+  covers: string[];
+  annotated: string[];
+  titles: { id: string; title: string }[];
+  joint: JointUnit[];
+};
 
 /** `spec` annotations that name no requirement at all: collected by R7 instead of discarded. */
 const muteAnnotations: { file: string; desc: string }[] = [];
@@ -240,12 +255,19 @@ function readTests(): FileTest[] {
       // SHAPE of the annotation alone. Nine cases across five files, measured 2026-08-26,
       // all invisible to both gates.
       const fromAnnotation: string[] = [];
+      const joint: JointUnit[] = [];
       for (const m of text.matchAll(/type:\s*["']spec["']\s*,\s*description:\s*["'`]([^"'`]+)["'`]/g)) {
-        const valid = m[1]!.split(/[,\s/]+/).filter((s: string) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(s));
+        const valid = m[1]!.split(/[,\s/]+/).filter((s: string) => ID_SHAPE.test(s));
         // A description may carry the id plus free text ("KANBAN-12 (flatten group)"): ONE
         // valid id is enough for the rest to be prose rather than a mistake.
         if (valid.length) fromAnnotation.push(...valid);
         else muteAnnotations.push({ file: f.slice(ROOT.length), desc: m[1]! });
+        // Two ids in the SAME annotation is one executed test naming both: a joint unit. It is a
+        // different fact from "this test claims A" plus "this test claims B", and the claims above
+        // are unchanged: `covers` is a set, so the same id twice never counts twice (R4 reads test
+        // TITLES and is untouched).
+        const ids = [...new Set(valid)];
+        if (ids.length >= 2) joint.push({ ids, channel: "annotation" });
       }
       // THE CLASS HAS TO CARRY THE SUFFIX, and for a while it did not.
       //
@@ -265,9 +287,18 @@ function readTests(): FileTest[] {
       // The annotation channel above never had the bug: it splits first and
       // filters after, which is why `STATUSLINE-03b` went through a week
       // earlier and nobody saw the hole.
-      const fromCovers = [...text.matchAll(/@covers\s+([A-Za-z0-9,\s-]+)/g)]
-        .flatMap((m) => m[1]!.split(/[,\s]+/))
-        .filter((s: string) => /^[A-Z][A-Z0-9-]*-\d+[a-z]?$/.test(s));
+      //
+      // `+` joins a GROUP (`@covers WORKTREE-STD-03+WORKTREE-09`): the file says its tests exercise
+      // the meeting of the two, which is what a `joint` unit is. The class used to stop at the `+`
+      // and lose the second id for every rule, R2 included. `A, B` stays two separate claims.
+      const fromCovers: string[] = [];
+      for (const m of text.matchAll(/@covers\s+([A-Za-z0-9,\s+-]+)/g)) {
+        for (const token of m[1]!.split(/[,\s]+/)) {
+          const ids = token.split("+").filter((s: string) => ID_SHAPE.test(s));
+          fromCovers.push(...ids);
+          if (new Set(ids).size >= 2) joint.push({ ids: [...new Set(ids)], channel: "covers" });
+        }
+      }
       const covers = [...new Set([...fromAnnotation, ...fromCovers])];
       const titles = [...text.matchAll(/\b(?:test|it)\(\s*["'`]([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+[a-z]?)[^"'`]*?:\s*([^"'`]{0,90})/g)].map(
         (m) => ({ id: m[1]!, title: (m[2] ?? "").trim() }),
@@ -276,7 +307,7 @@ function readTests(): FileTest[] {
       // outcome. A `@covers` names a FILE, and a file holds many tests, so it is evidence of
       // a link — never evidence that the requirement passed.
       const annotated = [...new Set(fromAnnotation)];
-      if (covers.length || titles.length) out.push({ path: f.slice(ROOT.length), covers, annotated, titles });
+      if (covers.length || titles.length) out.push({ path: f.slice(ROOT.length), covers, annotated, titles, joint });
     }
   }
   return out;
@@ -483,10 +514,28 @@ function writeCoverageMap(dest: string): void {
         }),
     };
   }
-  writeFileSync(dest, JSON.stringify({ version: 1, requirements: requirementsOut }, null, 2) + "\n");
+  // `joint`: the executed units that name two or more requirements together, for spec-flow's D19
+  // (`check-intersections`). An id that is not a requirement is dropped here (R1 already says it is
+  // dangling): the gate reads a joint unit naming an unknown id as a broken proof, and one typo
+  // would turn every intersection red for a reason that is not about intersections.
+  const jointSeen = new Set<string>();
+  const joint: { ids: string[]; file: string; channel: JointUnit["channel"] }[] = [];
+  for (const t of fileTest) {
+    for (const u of t.joint) {
+      const ids = u.ids.filter((id) => requirementById.has(id)).sort();
+      if (ids.length < 2) continue;
+      const file = t.path.replace(/^\//, "");
+      const key = `${file}|${u.channel}|${ids.join("+")}`;
+      if (jointSeen.has(key)) continue;
+      jointSeen.add(key);
+      joint.push({ ids, file, channel: u.channel });
+    }
+  }
+  joint.sort((a, b) => a.file.localeCompare(b.file) || a.ids.join("+").localeCompare(b.ids.join("+")));
+  writeFileSync(dest, JSON.stringify({ version: 1, requirements: requirementsOut, joint }, null, 2) + "\n");
   const withClaims = Object.values(requirementsOut).filter((r) => r.claims.length).length;
   const perTest = Object.values(requirementsOut).filter((r) => r.claims.some((c) => c.channel === "annotation")).length;
-  console.log(`mappa di copertura -> ${dest}: ${Object.keys(requirementsOut).length} requisiti, ${withClaims} dichiarati, ${perTest} con una prova per-test`);
+  console.log(`mappa di copertura -> ${dest}: ${Object.keys(requirementsOut).length} requisiti, ${withClaims} dichiarati, ${perTest} con una prova per-test, ${joint.length} prove congiunte`);
   if (outcomes.size) {
     const withUnit = Object.values(requirementsOut).filter((r) => r.claims.some((c) => c.outcome)).length;
     const redUnit = Object.values(requirementsOut).filter((r) => r.claims.some((c) => c.outcome === "failed")).length;

@@ -2,6 +2,8 @@ import type { ProvidersSnapshot, ProviderSnapshotEntry, Project, Worktree } from
 import type { ToolGrant, DiscordDetailLevel, AgentRuntime } from '../../../shared/types';
 import type { DirectEndpointInput, DirectEndpointView } from '../../../shared/direct-endpoints';
 import type { CalendarAgenda } from '../../../shared/calendar';
+import type { RelocateAction, RelocateCheckPayload, RelocateResultPayload, WorktreePlanPayload } from '../../../shared/worktree-plan';
+import type { MachineWorktreeLine } from '../../../shared/worktree-summary';
 import type { McpFleetStatus } from '../../../shared/session-environment';
 import type { SessionEnvironment } from '../../../shared/session-environment';
 import type { ProfileStats, DiscordPresenceStatus, DiscordActivity as DiscordActivityPreview } from '../../../shared/types';
@@ -264,6 +266,21 @@ export interface AppBehaviorSettings {
   firstRunDoneAt: string | null;
   securityAlertsProjectId: string | null;
   topicsCheck: string | null;
+  /** Folder every worktree is created in. `null` = `<Topics home>/worktrees`. */
+  worktreeRoot: string | null;
+  /** Worktrees one project may keep before cleanup starts. `null` = 20. */
+  worktreeMaxPerProject: number | null;
+  /** Free GB under which dispatch stops. `null` = 12. */
+  worktreeDiskFloorGb: number | null;
+  /** `shared` | `per-worktree`. `null` = shared. */
+  cargoTargetMode: 'shared' | 'per-worktree' | null;
+  /** `off` | `merged`: may cleanup remove worktrees made outside the root. `null` = off. */
+  gcForeign: 'off' | 'merged' | null;
+  /** Days of silence before an unmerged branch's worktree counts as stale. `null` = 7. */
+  worktreeAbandonDays: number | null;
+  /** `off` | `topics`: the worktree hooks in the Claude sessions Topics launches. `null` = topics. */
+  claudeWorktreeHooks: 'off' | 'topics' | null;
+  worktreeQuarantineDays: number | null;
 }
 
 /**
@@ -696,5 +713,25 @@ export const worktreesApi = {
   },
   async delete(id: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(`/worktrees/${id}`, { method: 'DELETE' });
+  },
+  /** What the next cleanup would do to every worktree folder and row. Writes nothing; `weigh` adds disk sizes (slow). */
+  async cleanupPreview(weigh = false): Promise<WorktreePlanPayload> {
+    const r = await request<{ plan: WorktreePlanPayload }>(`/worktrees/gc/plan${weigh ? '?weigh=1' : ''}`);
+    return r.plan;
+  },
+  /** What adopting, moving or removing a worktree made elsewhere would do, and whether it may. Writes nothing. */
+  async relocateCheck(path: string, action: RelocateAction): Promise<RelocateCheckPayload> {
+    const r = await request<{ check: RelocateCheckPayload }>('/worktrees/relocate', {
+      method: 'POST', body: JSON.stringify({ path, action, dryRun: true }),
+    });
+    return r.check;
+  },
+  async relocate(path: string, action: RelocateAction): Promise<RelocateResultPayload> {
+    return request<RelocateResultPayload>('/worktrees/relocate', { method: 'POST', body: JSON.stringify({ path, action }) });
+  },
+  /** One line per machine: this one measured here, the nodes from their last report. */
+  async perMachine(): Promise<MachineWorktreeLine[]> {
+    const r = await request<{ machines: MachineWorktreeLine[] }>('/machines/worktrees');
+    return r.machines;
   },
 };

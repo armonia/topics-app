@@ -922,6 +922,19 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bash scripts/ci-permanent-reserve.test.sh
 
+      # Where a worktree made outside Topics is born: the Claude Code
+      # WorktreeCreate / WorktreeRemove hook and `topics-worktree`. The failures
+      # they guard: a worktree outside the root nobody cleans, a removal with no
+      # archive tag (the test carries its own mutant), a hook that blocks Claude
+      # Code when Topics is down, and the hook token visible in `ps` (the event
+      # wrapper's test carries its own mutant). Temp repos and a fake server; a few seconds.
+      - name: Hook dei worktree di Claude Code e topics-worktree
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          sh scripts/claude-hooks/worktree-hook.test.sh
+          sh scripts/claude-hooks/post-hook.test.sh
+          sh scripts/topics-worktree.test.sh
+
   # THE VERDICT OF THE RUN'S TESTS AND GATES, IN THE JOB AND STEP THE BOARD READS.
   #
   # The board reads the unit verdict of a pull request from the step "Unit +
@@ -1829,8 +1842,15 @@ jobs:
   # this job by name.
   tauri:
     timeout-minutes: 45
-    needs: changes
-    if: ${{ needs.changes.outputs.tauri != 'false' }}
+    # `needs: process-groups` on top of `changes`: both jobs put a macos-latest
+    # leg in their matrix and both used to start together on `changes`, so they
+    # queued for the same scarce macOS runner pool and the loser sat at 0 steps
+    # until its own 15-minute timeout cancelled it (ci-audit, 23/11). The `if`
+    # below ignores process-groups' result (skipped, failed or green): the implicit
+    # success() of a plain `if` would skip tauri whenever process-groups is skipped
+    # or red, so the status is spelled out here, and only a cancelled run stops it.
+    needs: [changes, process-groups]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.tauri != 'false' }}
     strategy:
       fail-fast: false
       matrix:

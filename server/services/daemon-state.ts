@@ -75,7 +75,11 @@ export function topicsHome(env: NodeJS.ProcessEnv = process.env, home: string = 
  * Pure (home injected for tests). Returns the isolated home to use, or null when
  * `baseDir` is a normal checkout and production defaults must stand.
  */
-export function worktreeIsolationHome(baseDir: string, home: string): string | null {
+export function worktreeIsolationHome(baseDir: string, home: string, ownedByTopics = false): string | null {
+  // Since worktree-standard the root is a setting (Settings > Worktrees), so a
+  // checkout Topics made may live anywhere: the owner marker Topics writes in
+  // its git admin folder says so wherever it is (`readOwnerMarker`).
+  if (ownedByTopics) return join(baseDir, ".topics-daemon");
   const worktreesRoot = join(home, ".topics", "worktrees") + sep;
   const norm = baseDir.endsWith(sep) ? baseDir : baseDir + sep;
   return norm.startsWith(worktreesRoot) ? join(baseDir, ".topics-daemon") : null;

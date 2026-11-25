@@ -22,6 +22,8 @@ import { join } from "node:path";
 import type { ProvidersSnapshot } from "../../shared/types";
 import { CLAUDE_CODING_PROVIDERS } from "../../shared/task-coding-models";
 import { getPrimaryRole } from "../lib/primary-role";
+import type { WorktreePlanEntryPayload } from "../../shared/worktree-plan";
+import type { WorktreePolicy, WorktreeSummary } from "../../shared/worktree-summary";
 
 export type NodeFailureReason =
   | "unreachable"
@@ -230,8 +232,33 @@ export interface NodeClient {
   cancelRun(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<void>;
   /** The Claude ids the node's ready Claude coding runtimes list: what its cards can run. */
   codingModels(input: { baseUrl: string; token: string }): Promise<string[]>;
-  /** The app version the node really runs (`/api/version`); `null` when it does not say. */
-  readVersion(input: { baseUrl: string; token: string }): Promise<string | null>;
+  /**
+   * The app version the node really runs (`/api/version`), `null` when it does not say, and
+   * what it speaks: `worktreeStandard` is false on a node built before the worktree routes.
+   */
+  readVersion(input: { baseUrl: string; token: string }): Promise<NodeVersion>;
+  /** The node's worktree summary (`null` until its first measure), with its folders when `list`. */
+  worktreeSummary(input: { baseUrl: string; token: string; list?: boolean }): Promise<NodeWorktreeReport>;
+  /** Sends a worktree policy; `dryRun` answers before/after and writes nothing. A refused value is `rejected`. */
+  putWorktreePolicy(input: { baseUrl: string; token: string; policy: WorktreePolicy; dryRun?: boolean }): Promise<NodePolicyResult>;
+  /** One cleanup pass on the node now, or (`dryRun`) its preview. */
+  worktreeGc(input: { baseUrl: string; token: string; dryRun?: boolean }): Promise<Record<string, unknown>>;
+}
+
+export interface NodeVersion {
+  version: string | null;
+  worktreeStandard: boolean;
+}
+
+export interface NodeWorktreeReport {
+  summary: WorktreeSummary | null;
+  entries?: WorktreePlanEntryPayload[] | null;
+}
+
+export interface NodePolicyResult {
+  dryRun: boolean;
+  before: WorktreePolicy;
+  after: WorktreePolicy;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 1500;
@@ -588,12 +615,51 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     },
 
     async readVersion({ baseUrl, token }) {
-      const out = await callJson<{ version?: unknown }>(
+      const out = await callJson<{ version?: unknown; worktreeStandard?: unknown }>(
         `${baseUrl}/api/version`,
         { method: "GET", headers: headersFor(token) },
         "read version",
       );
-      return typeof out.version === "string" && out.version ? out.version : null;
+      return {
+        version: typeof out.version === "string" && out.version ? out.version : null,
+        worktreeStandard: out.worktreeStandard === 1,
+      };
+    },
+
+    // The three worktree calls never carry a delegation: they are the primary's, on its channel.
+    async worktreeSummary({ baseUrl, token, list }) {
+      const out = await callJson<{ summary?: unknown; entries?: unknown }>(
+        `${baseUrl}/api/nodes/worktrees${list ? "?list=1" : ""}`,
+        { method: "GET", headers: headersFor(token) },
+        "worktree summary",
+      );
+      const summary = out.summary && typeof out.summary === "object" ? out.summary as WorktreeSummary : null;
+      return list ? { summary, entries: Array.isArray(out.entries) ? out.entries as WorktreePlanEntryPayload[] : null } : { summary };
+    },
+
+    async putWorktreePolicy({ baseUrl, token, policy, dryRun }) {
+      const out = await callJson<{ dryRun?: unknown; before?: unknown; after?: unknown }>(
+        `${baseUrl}/api/nodes/worktree-policy`,
+        {
+          method: "PUT",
+          headers: headersFor(token, { "Content-Type": "application/json" }),
+          body: JSON.stringify({ ...policy, ...(dryRun ? { dryRun: true } : {}) }),
+        },
+        "worktree policy",
+      );
+      return {
+        dryRun: out.dryRun === true,
+        before: (out.before ?? {}) as WorktreePolicy,
+        after: (out.after ?? {}) as WorktreePolicy,
+      };
+    },
+
+    async worktreeGc({ baseUrl, token, dryRun }) {
+      return callJson<Record<string, unknown>>(
+        `${baseUrl}/api/nodes/worktrees/gc${dryRun ? "?dryRun=1" : ""}`,
+        { method: "POST", headers: headersFor(token) },
+        "worktree cleanup",
+      );
     },
 
     async codingModels({ baseUrl, token }) {

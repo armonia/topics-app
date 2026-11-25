@@ -125,7 +125,7 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(log(repo, BRANCH)).toContain("Riporta main nel ramo prima del land");
     expect(git(repo, "rev-list", "--count", `main..${BRANCH}`).trim()).toBe("0");
     // Nessun worktree usa-e-getta lasciato in giro.
-    expect(git(repo, "worktree", "list")).not.toContain("topics-realign");
+    expect(git(repo, "worktree", "list")).not.toContain("_scratch");
   }, WITH_REAL_GIT);
 
   test("il ramo era già aggiornato → nessun merge in più, e niente da dire", async () => {
@@ -172,7 +172,7 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(git(repo, "show", "main:scripts/bloat-baseline.json")).toBe('{"server.ts": 5716, "ramo.ts": 900}\n');
     expect(log(repo, "main")).toContain("ramo: ramo.txt");
     expect(git(repo, "status", "--porcelain")).toBe("");
-    expect(git(repo, "worktree", "list")).not.toContain("topics-realign");
+    expect(git(repo, "worktree", "list")).not.toContain("_scratch");
   }, WITH_REAL_GIT);
 
   test("baseline in conflitto ACCANTO a un file di codice: torna all'agent, tutto intero", async () => {
@@ -207,7 +207,7 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(res.realignConflict?.files).toEqual(["scripts/bloat-baseline.json"]);
     expect(git(repo, "rev-parse", "main").trim()).toBe(mainPrima);
     expect(git(repo, "status", "--porcelain")).toBe("");
-    expect(git(repo, "worktree", "list")).not.toContain("topics-realign");
+    expect(git(repo, "worktree", "list")).not.toContain("_scratch");
   }, WITH_REAL_GIT);
 
   /**
@@ -288,7 +288,7 @@ describe("il land riallinea il ramo su main da sé", () => {
     expect(git(repo, "rev-parse", "main").trim()).toBe(mainPrima);
     // E non ha lasciato il ramo a metà fusione, né un worktree appeso.
     expect(git(repo, "status", "--porcelain")).toBe("");
-    expect(git(repo, "worktree", "list")).not.toContain("topics-realign");
+    expect(git(repo, "worktree", "list")).not.toContain("_scratch");
   }, WITH_REAL_GIT);
 
   test("checkout condiviso su un altro ramo: riallinea e atterra su main comunque", async () => {

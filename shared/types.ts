@@ -1416,6 +1416,10 @@ export interface Project {
   ownerPersonId?: string | null;
   /** Marcato incognito: fuori dall'elenco dei compagni d'organizzazione. */
   incognito?: boolean;
+  /** `projects.id` of the parent project (one level deep), null for a top-level project. */
+  parentId?: string | null;
+  /** On a child: `accorpa` shares the parent's board and sidebar entry, `separa` keeps its own. */
+  mergeMode?: 'accorpa' | 'separa';
   createdAt: string;
   updatedAt: string;
 }
@@ -1442,7 +1446,14 @@ export interface Worktree {
   errorMessage?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Who made the checkout: Topics itself, or another tool that registered it. */
+  source?: WorktreeSource;
+  /** The creator's session (id or transcript path), when it said. */
+  sessionRef?: string | null;
 }
+
+/** The creators a worktree row can name (`worktrees.source`). */
+export type WorktreeSource = 'topics' | 'claude-code' | 'claude-desktop' | 'codex' | 'jcode' | 'muse' | 'workflow' | 'adopted';
 
 /** First-class Machine entity (Phase D · migration 020). */
 export interface Machine {

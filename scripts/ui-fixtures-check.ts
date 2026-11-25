@@ -27,8 +27,8 @@
  * Exit 0: all agree. Exit 1: the list of what does not, one line each.
  */
 import { existsSync } from "node:fs";
-/* The copy reads the world while it loads: SARIM is chosen before anything imports it. */
-import "../client/src/ui-gallery/use-sarim-world";
+/* The copy reads the world while it loads: ORBIT is chosen before anything imports it. */
+import "../client/src/ui-gallery/use-orbit-world";
 import { join, resolve } from "node:path";
 import { CASES } from "../client/src/ui/fixtures/org/cases";
 import { FLOWS } from "../client/src/ui/fixtures/org/flows";
@@ -36,7 +36,7 @@ import { dueDate } from "../client/src/ui/fixtures/org/clock";
 import { FLOW_STATS } from "../client/src/ui/fixtures/overview";
 import { FLOW_FACTS } from "../client/src/ui/fixtures/flow-build";
 import { SECTOR_PACKAGES } from "../client/src/ui/fixtures/settings";
-import { SARIM_FLOWS } from "../client/src/ui/fixtures/sarim";
+import { ORBIT_FLOWS } from "../client/src/ui/fixtures/orbit";
 import { BOARD_TASKS } from "../client/src/ui/fixtures/board";
 import { PROCEDURES } from "../client/src/ui/fixtures/knowledge-more-procedures";
 import { itemById, findArticle } from "../client/src/ui/fixtures/knowledge-more";
@@ -47,8 +47,8 @@ import { UI_COPY_IT } from "../client/src/ui/copy/i18n-ui-it";
 import { buildOverview, overviewFlows } from "../client/src/ui-gallery/app/screens/orgs/overview-model";
 import { initialState } from "../client/src/ui-gallery/app/store/state";
 import { queueFor } from "../client/src/ui-gallery/app/store/cases";
-import { checkSarimCards } from "./ui-fixtures/sarim-cards";
-import { checkSarimContracts } from "./ui-fixtures/sarim-contracts";
+import { checkOrbitCards } from "./ui-fixtures/orbit-cards";
+import { checkOrbitContracts } from "./ui-fixtures/orbit-contracts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PUBLIC = join(ROOT, "client/public-ui");
@@ -138,13 +138,13 @@ for (const [id, s] of Object.entries(FLOW_STATS)) {
   const facts = FLOW_FACTS[id];
   if (facts) check(facts.errors === s.errors, `errori a 30 giorni di ${id}: la pagina del flusso dice ${facts.errors}, la panoramica ${s.errors}`);
 }
-/* SARIM: the call-center catalogue and the flow catalogue tell the same flow the same way */
-for (const s of SARIM_FLOWS) {
+/* ORBIT: the call-center catalogue and the flow catalogue tell the same flow the same way */
+for (const s of ORBIT_FLOWS) {
   const f = FLOWS.find((x) => x.id === s.id);
   if (!f) continue;
-  check(f.name === s.name && f.trigger === s.trigger && f.perMonth === s.perMonth && f.version === s.version, `flusso ${s.id}: nome, avvio, volume o versione diversi fra flussi SARIM e catalogo dei flussi`);
+  check(f.name === s.name && f.trigger === s.trigger && f.perMonth === s.perMonth && f.version === s.version, `flusso ${s.id}: nome, avvio, volume o versione diversi fra flussi ORBIT e catalogo dei flussi`);
   const facts = FLOW_FACTS[s.id];
-  if (facts) check(facts.errors === s.errors, `errori a 30 giorni di ${s.id}: la pagina del flusso dice ${facts.errors}, la panoramica SARIM ${s.errors}`);
+  if (facts) check(facts.errors === s.errors, `errori a 30 giorni di ${s.id}: la pagina del flusso dice ${facts.errors}, la panoramica ORBIT ${s.errors}`);
 }
 /* the PEC types of the sector package add up to the PEC flow's month */
 const pec = FLOWS.find((f) => f.id === "pec");
@@ -157,15 +157,15 @@ const SETTINGS_SECTIONS = ["generale", "settore", "avvio", "persone", "squadra",
 for (const t of BOARD_TASKS) {
   const g = t.target;
   if (g.kind === "flowTest") check(FLOWS.some((f) => f.id === g.flow), `Board, card ${t.id}: il flusso ${g.flow} non esiste`);
-  if (g.kind === "sarimFlow") check(SARIM_FLOWS.some((f) => f.id === g.flow), `Board, card ${t.id}: il flusso SARIM ${g.flow} non esiste`);
+  if (g.kind === "orbitFlow") check(ORBIT_FLOWS.some((f) => f.id === g.flow), `Board, card ${t.id}: il flusso ORBIT ${g.flow} non esiste`);
   if (g.kind === "caseKind") check(CASES.some((c) => c.kind === g.caseKind), `Board, card ${t.id}: nessuna pratica di tipo ${g.caseKind}`);
   if (g.kind === "settings") check(SETTINGS_SECTIONS.includes(g.section), `Board, card ${t.id}: la sezione ${g.section} delle impostazioni non esiste`);
   if (g.kind === "procedure") check(PROCEDURE_IDS.has(g.id), `Board, card ${t.id}: la procedura ${g.id} non esiste in Conoscenza`);
 }
 
-/* ---- the SARIM edition (sarim.html): cards, flows, contracts ---- */
-checkSarimCards(check);
-checkSarimContracts(check);
+/* ---- the ORBIT edition (orbit.html): cards, flows, contracts ---- */
+checkOrbitCards(check);
+checkOrbitContracts(check);
 
 /* ---- queue ---- */
 const queue = CASES.filter((c) => c.org === "nocera" && c.status === "da-confermare");

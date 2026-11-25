@@ -176,12 +176,21 @@ export function bootQuiescence(
   async function autoLandTurnCount(opts?: { insideLand?: boolean }): Promise<number> {
     // Asked from within a land, that land is itself "in flight" for the gate, and
     // is not a turn it should wait for: it would never find the server idle.
-    const working = await whatIsStillWorking({ ownLands: opts?.insideLand ? 1 : 0 });
-    return (working.busy !== null ? 1 : 0) + activeStreams.size + countBusyAgentTerminals();
+    const now = await whatIsStillWorking({ ownLands: opts?.insideLand ? 1 : 0 });
+    // WHAT THE RELOAD WOULD MEET, NOT WHAT IS MERELY OPEN (RGATE-13). A chat
+    // parked on a question is neither a turn in flight nor one a reload cuts:
+    // the question survives on its row. It used to count twice here (`busy`
+    // names the parked ones, and `activeStreams` holds their streams), so a land
+    // of a server diff waited for as long as nobody answered, up to its three
+    // hours, and then gave up. A CARD that does not come back stays in
+    // (`now.cards`), parked or not: its recovery resumes it without asking
+    // whether its question is still open, which is the reason the gate holds it.
+    const open = splitOnPerson(activeStreams.values(), (s) => s.sessionKey, (key) => askStillPolled(key)).working.length;
+    return (now.cards > 0 || now.working ? 1 : 0) + open + countBusyAgentTerminals();
   }
 
 
-  async function whatIsStillWorking(opts: { ownLands?: number } = {}): Promise<{ busy: string | null; cards: number; unadoptable: number; chats: number; workingChats: number; lostWorkingChats: number; working: boolean; waitingOnPerson: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {
+  async function whatIsStillWorking(opts: { ownLands?: number } = {}): Promise<{ busy: string | null; workingBusy: string | null; cards: number; cardsOnPerson: number; unadoptable: number; chats: number; workingChats: number; lostWorkingChats: number; working: boolean; waitingOnPerson: number; everyTurnComesBack: boolean; holder: string | null; holderKind: "turn" | "question" }> {
     // A land in flight is a card turn for this purpose: it rewrites main and
     // the card, and a restart in the middle of it forgets the delivery branch.
     //
@@ -197,6 +206,21 @@ export function bootQuiescence(
     // round is redone. What still holds is a card whose turn lives in this
     // process, and a land, which rewrites main under the restart.
     const cardTurns = cardTurnsAll.filter((t) => !(t.sessionKey && turnComesBack(t.sessionKey)));
+    // A CARD TURN WAITING FOR A PERSON HOLDS THE RESTART BUT DOES NOT WORK
+    // (RGATE-13). Two questions, two answers. "Is anything computing?" (`working`,
+    // so `idle`, the vacuum, the sleep of the Mac) is no for a turn blocked on a
+    // question, a card's as much as a chat's. "Does a restart lose it?" is yes
+    // for a card and no for a chat, and the difference is the recovery: a chat
+    // cut on a question is left alone (`resumeVerdict`: "waiting for a person is
+    // not an interruption to repair"), while the dispatcher resumes a card cut
+    // mid-turn at once with the interrupted-turn nudge, never asking whether its
+    // question is still open, so the model asks it again in a second panel or
+    // goes on without the answer. So the card stays in `cards`, and only the
+    // label moves. In practice it is the card whose turn lives in THIS process
+    // (Codex, ACP, a native turn fallen back from the broker): the others come
+    // back, and are parked like any chat below. Same doubt as everywhere: a
+    // predicate that cannot say, or a card with no session yet, is working.
+    const cardsOnPerson = splitOnPerson(cardTurns, (t) => t.sessionKey, (key) => askStillPolled(key)).onPerson.length;
     // `ownLands`: the caller IS a land and does not count itself (the automatic land's last look).
     const cards = cardTurns.length + Math.max(0, landingQueue.inFlight() - (opts.ownLands ?? 0));
     // Those cards' own streams go with them. A card turn streams through
@@ -287,7 +311,12 @@ export function bootQuiescence(
     const cardSessionKeys = taskDispatcher.busySessionKeys();
     return {
       busy: describeInFlight({ cards, streamKeys, brokerOpenKeys: brokerOpen, askOpenKeys: parked }),
+      // The same sentence for what is COMPUTING: the parked ones left out, the
+      // cards parked on a person with them. `null` is "nothing works", the answer
+      // that lets the vacuum run while a question waits all night.
+      workingBusy: describeInFlight({ cards: cards - cardsOnPerson, streamKeys, brokerOpenKeys: brokerOpen, askOpenKeys: [] }),
       cards,
+      cardsOnPerson,
       unadoptable,
       // Every holder that is NOT a card: the streams of this process, the turns
       // the broker keeps, the chats parked on a question. `dispatchDoor` reads
@@ -307,7 +336,7 @@ export function bootQuiescence(
       // (`GET /__daemon/idle`), because a machine is not busy while a person
       // thinks. A card's own stream counts here (its turn is a stream), as it
       // does in `busy`.
-      working: cards > 0 || streamKeys.length > 0 || brokerOpen.length > 0,
+      working: cards - cardsOnPerson > 0 || streamKeys.length > 0 || brokerOpen.length > 0,
       // The chats that wait for a person, apart from the card sessions.
       // A chat the rows say is parked but the registry has not yet confirmed (right
       // after a boot, before its child's next leg) is still counted as working
