@@ -52,6 +52,8 @@ interface TriageCard {
   description: string | null;
   createdAt: string;
   blockedBy: string | null;
+  /** A step of another card: nobody dispatches it from the backlog, so it has to be detached before it can move. */
+  parentTaskId: string | null;
 }
 
 export interface TriageReport { todo: number; ask: number; done: number; stay: number }
@@ -91,13 +93,14 @@ export function parseVerdicts(answer: string): TriageVerdict[] {
 }
 
 function buildTriagePrompt(cards: TriageCard[]): string {
-  const lines = cards.map((c) => `- id ${c.id} | created ${c.createdAt.slice(0, 10)} | ${c.blockedBy ? `blocked by open card ${c.blockedBy} | ` : ""}${c.text}${c.description ? ` :: ${c.description.slice(0, 500).replace(/\s+/g, " ")}` : ""}`);
+  const lines = cards.map((c) => `- id ${c.id} | created ${c.createdAt.slice(0, 10)} | ${c.blockedBy ? `blocked by open card ${c.blockedBy} | ` : ""}${c.parentTaskId ? "subtask | " : ""}${c.text}${c.description ? ` :: ${c.description.slice(0, 500).replace(/\s+/g, " ")}` : ""}`);
   return [
     "You sort the backlog cards of a task board. For EACH card below answer with one JSON object; reply with ONE JSON array and nothing else.",
     'Fields: {"id": string, "action": "todo"|"ask"|"done"|"stay", "reason": one line, "question": string, "options": string[], "proof": string}.',
     "- todo: an agent can do it with no decision from a person, no open card blocks it, and it still applies today.",
     "- ask: it needs a person (spend, anything public, anything irreversible, real people's data, visual taste). Give `question` (one line) and `options` (2 to 4, the recommended first).",
     "- done: it was already done. `proof` is REQUIRED: `commit:<sha>` of a commit on the main branch or `card:<id>` of the finished card that did it. No proof you can name means stay, not done.",
+    "- A card whose blocker is already done is NOT blocked: it does not wake up by itself, so it is todo like any other workable card. A subtask is sorted like any card.",
     "- stay: blocked by an open card, or an idea that is not ready. `reason` says which.",
     "",
     ...lines,
@@ -156,8 +159,10 @@ async function proofHolds(db: Database, boardId: string, card: TriageCard, v: Tr
   return /^\s*yes\b/i.test(answer);
 }
 
-function apply(svc: Svc, taskId: string, action: TriageAction, reason: string, v: TriageVerdict): void {
+function apply(svc: Svc, taskId: string, parentTaskId: string | null, action: TriageAction, reason: string, v: TriageVerdict): void {
   if (action === "todo") {
+    // A subtask in the backlog is a dead end: detach it in its own update, then move it, as two separate patches.
+    if (parentTaskId) svc.update({ taskId, actor: "agent", by: BY, patch: { parentTaskId: null }, statusReason: "detached from its parent so an agent can take it" });
     svc.update({ taskId, actor: "agent", by: BY, patch: { status: "todo" }, statusReason: reason || "workable by an agent" });
   } else if (action === "ask") {
     svc.addComment({ taskId, author: BY, content: v.question!, questionOptions: v.options });
@@ -178,8 +183,8 @@ export async function triageBoard(db: Database, svc: Svc, boardId: string, deps:
   const report: TriageReport = { todo: 0, ask: 0, done: 0, stay: 0 };
   const rows = db.query(
     `SELECT t.id, t.text, t.description, t.created_at AS createdAt,
-            (SELECT b.id FROM tasks b WHERE b.id = t.blocked_by_task_id AND b.status != 'done' AND b.archived = 0) AS blockedBy
-       FROM tasks t WHERE t.project_id = ? AND t.status = 'backlog' AND t.archived = 0 AND t.parent_task_id IS NULL
+            (SELECT b.id FROM tasks b WHERE b.id = t.blocked_by_task_id AND b.status != 'done' AND b.archived = 0) AS blockedBy, t.parent_task_id AS parentTaskId
+       FROM tasks t WHERE t.project_id = ? AND t.status = 'backlog' AND t.archived = 0
       ORDER BY t.created_at ASC LIMIT ?`,
   ).all(boardId, MAX_CARDS_PER_BOARD) as TriageCard[];
 
@@ -200,7 +205,7 @@ export async function triageBoard(db: Database, svc: Svc, boardId: string, deps:
           action = "stay"; reason = "looks done but no verified proof";
         }
         if (action === "ask" && !(v.question && v.options?.length)) { action = "stay"; reason = reason || "needs a person but no question was written"; }
-        apply(svc, card.id, action, reason, v);
+        apply(svc, card.id, card.parentTaskId, action, reason, v);
         report[action]++;
       } catch (e) {
         console.warn("[backlog-triage] card skipped:", card.id, e instanceof Error ? e.message : e);

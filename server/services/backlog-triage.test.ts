@@ -119,3 +119,21 @@ describe("parseVerdicts", () => {
     expect(parseVerdicts("not json")).toEqual([]);
   });
 });
+
+describe("backlog dead ends", () => {
+  test("a card whose blocker is done moves to todo", async () => {
+    const blocker = s.create({ projectId: PID, text: "first", status: "todo" });
+    db.run("UPDATE tasks SET status = 'done' WHERE id = ?", [blocker.id]);
+    const c = card("second", { blockedByTaskId: blocker.id });
+    await triageBoard(db, s, PID, { ask: model([{ id: c.id, action: "todo", reason: "blocker is done" }]) });
+    expect(statusOf(c.id)).toBe("todo");
+  });
+
+  test("a subtask in the backlog is detached from its parent, then moved", async () => {
+    const parent = s.create({ projectId: PID, text: "parent", status: "in_progress" });
+    const step = card("step", { parentTaskId: parent.id });
+    await triageBoard(db, s, PID, { ask: model([{ id: step.id, action: "todo", reason: "workable" }]) });
+    const row = db.query("SELECT status, parent_task_id AS p FROM tasks WHERE id = ?").get(step.id) as { status: string; p: string | null };
+    expect(row).toEqual({ status: "todo", p: null });
+  });
+});
