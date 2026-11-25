@@ -158,7 +158,7 @@
     "client/src/components/Layout/LazyPane.tsx": 5,
     "client/src/components/Layout/PaneKeepAlive.tsx": 77,
     "client/src/components/Layout/PaneTabBar.tsx": 241,
-    "client/src/components/Layout/PanelGrid.tsx": 59,
+    "client/src/components/Layout/PanelGrid.tsx": 43,
     "client/src/components/Layout/ProjectWindow.tsx": 44,
     "client/src/components/Layout/SpaceElsewherePanel.tsx": 17,
     "client/src/components/Layout/SplitTree.tsx": 12,

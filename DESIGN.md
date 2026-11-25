@@ -193,3 +193,8 @@ barra dei menu.
 - 24/11 «assicurati anche di non perdere comportamenti utili delle tabbar» → senza la barra in
   alto, la riga del titolo porta il foglio della tab con Disposizione e il «+»; righe di
   terminale e browser si trascinano nella griglia come le chat.
+- 24/11 «rivediamo anche completamente da 0 tutto il sistema di split, conservando tutte le
+  possibilità di split ma rivedendo completamente la UI UX che era rotta» → un vocabolario su
+  ogni superficie e da ogni sorgente (bordo = dividi, centro = apri qui, bordo della superficie
+  = riga intera), l'anteprima è l'impronta col nome, una cella divisa dice cosa contiene e chi
+  ha il fuoco, tutto si fa anche da menu e da tastiera.

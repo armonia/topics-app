@@ -55,6 +55,21 @@ export async function headStatusOfCheckout(
   return (await commitIsIn(repoPath, sha, main, { runGit: git })) === true ? "merged" : "unmerged";
 }
 
+/**
+ * HEAD left the row's stored branch (detached, or another branch) for commits
+ * that are not on main: the folder is their only copy, whatever the branch says.
+ * A merged or deleted branch, or a branch kept by a free-checkout, holds none of them.
+ */
+export async function headHoldsCommitsOffBranch(
+  row: { absPath: string; branchName: string | null },
+  repoPath: string,
+  git: GitRunner,
+): Promise<boolean> {
+  if (!row.branchName || !existsSync(row.absPath)) return false;
+  if (await headIsOnBranch(row.absPath, row.branchName, git)) return false;
+  return (await headStatusOfCheckout({ ...row, mode: "detached" }, repoPath, git)) === "unmerged";
+}
+
 /** HEAD in this checkout is the stored branch itself, not a detached or other one. */
 async function headIsOnBranch(absPath: string, branchName: string, git: GitRunner): Promise<boolean> {
   const ref = await git(absPath, ["symbolic-ref", "-q", "HEAD"]).catch(() => null);
