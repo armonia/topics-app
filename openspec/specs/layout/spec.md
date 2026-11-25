@@ -4519,7 +4519,9 @@ During a drag exactly one indicator SHALL be painted: on an edge, the area the p
 
 ### Requirement: SPLIT-03 — Una cella divisa dice cosa contiene e chi ha il fuoco
 
-When a surface holds more than one cell and the tabs are on the side, every cell SHALL carry a header with the pane's icon and name, the header of the focused cell SHALL be lit, a click on a header SHALL focus its cell, and the header SHALL drag like a tab. With one cell there SHALL be no header. Cells SHALL be counted on screen: a cell the saved layout keeps for a closed pane SHALL NOT make a lone pane a split cell.
+When a surface holds more than one cell and the tabs are on the side, every cell SHALL carry a header with the pane's icon and name, the header of the focused cell SHALL be lit, a click on a header SHALL focus its cell, and the header SHALL drag like a tab. With one cell the header SHALL be lit for no cell and carry no cell commands. Cells SHALL be counted on screen: a cell the saved layout keeps for a closed pane SHALL NOT make a lone pane a split cell.
+
+With the tabs on the side the title of the pane in front SHALL be its tab, in a split or alone: under the pointer it SHALL take the tab's fill and it SHALL drag into a split. A project's window SHALL then draw no bar of its own while it holds one group: its tabs are rows of the column, the closed project bar's commands SHALL sit on the title row with no "+" (the project's row in the column has it), and its body SHALL start under the title with no empty band.
 
 #### Scenario: due celle, due testate
 - **GIVEN** a grid split in two with tabs on the side
@@ -4527,7 +4529,15 @@ When a surface holds more than one cell and the tabs are on the side, every cell
 
 #### Scenario: a cell kept for a closed pane
 - **GIVEN** one open chat and a saved layout that still names a cell for a closed one
-- **THEN** no title is lit and none drags
+- **THEN** no title is lit and none carries the cell commands
+
+#### Scenario: a project's window has only its title
+- **GIVEN** the tabs on the side and a project in front, with a chat open inside and its column closed
+- **THEN** the window shows no tab of its own, the project's commands sit on the title row and no "+" does
+- **WHEN** the pointer is on the title
+- **THEN** the title takes the tab's fill
+- **WHEN** the title is dragged to the right edge of a chat beside it
+- **THEN** the project lands on the right of that chat
 
 ### Requirement: SPLIT-04 — I divisori si usano da tastiera
 
