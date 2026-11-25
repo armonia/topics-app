@@ -21,6 +21,21 @@ export { channelsDbPath };
 
 const CACHE_MS = 60_000;
 
+/** The channel names the bridge recorded on its turns (empty when the column or the file is missing). */
+export function readTurnChannels(path: string): string[] {
+  if (!existsSync(path)) return [];
+  const db = new Database(path, { readonly: true });
+  try {
+    const hasChannel = (db.query("PRAGMA table_info(turns)").all() as { name: string }[]).some((c) => c.name === "channel");
+    if (!hasChannel) return [];
+    return (db.query("SELECT DISTINCT channel FROM turns WHERE channel IS NOT NULL AND channel <> ''").all() as { channel: string }[]).map((r) => r.channel);
+  } catch {
+    return [];
+  } finally {
+    db.close();
+  }
+}
+
 /**
  * The last non-empty title of every chat and of every thread inside it. A
  * thread is keyed `<chat>:<thread>`; a chat with no thread (and the chat's

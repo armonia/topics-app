@@ -10,9 +10,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   FINESTRA_RIPRESA_MS, MAX_FREE_PROBES, MAX_RESTART_CONTINUATIONS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
-  RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER,
+  RESPONSE_CEILING_MS, STREAM_CEILING_MS,
   resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS,
 } from "./ripresa-boot";
+import { capLastCut, capNotice } from "./resume-notices";
+const RESUME_CAP_MARKER = capNotice(MAX_RESUME_ATTEMPTS, capLastCut({ restarted: true }));
 import { ORPHAN_ERRORS } from "./orphan-tool-sweep";
 import { Database } from "bun:sqlite";
 import { RESEND_COUNTS_DDL } from "../db/test-schema";

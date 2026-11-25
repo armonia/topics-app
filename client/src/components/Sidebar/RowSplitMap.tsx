@@ -1,5 +1,6 @@
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
+import { useProjectSplitMap } from '@/state/projectSplitMaps';
 import { ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 
 /**
@@ -35,6 +36,24 @@ export function RowSplitMap({ paneId, onFill }: { paneId: string | undefined | n
       // The map draws from `currentColor`: on an attention fill it MUST inherit
       // the fill's high-contrast tone instead of a fixed grey, which is the
       // grey-on-blue defect the chat row already fixed once.
+      className={`flex-shrink-0 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+    />
+  );
+}
+
+/**
+ * A project row: the splits INSIDE its window when it has any (SPLIT-07),
+ * otherwise where the window sits in the grid. One map per row, never two: the
+ * one that says more about what the row stands for.
+ */
+export function ProjectRowSplitMap({ projectPath, onFill }: { projectPath: string; onFill?: boolean }) {
+  const inner = useProjectSplitMap(projectPath);
+  if (!inner) return <RowSplitMap paneId={projectPath} onFill={onFill} />;
+  return (
+    <SplitMiniMap
+      rows={inner.rows}
+      rowHeights={inner.rowHeights}
+      active={inner.active}
       className={`flex-shrink-0 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
     />
   );

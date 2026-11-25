@@ -119,9 +119,38 @@ describe("registryHealthInput", () => {
     expect(types(dir, { "1": "general" })).toEqual(["source-contradiction"]);
   });
 
-  test("a job in jobs.json with no agent is a job without agent", () => {
+  test("a job in jobs.json with no agent, where no agent is called main, is a job without agent", () => {
     const dir = setup([], [{ id: "j", name: "Nightly", run: { kind: "agent" } }]);
     expect(types(dir, {})).toEqual(["job-without-agent"]);
+  });
+
+  test("a job in jobs.json with no agent runs as main: not a problem when main exists", () => {
+    // The channels engine gives such a job the agent "main" (cron.rs). Counting
+    // it as «never does anything» put 160 false errors on the live System page.
+    const dir = setup([], [{ id: "j", name: "Nightly", run: { kind: "agent" } }]);
+    write(dir, "engine.json", { agents: { main: { workspace: join(dir, "main") } } });
+    const input = registryHealthInput(dir, {});
+    const agents = [{ id: "main", name: "Main", missingPersonaFiles: [], hasOwnRules: false }];
+    const problems = collectHealth({ agents, stores: [], tools: [], sharedRulesPresent: true, ...input });
+    expect(problems.map((p) => p.type)).toEqual([]);
+  });
+
+  test("every problem carries the pieces of its sentence, for the client to say it in the reader's language", () => {
+    const problems = collectHealth({
+      agents: [{ id: "a", name: "Alpha", missingPersonaFiles: ["IDENTITY.md"], hasOwnRules: false }],
+      stores: [],
+      jobs: [{ id: "j", name: "Nightly", agentId: null }],
+      chats: [],
+      contradictions: [{ id: "c", sources: ["config.json", "engine.json"], about: "the model" }],
+      tools: [{ name: "docs", ok: false, reason: "exit 1" }],
+      sharedRulesPresent: true,
+    });
+    expect(Object.fromEntries(problems.map((p) => [p.type, p.vars]))).toEqual({
+      "job-without-agent": { job: "Nightly" },
+      "source-contradiction": { about: "the model", first: "config.json", second: "engine.json" },
+      "tool-down": { tool: "docs", reason: "exit 1" },
+      "persona-file-missing": { agent: "Alpha", files: "IDENTITY.md" },
+    });
   });
 
   test("a channel chat whose name does not resolve is unnamed", () => {
@@ -132,5 +161,14 @@ describe("registryHealthInput", () => {
   test("a Topics topic without a name gives nothing", () => {
     const dir = setup([]);
     expect(types(dir, { "x": "y" })).toEqual([]);
+  });
+});
+
+describe("unreceived project memories", () => {
+  test("hundreds of them are one problem with a count, not one problem each", () => {
+    const stores = ["-a-one", "-a-two", "-a-three"].map((id) => store({ id: `project:${id}`, kind: "project", receivedBy: [] }));
+    const problems = collectHealth({ ...healthy(), stores }).filter((p) => p.type === "memory-unreceived");
+    expect(problems).toHaveLength(1);
+    expect(problems[0]!.vars).toEqual({ count: "3" });
   });
 });

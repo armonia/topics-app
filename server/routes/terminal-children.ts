@@ -181,7 +181,7 @@ export function liveCliChildren(parentSessionKey: string) {
  * production; a test points it at a fake one, as it does the bridge socket.
  */
 let agentProfilesHome: string | null = null;
-/** @internal */
+/** @internal Test seam: points the agent profiles at a temp dir instead of the real home. */
 export function _setAgentProfilesHome(home: string | null): void {
   agentProfilesHome = home;
 }

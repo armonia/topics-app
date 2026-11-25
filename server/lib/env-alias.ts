@@ -22,7 +22,7 @@ export function warnDeprecatedEnv(alias: string, canonical: string): void {
 
 // Test-only: reset the one-shot warning ledger so each test observes a fresh
 // "first use" of an alias.
-/** @internal */
+/** @internal Test seam: forgets which deprecated aliases already warned, so each test sees the first warning. */
 export function __resetDeprecatedEnvWarnings(): void {
   warnedAliases.clear();
 }

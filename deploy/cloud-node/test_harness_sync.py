@@ -121,6 +121,12 @@ class SshMarking(Base):
         argv = hs.ssh_argv(T1, "true")
         self.assertIn("IPQoS=af41", argv)
 
+    def test_ssh_shares_one_connection_per_node(self):
+        # every new ssh login is a logind session on the node: commands ride one master (card e809a470)
+        argv = hs.ssh_argv(T1, "true")
+        self.assertIn("ControlMaster=auto", argv)
+        self.assertTrue(any(a.startswith("ControlPath=") and a.endswith("%C") for a in argv))
+
 
 class Exclusions(Base):
     def test_excluded_names_never_enter_the_fingerprint_nor_the_listing(self):

@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  Archive, Bot, Briefcase, Brain, Clock, MessageSquare, Settings2, Sparkles, Users, Wrench,
+  Archive, Bot, Briefcase, Brain, Clock, MessageSquare, Settings2, ShieldCheck, Sparkles, Users, Wrench,
 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { apiFetch } from '../../lib/shell/net';
@@ -20,8 +20,12 @@ import { ChannelTree } from './ChannelTree';
 import { InheritedRow } from './InheritedRow';
 import { CONFIGURE_SECTIONS, UNDERSTAND_SECTIONS, type ConfigureSection } from './configureSections';
 import { useConfigSummary } from './configSummary';
+import { useStoppedLog } from './useStoppedLog';
+import { useAgo } from './useAgo';
 import { CHANNEL_MARKS } from '../../lib/brandIcons';
+import { Select } from '../Shared/Select';
 import type { Registry } from '../../state/agentRegistry';
+import { parseIdentity, writeIdentity } from '../../../../shared/agent-identity';
 
 type Agent = Registry['agents'][number];
 type Post = (kind: string, body: object) => Promise<boolean>;
@@ -30,16 +34,15 @@ const CHANNEL_BRAND: Record<string, string> = { discord: 'Discord', whatsapp: 'W
 
 
 const SECTION_ICON: Record<ConfigureSection, typeof Bot> = {
-  identity: Bot, job: Briefcase, channels: MessageSquare, people: Users, jobs: Clock,
+  identity: Bot, job: Briefcase, channels: MessageSquare, people: Users, permissions: ShieldCheck, jobs: Clock,
   tools: Wrench, memory: Brain, model: Sparkles, context: Settings2, files: Archive,
 };
 
-function parseIdentity(text: string): { name: string; job: string; rest: string } {
-  const lines = text.split('\n');
-  const name = (lines[0] ?? '').replace(/^#\s*/, '').trim();
-  const job = (lines[1] ?? '').trim();
-  return { name, job, rest: lines.slice(2).join('\n').replace(/^\n+/, '') };
-}
+const STOPPED_REASONS = [
+  'da_un_nostro_bot', 'senza_menzione', 'bot_senza_menzione', 'gruppo_spento',
+  'gruppo_non_ammesso', 'dm_non_ammesso', 'menziona_altri', 'mittente_non_ammesso',
+] as const;
+const PAGE_SIZE = 10;
 
 function IdentitySection({ agent, post, onNavigate }: { agent: Agent; post: Post; onNavigate: (s: ConfigureSection) => void }) {
   const tr = useT();
@@ -60,8 +63,7 @@ function IdentitySection({ agent, post, onNavigate }: { agent: Agent; post: Post
   const [soul, setSoul] = useState(agent.persona['SOUL.md'] ?? '');
   const dirty = name !== identity.name || soul !== (agent.persona['SOUL.md'] ?? '');
   const save = () => {
-    const text = `# ${name}\n${identity.job}\n${identity.rest ? `\n${identity.rest}\n` : ''}`;
-    void post('persona', { agent: agent.id, file: 'IDENTITY.md', text });
+    void post('persona', { agent: agent.id, file: 'IDENTITY.md', text: writeIdentity(agent.persona['IDENTITY.md'] ?? '', { name }) });
   };
   const saveSoul = () => void post('persona', { agent: agent.id, file: 'SOUL.md', text: soul });
   return (
@@ -121,7 +123,7 @@ function JobSection({ agent, post }: { agent: Agent; post: Post }) {
       <input data-testid="agent-job-field" value={job} onChange={(e) => setJob(e.target.value)} className={`mt-1 ${FIELD}`} />
       <button
         type="button" data-testid="agent-job-field-save" disabled={job === identity.job} className={`mt-2 ${SAVE}`}
-        onClick={() => void post('persona', { agent: agent.id, file: 'IDENTITY.md', text: `# ${identity.name}\n${job}\n${identity.rest ? `\n${identity.rest}\n` : ''}` })}
+        onClick={() => void post('persona', { agent: agent.id, file: 'IDENTITY.md', text: writeIdentity(agent.persona['IDENTITY.md'] ?? '', { job }) })}
       >{tr('agentConfig.save')}</button>
     </label>
   );
@@ -145,6 +147,144 @@ function PeopleSection({ agent }: { agent: Agent }) {
         );
       })}
     </ul>
+  );
+}
+
+interface AgentPermissionsData {
+  policy: { path: string; rules: string | null };
+  owners: string[];
+  trusted: string[];
+  chats: { channel: string; chat: string; account: string; mention: boolean; senders: string[]; denied: string[] }[];
+}
+
+function StoppedRegister({ agentId, allAgents }: { agentId: string; allAgents: { id: string; name: string }[] }) {
+  const tr = useT();
+  const ago = useAgo();
+  const titles = useChannelTitles();
+  const [agentFilter, setAgentFilter] = useState(agentId);
+  const [reasonFilter, setReasonFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const { rows, total, pageSize } = useStoppedLog({ agent: agentFilter || undefined, reason: reasonFilter || undefined, page, pageSize: PAGE_SIZE });
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const agentName = (id: string) => allAgents.find((a) => a.id === id)?.name ?? id;
+  return (
+    <div data-testid="agent-permissions-register" className="space-y-2">
+      <h3 className="text-prose font-semibold text-app-text">{tr('agentConfig.permissions.register.title')}</h3>
+      <div className="flex flex-wrap gap-2">
+        <Select
+          testId="agent-permissions-agent-filter"
+          value={agentFilter}
+          ariaLabel={tr('agentConfig.permissions.register.filterAgent')}
+          onChange={(v) => { setAgentFilter(v); setPage(1); }}
+          className="max-w-full"
+          options={[
+            { value: '', label: tr('agentConfig.permissions.register.filterAgentAll') },
+            ...allAgents.map((a) => ({ value: a.id, label: a.name })),
+          ]}
+        />
+        <Select
+          testId="agent-permissions-reason-filter"
+          value={reasonFilter}
+          ariaLabel={tr('agentConfig.permissions.register.filterReason')}
+          onChange={(v) => { setReasonFilter(v); setPage(1); }}
+          className="max-w-full"
+          options={[
+            { value: '', label: tr('agentConfig.permissions.register.filterReasonAll') },
+            ...STOPPED_REASONS.map((r) => ({ value: r, label: tr(`agentConfig.permissions.reason.${r}`) })),
+          ]}
+        />
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-mini text-app-text-muted">{tr('agentConfig.permissions.register.none')}</p>
+      ) : (
+        <ul className="space-y-1">
+          {rows.map((r, i) => {
+            const Mark = CHANNEL_MARKS[CHANNEL_BRAND[r.channel ?? ''] ?? ''];
+            return (
+              <li key={`${r.created}:${i}`} data-testid="agent-permissions-stopped-row" className="flex min-w-0 flex-wrap items-center gap-1.5 rounded border border-app-border-light px-2 py-1 text-mini text-app-text-secondary">
+                <span className="flex-shrink-0 text-app-text-muted">{ago(r.created)}</span>
+                {Mark && <Mark className="h-3 w-3 flex-shrink-0" aria-hidden />}
+                <span className="min-w-0 flex-1 truncate text-app-text">{r.chatTitle ?? titles[r.chat] ?? r.chat}</span>
+                <span className="flex-shrink-0 font-semibold text-app-text">{agentName(r.agent)}</span>
+                <span className="w-full basis-full truncate sm:w-auto sm:basis-auto">{tr(`agentConfig.permissions.reason.${r.reason}`) || r.reason}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {pages > 1 && (
+        <div className="flex items-center gap-2 text-mini text-app-text-secondary">
+          <button type="button" data-testid="agent-permissions-register-prev" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className={BTN}>{tr('agentConfig.permissions.register.prev')}</button>
+          <span className="whitespace-nowrap">{tr('agentConfig.permissions.register.page', { page, pages })}</span>
+          <button type="button" data-testid="agent-permissions-register-next" disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className={BTN}>{tr('agentConfig.permissions.register.next')}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PermissionsSection({ agent, allAgents, onNavigate }: { agent: Agent; allAgents: { id: string; name: string }[]; onNavigate: (s: ConfigureSection) => void }) {
+  const tr = useT();
+  const titles = useChannelTitles();
+  const [data, setData] = useState<AgentPermissionsData | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void apiFetch(`/api/agent-permissions?agent=${encodeURIComponent(agent.id)}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: AgentPermissionsData | null) => { if (alive) setData(body ?? { policy: { path: '', rules: null }, owners: [], trusted: [], chats: [] }); })
+      .catch(() => { if (alive) setData({ policy: { path: '', rules: null }, owners: [], trusted: [], chats: [] }); });
+    return () => { alive = false; };
+  }, [agent.id]);
+  if (!data) return null;
+  return (
+    <div data-testid="agent-permissions" className="space-y-4">
+      <ul>
+        <InheritedRow
+          title={tr('agentConfig.permissions.policy')}
+          badge={data.policy.path || tr('agentConfig.permissions.policyNone')}
+          detail={data.policy.path ? (data.policy.rules ?? tr('agentConfig.permissions.policyUnreadable')) : undefined}
+          actionLabel={tr('agentConfig.inherited.view')}
+          onAction={() => { /* the row's own «Vedi» already opens the detail above; the policy module itself is out of scope here */ }}
+        />
+        <InheritedRow
+          title={tr('agentConfig.permissions.owners')}
+          badge={tr('agentConfig.permissions.count', { n: data.owners.length })}
+          detail={data.owners.length ? data.owners.join(', ') : tr('agentConfig.permissions.none')}
+          actionLabel={tr('agentConfig.inherited.view')}
+          onAction={() => { /* owners are set in config.json, not editable from this read-only view */ }}
+        />
+        <InheritedRow
+          title={tr('agentConfig.permissions.trusted')}
+          badge={tr('agentConfig.permissions.count', { n: data.trusted.length })}
+          detail={data.trusted.length ? data.trusted.join(', ') : tr('agentConfig.permissions.none')}
+          actionLabel={tr('agentConfig.inherited.view')}
+          onAction={() => { /* same as owners: shown, not edited, here */ }}
+        />
+      </ul>
+      {data.chats.length === 0 ? (
+        <p className="text-mini text-app-text-muted">{tr('agentConfig.permissions.noChats')}</p>
+      ) : (
+        <ul data-testid="agent-permissions-chats" className="space-y-2">
+          {data.chats.map((c) => {
+            const Mark = CHANNEL_MARKS[CHANNEL_BRAND[c.channel] ?? ''];
+            return (
+              <li key={`${c.channel}:${c.chat}`} className="rounded border border-app-border-light p-2">
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <p className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-mini font-semibold text-app-text">
+                    {Mark && <Mark className="h-3 w-3 flex-shrink-0" aria-hidden />}<span className="truncate">{titles[c.chat] ?? c.chat}</span>
+                  </p>
+                  <button type="button" data-testid="agent-permissions-override" onClick={() => onNavigate('channels')} className="flex-shrink-0 text-mini text-app-text-secondary hover:text-app-text">{tr('agentConfig.inherited.override')}</button>
+                </div>
+                <p className="text-mini text-app-text-secondary">{c.mention ? tr('agentConfig.permissions.mentionRequired') : tr('agentConfig.permissions.mentionNotRequired')}</p>
+                {c.senders.map((id) => <p key={`w:${id}`} className="pl-4 text-mini text-app-text-secondary">{id} · {tr('agentConfig.tree.canWrite')}</p>)}
+                {c.denied.map((id) => <p key={`d:${id}`} className="pl-4 text-mini text-app-text-secondary">{id} · {tr('agentConfig.tree.excluded')}</p>)}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <StoppedRegister agentId={agent.id} allAgents={allAgents} />
+    </div>
   );
 }
 
@@ -304,7 +444,11 @@ export function AgentConfigure({
   const tr = useT();
   const titles = useChannelTitles();
   const places = useChannelPlaces();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  // Reaching a non-default section (an onSection link, not the plain tab
+  // switch which always defaults to 'identity') means the content, not the
+  // section list, is the intended target: open it directly on phone, same
+  // as a link does on desktop.
+  const [mobileOpen, setMobileOpen] = useState(section !== 'identity');
 
   const content = (() => {
     switch (section) {
@@ -312,6 +456,7 @@ export function AgentConfigure({
       case 'job': return <JobSection agent={agent} post={post} />;
       case 'channels': return <ChannelTree agent={agent} post={post} allAgents={allAgents} titles={titles} places={places} />;
       case 'people': return <PeopleSection agent={agent} />;
+      case 'permissions': return <PermissionsSection agent={agent} allAgents={allAgents} onNavigate={onSection} />;
       case 'jobs': return <AgentJobsSection agent={agent} post={post} />;
       case 'tools': return <ToolsRow agentId={agent.id} />;
       case 'memory': return <MemorySection agentId={agent.id} />;

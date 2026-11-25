@@ -1,0 +1,64 @@
+# Playwright browsers and their system libraries, from a cache. Template from
+# @armonia-io/spec-flow (cures/playwright-browsers, VELOCITA.md).
+#
+# What it cures: `npx playwright install --with-deps` downloaded ~190 .deb every
+# time from an Ubuntu mirror that sometimes stalls for minutes on one package. On
+# 23/11/2026 the step took 7-19 minutes in `gates` and `gates-2` (run 45250220962:
+# 18 minutes of apt out of 19), and it was their critical path. With the .deb and
+# the browsers cached, apt downloads nothing and Playwright downloads nothing.
+#
+# The key holds the runner image and the lockfile: if the image changed under the
+# same key the cache would never be saved again, and every run would download
+# again without anyone noticing. Off GitHub's runners (ours, not root) it installs
+# the browsers only: the system libraries are set up there once, with the machine.
+name: Playwright browsers (cached)
+description: Install the Playwright browsers and their system libraries through a cache
+inputs:
+  browsers:
+    description: Browsers, space separated (chromium, webkit, firefox)
+    default: chromium
+  lockfile:
+    description: The lockfile that pins the Playwright version
+    default: bun.lock
+runs:
+  using: composite
+  steps:
+    - name: Key of the cache
+      id: key
+      shell: bash
+      run: |
+        slug="$(echo "${{ inputs.browsers }}" | tr ' ' '-')"
+        echo "id=playwright-${{ runner.arch }}-${ImageOS:-unknown}-${ImageVersion:-unknown}-${slug}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore browsers and system packages
+      if: runner.environment == 'github-hosted'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/apt-playwright
+          ~/.cache/ms-playwright
+        key: ${{ steps.key.outputs.id }}-${{ hashFiles(inputs.lockfile) }}
+        restore-keys: ${{ steps.key.outputs.id }}-
+
+    - name: Install browsers, retried because the apt mirror answers 503 now and then
+      shell: bash
+      run: |
+        if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+          npx playwright install ${{ inputs.browsers }}
+          exit 0
+        fi
+        if compgen -G "$HOME/apt-playwright/*.deb" > /dev/null; then
+          sudo cp "$HOME"/apt-playwright/*.deb /var/cache/apt/archives/
+        fi
+        for attempt in 1 2 3; do
+          npx playwright install --with-deps ${{ inputs.browsers }} && break
+          [ "$attempt" = 3 ] && exit 1
+          echo "playwright install failed (attempt $attempt)"; sleep $((attempt * 30))
+        done
+        # What apt installed goes back to the cache; autoclean drops superseded versions,
+        # so a cache taken from an older image does not grow at every update.
+        sudo apt-get autoclean -qq
+        rm -rf "$HOME/apt-playwright" && mkdir -p "$HOME/apt-playwright"
+        if compgen -G "/var/cache/apt/archives/*.deb" > /dev/null; then
+          cp /var/cache/apt/archives/*.deb "$HOME/apt-playwright/"
+        fi

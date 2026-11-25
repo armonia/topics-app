@@ -11,19 +11,9 @@
  * rules come from `storeProblems` (T6), never re-derived here.
  */
 import type { MemoryStore, MemoryStoreProblem } from "../memory/stores";
-import { storeProblems } from "../memory/stores";
+import { storeLabel, storeProblems } from "../memory/stores";
 
-export type HealthSeverity = "error" | "warning";
-
-export type HealthSection = "jobs" | "chats" | "harness" | "memory" | "tools" | "identity" | "rules";
-
-/** Where the person goes to fix it: a section of the agents' area, and the agent to open when the problem belongs to one. */
-export interface HealthDestination {
-  section: HealthSection;
-  agentId?: string;
-  /** The thing to focus inside the section (a job id, a topic id, a store id, a server name). */
-  ref?: string;
-}
+import type { HealthDestination, HealthProblem, HealthSection, HealthSeverity } from "../../shared/agents-health";
 
 export interface HealthSubject {
   /** What the problem is about, in words: a job name, an agent name, a store id. */
@@ -64,7 +54,7 @@ export const HEALTH_PROBLEM_TYPES = {
   },
   "memory-unreceived": {
     severity: "warning",
-    sentence: (s) => `${s.label} holds notes that no agent receives.`,
+    sentence: (s) => `${s.label} hold${/^\d+ /.test(s.label) ? "" : "s"} notes that no agent receives.`,
     destination: agentOrRef("memory"),
   },
   "memory-index-missing": {
@@ -96,13 +86,6 @@ export const HEALTH_PROBLEM_TYPES = {
 
 export type HealthProblemType = keyof typeof HEALTH_PROBLEM_TYPES;
 
-export interface HealthProblem {
-  id: string;
-  type: HealthProblemType;
-  severity: HealthSeverity;
-  sentence: string;
-  destination: HealthDestination;
-}
 
 export interface HealthAgentInput {
   id: string;
@@ -127,9 +110,9 @@ export interface HealthInput {
   sharedRulesPresent: boolean;
 }
 
-function problem(type: HealthProblemType, key: string, subject: HealthSubject): HealthProblem {
+function problem(type: HealthProblemType, key: string, subject: HealthSubject, vars: Record<string, string>): HealthProblem<HealthProblemType> {
   const def: ProblemType = HEALTH_PROBLEM_TYPES[type];
-  return { id: `${type}:${key}`, type, severity: def.severity, sentence: def.sentence(subject), destination: def.destination(subject) };
+  return { id: `${type}:${key}`, type, severity: def.severity, sentence: def.sentence(subject), vars, destination: def.destination(subject) };
 }
 
 const STORE_PROBLEM_TYPE: Record<MemoryStoreProblem["kind"], HealthProblemType> = {
@@ -138,49 +121,58 @@ const STORE_PROBLEM_TYPE: Record<MemoryStoreProblem["kind"], HealthProblemType> 
   "index-over-limit": "memory-index-over-limit",
 };
 
-export function collectHealth(input: HealthInput): HealthProblem[] {
-  const out: HealthProblem[] = [];
+export function collectHealth(input: HealthInput): HealthProblem<HealthProblemType>[] {
+  const out: HealthProblem<HealthProblemType>[] = [];
   const names = new Map(input.agents.map((a) => [a.id, a.name]));
 
   for (const job of input.jobs) {
     if (job.agentId && names.has(job.agentId)) continue;
-    out.push(problem("job-without-agent", job.id, { label: job.name, ref: job.id }));
+    out.push(problem("job-without-agent", job.id, { label: job.name, ref: job.id }, { job: job.name }));
   }
 
   for (const chat of input.chats) {
     if (chat.name && chat.name.trim()) continue;
-    out.push(problem("chat-unnamed", chat.id, { label: chat.id, ref: chat.id, ...(chat.agentId ? { agentId: chat.agentId } : {}) }));
+    out.push(problem("chat-unnamed", chat.id, { label: chat.id, ref: chat.id, ...(chat.agentId ? { agentId: chat.agentId } : {}) }, { chat: chat.id }));
   }
 
   for (const c of input.contradictions) {
-    out.push(problem("source-contradiction", c.id, { label: c.about, ref: c.id, detail: `${c.about} (${c.sources[0]} against ${c.sources[1]})` }));
+    out.push(problem("source-contradiction", c.id, { label: c.about, ref: c.id, detail: `${c.about} (${c.sources[0]} against ${c.sources[1]})` }, { about: c.about, first: c.sources[0], second: c.sources[1] }));
   }
 
+  // Unreceived project memories are one problem, not hundreds: nobody is meant to receive most of them.
+  const unreceivedProjects: string[] = [];
   for (const store of input.stores) {
     for (const p of storeProblems(store)) {
+      if (p.kind === "unreceived" && store.kind === "project") {
+        unreceivedProjects.push(store.id);
+        continue;
+      }
       const owner = store.ownerAgentId;
       out.push(problem(STORE_PROBLEM_TYPE[p.kind], `${store.id}`, {
-        label: owner ? `The memory of ${names.get(owner) ?? owner}` : `The memory "${store.id}"`,
+        label: owner ? `The memory of ${names.get(owner) ?? owner}` : `The memory "${storeLabel(store)}"`,
         ...(owner ? { agentId: owner } : {}),
         ref: store.id,
-      }));
+      }, owner ? { agent: names.get(owner) ?? owner } : { store: storeLabel(store) }));
     }
+  }
+  if (unreceivedProjects.length > 0) {
+    out.push(problem("memory-unreceived", "projects", { label: `${unreceivedProjects.length} project memories`, ref: unreceivedProjects[0] }, { count: String(unreceivedProjects.length) }));
   }
 
   for (const tool of input.tools) {
     if (tool.ok) continue;
-    out.push(problem("tool-down", tool.name, { label: tool.name, ref: tool.name, ...(tool.reason ? { detail: tool.reason } : {}) }));
+    out.push(problem("tool-down", tool.name, { label: tool.name, ref: tool.name, ...(tool.reason ? { detail: tool.reason } : {}) }, { tool: tool.name, ...(tool.reason ? { reason: tool.reason } : {}) }));
   }
 
   for (const agent of input.agents) {
     if (agent.missingPersonaFiles.length === 0) continue;
-    out.push(problem("persona-file-missing", agent.id, { label: agent.name, agentId: agent.id, detail: agent.missingPersonaFiles.join(" and ") }));
+    out.push(problem("persona-file-missing", agent.id, { label: agent.name, agentId: agent.id, detail: agent.missingPersonaFiles.join(" and ") }, { agent: agent.name, files: agent.missingPersonaFiles.join(", ") }));
   }
 
   const withRules = input.agents.filter((a) => a.hasOwnRules);
   if (!input.sharedRulesPresent && withRules.length === 1 && input.agents.length > 1) {
     const only = withRules[0];
-    out.push(problem("rules-single-agent", only.id, { label: only.name, agentId: only.id }));
+    out.push(problem("rules-single-agent", only.id, { label: only.name, agentId: only.id }, { agent: only.name }));
   }
 
   return out;

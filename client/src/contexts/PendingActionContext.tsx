@@ -290,6 +290,18 @@ export function usePendingActionStatus(key: string | null | undefined): PendingA
   return { entry, countdownMs, cancel: () => cancel(key) };
 }
 
+/** The first of `candidates` with a queued entry, as a status; null when none is. */
+function firstPendingStatus(
+  { entries, cancel, countdownMs }: PendingActionContextValue,
+  candidates: string[],
+): PendingActionStatus | null {
+  for (const key of candidates) {
+    const entry = entries.find((e) => e.key === key);
+    if (entry) return { entry, countdownMs, cancel: () => cancel(key) };
+  }
+  return null;
+}
+
 // ─── Sidebar ↔ Topbar synchronization helpers ─────────────────────────────
 //
 // The Things3-pattern enqueues a pending action under a kind-specific key
@@ -320,18 +332,16 @@ export function useTopicPendingStatus(
   topicId: string,
   options: { isArchived?: boolean } = {},
 ): PendingActionStatus | null {
-  const { entries, cancel, countdownMs } = usePendingActions();
+  const pending = usePendingActions();
   const candidates: string[] = [];
   // Sidebar archive comes first — it's the more user-deliberate action
   // and carries the topic-level intent (close-tab only kills the open
   // pane, archive removes the topic from the listing).
   if (!options.isArchived) candidates.push(`archive-topic:${topicId}`);
-  candidates.push(`close-tab:chat:${topicId}`);
-  for (const key of candidates) {
-    const entry = entries.find((e) => e.key === key);
-    if (entry) return { entry, countdownMs, cancel: () => cancel(key) };
-  }
-  return null;
+  // A top-level chat tab closes under its bare id, one inside a project
+  // window under `chat:<id>`.
+  candidates.push(`close-tab:${topicId}`, `close-tab:chat:${topicId}`);
+  return firstPendingStatus(pending, candidates);
 }
 
 /**
@@ -340,16 +350,12 @@ export function useTopicPendingStatus(
  */
 // eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function useTerminalPendingStatus(sessionId: string): PendingActionStatus | null {
-  const { entries, cancel, countdownMs } = usePendingActions();
+  const pending = usePendingActions();
   const candidates = [
     `close-terminal:${sessionId}`,
     `close-tab:terminal:${sessionId}`,
   ];
-  for (const key of candidates) {
-    const entry = entries.find((e) => e.key === key);
-    if (entry) return { entry, countdownMs, cancel: () => cancel(key) };
-  }
-  return null;
+  return firstPendingStatus(pending, candidates);
 }
 
 /**
@@ -358,16 +364,12 @@ export function useTerminalPendingStatus(sessionId: string): PendingActionStatus
  */
 // eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function useBrowserPendingStatus(contextId: string): PendingActionStatus | null {
-  const { entries, cancel, countdownMs } = usePendingActions();
+  const pending = usePendingActions();
   const candidates = [
     `close-browser:${contextId}`,
     `close-tab:browser:${contextId}`,
   ];
-  for (const key of candidates) {
-    const entry = entries.find((e) => e.key === key);
-    if (entry) return { entry, countdownMs, cancel: () => cancel(key) };
-  }
-  return null;
+  return firstPendingStatus(pending, candidates);
 }
 
 /**
@@ -384,7 +386,7 @@ export function useBrowserPendingStatus(contextId: string): PendingActionStatus 
  */
 // eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function usePanePendingStatus(paneId: string | null | undefined): PendingActionStatus | null {
-  const { entries, cancel, countdownMs } = usePendingActions();
+  const pending = usePendingActions();
   if (!paneId) return null;
   const candidates: string[] = [`close-tab:${paneId}`];
   if (paneId.startsWith('chat:')) {
@@ -394,11 +396,7 @@ export function usePanePendingStatus(paneId: string | null | undefined): Pending
   } else if (paneId.startsWith('browser:')) {
     candidates.push(`close-browser:${paneId.slice('browser:'.length)}`);
   }
-  for (const key of candidates) {
-    const entry = entries.find((e) => e.key === key);
-    if (entry) return { entry, countdownMs, cancel: () => cancel(key) };
-  }
-  return null;
+  return firstPendingStatus(pending, candidates);
 }
 
 // ─── Module-singleton imperative API ──────────────────────────────────────

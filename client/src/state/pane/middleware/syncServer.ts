@@ -537,9 +537,6 @@ export function initServerSync(): void {
   }
 }
 
-/** @internal Test seam: the remote key the sync tests match their fetches against. */
-export const PANE_STORE_REMOTE_KEY = REMOTE_KEY;
-
 /**
  * Force-flush the current pane-store snapshot to the server, bypassing the
  * 500 ms debounce. Use sparingly — only when a state mutation MUST be

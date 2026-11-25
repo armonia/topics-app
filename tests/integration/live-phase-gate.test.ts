@@ -189,7 +189,8 @@ beforeAll(async () => {
 afterAll(async () => {
   // Il socket finto muore con questo file: lasciarlo nell'env manderebbe i file
   // successivi (stesso processo) a bussare a una porta chiusa.
-  const { disconnectBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  const { disconnectBridge } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
   disconnectBridge();
   _setPtyBridgeSocketPath(null);
   await bridge?.close();
@@ -254,9 +255,8 @@ describe("catena riattaccata: bridge → registrazione → primo frame", () => {
        VALUES (?, 'Claude', ?, NULL, 'claude-code', 120, 30, 1, ?, ?, 'active')`,
     ).run(TERM_ID, CWD, new Date().toISOString(), CSID);
     bridge.alive = [{ id: TERM_ID, pid: 4242 }];
-
-    const { createTerminalRouter, disconnectBridge, _setPtyBridgeSocketPath } =
-      await import("../../server/routes/terminal");
+    const { createTerminalRouter, disconnectBridge } = await import("../../server/routes/terminal");
+    const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
     // `bun test` gira tutti i file in UN processo: un altro file può aver già
     // importato questo modulo (congelandone il socket) e attaccato il suo
     // bridge. Puntare il nostro + staccare il vecchio è ciò che rende questa

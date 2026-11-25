@@ -14,6 +14,7 @@ import { CONFIGURE_SECTIONS, type ConfigureSection } from './configureSections';
 import { useConfigSummary } from './configSummary';
 import { scheduleWords } from './scheduleWords';
 import { useAgentActivity, type ActivityTurn } from './useAgentActivity';
+import { useStoppedLog } from './useStoppedLog';
 import type { Registry } from '../../state/agentRegistry';
 
 type Agent = Registry['agents'][number];
@@ -45,6 +46,7 @@ function TurnRow({ t }: { t: ActivityTurn }) {
 function Activity({ agent, onSection }: { agent: Agent; onSection: (s: ConfigureSection) => void }) {
   const tr = useT();
   const { rows, turns } = useAgentActivity();
+  const { rows: stopped } = useStoppedLog({ agent: agent.id, pageSize: 5 });
   const summary = useConfigSummary(agent);
   const own = turns.filter((t) => t.agent === agent.id);
   const working = own.filter((t) => t.state === 'working');
@@ -86,6 +88,20 @@ function Activity({ agent, onSection }: { agent: Agent; onSection: (s: Configure
           ))}
         </ul>
         <p className="text-mini text-app-text-muted">{tr('agents.activity.noCost')}</p>
+      </Block>
+      <Block title={tr('agentConfig.permissions.stopped.title')} testId="agent-activity-stopped">
+        {stopped.length === 0 ? <p className="text-mini text-app-text-muted">{tr('agentConfig.permissions.stopped.none')}</p> : (
+          <ul className="space-y-1">
+            {stopped.map((s, i) => (
+              <li key={`${s.created}:${i}`} data-testid="agent-activity-stopped-row" className="flex min-w-0 flex-wrap items-center gap-1.5 rounded border border-app-border-light px-2 py-1 text-mini text-app-text-secondary">
+                <ChannelMark channel={s.channel ?? ''} />
+                <span className="min-w-0 flex-1 truncate text-app-text">{s.chatTitle ?? s.chat}</span>
+                <span className="w-full basis-full truncate sm:w-auto sm:basis-auto">{tr(`agentConfig.permissions.reason.${s.reason}`) || s.reason}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <button type="button" data-testid="agent-activity-stopped-seeall" onClick={() => onSection('permissions')} className="text-mini text-app-text-secondary hover:text-app-text">{tr('agentConfig.permissions.stopped.seeAll')}</button>
       </Block>
       <Block title={tr('agents.madeOf')} testId="agent-made-of">
         <ul className="divide-y divide-app-border-light rounded border border-app-border-light">

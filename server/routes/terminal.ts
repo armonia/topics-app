@@ -41,22 +41,12 @@ import { createSession } from "./terminal-session-create";
 import { liveChildrenOf, parkIdleClaudeSessions, reportCeiling, retireTerminalSession } from "./terminal-registry";
 import { setTerminalBroadcast, setTerminalTracker, setTerminalWorktreeStore, branchOfCwd, broadcastTerminalSessions, rosterReconciled } from "./terminal-shared";
 export { noteSubAgentStopHook } from "../lib/subagent-runtime";
-/** @internal */
-export { _forgetSubAgentMemory } from "../lib/subagent-runtime";
 export { setTerminalBrowserCloser, setTerminalMemPressure } from "./terminal-state";
 export { setSubAgentExitHandler, setChildAdmissionPreview, liveCliChildren } from "./terminal-children";
-/** @internal */
-export { _setAgentProfilesHome, _setSeedPromptHandlerForTests } from "./terminal-children";
 export { getTerminalSessionById, getAgentPtyCliPids, listTerminalOwners, getClaudeSessionsForDetection, listTerminalSessionSnapshot, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal, countAttachedTerminalSessions, countBusyAgentTerminals } from "./terminal-queries";
 export { getClaudeSessionPtyIdleMs } from "./terminal-activity";
 export { getPtyBridgeRuntimeStatus, disconnectBridge } from "./terminal-bridge-socket";
-/** @internal */
-export { _suppressPtyBridgeReconnectForTest, _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
-/** @internal */
-export { _resetRosterReconciled } from "./terminal-bridge-roster";
 export { autoNameClaudeSession } from "./terminal-session-create";
-/** @internal */
-export { _setTerminalTrackerForTests, _terminalSessionsForTests } from "./terminal-shared";
 export { noteClaudeHookSession, liveTerminalCwds, retireTerminalSession, parkIdleClaudeSessions, parkOrphanSessions, orphanTerminalSession, parkTerminalSession } from "./terminal-registry";
 
 /** A Claude session id lands straight in an argv (`--resume <id>`): it passes
@@ -745,11 +735,26 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             return errorResponse(429, `board concurrency cap reached (${boardRefusal.live}/${boardRefusal.cap} live agents)`);
           }
         }
+        // WORKTREE-14, and the opt-in IS the point: without `isolation` the
+        // child inherits the parent's directory exactly as it always has. A
+        // checkout is ~600 MB and MAX_CHILDREN_PER_PARENT allows five of them,
+        // so a worktree default would bill that to every chat that delegates.
+        const isolation = body.isolation === "worktree" ? "worktree" : "inherit";
         // SUBAGENT-25/26/27 wiring (SUBAGENT-28, `subagent-remote-wiring.ts`):
         // sequenced on the PARENT's own cwd, before any local worktree or
         // process is paid for. `null` = never eligible, the local path right
         // below (unchanged) is what runs then.
-        {
+        //
+        // Never for an explicit `isolation:"worktree"` (WORKTREE-17, 23/11): the
+        // remote path reports `cwd: input.cwd`, the PARENT's own checkout, and a
+        // `branch` that is only the name of the snapshot used to cut the node's
+        // bundle — never a worktree. A caller asking for isolation got back a
+        // cwd it never asked for, with a branch `git worktree list` had never
+        // heard of, and the parent checkout one save away from the agent's pen.
+        // The caller's isolation request must only ever answer with a real
+        // worktree or an error, so it skips this fast path entirely and falls
+        // through to the worktree creation below, which already holds that bar.
+        if (isolation !== "worktree") {
           const chosenNameForRemote = typeof body.name === "string" && body.name ? body.name : null;
           const remote = await remoteChildren.trySpawnRemote({
             cwd, prompt, name: chosenNameForRemote ?? `agent ${crypto.randomUUID().slice(0, 8)}`,
@@ -772,11 +777,6 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             });
           }
         }
-        // WORKTREE-14, and the opt-in IS the point: without `isolation` the
-        // child inherits the parent's directory exactly as it always has. A
-        // checkout is ~600 MB and MAX_CHILDREN_PER_PARENT allows five of them,
-        // so a worktree default would bill that to every chat that delegates.
-        const isolation = body.isolation === "worktree" ? "worktree" : "inherit";
         // subagent-nativi: the engine, and the CLI only when the call asks for it.
         const choice = childRuntimeFor(body.runtime, () => isolation === "worktree"
           ? { ok: true, projectPath: null, worktreeId: null } // decided once the worktree exists

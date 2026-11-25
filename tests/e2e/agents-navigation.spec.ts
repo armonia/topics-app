@@ -9,7 +9,10 @@
  * and shows up without a restart. Channels as a tree (AGENTS-04): channel ->
  * server -> category -> chat -> thread, inherited values say so, an edit
  * narrows to its own node, and Configure > Identity lists what is inherited
- * as one row each with See/Override.
+ * as one row each with See/Override. Permissions (AGENTS-05): Configure >
+ * Permissions shows the policy path, the global owners/trusted and each
+ * chat's senders/denied; the agent's Activity has "Stopped recently" with a
+ * link into the full register.
  *
  * `/api/agent-config`, `/api/agent-channels` and `/api/agent-channels/places`
  * are faked with `page.route`: the real jarvis-channels files are never
@@ -83,6 +86,24 @@ async function stage(page: Page) {
   }) }));
   await page.route("**/api/agent-tools**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ filter: { mode: "all", servers: [] }, servers: [{ name: "fs" }, { name: "web" }] }) }));
   await page.route("**/api/memory-stores", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ stores: [] }) }));
+  await page.route((url) => url.pathname === "/api/agent-permissions", (r) => {
+    const agentId = new URL(r.request().url()).searchParams.get("agent");
+    const body = agentId === "main"
+      ? {
+        policy: { path: "./policy.js", rules: "module.exports = { rule: 'owner-only' };" },
+        owners: ["+391234567890"], trusted: ["+390987654321"],
+        chats: [
+          { channel: "discord", chat: "100", account: "default", mention: false, senders: ["921"], denied: [] },
+          { channel: "discord", chat: "101", account: "default", mention: true, senders: [], denied: ["55"] },
+        ],
+      }
+      : { policy: { path: "", rules: null }, owners: [], trusted: [], chats: [] };
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  await page.route("**/api/agent-permissions/stopped**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    rows: [{ created: Date.now() - 60_000, chat: "100", chatTitle: "#operazioni", channel: "discord", agent: "main", reason: "senza_menzione" }],
+    total: 1, page: 1, pageSize: 10,
+  }) }));
   await goToApp(page);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "agents" } })));
   await expect(page.getByTestId("agents-pane")).toBeVisible({ timeout: 15_000 });
@@ -238,4 +259,55 @@ test("canali come albero, ereditato senza ripetizioni (AGENTS-04)", async ({ pag
   await expect(page.getByTestId("agent-inherited-row")).toHaveCount(4); // anima, regole, strumenti, memoria
   await expect(page.getByTestId("agent-inherited-action").first()).toContainText("Sovrascrivi");
   await page.screenshot({ path: info.outputPath("agenti-canali-albero.png") });
+});
+
+test("permessi agenti e registro dei fermati (AGENTS-05)", async ({ page }, info) => {
+  test.info().annotations.push({ type: "spec", description: "AGENTS-NAV-01" });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await stage(page);
+
+  await page.getByTestId("agent-overview-card").filter({ hasText: "Jarvis" }).click();
+  // the UI label "Fermati di recente" in Activity, with a link into the full register // allow-italian: quoted UI copy
+  await expect(page.getByTestId("agent-activity-stopped-row")).toHaveCount(1);
+  await expect(page.getByTestId("agent-activity-stopped-row")).toContainText("#operazioni");
+  await page.getByTestId("agent-activity-stopped-seeall").click();
+
+  await expect(page.getByTestId("agent-configure-section").filter({ hasText: "Permessi" })).toHaveAttribute("aria-current", "true");
+  await expect(page.getByTestId("agent-permissions")).toBeVisible();
+  // policy, owners and trusted are one inherited row each, the list opens with «Vedi»
+  await expect(page.getByTestId("agent-inherited-row")).toHaveCount(3);
+  const secondInheritedRow = page.getByTestId("agent-inherited-row").nth(1);
+  await secondInheritedRow.getByTestId("agent-inherited-view").click();
+  await expect(secondInheritedRow.getByTestId("agent-inherited-detail")).toContainText("+391234567890");
+
+  // the chat's senders/denied, with «Sovrascrivi» pointing back at the chat that owns them
+  await expect(page.getByTestId("agent-permissions-chats")).toContainText("Escluso");
+  await page.getByTestId("agent-permissions-override").first().click();
+  await expect(page.getByTestId("agent-configure-section").filter({ hasText: "Canali e chat" })).toHaveAttribute("aria-current", "true");
+
+  // the full register, filterable, reached from the same section
+  await page.getByTestId("agent-configure-section").filter({ hasText: "Permessi" }).click();
+  await expect(page.getByTestId("agent-permissions-register")).toBeVisible();
+  await expect(page.getByTestId("agent-permissions-stopped-row")).toHaveCount(1);
+
+  // at 375 px, a link into a Configure section opens it in one tap, same as on desktop
+  await page.setViewportSize({ width: 375, height: 800 });
+  await page.getByTestId("agent-detail-tab-activity").click();
+  await page.getByTestId("agent-activity-stopped-seeall").click();
+  await expect(page.getByTestId("agent-permissions")).toBeVisible();
+
+  const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflowX).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: info.outputPath("agenti-permessi-375.png") });
+
+  // at 768 px, the stopped-turns register's filters and pagination stay inside the column
+  await page.setViewportSize({ width: 768, height: 900 });
+  // a single page of results means no pagination controls at all
+  await expect(page.getByTestId("agent-permissions-register-prev")).toHaveCount(0);
+  const registerBox = await page.getByTestId("agent-permissions-register").boundingBox();
+  const reasonFilterBox = await page.getByTestId("agent-permissions-reason-filter").boundingBox();
+  expect(reasonFilterBox!.x + reasonFilterBox!.width).toBeLessThanOrEqual(registerBox!.x + registerBox!.width + 1);
+  const overflowX768 = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflowX768).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: info.outputPath("agenti-permessi-768.png") });
 });

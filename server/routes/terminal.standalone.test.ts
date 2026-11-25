@@ -15,7 +15,8 @@ import net from "net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { choosePtyBridgeCommand, newestFileMtime, resolvePtyBridgeCommand } from "../lib/pty-bridge-selection";
-import { getPtyBridgeRuntimeStatus, _setPtyBridgeSocketPath, _suppressPtyBridgeReconnectForTest } from "./terminal";
+import { getPtyBridgeRuntimeStatus } from "./terminal";
+import { _setPtyBridgeSocketPath, _suppressPtyBridgeReconnectForTest } from "./terminal-bridge-socket";
 import { ensureBridge, isPtyBridgeDisabled } from "./terminal-bridge-socket";
 
 const FLAGS = ["TOPICS_DISABLE_PTY_BRIDGE", "TOPICS_EMBEDDED"] as const;

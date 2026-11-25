@@ -1,6 +1,7 @@
 import { useCallback, memo, createElement } from 'react';
 import { ChevronRight, Pin, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { SubagentsToggle, type SubagentsToggleState } from './SubagentsToggle';
 import type { Topic } from '@/types';
 import { useTopicPendingStatus } from '@/contexts/PendingActionContext';
 import { PendingActionRing } from '@/components/Shared/PendingActionRing';
@@ -20,6 +21,7 @@ import { SwapIce } from '@/components/Shared/SwapIce';
 import { SwapFreezeLabel } from '@/components/Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '@/state/swapFreeze';
 import { rowCommandSequence } from '@/lib/rowCommandOrder';
+import { rowCommand } from '@/lib/closedRows';
 import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, TAB_LABEL_TYPE, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { RowSplitMap } from './RowSplitMap';
 import { useMobile } from '@/hooks/useMobile';
@@ -59,6 +61,16 @@ interface TopicItemProps {
   onDoubleClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onArchive?: (topicId: string, archive: boolean) => void;
+  /** The row's tab is open: the circle CLOSES it instead of archiving. Without
+   *  it the circle archives (a closed row) or restores (an archived one), so
+   *  the command always follows the state: open, closed, archived. */
+  onCloseTab?: () => void;
+  /** A row that stands for a tab: its surface says open or closed (see
+   *  `sidebarRowCard`). Absent on the rows of sub-agents. */
+  tab?: 'open' | 'closed';
+  /** The row launched sub-agents: its chevron is their accordion (with
+   *  `hasChildren`, `isExpanded` and `onToggle` driving it). */
+  subagents?: SubagentsToggleState;
   onStopStreaming?: () => void;
   /** Pinned ("Fissati") — renders the Pin glyph in the trailing rail and the
    *  row survives tab close (see buildSidebarItems pinnedIds gates). */
@@ -116,6 +128,9 @@ export const TopicItem = memo(function TopicItem({
   onDoubleClick,
   onContextMenu,
   onArchive,
+  onCloseTab,
+  tab,
+  subagents,
   onStopStreaming,
   pinned,
   detachedWindowLabel,
@@ -236,6 +251,8 @@ export const TopicItem = memo(function TopicItem({
   const toggleArchive = useCallback(() => {
     onArchive?.(topic.id, !archived);
   }, [topic.id, archived, onArchive]);
+  // Open tab → close, closed row → archive, archived → restore.
+  const ringCommand = rowCommand({ open: !!onCloseTab, archived });
 
   // Native HTML5 drag SOURCE for the sidebar row (restores the drag that a
   // dnd-kit migration + DndContext removal left dead — see PanelGrid's sidebar
@@ -301,6 +318,7 @@ export const TopicItem = memo(function TopicItem({
       data-pinned={pinned ? 'true' : undefined}
       data-attention={rawAttentionTier ?? undefined}
       data-attention-fill={attentionTier ?? undefined}
+      data-tab-state={tab}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
@@ -341,7 +359,7 @@ export const TopicItem = memo(function TopicItem({
         // accende al passaggio del mouse. Il `relative` che gli serve lo porta
         // già `sidebarRowCard`.
         `group ${ROW_CARD} flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} cursor-pointer ${TAB_LABEL_TYPE} select-none`,
-        sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier, nested: depth > 0 }),
+        sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier, nested: depth > 0, tab }),
         // Preview panels show italic name
         isPreview && 'italic',
         archived && ARCHIVED_ROW
@@ -374,7 +392,9 @@ export const TopicItem = memo(function TopicItem({
           children, so the same column carried two alignments. Reported on the
           board (card 150ebafb): a row without an accordion starts further left
           than a row that has one. */}
-      {hasChildren ? (
+      {subagents ? (
+        <SubagentsToggle state={subagents} />
+      ) : hasChildren ? (
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
           aria-label={isExpanded ? 'Comprimi' : 'Espandi'}
@@ -570,12 +590,12 @@ export const TopicItem = memo(function TopicItem({
 
           `data-pending` tiene acceso il comando mentre il conto scorre: un'azione
           ancora annullabile deve restare annullabile anche se sposti il mouse. */}
-      {(onArchive || (isStreaming && onStopStreaming)) && !topic.isGlobalOrchestrator && (
+      {(onArchive || onCloseTab || (isStreaming && onStopStreaming)) && !topic.isGlobalOrchestrator && (
         <span
-          className={`${ROW_ACTIONS} ${isStreaming && onStopStreaming && onArchive ? 'h-9 md:h-7 w-auto' : ROW_ACTION_BOX}`}
+          className={`${ROW_ACTIONS} ${isStreaming && onStopStreaming && (onArchive || onCloseTab) ? 'h-9 md:h-7 w-auto' : ROW_ACTION_BOX}`}
           data-pending={pendingArchiveStatus ? 'true' : undefined}
         >
-          {rowCommandSequence(isStreaming && !!onStopStreaming, !!onArchive).map((command) => command === 'stop' ? (
+          {rowCommandSequence(isStreaming && !!onStopStreaming, !!(onArchive || onCloseTab)).map((command) => command === 'stop' ? (
             <button
               key="stop"
               onClick={(e) => { e.stopPropagation(); onStopStreaming!(); }}
@@ -589,19 +609,23 @@ export const TopicItem = memo(function TopicItem({
               <span className="bg-app-text rounded-[2px]" style={{ width: 8, height: 8 }} />
             </button>
           ) : (
+          // Open tab → the circle closes it; closed row → archives it; archived
+          // → restores it. It used to archive an OPEN chat and leave its tab
+          // standing, so the row ticked «done» and the tab had to be closed a
+          // second time (24/11).
           <PendingActionRing
             key="close"
-            testId="topic-row-archive"
+            testId={ringCommand === 'close' ? 'topic-row-close' : 'topic-row-archive'}
             status={pendingArchiveStatus}
             done={archived}
             size={ROW_ACTION_GLYPH}
             boxClassName={ROW_ACTION_BOX}
-            onIdleClick={toggleArchive}
+            onIdleClick={ringCommand === 'close' ? onCloseTab : toggleArchive}
             onDoneClick={toggleArchive}
-            idleTitle="Archivia (non chiude la tab)"
-            idleAriaLabel={`Archivia ${topic.name}`}
-            pendingTitle="Annulla archiviazione"
-            pendingAriaLabel={`Annulla archiviazione ${topic.name}`}
+            idleTitle={ringCommand === 'close' ? tr('sidebar.closeTab') : tr('sidebar.archiveRow')}
+            idleAriaLabel={`${ringCommand === 'close' ? tr('sidebar.closeTab') : tr('sidebar.archiveRow')} ${topic.name}`}
+            pendingTitle={tr('sidebar.undoPending')}
+            pendingAriaLabel={`${tr('sidebar.undoPending')} ${topic.name}`}
             doneTitle="Ripristina"
             doneAriaLabel={`Ripristina ${topic.name}`}
           />

@@ -168,6 +168,19 @@ describe("parser macOS", () => {
     expect(parseMacPendingUpdates(MAC_SU_CLEAN)).toEqual([]);
   });
 
+  test("aggiornamenti in attesa: con la versione installata l'età è la prima correzione saltata, non l'ultima offerta", () => {
+    // On 26.2 the Mac skipped 26.7.2 (26/10) before 26.7.3 (09/11): behind since 26/10.
+    expect(parseMacPendingUpdates(MAC_SU, "26.2\n")).toEqual([
+      { id: "MSU_UPDATE_25G342_patch_26.7.3_minor", offeredAt: Date.parse("2026-10-26T22:25:07Z") },
+    ]);
+    // Already on 26.7.2: only 26.7.3 is missing, its own offer date. A _major never counts.
+    expect(parseMacPendingUpdates(MAC_SU, "26.7.2")).toEqual([
+      { id: "MSU_UPDATE_25G342_patch_26.7.3_minor", offeredAt: Date.parse("2026-11-09T22:26:15Z") },
+    ]);
+    // An unreadable version falls back to the pending fix's own offer.
+    expect(parseMacPendingUpdates(MAC_SU, "boh")[0]?.offeredAt).toBe(Date.parse("2026-11-09T22:26:15Z"));
+  });
+
   test("FileVault e firewall", () => {
     expect(parseFileVault("FileVault is On.\n")).toBe("on");
     expect(parseFileVault("FileVault is Off.\n")).toBe("off");
@@ -396,6 +409,15 @@ describe("giro completo per sistema", () => {
     expect(by.disk).toMatchObject({ status: "warn", detail: "Disco non cifrato (BitLocker spento)" });
     expect(by.access.status).toBe("problem");
     expect(by.antivirus).toMatchObject({ status: "ok", detail: "Defender attivo, firme del 17/11, 0 accessi falliti" });
+  });
+
+  test("Windows: BitLocker mai acceso risponde 0 ed è un disco non cifrato, non una risposta sconosciuta", async () => {
+    const disk = async (answer: string) => (await probeMachineSecurity(envOf("win32", {
+      "powershell.exe": (argv) => Buffer.from(argv[4], "base64").toString("utf16le").includes("BitLockerProtection") ? psOut(answer) : MISSING,
+    }))).checks.find((c) => c.key === "disk");
+    expect(await disk("bitlocker=0")).toMatchObject({ status: "warn", detail: "Disco non cifrato (BitLocker spento)" });
+    // an empty answer (no BitLocker at all) stays unknown: nothing was read
+    expect((await disk("bitlocker="))?.status).toBe("unknown");
   });
 
   test("Windows: protezione in tempo reale spenta = problema; riavvio in attesa = avviso", async () => {

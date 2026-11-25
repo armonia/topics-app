@@ -100,7 +100,8 @@ export function rollupAction(entries: Iterable<ActionEntry>, { waitWins = true }
 export function backgroundAction(tasks: readonly Pick<AttentionTask, 'kind'>[]): AgentAction {
   const work = tasks.filter((t) => t.kind !== 'wake');
   if (work.length === 0) return 'think';
-  return work.some((t) => t.kind === 'agent' || t.kind === 'workflow') ? 'delegate' : 'run';
+  // `subagent` is a `spawn_agent` child: an agent at work like the CLI's own Agent.
+  return work.some((t) => t.kind === 'agent' || t.kind === 'workflow' || t.kind === 'subagent') ? 'delegate' : 'run';
 }
 
 /**

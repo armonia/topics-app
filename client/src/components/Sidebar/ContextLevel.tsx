@@ -61,9 +61,11 @@ function useClock(locale: string) {
 export interface ContextLevelProps {
   /** Closes the menu: the phone's close button leaves it. */
   onNavigate?: () => void;
+  /** Mounted inside the System page: the phone's own header (back, close) is left out. */
+  embedded?: boolean;
 }
 
-export function ContextLevel({ onNavigate }: ContextLevelProps) {
+export function ContextLevel({ onNavigate, embedded = false }: ContextLevelProps) {
   const tr = useT();
   const locale = useLocale();
   const { isMobile } = useMobile();
@@ -129,7 +131,7 @@ export function ContextLevel({ onNavigate }: ContextLevelProps) {
 
   return (
     <div data-testid="context-level" className="flex min-w-0 flex-col">
-      {isMobile ? (
+      {isMobile && !embedded ? (
         <>
           <div className="relative flex h-11 items-center px-1">
             <button type="button" data-testid="context-back" onClick={closeLevel} className="flex h-11 items-center gap-0.5 px-2 text-body-lg text-primary">

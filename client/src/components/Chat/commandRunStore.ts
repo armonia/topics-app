@@ -10,12 +10,13 @@
  */
 import { useCallback, useSyncExternalStore } from 'react';
 import { commandRunsApi, type CommandRunInfo } from '../../lib/api';
+import { createKeyedListeners } from '../../lib/keyedListeners';
 
 const runsByMessage = new Map<string, CommandRunInfo[]>();
 const sessionOf = new Map<string, string>();
 const loading = new Set<string>();
 const listeners = new Map<string, Set<() => void>>();
-const outputPokes = new Map<string, Set<() => void>>();
+const outputPokes = createKeyedListeners<string>();
 
 function emit(messageId: string): void {
   for (const fn of listeners.get(messageId) ?? []) fn();
@@ -70,13 +71,7 @@ export function refreshMessageRuns(sessionKey: string, messageId: string): void 
 }
 
 export function subscribeRunOutput(processId: string, fn: () => void): () => void {
-  let set = outputPokes.get(processId);
-  if (!set) outputPokes.set(processId, (set = new Set()));
-  set.add(fn);
-  return () => {
-    set.delete(fn);
-    if (!set.size) outputPokes.delete(processId);
-  };
+  return outputPokes.subscribe(processId, fn);
 }
 
 /**
@@ -87,6 +82,6 @@ export function noteCommandRunFrame(msg: { type?: string; sessionKey?: string; m
   if (msg.type === 'command-run:updated' && msg.messageId && listeners.has(msg.messageId)) {
     load(msg.sessionKey ?? sessionOf.get(msg.messageId) ?? '', msg.messageId);
   } else if (msg.type === 'scripts:output' && msg.processId) {
-    for (const fn of outputPokes.get(msg.processId) ?? []) fn();
+    outputPokes.emit(msg.processId);
   }
 }

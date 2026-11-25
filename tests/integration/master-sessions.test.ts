@@ -39,7 +39,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe("Master session control — read / write / close (shell sessions)", () => {
   test("creates a shell session, writes to it, reads its buffer, then closes it", async () => {
-    const { createTerminalRouter, disconnectBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+    const { createTerminalRouter, disconnectBridge } = await import("../../server/routes/terminal");
+    const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
     // Its own socket: the bridge log is parked beside it, and the default one lands in /tmp.
     _setPtyBridgeSocketPath(join(TEST_DATA, "pty-bridge.sock"));
     const ctx = await createTestAppContext();

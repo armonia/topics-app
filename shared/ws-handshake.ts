@@ -40,19 +40,6 @@ export const welcomeMessageSchema = z.object({
   clientId: z.string(),
 });
 
-// ----- Client -> Server: hello ----------------------------------------------
-
-/** @internal Contract schema locked by tests/unit/ws-contract.test.ts; no production code parses the hello message yet. */
-export const helloMessageSchema = z.object({
-  type: z.literal('hello'),
-  /** Human-readable client version (from package.json). */
-  clientVersion: z.string(),
-  /** Integer protocol version. */
-  protocolVersion: z.int(),
-  /** Capabilities the client knows how to use. Empty = legacy. */
-  capabilities: z.array(z.string()),
-});
-
 // ----- Server -> Client: upgrade-required (future) --------------------------
 
 // Nessun alias `UpgradeRequiredMessage`: lo schema è bloccato dai test di

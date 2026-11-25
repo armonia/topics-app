@@ -7,20 +7,28 @@
  * @covers CHAT-QUEUE-06
  */
 import { describe, expect, it } from 'bun:test';
-import { claimOnScreen, groupBySession, onScreenSessions } from './unsentMessages';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { claimOnScreen, groupBySession, useOnScreenSessions } from './unsentMessages';
+
+/** Whether a component reading the public hook sees `key` as claimed. */
+function sees(key: string): boolean {
+  const Probe = () => createElement('i', null, String(useOnScreenSessions().has(key)));
+  return renderToStaticMarkup(createElement(Probe)).includes('true');
+}
 
 describe('claimOnScreen', () => {
   it('holds a session until every claim on it is released', () => {
     const releaseA = claimOnScreen('s1');
     const releaseB = claimOnScreen('s1');
-    expect(onScreenSessions().has('s1')).toBe(true);
+    expect(sees('s1')).toBe(true);
     releaseA();
-    expect(onScreenSessions().has('s1')).toBe(true);
+    expect(sees('s1')).toBe(true);
     // Releasing twice is a no-op, not a second decrement.
     releaseA();
-    expect(onScreenSessions().has('s1')).toBe(true);
+    expect(sees('s1')).toBe(true);
     releaseB();
-    expect(onScreenSessions().has('s1')).toBe(false);
+    expect(sees('s1')).toBe(false);
   });
 });
 

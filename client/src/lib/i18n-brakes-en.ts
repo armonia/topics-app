@@ -51,6 +51,16 @@ const BRAKES_EN: Dict = {
   'brake.column.api': 'They start as soon as the API answers again.',
   'brake.column.apiOne': 'It starts as soon as the API answers again.',
   'brake.card.wait': 'Waits for the brake · {who}',
+  'brake.spend.who': 'Spend 24 h',
+  'brake.spend.title': 'The 24-hour spend cap stops the queue',
+  'brake.why.spend': '{spent} of {cap} USD, resumes {when}',
+  'brake.why.spendOpen': '{spent} of {cap} USD, resumes when it falls back',
+  'brake.pop.leadSpend': 'Agent spend over the last 24 hours went past the cap: no card starts, whatever its model. The cap is changed in the board settings.',
+  'brake.column.spendHead': '{n} wait for the spend cap',
+  'brake.column.spendHeadOne': '1 waits for the spend cap',
+  'brake.column.spendOpen': 'They start when the 24-hour spend falls back under the cap.',
+  'brake.column.spendOpenOne': 'It starts when the 24-hour spend falls back under the cap.',
+  'brake.card.spend': 'Waits for the spend cap',
 };
 
 export default BRAKES_EN;

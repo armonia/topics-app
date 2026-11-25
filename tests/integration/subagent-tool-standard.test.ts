@@ -121,11 +121,14 @@ beforeAll(async () => {
   topic(MEDIUM_CHAT, "claude-opus-5[1m]");
   ctx.db.run("UPDATE topics SET effort = 'medium' WHERE session_key = ?", [MEDIUM_CHAT]);
   const terminal = await import("../../server/routes/terminal");
+  const childrenMod = await import("../../server/routes/terminal-children");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
+  const sharedMod = await import("../../server/routes/terminal-shared");
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(SOCKET_PATH);
-  terminal._setAgentProfilesHome(HOME);
+  bridgeSocketMod._setPtyBridgeSocketPath(SOCKET_PATH);
+  childrenMod._setAgentProfilesHome(HOME);
   // No tracker unless a test installs one: an earlier file in the same process may have left its own.
-  terminal._setTerminalTrackerForTests(null);
+  sharedMod._setTerminalTrackerForTests(null);
   terminal.setSubAgentExitHandler((info) => { reports.push(info); });
   router = terminal.createTerminalRouter(ctx) as typeof router;
   await until("the reconcile list", () => bridge.received.some((m) => m.type === "list"), 5_000);
@@ -140,11 +143,13 @@ afterEach(async () => {
 
 afterAll(async () => {
   const terminal = await import("../../server/routes/terminal");
+  const childrenMod = await import("../../server/routes/terminal-children");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
   terminal.setSubAgentExitHandler(null);
-  terminal._setAgentProfilesHome(null);
+  childrenMod._setAgentProfilesHome(null);
   process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(null);
+  bridgeSocketMod._setPtyBridgeSocketPath(null);
   await bridge?.close();
   delete process.env.CLAUDE_BIN;
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
@@ -354,6 +359,7 @@ describe("the parent is owed a wake while its child works (SUBAGENT-12)", () => 
 describe("a finished child is retired, and comes back with --resume (SUBAGENT-14)", () => {
   test("a session tracker still saying «running» does not keep a finished child alive", async () => {
     const terminal = await import("../../server/routes/terminal");
+    const sharedMod = await import("../../server/routes/terminal-shared");
     const { retireIdleSubAgents } = await import("../../server/lib/subagent-runtime");
     const { body, child } = await spawn(SONNET_CHAT, { agent_type: "scout", name: "scout-lag" });
     const agentId = body.agentId as string;
@@ -364,12 +370,12 @@ describe("a finished child is retired, and comes back with --resume (SUBAGENT-14
     const lagging = new Proxy({}, {
       get: (_t, name) => (name === "getSession" ? () => ({ phase: "running" }) : () => undefined),
     });
-    terminal._setTerminalTrackerForTests(lagging as Parameters<typeof terminal._setTerminalTrackerForTests>[0]);
+    sharedMod._setTerminalTrackerForTests(lagging as Parameters<typeof sharedMod._setTerminalTrackerForTests>[0]);
     try {
       await until("the retirement", () => retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 }).includes(agentId) || rowOf(agentId)?.state === "retired", 10_000);
       expect(rowOf(agentId)?.state).toBe("retired");
     } finally {
-      terminal._setTerminalTrackerForTests(null);
+      sharedMod._setTerminalTrackerForTests(null);
     }
   });
 
@@ -403,12 +409,13 @@ describe("a finished child is retired, and comes back with --resume (SUBAGENT-14
 
   test("a stopped child is resumed from its row after a restart, not refused with 404", async () => {
     const terminal = await import("../../server/routes/terminal");
+    const subagentRuntimeMod = await import("../../server/lib/subagent-runtime");
     const { body, child } = await spawn(SONNET_CHAT, { name: "after-restart" });
     const agentId = body.agentId as string;
     await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
     expect((await call(`${agents(SONNET_CHAT)}/${agentId}/stop`, "POST")).status).toBe(200);
     await until("the stopped row", () => rowOf(agentId)?.state === "stopped");
-    terminal._forgetSubAgentMemory();
+    subagentRuntimeMod._forgetSubAgentMemory();
     const res = await call(`${agents(SONNET_CHAT)}/${agentId}/send`, "POST", { input: "Carry on." });
     expect(res.status).toBe(200);
     expect(flag(argsOf(agentId), "--resume")).toBe(child!.sessionId);
@@ -549,6 +556,7 @@ describe("the roster, the transcript reads and the slots of a live child (SUBAGE
 
   test("a child whose seeding a restart cut is reported undelivered, then retired: it holds no slot forever", async () => {
     const terminal = await import("../../server/routes/terminal");
+    const subagentRuntimeMod = await import("../../server/lib/subagent-runtime");
     const { retireIdleSubAgents } = await import("../../server/lib/subagent-runtime");
     bridge.nextAcceptFromEnter = 99;
     let spawnedChild: Awaited<ReturnType<typeof spawn>>;
@@ -559,7 +567,7 @@ describe("the roster, the transcript reads and the slots of a live child (SUBAGE
     }
     const agentId = spawnedChild.body.agentId as string;
     // The server restarts two minutes after the spawn, with the prompt never arrived.
-    terminal._forgetSubAgentMemory();
+    subagentRuntimeMod._forgetSubAgentMemory();
     ctx.db.run("UPDATE subagents SET created_at = ? WHERE id = ?", [new Date(Date.now() - 2 * 60_000).toISOString(), agentId]);
     await until("the undelivered report", () => reportsFor(agentId).some((r) => r.outcome.status === "undelivered"), 15_000);
     expect(rowOf(agentId)).toMatchObject({ state: "running", turns_reported: 0 });

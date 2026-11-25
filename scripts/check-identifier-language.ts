@@ -91,6 +91,8 @@ export const PROJECT_WORDS = new Set([
   "ufw", "netstat", "softwareupdate", "xprotect", "powershell", "gocryptfs", "autopatch", "tcp",
   // iptables, nft: the Linux kernel firewall tools the same probe reads when ufw is off (`iptablesBlocksInput`, `nftBlocksInput`).
   "iptables", "nft",
+  // openspec: the spec tool and the repo folder of the same name (`openspec/`), counted apart by `tests/unit/no-instance-strings.test.ts`.
+  "openspec",
   // requeue: putting a task back in `todo` for the dispatcher to claim fresh
   // (`server/services/task-dispatcher.ts`, `server/routes/tasks-board.ts`) —
   // the project's own word for it, already used as a parameter name project-wide.
@@ -476,7 +478,7 @@ export const PROJECT_WORDS = new Set([
   "truthy", "falsy", "boolean", "enum", "enums", "middleware", "callback",
   "callbacks", "timestamp", "timestamps", "throttle", "debounce", "memoize",
   "hydrate", "rehydrate", "unmount", "remount", "prefetch", "refetch", "rerender",
-  "resnapshot",
+  "resnapshot", "unsubscribe",
   "teardown", "backoff", "changeset", "workspace", "workspaces", "toolbar",
   "tooltip", "dropdown", "popover", "checkbox", "placeholder", "viewport",
   "scrollbar", "sidebar", "keyframe", "keyframes", "flex", "grid", "svg", "png",

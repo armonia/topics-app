@@ -1613,13 +1613,6 @@ const OUTBOUND_SCHEMAS = {
 } as const;
 
 /**
- * Stable list of outbound types this module knows about. Exposed so tests
- * can lock the registry size (contract guard).
- * @internal Test oracle: read by the registry and envelope contract tests.
- */
-export const REGISTERED_OUTBOUND_TYPES = Object.keys(OUTBOUND_SCHEMAS).sort();
-
-/**
  * I tipi che il server può mandare — DERIVATI dal registro, non riscritti a
  * mano: aggiungere uno schema aggiunge il tipo, e non c'è modo di scordarsi
  * l'uno o l'altro.
@@ -1790,12 +1783,3 @@ export function validateOutbound(msg: unknown): ValidationResult {
   return { ok: false, type, error: formatZodIssues(result.error) };
 }
 
-/**
- * Convenience: returns true if the type is known to this module's registry.
- * Useful for tests + dev-mode diagnostics ("which outbound types are still
- * unmodeled?").
- * @internal Test oracle: read by the registry and envelope contract tests.
- */
-export function isRegisteredOutboundType(type: string): boolean {
-  return type in OUTBOUND_SCHEMAS;
-}

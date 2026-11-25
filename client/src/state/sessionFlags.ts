@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import { createKeyedListeners } from '../lib/keyedListeners';
 
 /**
  * The per-session turn flags of the chat (loading, streaming, thinking, stopped
@@ -28,7 +29,7 @@ export type SessionFlag = 'loading' | 'streaming' | 'thinking' | 'stopped';
 export type FlagMap = Record<string, boolean>;
 
 let maps: Record<SessionFlag, FlagMap> = { loading: {}, streaming: {}, thinking: {}, stopped: {} };
-const perSession = new Map<string, Set<() => void>>();
+const perSession = createKeyedListeners<string>();
 const everyone = new Set<() => void>();
 
 /** One flag of one session. */
@@ -50,8 +51,7 @@ export function updateSessionFlags(flag: SessionFlag, updater: FlagMap | ((prev:
   for (const k of Object.keys(prev)) if (!(k in next) && prev[k] === true) changed.push(k);
   if (changed.length === 0) return;
   for (const k of changed) {
-    const subs = perSession.get(k);
-    if (subs) for (const fn of [...subs]) fn();
+    perSession.emit(k);
   }
   for (const fn of [...everyone]) fn();
 }
@@ -72,18 +72,7 @@ export function flagMapRef(flag: SessionFlag): { readonly current: FlagMap } {
 
 /** Subscribe to the flags of ONE session: the reason this store exists. */
 export function subscribeSessionFlags(sessionKey: string, fn: () => void): () => void {
-  let subs = perSession.get(sessionKey);
-  if (!subs) {
-    subs = new Set();
-    perSession.set(sessionKey, subs);
-  }
-  subs.add(fn);
-  return () => {
-    const s = perSession.get(sessionKey);
-    if (!s) return;
-    s.delete(fn);
-    if (s.size === 0) perSession.delete(sessionKey);
-  };
+  return perSession.subscribe(sessionKey, fn);
 }
 
 /** Subscribe to any change of any session. For the few that summarise all of them. */

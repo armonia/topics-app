@@ -42,7 +42,7 @@ export function getPtyBridgeRuntimeStatus(): PtyBridgeRuntimeStatus {
   return { ...activeBridge, connected: bridgeReady && !!bridgeSocket && !bridgeSocket.destroyed };
 }
 
-/** @internal */
+/** @internal Test seam: stops the bridge reconnect timer so a test owns the socket lifecycle. */
 export function _suppressPtyBridgeReconnectForTest(suppress: boolean): void {
   suppressBridgeReconnectForTest = suppress;
 }

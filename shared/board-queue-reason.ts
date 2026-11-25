@@ -85,21 +85,10 @@ export interface QueueReason {
 }
 
 /**
- * Every kind, as data. The union above is the contract; this is the same list
- * a test can walk to prove that each branch has somewhere to be written.
- * @internal
- */
-export const QUEUE_REASON_KINDS: QueueReasonKind[] = [
-  'slot', 'blocked', 'deferred', 'attempts', 'dispatch_off', 'no_project',
-  'parent_review', 'parent_turn', 'parent_idle', 'heavy_hold', 'heavy_busy',
-  'resource_floor', 'resource_pressure', 'spend_cap', 'node_unreachable', 'plan_window',
-  'checklist_frozen', 'children_parked', 'parked', 'no_agent', 'unknown',
-];
-
-/**
  * The base keys each kind can emit. A kind with more than one entry is a kind
  * whose sentence changes shape, not just its numbers: one step against three,
  * a deferral in minutes against one on the clock, Backlog against Review.
+ * @internal Parity guard: the catalogue tests walk it so every kind has its i18n keys in both languages.
  */
 export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   slot: ['board.queue.slot.first', 'board.queue.slot.ahead'],
@@ -133,11 +122,6 @@ export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   ],
   unknown: ['board.queue.unknown'],
 };
-
-/** @internal Test oracle: the three catalogue entries every base key of a kind needs, flattened. */
-export function queueReasonKeys(kind: QueueReasonKind): string[] {
-  return QUEUE_REASON_MESSAGE_KEYS[kind].flatMap((base) => [`${base}.head`, `${base}.detail`, `${base}.title`]);
-}
 
 /**
  * The `dispatch_error` a silent node writes on the card. A SENTINEL, not prose:

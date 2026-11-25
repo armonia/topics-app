@@ -51,6 +51,7 @@ export function useConfigSummary(agent: Agent): Record<ConfigureSection, string 
     job: null,
     channels: tr('agentConfig.summary.chats', { n: chats, t: countThreads(agent, places) }),
     people: tr('agentConfig.summary.people', { n: countPeople(agent) }),
+    permissions: null,
     jobs: String(agent.jobs.length),
     tools: f.tools === null ? null : tr(f.tools === 'all' ? 'agentConfig.summary.toolsInherited' : 'agentConfig.summary.toolsFiltered'),
     memory: f.memory === null ? null : tr('agentConfig.summary.memory', { n: f.memory }),

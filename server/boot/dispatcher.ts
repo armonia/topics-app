@@ -310,7 +310,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     // the broker (returns false when the flag is off / provider lacks it), and
     // runHeadlessReattach drives the adopted turn. Both are safe no-ops off-broker.
     hasLiveSession: async (sessionKey) => (await liveTurnOwner(sessionKey)) !== null,
-    reattach: async (sessionKey, opts) => runHeadlessReattach(sessionKey, opts, (await liveTurnOwner(sessionKey)) ?? "claude-code"),
+    reattach: async (sessionKey, opts) => runHeadlessReattach(sessionKey, opts, (await liveTurnOwner(sessionKey)) ?? "claude-code", { dispatched: true }),
     // Liveness net: is the agent CHILD of this session still there? Same probe the
     // stream watchdog uses to tell a thinking-but-mute turn from a dead one (it
     // covers direct AND broker mode — the daemon's `exit` frame flips pp.alive).

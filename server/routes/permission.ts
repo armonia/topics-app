@@ -296,6 +296,11 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           // written IN the thread (`answerRoutedAsk`, which deletes its own
           // entry).
           if (askId) clearRoutedAsk(askId);
+          // The leg opened the ask above (`beginAsk`, every leg) and the answer
+          // came out of the buffer: it was given between two legs, after
+          // `deliverAnswer` had already closed the ask, so this leg re-opened a
+          // question that is over. Nothing else would close it.
+          endAsk(sk);
           return json({ answers });
         } catch (err: any) {
           // A leg expiring is the NORMAL case — the human is still reading.

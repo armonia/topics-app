@@ -759,7 +759,8 @@ export function commandRisk(command: string): CommandRisk {
 }
 
 /**
- * The work `commandRisk(command)` does, in the units of `meter`: for tests that check how it grows with the text.
+ * The work `commandRisk(command)` does, in the units of `meter`.
+ * Test seam: the work counted inside the lexer is not visible in the returned verdict, and growth with the text cannot be asserted from a wall-clock time.
  * @internal
  */
 export function commandRiskWork(command: string): number {

@@ -230,7 +230,7 @@
         // imported except by its own bench.
         "scripts/test-junit.ts",
     "scripts/disk-report.ts",        // `bun run report:disk`
-    "scripts/disk-budget-check.ts",  // `bun run check:disk-budget`, also wired to the nightly `disk-budget-check` launchd job
+    "scripts/disk-budget-check.ts!", // `bun run check:disk-budget`, also run every night by the `disk-budget-check` launchd job: it ships, so `!`
         // Read-only run of the landing audit over a whole board:
         // `bun run scripts/landing-audit-probe.ts --db <topics.db>`.
         "scripts/landing-audit-probe.ts",
@@ -404,7 +404,14 @@
         "!server/lib/test-node-bin.ts!",
         "!server/services/tasks-test-db.ts!",
         "!shared/relay-fake.ts!",
-        "!server/lib/remove-dir-reporting.ts!"
+        "!relay/**/*-test-helpers.ts!",
+        "!server/lib/remove-dir-reporting.ts!",
+        // The pure halves of the nightly disk budget job: production code, but its
+        // only caller is `scripts/disk-budget-check.ts`, run by launchd
+        // (scripts/launchd/com.armonia.topics-disk-budget-check.plist.in), and
+        // scripts/ is outside the production graph.
+        "!server/lib/disk-budget.ts!",
+        "!server/lib/log-retention.ts!"
       ],
       // `ws` e `@types/ws` sono USATE, da `tests/e2e/helpers/node-websocket.ts`,
       // che da' alle spec un WebSocket anche su Node 20 (dove non e' globale: la
@@ -429,7 +436,7 @@
       // stryker.config.mjs), never imported; knip reads `testRunner: "bun"` and looks for an
       // official `@stryker-mutator/bun-runner` that does not exist. `@stryker-mutator/core` is
       // only its `stryker` binary, run through `bun --bun stryker` which knip does not parse.
-      "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7", "@hughescr/stryker-bun-runner", "@stryker-mutator/bun-runner", "@stryker-mutator/core"], // typescript7: alias del TS nativo, gli script lo usano per percorso
+      "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7", "@hughescr/stryker-bun-runner", "@stryker-mutator/bun-runner", "@stryker-mutator/core", "jscpd"], // jscpd: run by scripts/check-dup.ts through its binary path; typescript7: alias del TS nativo, gli script lo usano per percorso
 
       // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo
       // check dava falsi positivi a raffica: un export usato SOLO da uno spec

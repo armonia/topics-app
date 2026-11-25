@@ -41,6 +41,7 @@ export const PANE_TYPES = [
   'accounts',
   'automations',
   'agents',
+  'system-page',
   'features',
 ] as const;
 

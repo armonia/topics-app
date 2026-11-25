@@ -1142,20 +1142,12 @@ export function PinnedTiles({
                   key={`band-${key}`}
                   data-testid="pinned-expansion"
                   data-pinned-expansion={key}
-                  // Stesso passo di tutto il resto sopra la fascia; sotto ci
-                  // pensa lo spazio della riga seguente (o il filo, se è
-                  // l'ultima): due margini che si sommano sono un ritmo rotto.
-                  //
-                  // IL FONDO È QUELLO DEL «CONTENITORE QUIETO», e adesso è UNO.
-                  // La stessa idea — un riquadro che raccoglie roba senza
-                  // chiedere attenzione — era dipinta con tre alpha diverse in
-                  // tema scuro: 0.03 qui, 0.05 sulla card del gruppo attivo
-                  // (SpaceGroups), 0.06 in SELECTED_SURFACE_SOFT. In tema chiaro
-                  // erano già tutte 0.03, quindi la divergenza si vedeva solo al
-                  // buio e solo affiancando le superfici, cioè nella condizione
-                  // normale della sidebar. Vale 0.06 — l'alpha che le altre due
-                  // avevano già — così i tre riquadri sono lo stesso riquadro.
-                  className="flex-1 min-h-0 overflow-y-auto sidebar-scroll mx-1.5 mt-1.5 mb-0 rounded-lg bg-black/[0.03] dark:bg-white/[0.06]"
+                  // No painted box and no inset of its own (25/11): the box
+                  // was the open tabs' grey (0.06), so every row inside read
+                  // as open and closing one changed nothing on screen. The
+                  // rows carry their own state (open = fill, closed = none) and
+                  // their own inset, the same as under a project in the tree.
+                  className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
                   onKeyDown={e => {
                     if (e.key !== 'Escape') return;
                     e.stopPropagation();

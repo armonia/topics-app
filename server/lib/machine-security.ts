@@ -12,6 +12,7 @@
  * error that breaks the round.
  */
 import { coded, WHY_CODE } from "./machine-security-msgs";
+import { compareVersions } from "../../shared/modelMergeKey";
 import type { CheckMsg, AccessFacts, CheckKey, CheckStatus, MachineSecurityReport, SecurityCheck, SecurityStatus } from "../../shared/machine-health";
 
 /** Deadline of a probe. */
@@ -151,22 +152,40 @@ export function lastXProtect(history: ReturnType<typeof parseMacInstallHistory>)
   return best;
 }
 
+const minorVersion = (id: string): number[] | null =>
+  /^MSU_UPDATE_.*_patch_([\d.]+)_minor$/.exec(id)?.[1]?.split(".").map(Number) ?? null;
+
 /**
  * `plutil -p` of com.apple.SoftwareUpdate.plist: the recommended system updates
  * (only the `_minor` ones, i.e. the fixes; a `_major` is a version jump, not a
- * fix) with the date Apple first offered them.
+ * fix) with the date the Mac started falling behind.
+ *
+ * Apple replaces the pending fix with every release, so the offer date of the
+ * current one restarts each month: a Mac left on 26.2 read "13 days" in
+ * November 2026, nine months after it skipped 26.3. With the `installed`
+ * version (`sw_vers -productVersion`) the age is the first offer of ANY fix
+ * newer than it; without it, the offer of the pending one as before.
  */
-export function parseMacPendingUpdates(text: string): Array<{ id: string; offeredAt: number | null }> {
+export function parseMacPendingUpdates(text: string, installed: string | null = null): Array<{ id: string; offeredAt: number | null }> {
   const offered = new Map<string, number>();
   const offerSection = /"FirstOfferDateDictionary" => \{([\s\S]*?)\n\s{2}\}/.exec(text)?.[1] ?? "";
   for (const m of offerSection.matchAll(/"([^"]+)" => (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \+0000/g)) {
     offered.set(m[1], Date.parse(`${m[2].replace(" ", "T")}Z`));
   }
+  const current = installed && /^\d+(\.\d+)*$/.test(installed.trim()) ? installed.trim().split(".").map(Number) : null;
   const recommended = /"RecommendedUpdates" => \[([\s\S]*?)\n\s{2}\]/.exec(text)?.[1] ?? "";
   const out: Array<{ id: string; offeredAt: number | null }> = [];
   for (const m of recommended.matchAll(/"Identifier" => "([^"]+)"/g)) {
     if (!/^MSU_UPDATE_.*_minor$/.test(m[1])) continue;
-    out.push({ id: m[1], offeredAt: offered.get(m[1]) ?? null });
+    let offeredAt = offered.get(m[1]) ?? null;
+    const target = minorVersion(m[1]);
+    if (current && target) {
+      for (const [id, at] of offered) {
+        const v = minorVersion(id);
+        if (v && compareVersions(v, current) > 0 && compareVersions(v, target) <= 0 && (offeredAt === null || at < offeredAt)) offeredAt = at;
+      }
+    }
+    out.push({ id: m[1], offeredAt });
   }
   return out;
 }
@@ -421,13 +440,14 @@ export function findDeclaredPrivate(json: unknown): string | true | null {
 
 const MAC_HISTORY = ["plutil", "-p", "/Library/Receipts/InstallHistory.plist"];
 const MAC_SOFTWAREUPDATE = ["plutil", "-p", "/Library/Preferences/com.apple.SoftwareUpdate.plist"];
+const MAC_VERSION = ["sw_vers", "-productVersion"];
 
 async function macUpdates(env: ProbeEnv): Promise<SecurityCheck> {
-  const [hist, pend] = await Promise.all([env.run(MAC_HISTORY), env.run(MAC_SOFTWAREUPDATE)]);
+  const [hist, pend, ver] = await Promise.all([env.run(MAC_HISTORY), env.run(MAC_SOFTWAREUPDATE), env.run(MAC_VERSION)]);
   if (!ok(hist) && !ok(pend)) return unknown("updates", "Aggiornamenti", whyNoAnswer(hist));
   const now = env.now();
   const last = ok(hist) ? lastMacSecurityUpdate(parseMacInstallHistory(hist.stdout)) : null;
-  const waiting = ok(pend) ? parseMacPendingUpdates(pend.stdout) : [];
+  const waiting = ok(pend) ? parseMacPendingUpdates(pend.stdout, ok(ver) ? ver.stdout : null) : [];
   const oldest = waiting.reduce<number | null>((acc, w) => (w.offeredAt !== null && (acc === null || w.offeredAt < acc) ? w.offeredAt : acc), null);
   if (oldest !== null && now - oldest > PENDING_WARN_DAYS * DAY_MS) {
     return coded("updates", "warn", clip(`${plural(waiting.length, "aggiornamento", "aggiornamenti")} in attesa da ${daysBetween(now, oldest)} giorni`), { code: "updates.macWaitingOld", params: { n: waiting.length, days: daysBetween(now, oldest) } });
@@ -628,7 +648,7 @@ export const WINDOWS_SCRIPTS = {
   updates: `$ErrorActionPreference='SilentlyContinue'
 Get-CimInstance Win32_QuickFixEngineering | Where-Object { $_.InstalledOn } | Sort-Object InstalledOn -Descending | Select-Object -First 8 | ForEach-Object { 'hotfix=' + $_.HotFixID + '|' + $_.Description + '|' + $_.InstalledOn.ToString('yyyy-MM-dd') }
 'reboot=' + (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired')`,
-  // 1 = BitLocker on, 2 = off, 3/4 = in progress, 5 = suspended, 6 = locked: the shell gives it without asking for administrator rights.
+  // 1 = BitLocker on, 2 = off, 0 = never turned on (Get-BitLockerVolume: Off / FullyDecrypted, 23/11/2026), 3/4 = in progress, 5 = suspended, 6 = locked: no administrator rights needed.
   disk: `$ErrorActionPreference='Stop'
 $d = $env:SystemDrive; if (-not $d) { $d = 'C:' }
 'bitlocker=' + (New-Object -ComObject Shell.Application).NameSpace($d).Self.ExtendedProperty('System.Volume.BitLockerProtection')`,
@@ -670,7 +690,7 @@ async function winDisk(env: ProbeEnv): Promise<SecurityCheck> {
   if (v === "1" || v === "6") return coded("disk", "ok", "Disco cifrato (BitLocker acceso)", { code: "disk.bitlockerOn" });
   if (v === "3" || v === "4") return coded("disk", "warn", "Cifratura del disco in corso", { code: "disk.encrypting" });
   if (v === "5") return coded("disk", "warn", "Cifratura del disco sospesa", { code: "disk.suspended" });
-  if (v === "2") return coded("disk", "warn", "Disco non cifrato (BitLocker spento)", { code: "disk.bitlockerOff" });
+  if (v === "2" || v === "0") return coded("disk", "warn", "Disco non cifrato (BitLocker spento)", { code: "disk.bitlockerOff" });
   return unknown("disk", "Cifratura del disco", "risposta non riconosciuta");
 }
 
