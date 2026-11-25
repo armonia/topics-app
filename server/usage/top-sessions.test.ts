@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { aggregateSessions, modelFactor, type TranscriptText } from "./top-sessions";
+import { aggregateSessions as aggregate, modelFactor, addLine, type SessionTotals } from "./top-sessions";
 
 const NOW = Date.parse("2026-11-25T12:00:00Z");
 const ago = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
@@ -9,7 +9,14 @@ const turn = (h: number, model: string, out: number, ctx = 1000) =>
 const head = (h: number, cwd: string, entrypoint: string, title?: string) =>
   [JSON.stringify({ type: "user", timestamp: ago(h), cwd, entrypoint, message: { content: "first question" } }), title ? JSON.stringify({ type: "custom-title", customTitle: title }) : ""].join("\n");
 
-const file = (sessionId: string, text: string, subagent = false): TranscriptText => ({ sessionId, subagent, text });
+interface Transcript { sessionId: string; subagent: boolean; text: string }
+const file = (sessionId: string, text: string, subagent = false): Transcript => ({ sessionId, subagent, text });
+
+const aggregateSessions = (files: Transcript[], now: number) => {
+  const totals: SessionTotals = new Map();
+  for (const f of files) for (const line of f.text.split("\n")) addLine(totals, f.sessionId, f.subagent, line, now);
+  return aggregate(totals, now);
+};
 
 describe("aggregateSessions", () => {
   test("ranks by weighted points and folds subagents into the parent", () => {

@@ -7,8 +7,8 @@
  * (`<folder>/<id>/subagents/*.jsonl`): the subagents are counted for the parent.
  * No transcript folder means an empty answer, never an error.
  *
- * `aggregateSessions` is pure (text in, ranking out) so the ranking is tested
- * without a disk; `scanTranscripts` is the only part that touches the filesystem.
+ * `addLine` and `aggregateSessions` are pure (lines in, ranking out) so the ranking is tested
+ * without a disk; `scanTranscripts` (streaming, no text kept) is the only part that touches the filesystem.
  *
  * WEIGHT. Points are weighted tokens: output counts 5, a cache write 1.25, a
  * cache read 0.1, input 1 (the price ratios), times a model factor (opus 5,
@@ -32,14 +32,6 @@ export const PROJECT_DOMINANCE = 0.5;
 /** Open for longer than this AND doing at least half of everything: worth a notice. */
 export const LONG_OPEN_MS = 24 * HOUR_MS;
 export const TOP_COUNT = 5;
-
-/** One transcript file handed to the aggregation. */
-export interface TranscriptText {
-  /** The session the file belongs to: the file name of a main transcript, the parent's id for a subagent. */
-  sessionId: string;
-  subagent: boolean;
-  text: string;
-}
 
 const MODEL_FACTOR: ReadonlyArray<[RegExp, number]> = [
   [/opus|fable/i, 5],
@@ -68,7 +60,8 @@ export function originOf(entrypoint: string | null): TopSessionOrigin {
   return "topics";
 }
 
-interface Acc {
+/** Running totals of one session; transcript text is never kept, only these numbers. */
+export interface SessionSums {
   id: string;
   cwd: string | null;
   title: string | null;
@@ -83,7 +76,7 @@ interface Acc {
   byModel: Map<string, number>;
 }
 
-const blank = (id: string): Acc => ({ id, cwd: null, title: null, firstPrompt: null, entrypoint: null, firstAt: Infinity, lastAt: 0, weighted24h: 0, weighted7d: 0, contextSum: 0, turns: 0, byModel: new Map() });
+const blank = (id: string): SessionSums => ({ id, cwd: null, title: null, firstPrompt: null, entrypoint: null, firstAt: Infinity, lastAt: 0, weighted24h: 0, weighted7d: 0, contextSum: 0, turns: 0, byModel: new Map() });
 
 function promptText(content: unknown): string | null {
   const raw = typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => (c && typeof c === "object" && typeof (c as { text?: unknown }).text === "string" ? (c as { text: string }).text : "")).join(" ") : "";
@@ -91,43 +84,41 @@ function promptText(content: unknown): string | null {
   return t && !t.startsWith("<") ? t.slice(0, 80) : null;
 }
 
-function readFile(acc: Acc, file: TranscriptText, now: number): void {
-  for (const line of file.text.split("\n")) {
-    if (!line) continue;
-    let r: Record<string, any>;
-    try { r = JSON.parse(line); } catch { continue; }
-    const at = Date.parse(r.timestamp);
-    if (!file.subagent) {
-      if (r.type === "custom-title" && typeof r.customTitle === "string" && r.customTitle.trim()) acc.title = r.customTitle.trim();
-      if (!acc.cwd && typeof r.cwd === "string") acc.cwd = r.cwd;
-      if (!acc.entrypoint && typeof r.entrypoint === "string") acc.entrypoint = r.entrypoint;
-      if (!acc.firstPrompt && r.type === "user" && !r.isSidechain && r.message) acc.firstPrompt = promptText(r.message.content);
-      if (Number.isFinite(at)) { acc.firstAt = Math.min(acc.firstAt, at); acc.lastAt = Math.max(acc.lastAt, at); }
-    }
-    const u: Usage | undefined = r.type === "assistant" ? r.message?.usage : undefined;
-    if (!u || !Number.isFinite(at) || now - at > WINDOW_WEEK_MS || at > now) continue;
-    const model = typeof r.message.model === "string" ? r.message.model : "unknown";
-    const w = (n(u.input_tokens) + 5 * n(u.output_tokens) + 1.25 * n(u.cache_creation_input_tokens) + 0.1 * n(u.cache_read_input_tokens)) * modelFactor(model);
-    acc.weighted7d += w;
-    if (now - at <= WINDOW_24H_MS) {
-      acc.weighted24h += w;
-      acc.byModel.set(model, (acc.byModel.get(model) ?? 0) + w);
-      if (!file.subagent) {
-        acc.contextSum += n(u.input_tokens) + n(u.cache_creation_input_tokens) + n(u.cache_read_input_tokens);
-        acc.turns += 1;
-      }
+/** Sessions by id, filled one transcript line at a time. */
+export type SessionTotals = Map<string, SessionSums>;
+
+/** Folds one transcript line into its session; `subagent` lines only add spend. */
+export function addLine(totals: SessionTotals, sessionId: string, subagent: boolean, line: string, now: number): void {
+  if (!line) return;
+  let r: Record<string, any>;
+  try { r = JSON.parse(line); } catch { return; }
+  const sums = totals.get(sessionId) ?? blank(sessionId);
+  totals.set(sessionId, sums);
+  const at = Date.parse(r.timestamp);
+  if (!subagent) {
+    if (r.type === "custom-title" && typeof r.customTitle === "string" && r.customTitle.trim()) sums.title = r.customTitle.trim();
+    if (!sums.cwd && typeof r.cwd === "string") sums.cwd = r.cwd;
+    if (!sums.entrypoint && typeof r.entrypoint === "string") sums.entrypoint = r.entrypoint;
+    if (!sums.firstPrompt && r.type === "user" && !r.isSidechain && r.message) sums.firstPrompt = promptText(r.message.content);
+    if (Number.isFinite(at)) { sums.firstAt = Math.min(sums.firstAt, at); sums.lastAt = Math.max(sums.lastAt, at); }
+  }
+  const u: Usage | undefined = r.type === "assistant" ? r.message?.usage : undefined;
+  if (!u || !Number.isFinite(at) || now - at > WINDOW_WEEK_MS || at > now) return;
+  const model = typeof r.message.model === "string" ? r.message.model : "unknown";
+  const w = (n(u.input_tokens) + 5 * n(u.output_tokens) + 1.25 * n(u.cache_creation_input_tokens) + 0.1 * n(u.cache_read_input_tokens)) * modelFactor(model);
+  sums.weighted7d += w;
+  if (now - at <= WINDOW_24H_MS) {
+    sums.weighted24h += w;
+    sums.byModel.set(model, (sums.byModel.get(model) ?? 0) + w);
+    if (!subagent) {
+      sums.contextSum += n(u.input_tokens) + n(u.cache_creation_input_tokens) + n(u.cache_read_input_tokens);
+      sums.turns += 1;
     }
   }
 }
 
-/** The ranking of the last 24 hours, subagents folded into their parent. */
-export function aggregateSessions(files: readonly TranscriptText[], now: number, top = TOP_COUNT): TopSessionsResult {
-  const bySession = new Map<string, Acc>();
-  for (const f of files) {
-    const acc = bySession.get(f.sessionId) ?? blank(f.sessionId);
-    bySession.set(f.sessionId, acc);
-    readFile(acc, f, now);
-  }
+/** The ranking of the last 24 hours, subagents already folded into their parent. */
+export function aggregateSessions(bySession: SessionTotals, now: number, top = TOP_COUNT): TopSessionsResult {
   const all = [...bySession.values()];
   const total24h = all.reduce((s, a) => s + a.weighted24h, 0);
   const total7d = all.reduce((s, a) => s + a.weighted7d, 0);
@@ -170,44 +161,44 @@ export function claudeProjectsRoot(env: NodeJS.ProcessEnv = process.env): string
   return join(env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects");
 }
 
-async function readText(path: string): Promise<string> {
-  const lines: string[] = [];
+/** Streams one transcript into the totals a line at a time: the file is never held in memory. */
+async function addFile(totals: SessionTotals, sessionId: string, subagent: boolean, path: string, now: number): Promise<void> {
   const rl = createInterface({ input: createReadStream(path, { encoding: "utf8" }), crlfDelay: Infinity });
-  for await (const l of rl) lines.push(l);
-  return lines.join("\n");
+  for await (const line of rl) addLine(totals, sessionId, subagent, line, now);
 }
 
-async function subdirs(path: string): Promise<string[]> {
+async function listNames(path: string): Promise<string[]> {
   const out: string[] = [];
   try { for await (const d of await opendir(path)) out.push(d.name); } catch { /* absent folder: nothing to list */ }
   return out;
 }
 
 /**
- * Reads every transcript touched in the last 7 days. A file older than the
- * window by mtime cannot hold a record inside it, so it is skipped unread.
+ * Reads every transcript touched in the last 7 days, one file at a time and one
+ * line at a time. A file older than the window by mtime cannot hold a record
+ * inside it, so it is skipped unread.
  */
-export async function scanTranscripts(root: string, now: number): Promise<TranscriptText[]> {
-  const files: TranscriptText[] = [];
+export async function scanTranscripts(root: string, now: number): Promise<SessionTotals> {
+  const totals: SessionTotals = new Map();
   const fresh = async (p: string): Promise<boolean> => {
     try { return now - (await stat(p)).mtimeMs <= WINDOW_WEEK_MS; } catch { return false; }
   };
-  for (const folder of await subdirs(root)) {
+  for (const folder of await listNames(root)) {
     const dir = join(root, folder);
-    for (const entry of await subdirs(dir)) {
+    for (const entry of await listNames(dir)) {
       if (entry.endsWith(".jsonl")) {
         const p = join(dir, entry);
-        if (await fresh(p)) files.push({ sessionId: entry.slice(0, -6), subagent: false, text: await readText(p) });
+        if (await fresh(p)) await addFile(totals, entry.slice(0, -6), false, p, now);
       } else {
         const subDir = join(dir, entry, "subagents");
-        for (const f of await subdirs(subDir)) {
+        for (const f of await listNames(subDir)) {
           const p = join(subDir, f);
-          if (f.endsWith(".jsonl") && (await fresh(p))) files.push({ sessionId: entry, subagent: true, text: await readText(p) });
+          if (f.endsWith(".jsonl") && (await fresh(p))) await addFile(totals, entry, true, p, now);
         }
       }
     }
   }
-  return files;
+  return totals;
 }
 
 export async function topSessions(opts: { root?: string; now?: number } = {}): Promise<TopSessionsResult> {
