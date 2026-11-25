@@ -29,7 +29,7 @@ import { totalmem as osTotalmem } from "node:os";
 import { readDelegatedNodeToken } from "../services/node-client";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "../lib/delegated-agent-start";
 import { isCloudBaseUrl, resolveGithubSlug } from "../providers/claude-cloud/node";
-import { bundleBranch, ensureBranchOnOrigin } from "../services/branch-on-origin";
+import { bundleBranchForNode, ensureBranchOnOrigin } from "../services/branch-on-origin";
 import { repoIdentity } from "../lib/git-identity";
 import { githubOriginFrom, overflowMachinesFrom } from "../services/dispatch-overflow";
 import { NODE_BREAKERS_FILE, persistNodeBreakers } from "../services/wake-breaker";
@@ -386,7 +386,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       // from this machine's checkout (`branch-on-origin.ts`).
       ensureBranchOnOrigin: ({ projectId, branch }) => ensureBranchOnOrigin(projectPathForNode(projectId), branch),
       // A node that cannot reach origin gets the same branch as a bundle with the run.
-      bundleBranch: ({ projectId, branch }) => bundleBranch(projectPathForNode(projectId), branch),
+      bundleBranch: ({ projectId, branch }) => bundleBranchForNode(projectPathForNode(projectId), branch),
       // The `node-run` hook starts in the project's checkout on this machine,
       // the same path the planter reads the origin from and plants into.
       projectPathOf: projectPathForNode,

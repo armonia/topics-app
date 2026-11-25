@@ -548,6 +548,8 @@
 
     "server/providers/native/agent-loop.ts": 1370,
 
+    "server/providers/native/auth.ts": 891,
+
     "server/providers/native/provider.ts": {
       "lines": 1523,
       "why": [
