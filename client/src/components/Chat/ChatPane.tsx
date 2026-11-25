@@ -17,6 +17,7 @@ import { composerMayTakeFocus } from './composerFocus';
 import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
 import { ChatEmptyState } from './ChatEmptyState';
 import { readDraft, saveDraft } from './chatDraft';
+import { takePendingFirstSend } from '../../state/pendingFirstSend';
 import { forkModeFor } from '../../../../shared/chat-fork';
 import { useConfirm } from '../../hooks/useConfirm';
 import { chatAcceptsFileDrag, watchFileDragEnd } from './chatFileDrop';
@@ -166,11 +167,14 @@ function ChatPaneComponent({
   // overwritten by the draft saved before it: the chat opened, took the typed
   // text, and its Enter sent nothing (CHAT-COMPOSER-02). When this pane is
   // handed another topic, that topic's draft is set in the render that brings it.
-  const [message, setMessage] = useState(() => readDraft(draftKey));
+  // A draft whose first send never got its topic (app restarted mid-request)
+  // gets that message back in its field.
+  const readComposerText = (id: string) => readDraft(`draft:${id}`) || (id.startsWith('draft:') ? takePendingFirstSend(id) : '');
+  const [message, setMessage] = useState(() => readComposerText(topic.id));
   const [draftTopicId, setDraftTopicId] = useState(topic.id);
   if (draftTopicId !== topic.id) {
     setDraftTopicId(topic.id);
-    setMessage(readDraft(draftKey));
+    setMessage(readComposerText(topic.id));
   }
   // The caret, one frame after the commit that put the draft in the field:
   // setSelectionRange against an empty value would clamp it.

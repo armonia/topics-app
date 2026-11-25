@@ -37,12 +37,12 @@
  * terzo posto). Montare il sotto-router dove stava `open-pane` — cioè PRIMA di
  * `move-to-project`, `ask-user`, `permission`, `switch-topic` e compagnia, tutte
  * a cinque segmenti — non cambia nessuna precedenza.
- *
  * Il comportamento è una mossa verbatim: cambia solo l'involucro di dispatch.
  */
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
+import { announceLoginRequest } from "./browser-login-request";
 import { makeFocusPaneFlow } from "./browser-bridge-focus";
 import { makeOpenPaneFlow, type OpenPaneFlowOptions } from "./browser-open-pane-flow";
 import { maybeOpenPaneForPageOp } from "./browser-auto-open";
@@ -773,7 +773,7 @@ export function createBrowserBridgeRouter(
       if ((byTopic || bySession) && method === "POST") {
         if (!tokenOk(req)) return json({ error: "unauthorized" }, 401);
         if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
-        const body = (await readJSON(req)) as { contextId?: unknown } | null;
+        const body = (await readJSON(req)) as { contextId?: unknown; loginRequest?: unknown; detached?: unknown } | null;
         const override = typeof body?.contextId === "string" && body.contextId ? body.contextId : null;
         let ctxId: string;
         if (override) {
@@ -790,6 +790,7 @@ export function createBrowserBridgeRouter(
           ctxId = target.contextId;
         }
         const mounted = await focusPaneFlow(ctxId);
+        if (body?.loginRequest === true) announceLoginRequest({ broadcastToAll, getTopicBySessionKey }, { contextId: ctxId, url: browserService.getUrl(ctxId)?.url ?? "", detached: body.detached === true, topicId: byTopic?.id, sessionKey: bySession?.sessionKey });
         return json({ ok: true, contextId: ctxId, mounted });
       }
     }

@@ -48,5 +48,41 @@
       "coverageAnalysis": "perTest",
       "incremental": true
     }
+  },
+  "designSystem": {
+    "_note": "D20: the design system is DESIGN.md (google design.md format, linted in CI) plus the primitives below. Debt that existed when the gate was adopted is the baseline (spec-flow.design-baseline.json); a new file, or a file that grows, is red. Visual proof for touched components lives in openspec/changes/<change>/visual-proof.json.",
+    "designFile": "DESIGN.md",
+    "uiRoots": [
+      "client/src"
+    ],
+    "uiExtensions": [
+      ".tsx"
+    ],
+    "exclude": [
+      ".test.",
+      "/test/",
+      "/ui-gallery/",
+      "/demo/",
+      ".stories."
+    ],
+    "primitives": {
+      "dirs": [
+        "client/src/ui/primitives",
+        "client/src/components/Shared"
+      ],
+      "native": {
+        "button": "Button",
+        "input": "Field",
+        "textarea": "Field",
+        "select": "Menu"
+      }
+    },
+    "tokenFiles": [],
+    "baseline": "spec-flow.design-baseline.json",
+    "proofGlobs": [
+      "openspec/changes"
+    ],
+    "base": "origin/main",
+    "report": "design-conformity.json"
   }
 }
