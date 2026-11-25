@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.1 — 2026-11-25
+
+### Sotto il cofano
+- Fix ci-governor selftest race on SIGSTOP/SIGCONT delivery under load
+
 ## 2.5.0 — 2026-11-25
 
 ### Correzioni
