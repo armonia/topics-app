@@ -5,6 +5,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { VISIBLE_CHAT_SCROLLER, wheelUpUntilVisible } from "./helpers/wheel-scroll";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -34,7 +35,7 @@ const BASE = E2E_BASE;
  * `chat-history-window.spec.ts` uses for the same reason) and asserted by its
  * own id, both before the stall and after the merge that follows it.
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const GHOST_ID = "msg_e2e_ghost_1758";
 const GHOST_TEXT = "this message must never disappear from the screen";

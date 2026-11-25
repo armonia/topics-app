@@ -32,9 +32,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const chat = (chat: string, account: string, extra: object = {}) => ({ channel: "discord", chat, account, active: true, mention: false, senders: [], denied: [], hasSystem: true, system: "Rispondi in una frase.", routed: account === "visione", twoAgents: chat === "200", followedBy: account === "visione" ? ["gtm"] : ["main"], ...extra });
 const REG = {
