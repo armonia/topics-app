@@ -18,7 +18,7 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function exceptionIsLive(e: BloatException | undefined): e is BloatException {
+export function exceptionIsLive(e: BloatException | undefined): boolean {
   return !!e && typeof e.why === "string" && e.why.trim().length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(e.expires) && e.expires >= today();
 }
 
