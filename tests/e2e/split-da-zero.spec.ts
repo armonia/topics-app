@@ -142,7 +142,8 @@ test.describe("split, from zero", () => {
     await expect(page.locator("textarea:visible").first()).toBeVisible({ timeout: 10_000 });
     await frames(page, 3);
     await expect(page.locator("[data-cell-lit]")).toHaveCount(0);
-    await expect(page.getByTestId("cell-title-handle")).toHaveCount(0);
+    // A lone pane's title drags too (25/11), but it carries no cell commands.
+    await expect(page.getByTestId("cell-header-commands")).toHaveCount(0);
     // The remembered cell is still there: the case held, it was not pruned away.
     const kept = await page.evaluate(() => localStorage.getItem("topics-panel-grid-layout:space:default") ?? "");
     expect(kept).toContain(b.id);
@@ -278,6 +279,94 @@ test.describe("split, from zero", () => {
     } finally {
       await deleteTopic(request, one.id).catch(() => {});
       await deleteTopic(request, two.id).catch(() => {});
+      removeTmpDir(projectPath);
+    }
+  });
+
+  test("SPLIT-03d: a project's window shows only its title, which is its tab and drags into a split", async ({ page, request }) => {
+    // 25/11: only the title on a project's window, the tab under the pointer on
+    // the title, and the title is what drags into a split.
+    const [a] = made;
+    const projectPath = canonicalTmpDir("e2e-title-tab");
+    mkdirSync(projectPath, { recursive: true });
+    const projectName = projectPath.split("/").pop()!;
+    const inner = await createTopic(request, `title-tab-in-${Date.now()}`, { projectPath, provider: "claude-code" });
+    const created: string[] = [];
+    const fill = (el: HTMLElement): number => {
+      const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g) ?? [];
+      return m.length === 4 ? Number(m[3]) : m.length === 3 ? 1 : 0;
+    };
+    try {
+      await resetPaneStore(request, [a.id]);
+      await seedProjectPane(request, projectPath);
+      await seedProjectInnerChats(request, projectPath, [inner.id]);
+      await goToApp(page);
+      const project = projectRow(page, projectName);
+      await expect(project).toBeVisible({ timeout: 20_000 });
+      await project.click();
+      const win = page.getByTestId("project-window");
+      await expect(win).toBeVisible({ timeout: 10_000 });
+      const title = page.getByTestId("cell-title-handle").filter({ hasText: projectName });
+      await expect(title).toBeVisible();
+      // As on the window of 25/11: a chat open inside, the project column closed.
+      await row(page, inner.name).click();
+      await expect(win.locator("textarea:visible")).toHaveCount(1, { timeout: 10_000 });
+      await win.getByTestId("project-card").click();
+      await expect(page.getByTestId("project-sidebar")).toHaveCount(0);
+
+      // No bar of its own: no tab inside the window, its commands on the title row.
+      await expect(win.locator('[role="tab"][data-pane-id]')).toHaveCount(0);
+      const tools = page.getByTestId("title-project-tools");
+      await expect(tools.getByTestId("project-card")).toBeVisible();
+      await expect(tools.getByTestId("project-rail-button").first()).toBeVisible();
+      // The body starts under the title, with no empty band where the bar was.
+      const gap = await page.evaluate((name) => {
+        const handle = [...document.querySelectorAll<HTMLElement>('[data-testid="cell-title-handle"]')].find((el) => el.textContent?.includes(name));
+        const bar = handle?.closest<HTMLElement>(".pane-chrome-bar");
+        const body = document.querySelector<HTMLElement>('[data-testid="project-window"] [data-pane-content]');
+        if (!bar || !body) return Number.NaN;
+        return body.getBoundingClientRect().top - bar.getBoundingClientRect().bottom;
+      }, projectName);
+      expect(Math.abs(gap), `band between title and body: ${gap}px`).toBeLessThan(2);
+
+      // At rest a title; under the pointer the tab's fill.
+      await page.mouse.move(700, 600);
+      expect(await title.evaluate(fill)).toBe(0);
+      await title.hover();
+      await expect.poll(() => title.evaluate(fill)).toBeGreaterThan(0);
+      await page.screenshot({ path: test.info().outputPath("project-title-hover-1440.png") });
+
+      // Its "+" adds into the project, as the bar it replaces did.
+      const inProject = async (): Promise<string[]> => {
+        const res = await request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true });
+        const { topics } = (await res.json()) as { topics: Record<string, { id: string; projectPath?: string }> };
+        return Object.values(topics).filter((t) => t.projectPath?.endsWith(projectName)).map((t) => t.id);
+      };
+      await tools.getByTestId("pane-add-menu-trigger").click();
+      await page.getByTestId("pane-add-menu").getByTestId("pane-add-menu-new-chat").click();
+      await expect.poll(async () => (await inProject()).length, { timeout: 10_000 }).toBe(2);
+      for (const id of await inProject()) if (id !== inner.id) created.push(id);
+      await expect(win.locator("[role=\"tab\"][data-pane-id]")).toHaveCount(0);
+
+      // The title drags into a split: from the left of a chat to its right.
+      await openBeside(page, a.name, /^(Apri a destra|Open on the right)$/);
+      await expect(page.locator("[data-cell-lit]")).toHaveCount(2, { timeout: 10_000 });
+      await expect.poll(async () => (await cellTitles(page)).filter(Boolean)[0]).toContain(projectName);
+      const other = cells(page).filter({ has: page.getByTestId("cell-title-handle").filter({ hasText: a.name }) });
+      const src = await title.boundingBox();
+      const target = await other.boundingBox();
+      if (!src || !target) throw new Error("no geometry to drag on");
+      await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(src.x + src.width / 2 + 12, src.y + src.height / 2 + 6, { steps: 4 });
+      await page.mouse.move(target.x + target.width - 24, target.y + target.height / 2, { steps: 12 });
+      await expect(page.locator('[data-grid-split-overlay="right"]')).toBeVisible({ timeout: 5_000 });
+      await page.mouse.up();
+      await expect.poll(async () => (await cellTitles(page)).filter(Boolean).at(-1)).toContain(projectName);
+      await expect(page.locator("[data-cell-lit]")).toHaveCount(2);
+      await page.screenshot({ path: test.info().outputPath("project-title-dragged-1440.png") });
+    } finally {
+      for (const id of [inner.id, ...created]) await deleteTopic(request, id).catch(() => {});
       removeTmpDir(projectPath);
     }
   });

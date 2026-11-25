@@ -207,3 +207,7 @@ barra dei menu.
   riga d'intestazione in più.
 - 25/11 «stai attento a tab di un progetto, non sembrano avere spaziature corretta» → le righe
   dentro un progetto hanno lo stesso passo e lo stesso rientro, nell'albero e nella fascia.
+- 25/11 «c'è ancora la tabbar progetto. va bene solo il titolo e tenere la tab all'hover sul
+  titolo, così da sfruttarlo per il dnd dello split» → con le tab di lato la finestra di un
+  progetto non ha barra sua: il titolo è la tab (fondo al passaggio, si trascina nello split) e
+  i comandi del progetto col suo «+» stanno a destra del titolo.

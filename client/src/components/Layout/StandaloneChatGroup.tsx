@@ -17,7 +17,7 @@ import { loadBoard, loadBrowser, loadAutomations, loadAgents, loadSystem, loadAc
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { AutomationsPhoneBell, AutomationsPhoneGlyph } from '../Sidebar/AutomationsRow';
 import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
-import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_ACTION_BOX, ROW_INSET, TAB_LABEL, TAB_LABEL_TYPE } from '../../lib/selectionStyles';
+import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_ACTION_BOX, ROW_INSET, ROW_PX, TAB_LABEL, TAB_LABEL_TYPE } from '../../lib/selectionStyles';
 import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
@@ -67,6 +67,11 @@ import { topicSubject } from '../../../../shared/attention';
 // `lazyWarm`, not `lazy`, for the pane bodies: their chunks are asked for at
 // boot from the local pane-store snapshot (`state/pane/panePreload`), and a
 // warm chunk renders in the same pass as the group, with no spinner.
+/** The title with the tabs at the side: the tab of the pane in front, whose
+ *  fill shows under the pointer. The padding stays at rest, so the name does
+ *  not move when the fill comes. */
+const TITLE_AS_TAB = `app-no-drag cursor-grab ${ROW_PX} py-1 rounded-lg hover:bg-[var(--tab-bg-sel)]`;
+
 const RemoteBrowserPanel = lazyWarm(loadBrowser, (m) => m.RemoteBrowserPanel);
 const SingleTerminalPane = lazyWarm(loadTerminal, (m) => m.SingleTerminalPane);
 
@@ -540,6 +545,13 @@ export function StandaloneChatGroup({
   // cell has the focus and drags like the tab in front (SPLIT-03): the grid
   // hands `onResetLayout` only while it is split.
   const inSplit = !mobile && !tabStrip && !!onResetLayout;
+  // With the tabs at the side the title IS the tab of the pane in front (25/11):
+  // under the pointer it takes the tab's fill and it drags into a split, alone
+  // on the screen or not. A project's window draws no bar of its own then, and
+  // its commands sit on this row (`titleSlot`).
+  const titleDrags = !mobile && !tabStrip && !!surfaceInFront;
+  const projectInTitle = titleDrags && !!surfaceInFront && isProjectPaneId(surfaceInFront.id);
+  const [titleSlot, setTitleSlot] = useState<HTMLDivElement | null>(null);
   const cellLit = inSplit && !!focusedPanelId && validatedOrderedIds.includes(focusedPanelId);
   // The room under the traffic lights, on the toggle cell only (the header below says why).
   const lightsInset = onToggleSidebar ? { paddingLeft: `var(${CONTENT_CHROME_INSET_PROPERTY}, 0px)` } : undefined;
@@ -891,6 +903,8 @@ export function StandaloneChatGroup({
         <ProjectWindowPane
           key={projectPath}
           projectPath={projectPath}
+          chromeless={!mobile && !tabStrip}
+          titleSlot={isPaneActive ? titleSlot : null}
           // Same signal the browser pane above gets, for the same reason: the
           // keep-alive wrapper's `display:none` does not reach the panes nested
           // inside this window (nor their OS-level native views), so a window
@@ -1093,11 +1107,11 @@ export function StandaloneChatGroup({
               )}
               {automationsInFront && <AutomationsPhoneGlyph />}
               <span
-                className={`truncate ${inSplit && !cellLit ? `${TAB_LABEL_TYPE} text-app-text-muted` : TAB_LABEL} ${inSplit ? 'app-no-drag cursor-grab' : ''}`}
-                draggable={inSplit && !!surfaceInFront}
-                {...(inSplit ? NO_DRAG_REGION : {})}
-                onDragStart={inSplit && surfaceInFront ? (e) => startCellTitleDrag(e, surfaceInFront, gridItemKey, titleSurface, !!isZoomed) : undefined}
-                data-testid={inSplit ? 'cell-title-handle' : undefined}
+                className={`truncate min-w-0 ${inSplit && !cellLit ? `${TAB_LABEL_TYPE} text-app-text-muted` : TAB_LABEL} ${titleDrags ? TITLE_AS_TAB : ''}`}
+                draggable={titleDrags}
+                {...(titleDrags ? NO_DRAG_REGION : {})}
+                onDragStart={titleDrags && surfaceInFront ? (e) => startCellTitleDrag(e, surfaceInFront, gridItemKey, titleSurface, !!isZoomed) : undefined}
+                data-testid={titleDrags ? 'cell-title-handle' : undefined}
               >{titleSurface}</span>
               {/* The phone's find and bell: on a desktop ⌘F and the view's own
                   bell are already there. */}
@@ -1105,12 +1119,14 @@ export function StandaloneChatGroup({
               {mobile && automationsInFront && <AutomationsPhoneBell />}
               {/* The strip's "+", kept where the strip went: it adds INTO this
                   cell, which the header's "+" cannot. */}
-              {!mobile && (inSplit || newChatInCell || availableTypes.length > 0) && (
+              {!mobile && (inSplit || projectInTitle || newChatInCell || availableTypes.length > 0) && (
                 <div className="ml-auto mr-1.5 flex items-center gap-0.5 app-no-drag" {...NO_DRAG_REGION}>
+                  {projectInTitle && <div ref={setTitleSlot} className="flex items-center empty:hidden" data-testid="title-project-tools" />}
                   {inSplit && activePaneId && (
                     <CellHeaderCommands paneId={activePaneId} canZoom={canZoom} isZoomed={isZoomed} onToggleZoom={onToggleZoom} onReattach={handleUnsolo} />
                   )}
-                  {(newChatInCell || availableTypes.length > 0) && <PaneAddMenu
+                  {/* A project in front brings its own "+", which adds into it. */}
+                  {!projectInTitle && (newChatInCell || availableTypes.length > 0) && <PaneAddMenu
                     scope="standalone"
                     onNewChat={newChatInCell}
                     onAddPane={handleAddPane}
