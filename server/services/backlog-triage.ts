@@ -54,6 +54,8 @@ interface TriageCard {
   blockedBy: string | null;
   /** A step of another card: nobody dispatches it from the backlog, so it has to be detached before it can move. */
   parentTaskId: string | null;
+  /** The parent's state: `done`, `archived` or a live status. Null for a card with no parent. */
+  parentState: string | null;
 }
 
 export interface TriageReport { todo: number; ask: number; done: number; stay: number }
@@ -64,11 +66,22 @@ export interface TriageDeps {
   ask?: (prompt: string, tier: Tier) => Promise<string>;
   /** Is this commit reachable from the main branch of the board's repo? */
   commitOnMain?: (boardId: string, sha: string) => boolean;
+  /**
+   * Is there a model different from the sorting one to check a proof? Without it no card closes.
+   * Defaults to what the connected provider can do; true when `ask` is injected.
+   */
+  hasSecondModel?: () => boolean;
 }
 
 type Svc = Pick<TaskService, "update" | "addComment">;
 
 const BY = "backlog-triage";
+
+/** True when the connected provider has a cheap tier, so the check of a proof (its default) is a different model. */
+function providerHasSecondModel(getProvider: typeof tryGetProvider = tryGetProvider): boolean {
+  const name = getProvider()?.name;
+  return !!name && name in CHEAP_MODEL;
+}
 
 /** The JSON array a model answered, tolerant of a fence around it; anything else is no verdict. */
 export function parseVerdicts(answer: string): TriageVerdict[] {
@@ -140,7 +153,9 @@ function finishedCard(db: Database, boardId: string, ref: string, selfId: string
  * main, the card is finished), then a second model, asked without the first one's reasoning, says whether
  * that proof really covers the card. A card that fails either stays in the backlog.
  */
-async function proofHolds(db: Database, boardId: string, card: TriageCard, v: TriageVerdict, deps: Required<Pick<TriageDeps, "ask" | "commitOnMain">>): Promise<boolean> {
+async function proofHolds(db: Database, boardId: string, card: TriageCard, v: TriageVerdict, deps: Required<Pick<TriageDeps, "ask" | "commitOnMain" | "hasSecondModel">>): Promise<boolean> {
+  // The same model for sorting and checking is no second opinion: no proof holds.
+  if (!deps.hasSecondModel()) return false;
   const m = /^(commit|card):(\S+)$/.exec(v.proof ?? "");
   if (!m) return false;
   let evidence: string;
@@ -159,14 +174,20 @@ async function proofHolds(db: Database, boardId: string, card: TriageCard, v: Tr
   return /^\s*yes\b/i.test(answer);
 }
 
-function apply(svc: Svc, taskId: string, parentTaskId: string | null, action: TriageAction, reason: string, v: TriageVerdict): void {
+function apply(db: Database, svc: Svc, taskId: string, parentTaskId: string | null, action: TriageAction, reason: string, v: TriageVerdict): void {
   if (action === "todo") {
     // A subtask in the backlog is a dead end: detach it in its own update, then move it, as two separate patches.
     if (parentTaskId) svc.update({ taskId, actor: "agent", by: BY, patch: { parentTaskId: null }, statusReason: "detached from its parent so an agent can take it" });
     svc.update({ taskId, actor: "agent", by: BY, patch: { status: "todo" }, statusReason: reason || "workable by an agent" });
   } else if (action === "ask") {
+    // The question goes to the thread once, with its options, and the card is handed over with the system
+    // signature, not through the agent delivery gate: no summary, no approval row, no "unreadable delivery" warning.
     svc.addComment({ taskId, author: BY, content: v.question!, questionOptions: v.options });
-    svc.update({ taskId, actor: "agent", by: BY, patch: { status: "review", summary: v.question }, statusReason: "needs a person" });
+    const ts = new Date().toISOString();
+    db.query(
+      "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', review_at = ?, human_ask = ?, " +
+        "delivered_by = 'system', delivered_reason = 'backlog_triage', updated_at = ? WHERE id = ? AND status = 'backlog'",
+    ).run(ts, v.question!, ts, taskId);
   } else if (action === "done") {
     // The rule that only a human closes a card is met by the verified proof, not skipped: the proof is in the comment.
     svc.addComment({ taskId, author: BY, kind: "service", content: `Already done. Proof: ${v.proof}. ${reason}` });
@@ -180,10 +201,12 @@ function apply(svc: Svc, taskId: string, parentTaskId: string | null, action: Tr
 export async function triageBoard(db: Database, svc: Svc, boardId: string, deps: TriageDeps = {}): Promise<TriageReport> {
   const ask = deps.ask ?? makeTriageAsk();
   const commitOnMain = deps.commitOnMain ?? defaultCommitOnMain(db);
+  const hasSecondModel = deps.hasSecondModel ?? (deps.ask ? () => true : () => providerHasSecondModel());
   const report: TriageReport = { todo: 0, ask: 0, done: 0, stay: 0 };
   const rows = db.query(
     `SELECT t.id, t.text, t.description, t.created_at AS createdAt,
-            (SELECT b.id FROM tasks b WHERE b.id = t.blocked_by_task_id AND b.status != 'done' AND b.archived = 0) AS blockedBy, t.parent_task_id AS parentTaskId
+            (SELECT b.id FROM tasks b WHERE b.id = t.blocked_by_task_id AND b.status != 'done' AND b.archived = 0) AS blockedBy, t.parent_task_id AS parentTaskId,
+            (SELECT CASE WHEN p.archived = 1 THEN 'archived' ELSE p.status END FROM tasks p WHERE p.id = t.parent_task_id) AS parentState
        FROM tasks t WHERE t.project_id = ? AND t.status = 'backlog' AND t.archived = 0
       ORDER BY t.created_at ASC LIMIT ?`,
   ).all(boardId, MAX_CARDS_PER_BOARD) as TriageCard[];
@@ -201,11 +224,15 @@ export async function triageBoard(db: Database, svc: Svc, boardId: string, deps:
         let reason = v.reason;
         // A blocker still open is a fact of the database, not something the model may overrule.
         if (action === "todo" && card.blockedBy) { action = "stay"; reason = `blocked by an open card (${card.blockedBy.slice(0, 8)})`; }
-        if (action === "done" && !(await proofHolds(db, boardId, card, v, { ask, commitOnMain }))) {
+        // Detaching a step from a live parent would make it a root card the dispatcher launches while the parent works on it.
+        if (action === "todo" && card.parentTaskId && card.parentState !== "done" && card.parentState !== "archived") {
+          action = "stay"; reason = "subtask of a live parent";
+        }
+        if (action === "done" && !(await proofHolds(db, boardId, card, v, { ask, commitOnMain, hasSecondModel }))) {
           action = "stay"; reason = "looks done but no verified proof";
         }
         if (action === "ask" && !(v.question && v.options?.length)) { action = "stay"; reason = reason || "needs a person but no question was written"; }
-        apply(svc, card.id, card.parentTaskId, action, reason, v);
+        apply(db, svc, card.id, card.parentTaskId, action, reason, v);
         report[action]++;
       } catch (e) {
         console.warn("[backlog-triage] card skipped:", card.id, e instanceof Error ? e.message : e);

@@ -6,6 +6,8 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { freshDb, svc as makeSvc, PID } from "./tasks-test-db";
 import { runBacklogTriage, triageBoard, parseVerdicts, type TriageDeps } from "./backlog-triage";
 import type { TaskService } from "./tasks";
@@ -17,8 +19,7 @@ const NOON = new Date(2026, 6, 9, 12, 0, 0).getTime();
 
 beforeEach(() => {
   db = freshDb();
-  db.run("ALTER TABLE board_settings ADD COLUMN backlog_triage INTEGER NOT NULL DEFAULT 0");
-  db.run("CREATE TABLE backlog_triage_runs (board_id TEXT NOT NULL, slot TEXT NOT NULL, at TEXT NOT NULL, summary TEXT, PRIMARY KEY (board_id, slot))");
+  db.exec(readFileSync(join(import.meta.dir, "../db/migrations/20261125100000-board-backlog-triage.sql"), "utf8"));
   s = makeSvc(db);
 });
 
@@ -43,7 +44,11 @@ describe("triageBoard", () => {
     expect(report).toEqual({ todo: 1, ask: 1, done: 0, stay: 1 });
     expect(statusOf(a.id)).toBe("todo");
     expect(statusOf(b.id)).toBe("review");
-    expect(commentsOf(b.id).some((t) => t.includes("Which tier?") && t.includes("- Tier A"))).toBe(true);
+    expect(commentsOf(b.id).filter((t) => t.includes("Which tier?")).length).toBe(1);
+    expect(commentsOf(b.id).join()).not.toContain("Consegna non leggibile");
+    const row = db.query("SELECT delivered_by, dispatch_state, human_ask FROM tasks WHERE id = ?").get(b.id) as Record<string, string | null>;
+    expect(row).toMatchObject({ delivered_by: "system", dispatch_state: "needs_input", human_ask: "Which tier?" });
+    expect((db.query("SELECT COUNT(*) AS n FROM approvals WHERE task_id = ?").get(b.id) as { n: number }).n).toBe(0);
     expect(statusOf(c.id)).toBe("backlog");
     expect(commentsOf(c.id).join()).toContain("no verified proof");
   });
@@ -130,10 +135,26 @@ describe("backlog dead ends", () => {
   });
 
   test("a subtask in the backlog is detached from its parent, then moved", async () => {
+    const parent = s.create({ projectId: PID, text: "parent", status: "todo" });
+    const step = card("step", { parentTaskId: parent.id });
+    db.run("UPDATE tasks SET status = 'done' WHERE id = ?", [parent.id]);
+    await triageBoard(db, s, PID, { ask: model([{ id: step.id, action: "todo", reason: "workable" }]) });
+    const row = db.query("SELECT status, parent_task_id AS p FROM tasks WHERE id = ?").get(step.id) as { status: string; p: string | null };
+    expect(row).toEqual({ status: "todo", p: null });
+  });
+
+  test("a subtask of a live parent stays, with no approval row", async () => {
     const parent = s.create({ projectId: PID, text: "parent", status: "in_progress" });
     const step = card("step", { parentTaskId: parent.id });
     await triageBoard(db, s, PID, { ask: model([{ id: step.id, action: "todo", reason: "workable" }]) });
     const row = db.query("SELECT status, parent_task_id AS p FROM tasks WHERE id = ?").get(step.id) as { status: string; p: string | null };
-    expect(row).toEqual({ status: "todo", p: null });
+    expect(row).toEqual({ status: "backlog", p: parent.id });
+    expect((db.query("SELECT COUNT(*) AS n FROM approvals WHERE task_id = ?").get(step.id) as { n: number }).n).toBe(0);
+  });
+
+  test("a done verdict does not close when there is no second model", async () => {
+    const c = card("fix the typo in the footer");
+    await triageBoard(db, s, PID, { ask: model([{ id: c.id, action: "done", reason: "fixed", proof: "commit:abc1234" }]), commitOnMain: () => true, hasSecondModel: () => false });
+    expect(statusOf(c.id)).toBe("backlog");
   });
 });
