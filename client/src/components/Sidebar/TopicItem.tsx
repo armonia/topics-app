@@ -1,6 +1,7 @@
 import { useCallback, memo, createElement } from 'react';
 import { ChevronRight, Pin, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { SubagentsToggle, type SubagentsToggleState } from './SubagentsToggle';
 import type { Topic } from '@/types';
 import { useTopicPendingStatus } from '@/contexts/PendingActionContext';
 import { PendingActionRing } from '@/components/Shared/PendingActionRing';
@@ -64,9 +65,12 @@ interface TopicItemProps {
    *  it the circle archives (a closed row) or restores (an archived one), so
    *  the command always follows the state: open, closed, archived. */
   onCloseTab?: () => void;
-  /** A top-level row that stands for a tab: its surface says open or closed
-   *  (see `sidebarRowCard`). Absent on nested rows. */
+  /** A row that stands for a tab: its surface says open or closed (see
+   *  `sidebarRowCard`). Absent on the rows of sub-agents. */
   tab?: 'open' | 'closed';
+  /** The row launched sub-agents: its chevron is their accordion (with
+   *  `hasChildren`, `isExpanded` and `onToggle` driving it). */
+  subagents?: SubagentsToggleState;
   onStopStreaming?: () => void;
   /** Pinned ("Fissati") — renders the Pin glyph in the trailing rail and the
    *  row survives tab close (see buildSidebarItems pinnedIds gates). */
@@ -126,6 +130,7 @@ export const TopicItem = memo(function TopicItem({
   onArchive,
   onCloseTab,
   tab,
+  subagents,
   onStopStreaming,
   pinned,
   detachedWindowLabel,
@@ -387,7 +392,9 @@ export const TopicItem = memo(function TopicItem({
           children, so the same column carried two alignments. Reported on the
           board (card 150ebafb): a row without an accordion starts further left
           than a row that has one. */}
-      {hasChildren ? (
+      {subagents ? (
+        <SubagentsToggle state={subagents} />
+      ) : hasChildren ? (
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
           aria-label={isExpanded ? 'Comprimi' : 'Espandi'}

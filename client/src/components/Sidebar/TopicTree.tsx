@@ -64,6 +64,10 @@ import type { PinnedDropTarget, PinnedSnapshot, SidebarViewMode } from '@/hooks/
 import { useToast } from '@/components/Shared/Toast';
 import type { BoardTask, TaskStatus } from '@/lib/board';
 import { BoardRowSummary } from './BoardStatusCounts';
+import { SubagentsToggle, type SubagentsToggleState } from './SubagentsToggle';
+
+/** The accordion handler of a row with nothing to open: one stable function. */
+const noToggle = () => {};
 import { BoardBrakeTag } from './BoardBrakeTag';
 import { AutomationsRow } from './AutomationsRow';
 import { AgentsRow } from './AgentsRow';
@@ -1127,7 +1131,7 @@ export function TopicTree({
    * Everywhere else — base list, standalone, state view, pinned tile — the
    * chip is the only thing that says the topic has a branch of its own.
    */
-  const renderChatItem = (item: SidebarItem, depth = 0, opts?: { chip?: boolean }) => {
+  const renderChatItem = (item: SidebarItem, depth = 0, opts?: { chip?: boolean; inProject?: boolean }) => {
     const topic = item.topic!;
     const isOpen = openPanels.includes(topic.id);
     // Open inside its project window (a nested row): the circle closes it there.
@@ -1145,29 +1149,34 @@ export function TopicTree({
     const isFocused = focusedTopicId === topic.id
       || isActiveInnerChild(topic.projectPath, createPaneId('chat', topic.id));
     // Sub-agents this chat spawned as an orchestrator (MCP spawn_agent) render
-    // nested one level deeper — same pattern as a parent terminal's sub-agents.
+    // nested one level deeper, opened from this row's own chevron.
     const subAgents = item.subAgents || [];
+    const toggle = subAgents.length > 0 ? subagentsToggle(item.id, subAgents) : undefined;
 
     const row = (
       <TopicItem
         key={item.id}
         topic={topic}
         depth={depth}
-        hasChildren={false}
-        isExpanded={false}
+        hasChildren={!!toggle}
+        isExpanded={toggle?.open ?? false}
         isOpen={isOpen}
         isFocused={isFocused}
         isPreview={previewPanelId === topic.id}
         /* isStreaming is now read from StreamingContext inside TopicItem —
            no need to drill it through. */
         notificationCount={item.notificationCount}
-        onToggle={() => {}}
+        onToggle={toggle?.onToggle ?? noToggle}
+        subagents={toggle}
         onClick={(e) => { if (!reopenClosed(item)) handleChatRowClick(topic.id, item.detachedWindowLabel, e); }}
         onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}
         onContextMenu={(e) => onTopicContextMenu(e, topic)}
         onArchive={handleArchive}
         onCloseTab={closeTab}
-        tab={depth === 0 ? (isOpen ? 'open' : 'closed') : undefined}
+        // A tab of a project window has the same two looks as a top-level one:
+        // open = fill, closed = none (25/11, closing one inside a project used
+        // to change nothing on screen).
+        tab={depth === 0 ? (isOpen ? 'open' : 'closed') : opts?.inProject ? (isOpen || openInProject ? 'open' : 'closed') : undefined}
         // Col dito la riga si fissa trascinandola in cima, come col mouse. Solo
         // se non è GIÀ fissata: la sua tessera c'è, e il gesto sarebbe un
         // bersaglio che si accende senza rispondere.
@@ -1200,11 +1209,13 @@ export function TopicTree({
       />
     );
     const cardsNest = renderCardsNest(item.id, depth + 1);
-    if (subAgents.length === 0 && !cardsNest) return row;
+    if (!toggle && !cardsNest) return row;
     return (
-      <div key={item.id}>
+      // A flex column, so the row and its children keep the 6px step (a block
+      // collapses the two `my-[3px]` into 3).
+      <div key={item.id} className="flex flex-col">
         {row}
-        {subAgents.length > 0 && renderSubagentNest(item.id, subAgents, depth + 1)}
+        {toggle?.open && subAgents.map(child => renderSubAgentItem(child, depth + 1))}
         {cardsNest}
       </div>
     );
@@ -1221,33 +1232,20 @@ export function TopicTree({
     return focusedTopicId === paneId
       || isActiveInnerChild(child.projectPath, child.type === 'chat' ? createPaneId('chat', child.topic!.id) : paneId);
   };
-  const renderSubagentNest = (parentId: string, subAgents: SidebarItem[], depth: number) => {
+  // The state of the chevron that opens a parent's sub-agents (SUBAGENT-21):
+  // closed by default, opened by the person or by a child in front.
+  const subagentsToggle = (parentId: string, subAgents: SidebarItem[]): SubagentsToggleState => {
     const summary = summarizeSubagents(subAgents, subagentIsWorking, subagentIsFocused, subagentNeedsYou);
-    const open = isAccordionOpen(parentId, openedSubagents, summary);
     // How many work right now, at any depth: the same number as the parent's tab.
     const atWork = agentsAtWorkUnder([...liveChildren.values()], parentId);
     const count = summary.count === 1 ? tr('sidebar.subagents.one') : tr('sidebar.subagents.many', { n: summary.count });
-    const label = atWork > 0 ? `${count} · ${tr('sidebar.subagents.atWork', { n: atWork })}` : count;
-    return (
-      <>
-        <button
-          type="button"
-          onClick={() => toggleSubagents(parentId)}
-          aria-expanded={open}
-          data-testid="subagents-accordion"
-          data-agents={atWork || undefined}
-          className={`flex items-center h-6 text-mini text-app-text-secondary hover:text-app-text transition-colors`}
-          style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP, gap: COLUMN_GAP }}
-        >
-          <ChevronRight size={ROW_CHEVRON} className={`transition-transform duration-fast ${open ? 'rotate-90' : ''}`} />
-          <span>{label}</span>
-          {summary.needsYou
-            ? <span role="img" aria-label={tr('sidebar.subagents.needsYou')} className="inline-flex"><STATUS_ICON.wait size={11} aria-hidden="true" className={STATUS_INK.wait} /></span>
-            : (summary.working || atWork > 0) && <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT.working}`} aria-label={tr('sidebar.subagents.working')} />}
-        </button>
-        {open && subAgents.map(child => renderSubAgentItem(child, depth))}
-      </>
-    );
+    return {
+      open: isAccordionOpen(parentId, openedSubagents, summary),
+      label: atWork > 0 ? `${count} · ${tr('sidebar.subagents.atWork', { n: atWork })}` : count,
+      agents: atWork,
+      needsYou: summary.needsYou,
+      onToggle: () => toggleSubagents(parentId),
+    };
   };
 
   // The accordion of a topic's open cards: a header with the count and the dot
@@ -1303,7 +1301,7 @@ export function TopicTree({
 
   // ── Terminal item ────────────────────────────────────────────────────────
 
-  const renderTerminalItem = (item: SidebarItem, depth = 0) => {
+  const renderTerminalItem = (item: SidebarItem, depth = 0, inProject = false) => {
     const ts = item.terminal!;
     const paneId = `terminal:${ts.id}`;
     // Highlight ONLY the focused (current) terminal: either it's the App-focused
@@ -1314,6 +1312,7 @@ export function TopicTree({
     const isFocused = focusedTopicId === paneId || isActiveInnerChild(item.projectPath, paneId);
     const isOpen = allOpenPaneIds.has(paneId);
     const subAgents = item.subAgents || [];
+    const toggle = subAgents.length > 0 ? subagentsToggle(item.id, subAgents) : undefined;
 
     const row = (
       <TerminalSidebarItem
@@ -1336,7 +1335,8 @@ export function TopicTree({
             ? (sid) => { void confirmTerminalStop(sid).then((ok) => { if (ok) onCloseTab(paneId); }); }
             : onCloseTerminal ? guardedCloseTerminal : undefined}
         onArchiveClosed={item.closed && onForgetClosedTab ? () => onForgetClosedTab(paneId, item.name) : undefined}
-        tab={depth === 0 ? (isOpen ? 'open' : 'closed') : undefined}
+        tab={depth === 0 || inProject ? (isOpen ? 'open' : 'closed') : undefined}
+        subagents={toggle}
         onOpenAsProject={onOpenAsProject}
         // La stessa rete del drop e delle tessere: un terminale chiuso vive in
         // sidebar solo finché è fissato, e la voce di menu non lo dice.
@@ -1345,19 +1345,19 @@ export function TopicTree({
           : undefined}
       />
     );
-    if (subAgents.length === 0) return row;
-    // Sub-agents (orchestrator-spawned) render nested one level deeper, in their accordion.
+    if (!toggle) return row;
+    // Sub-agents (orchestrator-spawned) render nested one level deeper, opened from the row's chevron.
     return (
-      <div key={item.id}>
+      <div key={item.id} className="flex flex-col">
         {row}
-        {renderSubagentNest(item.id, subAgents, depth + 1)}
+        {toggle.open && subAgents.map(child => renderSubAgentItem(child, depth + 1))}
       </div>
     );
   };
 
   // ── Browser item ─────────────────────────────────────────────────────────
 
-  const renderBrowserItem = (item: SidebarItem, depth = 0) => {
+  const renderBrowserItem = (item: SidebarItem, depth = 0, inProject = false) => {
     const bc = item.browser!;
     const paneId = `browser:${bc.id}`;
     // Focused directly, OR the active inner browser of the focused project —
@@ -1378,7 +1378,7 @@ export function TopicTree({
         onOpenBrowser={item.closed && onReopenClosedTab ? () => { reopenClosed(item); } : onOpenBrowser}
         onCloseBrowser={item.closed ? undefined : onCloseBrowser}
         onArchiveClosed={item.closed && onForgetClosedTab ? () => onForgetClosedTab(paneId, item.name) : undefined}
-        tab={depth === 0 ? (allOpenPaneIds.has(paneId) ? 'open' : 'closed') : undefined}
+        tab={depth === 0 || inProject ? (allOpenPaneIds.has(paneId) ? 'open' : 'closed') : undefined}
         onTogglePin={onTogglePin
           ? () => (item.pinned ? sfissaConRete(paneId, onTogglePin) : onTogglePin(paneId))
           : undefined}
@@ -1396,9 +1396,9 @@ export function TopicTree({
   const renderProjectChildren = (children: SidebarItem[], pp: string, depth: number) => {
     const { base, sections } = groupProjectChildrenByWorktree(children, worktreesById);
     const row = (child: SidebarItem, d: number, inSection: boolean) => {
-      if (child.type === 'chat') return renderChatItem(child, d, { chip: !inSection });
-      if (child.type === 'terminal') return renderTerminalItem(child, d);
-      if (child.type === 'browser') return renderBrowserItem(child, d);
+      if (child.type === 'chat') return renderChatItem(child, d, { chip: !inSection, inProject: true });
+      if (child.type === 'terminal') return renderTerminalItem(child, d, true);
+      if (child.type === 'browser') return renderBrowserItem(child, d, true);
       return null;
     };
     const baseGroupId = `project:${pp}:base`;
@@ -2070,7 +2070,10 @@ export function TopicTree({
         // Depth 1, non 0: dentro la fascia il progetto È il contenitore, e le
         // sue tab stanno un livello dentro — lo stesso passo che hanno
         // nell'albero e sotto un terminale orchestratore.
-        return <div className="py-1">{renderProjectChildren(children, item.projectPath ?? '', 1)}</div>;
+        // A flex column like the accordion in the tree: in a plain block the
+        // `my-[3px]` of two neighbouring rows collapse to 3px instead of 6, so
+        // a project's tabs sat closer here than in the tree (25/11).
+        return <div className="flex flex-col">{renderProjectChildren(children, item.projectPath ?? '', 1)}</div>;
       }}
     />
   );
@@ -2673,11 +2676,13 @@ interface TerminalSidebarItemProps {
   onTogglePin?: () => void;
   /** A closed row: the circle archives it (see TabStateRing). */
   onArchiveClosed?: () => void;
-  /** A top-level row that stands for a tab (see sidebarRowCard). */
+  /** A row that stands for a tab (see sidebarRowCard). */
   tab?: 'open' | 'closed';
+  /** The terminal launched sub-agents: its chevron is their accordion. */
+  subagents?: SubagentsToggleState;
 }
 
-function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount = 0, isTouch, depth = 0, projectName, pinned, lastActivity, onTerminalClick, onCloseTerminal, onOpenAsProject, onTogglePin, onArchiveClosed, tab }: TerminalSidebarItemProps) {
+function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount = 0, isTouch, depth = 0, projectName, pinned, lastActivity, onTerminalClick, onCloseTerminal, onOpenAsProject, onTogglePin, onArchiveClosed, tab, subagents }: TerminalSidebarItemProps) {
   const tr = useT();
   // UN menu solo, da tutte e tre le porte: tasto destro, «tieni premuto», «...».
   // null = chiuso; posizionato sul cursore, agganciato al viewport come quello
@@ -2733,7 +2738,9 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
           rows open: there a terminal without the box would put its glyph where
           their CHEVRON sits. Below, nothing opens, and the box was 16px of air
           on every nested row (card 058ea722). */}
-      {depth === 0 && <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />}
+      {subagents
+        ? <SubagentsToggle state={subagents} />
+        : depth === 0 && <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />}
       <button
         onClick={() => onTerminalClick?.(s.id, s.name)}
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"

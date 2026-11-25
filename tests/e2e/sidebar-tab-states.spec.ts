@@ -175,6 +175,59 @@ test.describe("@sidebar-tab-states tabs in the column: open, closed, archived", 
     await expect.poll(() => fillAlpha(ra)).toBeGreaterThan(0);
   });
 
+  test("inside a pinned project, only its open tabs have a fill and closing one shows", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABPOS-02" });
+    // 25/11: the band of a pinned project painted the open tabs' grey under
+    // every row, and its rows had no state: closing a chat in it changed
+    // nothing on screen.
+    test.setTimeout(60_000);
+    const name = `e2e-tabpos-band-${Date.now()}`;
+    const dir = `${canonicalTmpRoot()}/${name}`;
+    fs.mkdirSync(dir, { recursive: true });
+    try {
+      const a = await createTopic(request, `BandA-${Date.now()}`, { projectPath: dir });
+      const b = await createTopic(request, `BandB-${Date.now()}`, { projectPath: dir });
+      made.push(a, b);
+      await resetPaneStore(request, []);
+      await seedProjectPane(request, dir);
+      await seedProjectInnerChats(request, dir, [a.id, b.id]);
+      await setSidebar(request, { pinnedItems: [`project:${dir}`], pinnedLayout: [{ keys: [`project:${dir}`], widths: [1] }] });
+      await waitForPaneStoreQuiet(request);
+      await openApp(page);
+
+      const tile = page.getByTestId("pinned-tile").and(page.getByRole("treeitem", { name }));
+      await tile.click();
+      const band = page.getByTestId("pinned-expansion");
+      await expect(band).toBeVisible({ timeout: 15_000 });
+      const ra = band.getByRole("treeitem", { name: new RegExp(a.name) });
+      const rb = band.getByRole("treeitem", { name: new RegExp(b.name) });
+      await expect(ra).toHaveAttribute("data-tab-state", "open", { timeout: 10_000 });
+      await expect(rb).toHaveAttribute("data-tab-state", "open");
+
+      const fillAlpha = (l: Locator): Promise<number> => l.evaluate((el) => {
+        const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g) ?? [];
+        return m.length >= 4 ? Number(m[3]) : m.length === 3 ? 1 : 0;
+      });
+      // No box under the rows: the band itself is transparent.
+      expect(await fillAlpha(band)).toBe(0);
+      // The same 6px step as the rows of the tree.
+      const [boxA, boxB] = [await ra.boundingBox(), await rb.boundingBox()];
+      const step = Math.abs(boxB!.y - (boxA!.y + boxA!.height));
+      expect(Math.abs(Math.min(step, Math.abs(boxA!.y - (boxB!.y + boxB!.height))) - 6)).toBeLessThanOrEqual(1);
+
+      await rb.hover();
+      await rb.getByTestId("topic-row-close").click();
+      await expect(rb).toHaveAttribute("data-tab-state", "closed", { timeout: 15_000 });
+      await page.mouse.move(900, 600);
+      await expect.poll(() => fillAlpha(rb)).toBe(0);
+      await expect.poll(() => fillAlpha(ra)).toBeGreaterThan(0);
+      expect((await fetchTopic(request, b.id))?.archived).toBeFalsy();
+      await page.screenshot({ path: test.info().outputPath("band-1440.png") });
+    } finally {
+      removeTmpDir(dir);
+    }
+  });
+
   test("a chat closed inside its project window stays under the project, not archived", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "TABPOS-02" });
     test.setTimeout(60_000);
