@@ -74,6 +74,21 @@ export const CHECKS_RUNNING_SQL = "SELECT id FROM tasks WHERE checks_state = 'ru
 export const CHILD_AGENT_COMING = ACTIVE_DISPATCH_STATES.map((s) => `'${s}'`).join(", ");
 
 /**
+ * A CONTAINER parent: made in backlog to group cards, never worked by an agent
+ * (no attempt, never started, nothing a turn delivered). The question of the
+ * parked-children rake is NOT a delivery of a turn: a parent the rake asked once
+ * (`delivered_reason = 'parked_children'`, chip `needs_input`) and that a person
+ * put back in backlog is still a container. Without this the question itself
+ * stripped the parent of its container status, and the rake asked again 20 s
+ * after the answer (cards 5904a1cf and ca2134e0, 25/11). Alias `p` is the parent.
+ */
+export const CONTAINER_PARENT_SQL = `p.status = 'backlog' AND p.dispatch_attempts = 0
+                       AND p.in_progress_at IS NULL
+                       AND (p.delivered_by IS NULL OR p.delivered_reason = 'parked_children')
+                       AND (p.dispatch_state IS NULL
+                            OR (p.dispatch_state = 'needs_input' AND p.delivered_reason = 'parked_children'))`;
+
+/**
  * Parents that look stuck behind open children, read by `sweepParkedChildren`
  * on every dispatcher tick (10 s). Binds: now.
  *
@@ -92,9 +107,7 @@ export const PARKED_CHILDREN_CANDIDATES_SQL = `SELECT p.id, p.project_id FROM ta
             WHERE p.archived = 0
               AND p.status IN ('backlog', 'todo')
               AND NOT (p.status = 'todo' AND p.dispatch_attempts = 0)
-              AND NOT (p.status = 'backlog' AND p.dispatch_attempts = 0
-                       AND p.in_progress_at IS NULL AND p.delivered_by IS NULL
-                       AND p.dispatch_state IS NULL)
+              AND NOT (${CONTAINER_PARENT_SQL})
               AND COALESCE(p.dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})
               AND COALESCE(p.dispatch_deferred_until, '') <= ?
               AND EXISTS (SELECT 1 FROM tasks c

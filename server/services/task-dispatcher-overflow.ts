@@ -5,7 +5,7 @@
  * and the reassignment away from a forbidden machine.
  */
 import { type Task } from "./tasks";
-import { carriedBranch } from "./branch-on-origin";
+import { BRANCH_NOWHERE_REASON, carriedBranch } from "./branch-on-origin";
 import { nodeBlocked } from "./wake-breaker";
 import { effectiveSlots, machineForbidden, machineLacksModel, pickReassignTarget, reassignNote, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNoteImmediate, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 import { providerHold } from "../lib/provider-hold";
@@ -14,6 +14,8 @@ import type { DispatcherCtx } from "./task-dispatcher-context";
 
 export function createOverflow(ctx: DispatcherCtx) {
   const { clock, delegatedPolicy, deps, floorBlockSent, inFlight, log, memoryHeldCards, overflowBranch, overflowBranchPending, overflowOrigin, overflowOriginPending, overflowRounds } = ctx.core;
+
+  const phantomBranches = new Map<string, Set<string>>();
 
   /**
    * A card that runs on ANOTHER machine (a paired node, or the Cloud Claude
@@ -143,7 +145,10 @@ export function createOverflow(ctx: DispatcherCtx) {
     return machines.some((m) => m.id !== localId && !skipMachineIds?.includes(m.id) && m.online && machineLoad(m.id) < effectiveSlots(m));
   }
   function overflowBranchReady(t: Task): boolean | null {
-    const branch = carriedBranch(t);
+    // A recorded branch that exists nowhere (the working tree is gone and it
+    // never reached origin) must not hold the card for ever: the next candidate
+    // (`priorBranch`) carries, and with none left the card goes as it is.
+    const branch = carriedBranch(t, phantomBranches.get(t.id));
     if (!branch) return true;
     const ensure = deps.node?.ensureBranchOnOrigin;
     // No way to push: the card cannot carry its branch, so it does not leave.
@@ -155,6 +160,14 @@ export function createOverflow(ctx: DispatcherCtx) {
       Promise.resolve()
         .then(() => ensure({ projectId: t.projectId, branch }))
         .then((r) => {
+          if (!r.ok && r.reason === BRANCH_NOWHERE_REASON) {
+            const set = phantomBranches.get(t.id) ?? new Set<string>();
+            set.add(branch);
+            phantomBranches.set(t.id, set);
+            overflowBranch.delete(t.id);
+            log(`overflow: ${t.id} names ${branch}, which exists nowhere: falling back to the next branch it carries`);
+            return;
+          }
           overflowBranch.set(t.id, { branch, ok: r.ok, reason: r.ok ? "" : r.reason, at: clock() });
           if (!r.ok) log(`overflow: ${t.id} stays, its branch ${branch} cannot reach origin: ${r.reason}`);
         })
@@ -188,6 +201,7 @@ export function createOverflow(ctx: DispatcherCtx) {
   function forgetOverflowClock(taskId: string): void {
     memoryHeldCards.delete(taskId);
     overflowBranch.delete(taskId);
+    phantomBranches.delete(taskId);
   }
   /** Boards that will not tick this pass hold nothing by memory: their records go. */
   function pruneOverflowClocksOutside(ticking: ReadonlySet<string>): void {

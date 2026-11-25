@@ -646,3 +646,57 @@ describe("una parentId mai lavorata in backlog e' un contenitore", () => {
     expect(s.sweepParkedChildren({ eligible: () => true }).map((t) => t.id)).toEqual([parentId]);
   });
 });
+
+/**
+ * THE CONTAINER STAYS A CONTAINER (cards 5904a1cf and ca2134e0, 25/11). Two
+ * parents made in backlog to group cards were asked «fermo su N sottotask» twice
+ * in five minutes, the second time 20 s after a person answered and put them
+ * back in backlog. Two holes, one cause: the container judgement lived only in
+ * the rake's query. A child moved to todo asks the parent through another door,
+ * and the question the rake itself had written (`delivered_by = 'system'`, chip
+ * `needs_input`) made the parent look like one a turn had worked.
+ */
+describe("un contenitore resta contenitore anche dopo la domanda del rastrello", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { clock = 0; db = freshDb(); s = svc(db); });
+  const riga = (id: string) => db.prepare("SELECT status, dispatch_state, delivered_by, delivered_reason FROM tasks WHERE id = ?").get(id) as {
+    status: string; dispatch_state: string | null; delivered_by: string | null; delivered_reason: string | null;
+  };
+
+  test("un figlio messo in todo da una persona non fa chiedere un padre che nessun turno ha mai lavorato", () => {
+    const padre = s.create({ projectId: PID, text: "Raggruppa i doppioni" }).id;
+    const figlio = s.create({ projectId: PID, text: "Card A", parentTaskId: padre }).id;
+    s.create({ projectId: PID, text: "Card B", parentTaskId: padre });
+
+    s.update({ taskId: figlio, actor: "human", by: "attilio", patch: { status: "todo" } });
+
+    expect(riga(padre).status).toBe("backlog");
+    expect(s.get(padre)!.comments.filter((c) => c.kind !== "status")).toEqual([]);
+  });
+
+  test("la domanda posta dal rastrello non toglie la qualifica: rimesso in backlog, non viene richiesto", () => {
+    const padre = s.create({ projectId: PID, text: "Raggruppa i doppioni" }).id;
+    s.create({ projectId: PID, text: "Card A", parentTaskId: padre });
+    // Il padre ha avuto un turno vero, il rastrello lo chiede: review + firma di sistema.
+    hadATurn(db, padre);
+    expect(s.sweepParkedChildren({ eligible: () => true }).map((t) => t.id)).toEqual([padre]);
+    expect(riga(padre)).toMatchObject({ status: "review", delivered_by: "system", delivered_reason: "parked_children" });
+    // Lo stato in cui stavano le due madri: nessun turno mai partito, e una persona le rimette in backlog.
+    db.run("UPDATE tasks SET dispatch_attempts = 0, in_progress_at = NULL WHERE id = ?", [padre]);
+    s.update({ taskId: padre, actor: "human", by: "attilio", patch: { status: "backlog" } });
+    expect(riga(padre).status).toBe("backlog");
+
+    expect(s.sweepParkedChildren({ eligible: () => true })).toEqual([]);
+    expect(riga(padre).status).toBe("backlog");
+  });
+
+  test("un padre che un turno ha lavorato davvero resta un candidato, anche dopo la domanda", () => {
+    const padre = s.create({ projectId: PID, text: "Un padre vero" }).id;
+    s.create({ projectId: PID, text: "Card A", parentTaskId: padre });
+    hadATurn(db, padre);
+    expect(s.sweepParkedChildren({ eligible: () => true }).map((t) => t.id)).toEqual([padre]);
+    s.update({ taskId: padre, actor: "human", by: "attilio", patch: { status: "backlog" } });
+
+    expect(s.sweepParkedChildren({ eligible: () => true }).map((t) => t.id)).toEqual([padre]);
+  });
+});

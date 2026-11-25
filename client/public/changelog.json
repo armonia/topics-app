@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.106",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a starving runner keeps its turn, a real message wakes it",
+          "en": "",
+          "scope": "ci-governor",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.4.105",
     "date": "2026-11-25",
     "sections": {
