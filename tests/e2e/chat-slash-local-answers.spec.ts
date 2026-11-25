@@ -7,11 +7,12 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installCompactCli, installQueueTurnsCli, installSlowTurnCli } from "./helpers/fake-claude-cli";
+import { VIDEO_ON } from "./video-evidence";
 
 // Hermetic: this file starts from the globalSetup baseline, not from the state
 // the previous specs left. See fixtures/hermetic.ts.
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ timeout: 120_000 });
 
 /**

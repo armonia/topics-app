@@ -35,9 +35,10 @@ import { openMainChat, seedScene, type Scene } from "./helpers/shot-scene";
 import { goToApp } from "./helpers";
 import { defaultFakeHubItems, startFakeHub, type FakeHub } from "./helpers/fake-hub";
 import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 const HOUR = 3_600_000;

@@ -5,6 +5,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -47,7 +48,7 @@ const BASE = E2E_BASE;
  *
  * È COMPORTAMENTO: video acceso, il .webm è la prova.
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 test.describe("Dopo /compact la coda riparte", () => {
   let topicId: string;

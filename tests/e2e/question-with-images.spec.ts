@@ -9,9 +9,10 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const BASE = E2E_BASE;
 // Served by /api/media: `${APP_DATA_DIR}/media/`, inside the test server's data dir.
