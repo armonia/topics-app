@@ -2,6 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.0 — 2026-11-25
+
+### Correzioni
+- **ui** · one row grammar in the sidebar, and no ground at rest
+- **tauri** · the reused browser view passes the island flag too
+
+### Sotto il cofano
+- **ui** · the new comments quote the report in English
+- **ui** · the browser tab in the title row is a portal in flow, not a floating surface
+
+## 2.4.110 — 2026-11-25
+
+### Correzioni
+- **tauri** · a pop-out window is dressed on the main thread, not on a tokio worker
+- **ui** · a project's browser in front is the title, and its page is an island
+- **tauri** · corner_plan is macOS-only outside tests, like its neighbours
+
 ## 2.4.108 — 2026-11-25
 
 ### Correzioni
