@@ -24,7 +24,7 @@
 export const OPEN_HOME_EVENT = 'topics:open-home';
 
 /** The forms the host draws itself. */
-export type PanelHome = 'providers' | 'tools' | 'calendar';
+export type PanelHome = 'providers' | 'tools' | 'calendar' | 'worktrees';
 
 /** Every home a door can ask for: the three panels, and the user menu's own. */
 export type SettingHome = PanelHome | 'plan' | 'machines' | 'appearance' | 'notifications';
@@ -79,5 +79,5 @@ export const HOME_ANCHOR_FOCUSED_ATTR = 'data-home-anchor-focused';
 export const HOME_ANCHOR_ATTR = 'data-home-anchor';
 
 export function isPanelHome(home: SettingHome): home is PanelHome {
-  return home === 'providers' || home === 'tools' || home === 'calendar';
+  return home === 'providers' || home === 'tools' || home === 'calendar' || home === 'worktrees';
 }

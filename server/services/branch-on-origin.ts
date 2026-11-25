@@ -139,6 +139,35 @@ export async function bundleBranch(
 }
 
 /**
+ * The card's branch as a bundle for a node, even when only origin has it.
+ *
+ * `ensureBranchOnOrigin` accepts a branch that is no longer in this checkout
+ * (pruned after a land, or born on another machine) because origin has it. A
+ * node without GitHub access then answers `branch_unreachable`, and
+ * `bundleBranch` had no local ref to pack: on 25/11 ed621d32 was retried every
+ * 5 minutes for hours as "node not answering". The branch is borrowed from
+ * origin for the bundle and the borrowed ref is removed afterwards, only if it
+ * still points where the fetch put it.
+ */
+export async function bundleBranchForNode(
+  repoPath: string | null | undefined,
+  branch: string,
+  run: GitRunner = branchGit,
+): Promise<Uint8Array | null> {
+  if (!repoPath || !isPlainBranchName(branch)) return null;
+  const ref = `refs/heads/${branch}`;
+  if ((await run(repoPath, ["rev-parse", "--verify", "-q", ref])).code === 0) return bundleBranch(repoPath, branch, run);
+  const fetched = await run(repoPath, ["fetch", "--no-tags", "-q", "origin", `${ref}:${ref}`]);
+  if (fetched.code !== 0) return null;
+  const borrowed = (await run(repoPath, ["rev-parse", "--verify", "-q", ref])).stdout.trim();
+  try {
+    return await bundleBranch(repoPath, branch, run);
+  } finally {
+    if (borrowed) await run(repoPath, ["update-ref", "-d", ref, borrowed]);
+  }
+}
+
+/**
  * The first-parent ancestor `n` commits behind origin/HEAD. On a shorter history, null:
  * the caller's next try (the whole history) then carries everything, which is small anyway.
  */

@@ -307,7 +307,7 @@
       ]
     },
 
-    "client/src/components/Board/KanbanBoardPane.tsx": 1552,
+    "client/src/components/Board/KanbanBoardPane.tsx": 1561,
 
     "client/src/components/Board/TaskDetail.tsx": 1471,
 
@@ -547,6 +547,8 @@
     },
 
     "server/providers/native/agent-loop.ts": 1370,
+
+    "server/providers/native/auth.ts": 891,
 
     "server/providers/native/provider.ts": {
       "lines": 1523,

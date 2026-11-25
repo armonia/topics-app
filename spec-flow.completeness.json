@@ -8,6 +8,20 @@
     "starting score (`spec-flow check-mutation --update-baseline`), and from there it only goes up."
   ],
   "consumer": "topics",
+  "intersections": {
+    "_note": "D19: the declarations live in the specs (`**Intersects:**`); only the pair exceptions live here, each with a reason, an owner that is a ROLE (this repo is public) and an expiry.",
+    "waivers": [
+      {
+        "pair": [
+          "KANBAN-76",
+          "WORKTREE-STD-03"
+        ],
+        "reason": "The GC pass proves live work is never removed on real git, and KANBAN-76 proves a card chosen for a node runs there, but no test names both: it needs a paired node with a live card and a GC pass on it, which the cross-machine round (WORKTREE-STD-11) has not filmed yet.",
+        "owner": "worktrees-maintainers",
+        "expires": "2026-12-24"
+      }
+    ]
+  },
   "mutation": {
     "tierA": {
       "tool": "stryker",

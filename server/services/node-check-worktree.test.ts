@@ -1,6 +1,13 @@
 /**
  * @covers LAND-04
  *
+ * The checkouts of this file live in `{worktree root}/_scratch/node-checks` (WORKTREE-STD-02), so the cut
+ * release that must not block the land (LAND-19) and the boot sweep that must empty the folder (LAND-20)
+ * are proved where the standard put them:
+ *
+ * @covers WORKTREE-STD-02+LAND-19
+ * @covers WORKTREE-STD-02+LAND-20
+ *
  * A node check checkout cut mid-release must not block the land (card 8e9c2873).
  *
  * @covers LAND-19
@@ -306,13 +313,11 @@ describe("no node check checkout outlives the server that opened it", () => {
 
   test("the boot sweep of a test server never reaches production's checkouts", async () => {
     const { repo, checks } = repoWithNodeBranch();
-    const tmp = join(checks, "..", "tmp");
-    mkdirSync(tmp);
-    const prodHome = join(tmp, "..", "home", ".topics");
-    // Production keeps the folder it always had; an e2e server (TOPICS_HOME of its own, same $TMPDIR) gets another.
-    const prodRoot = nodeCheckRoot(prodHome, tmp, prodHome);
-    const e2eRoot = nodeCheckRoot(join(tmp, "..", "e2e", ".topics-home"), tmp, prodHome);
-    expect(prodRoot).toBe(join(tmp, "topics-node-checks"));
+    // Each server's worktree root derives from its own Topics home, so the checkouts of an e2e server and of
+    // production are in different folders even though both live under `_scratch/node-checks`.
+    const prodRoot = nodeCheckRoot(join(checks, "..", "prod-home", "worktrees"));
+    const e2eRoot = nodeCheckRoot(join(checks, "..", "e2e-home", "worktrees"));
+    expect(prodRoot).toBe(join(checks, "..", "prod-home", "worktrees", "_scratch", "node-checks"));
     expect(e2eRoot).not.toBe(prodRoot);
 
     const prod = createNodeCheckWorktrees({ git: realGit, root: prodRoot, resolveHead: headOf });

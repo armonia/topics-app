@@ -38,7 +38,7 @@ describe("main's CI watch", () => {
     const task = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "una card qualsiasi della board" }))!.json();
     const projectId = task.projectId as string;
     svc.updateBoardSettings(projectId, { dispatchAutoMerge: true, reviewChecks: withCiRows ? [{ name: "unit-ci", cmd: "github-ci:unit" }] : [{ name: "ok", cmd: "true" }] });
-    const redCards = () => db.query("SELECT id, text, description, status, created_by AS by, archived FROM tasks WHERE text LIKE 'CI rossa su main%'").all() as Array<{ id: string; text: string; description: string; status: string; by: string; archived: number }>;
+    const redCards = () => db.query("SELECT id, text, description, model, status, created_by AS by, archived FROM tasks WHERE text LIKE 'CI rossa su main%'").all() as Array<{ id: string; text: string; description: string; model: string | null; status: string; by: string; archived: number }>;
     return { projectId, redCards };
   }
 
@@ -53,6 +53,9 @@ describe("main's CI watch", () => {
     expect(card!.description).toContain(SHA);
     expect(card!.description).toContain("`gates`");
     expect(card!.description).toContain("https://github.example/run/42");
+    expect(card!.description).toContain("--ff-only origin/main");
+    expect(card!.description).toContain("gh run view <id> --log-failed");
+    expect(card!.model).toBe("claude-sonnet-5-5");
     await sweep!();
     expect(s.redCards()).toHaveLength(1);
     db.prepare("UPDATE tasks SET archived = 1 WHERE id = ?").run(card!.id);
