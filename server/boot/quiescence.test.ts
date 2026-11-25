@@ -404,12 +404,12 @@ describe("autoLandTurnCount: what a land's reload would meet", () => {
 describe("the incremental vacuum: an open question does not skip the round", () => {
   /** A database whose pages freed by a DELETE are waiting on the freelist. */
   function dbWithFreePages(): Database {
-    const vdb = new Database(":memory:");
-    vdb.run("PRAGMA auto_vacuum = INCREMENTAL");
-    vdb.run("CREATE TABLE blobs (id INTEGER PRIMARY KEY, body BLOB)");
-    for (let i = 0; i < 64; i++) vdb.run("INSERT INTO blobs (body) VALUES (zeroblob(8192))");
-    vdb.run("DELETE FROM blobs");
-    return vdb;
+    const vacuumDb = new Database(":memory:");
+    vacuumDb.run("PRAGMA auto_vacuum = INCREMENTAL");
+    vacuumDb.run("CREATE TABLE blobs (id INTEGER PRIMARY KEY, body BLOB)");
+    for (let i = 0; i < 64; i++) vacuumDb.run("INSERT INTO blobs (body) VALUES (zeroblob(8192))");
+    vacuumDb.run("DELETE FROM blobs");
+    return vacuumDb;
   }
 
   test("parked chat and parked card: the vacuum runs", async () => {
@@ -418,27 +418,27 @@ describe("the incremental vacuum: an open question does not skip the round", () 
     addStream(CARD, "m-card");
     beginAsk(CARD);
     const { whatIsStillWorking } = gate(undefined, true, { cards: [CARD_TURN] });
-    const vdb = dbWithFreePages();
+    const vacuumDb = dbWithFreePages();
     // What used to be asked: the restart gate's sentence, which names the parked ones.
     const now = await whatIsStillWorking();
     expect(now.busy).not.toBeNull();
     expect(now.workingBusy).toBeNull();
 
-    const outcome = await runIncrementalVacuum({ db: vdb, busy: async () => (await whatIsStillWorking()).workingBusy });
+    const outcome = await runIncrementalVacuum({ db: vacuumDb, busy: async () => (await whatIsStillWorking()).workingBusy });
 
     expect(outcome.action).toBe("vacuumed");
     expect(outcome.action === "vacuumed" && outcome.pages).toBeGreaterThan(0);
-    vdb.close();
+    vacuumDb.close();
   });
 
   test("a chat that is working still stops it", async () => {
     addStream(WORKING, "m-working");
     const { whatIsStillWorking } = gate();
-    const vdb = dbWithFreePages();
+    const vacuumDb = dbWithFreePages();
 
-    const outcome = await runIncrementalVacuum({ db: vdb, busy: async () => (await whatIsStillWorking()).workingBusy });
+    const outcome = await runIncrementalVacuum({ db: vacuumDb, busy: async () => (await whatIsStillWorking()).workingBusy });
 
     expect(outcome.action).toBe("skipped");
-    vdb.close();
+    vacuumDb.close();
   });
 });
