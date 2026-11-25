@@ -4923,23 +4923,33 @@
       "noRipunta",
       "risalita"
     ],
-    "server/services/tasks/shared.ts": [
-      "PREVIEWABLE_MEDIA",
+    "server/services/tasks/shared-card-read.ts": [
       "SQL_MIA",
       "SQL_PAROLA",
-      "anteprimaUtile",
-      "archiveSubtree",
-      "attuale",
-      "cappello",
       "contorno",
       "dalPiuRecente",
-      "elenco",
-      "figli",
-      "mrows",
-      "nonScavalcare",
       "primaDiNoi",
-      "scelta",
+      "scelta"
+    ],
+    "server/services/tasks/shared-children.ts": [
+      "elenco"
+    ],
+    "server/services/tasks/shared-core.ts": [
+      "archiveSubtree"
+    ],
+    "server/services/tasks/shared-delivery-claims.ts": [
+      "nonScavalcare",
       "spegniDone"
+    ],
+    "server/services/tasks/shared-previews.ts": [
+      "PREVIEWABLE_MEDIA",
+      "anteprimaUtile",
+      "attuale",
+      "cappello",
+      "figli"
+    ],
+    "server/services/tasks/shared-task-mapping.ts": [
+      "mrows"
     ],
     "server/services/tasks/status.ts": [
       "ammessa",
