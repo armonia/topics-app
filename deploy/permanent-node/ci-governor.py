@@ -67,6 +67,11 @@ QUIET_S = int(os.environ.get("CI_QUIET_S", "8"))              # un Listener che 
 EXEMPT = {x.strip().replace(":", chr(64)) + ".service" for x in os.environ.get("CI_EXEMPT", "ci-runner:0").split(",")}
 LOG = os.environ.get("CI_GOV_LOG", "/var/log/ci-governor.log")
 LOADLOG = os.environ.get("CI_LOAD_LOG", "/var/log/ci-load.log")
+# Jobs queued for a paused runner: GitHub sees a SIGSTOPped Listener as offline and never assigns it the job (25/11: a run waited 11 min
+# until the starvation timer fired). Optional: needs a token that can read Actions on the repos below; empty list = feature off.
+QUEUE_REPOS = [x.strip() for x in os.environ.get("CI_QUEUE_REPOS", "").split(",") if x.strip()]
+QUEUE_TOKEN = os.environ.get("CI_QUEUE_TOKEN", "")
+QUEUE_POLL = float(os.environ.get("CI_QUEUE_POLL", "15"))
 KEEP_COMM = ("Runner.", "run.sh", "run-helper.sh", "runsvc.sh")
 
 
@@ -121,11 +126,16 @@ def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP
             if room == 0:
                 break
             cont.append(u); room -= 1
+    # JOB IN CODA PER UN RUNNER IN PAUSA (r["queued"], dall'API): GitHub non assegna il job a un Listener fermo, quindi si riprende
+    # subito, entro max_jobs job di runner e senza guardare il load; `granted` lo protegge dal tetto normale finche' non prende il job
+    awake_now = len([u for u in awake if u not in stop]) + len(cont)
+    for u in sorted(stopped):
+        if runners[u].get("queued") and u not in cont and len(active) + awake_now < max_jobs:
+            cont.append(u); granted.add(u); awake_now += 1
     # fame: il piu' vecchio fra i fermi da piu' di starve_s passa avanti, entro max_jobs job di runner
     served = served or {}
     starving = sorted([u for u in stopped if u not in cont and now - served.get(u, now) >= starve_s],
                       key=lambda u: (served.get(u, now), u))
-    awake_now = len([u for u in awake if u not in stop]) + len(cont)
     if starving and not cont and len(active) + awake_now < max_jobs:
         cont.append(starving[0]); granted.add(starving[0])
     return stop, stuck + cont
@@ -232,6 +242,26 @@ def selftest():
     # g) dopo il job il Listener torna normale (niente pending/hold): la pausa di rotazione riparte
     st, co = decide({"a": P(1, 0), "z": P(0, 0), "y": P(0, 1)}, 5, 1000, {"z": 0}, served={"y": 900, "z": 990}, max_jobs=2, load_cap=24, rotate_s=600)
     assert st == ["z"], (st, co)
+    # JOB IN CODA: un runner fermo con un job in coda per lui parte subito, anche con il load alto
+    Q = lambda w, s, q=False: {"worker": w, "stopped": s, "queued": q}
+    g = set()
+    st, co = decide({"a": Q(1, 0), "z": Q(0, 1, True), "y": Q(0, 1)}, 30, 1000, {}, served={"z": 990, "y": 0}, granted=g, **big)
+    assert co == ["z"] and "z" in g, (st, co)
+    # ma mai oltre max_jobs job di runner
+    st, co = decide({"a": Q(1, 0), "b": Q(1, 0), "z": Q(0, 1, True)}, 5, 1000, {}, granted=set(), **big)
+    assert co == [], (st, co)
+    # un ammesso per coda non viene rimesso in pausa dal tetto del load
+    st, co = decide({"a": Q(1, 0), "z": Q(0, 0)}, 30, 1000, {"z": 0}, granted={"z"}, **big)
+    assert st == [], (st, co)
+    # quali runner fermi svegliare per i job in coda
+    api = [{"name": "r1", "status": "offline", "busy": False, "labels": ["self-hosted", "linux", "hetzner"]},
+           {"name": "r2", "status": "offline", "busy": False, "labels": ["self-hosted", "linux", "hetzner"]},
+           {"name": "r3", "status": "online", "busy": False, "labels": ["self-hosted", "other"]}]
+    stopped_by_name = {"r1": "u1", "r2": "u2"}
+    assert queued_wanted([["self-hosted", "hetzner"]], api, stopped_by_name) == {"u1"}
+    assert queued_wanted([["self-hosted", "hetzner"], ["hetzner"]], api, stopped_by_name) == {"u1", "u2"}
+    assert queued_wanted([["self-hosted", "other"]], api, stopped_by_name) == set()      # un runner online lo prende da solo
+    assert queued_wanted([["ubuntu-latest"]], api, stopped_by_name) == set()             # job di GitHub, non nostro
     # lettura dei segnali su Linux: socket con byte non letti e log del Listener appena scritto
     if os.path.exists("/proc/net/tcp"):
         import socket, tempfile
@@ -369,6 +399,54 @@ def freeze(pid, between=None):
     return True
 
 
+def queued_wanted(job_labels, api_runners, stopped_by_name):
+    """Pure. job_labels: label lists of the queued jobs; api_runners: [{name,status,busy,labels}] from GitHub;
+    stopped_by_name: {runner name: unit} of the paused Listeners. Returns the units to resume: for each queued job with no
+    online idle runner able to take it, one paused runner that has all its labels (a different one per job)."""
+    wanted = set()
+    for labels in job_labels:
+        need = {x.lower() for x in labels}
+        match = [r for r in api_runners if need <= {x.lower() for x in r.get("labels", [])}]
+        if not match or any(r["status"] == "online" and not r.get("busy") for r in match):
+            continue
+        for r in match:
+            if r["name"] in stopped_by_name and stopped_by_name[r["name"]] not in wanted:   # one runner per job
+                wanted.add(stopped_by_name[r["name"]]); break
+    return wanted
+
+
+def gh_get(path):
+    import urllib.request
+    req = urllib.request.Request("https://api.github.com" + path, headers={
+        "Authorization": "Bearer " + QUEUE_TOKEN, "Accept": "application/vnd.github+json", "User-Agent": "ci-governor"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.load(resp)
+
+
+def fetch_queue():
+    """(labels of the queued jobs, runners as GitHub sees them) over QUEUE_REPOS."""
+    jobs, runners = [], {}
+    for repo in QUEUE_REPOS:
+        for run in gh_get(f"/repos/{repo}/actions/runs?status=queued&per_page=30").get("workflow_runs", []):
+            for j in gh_get(f"/repos/{repo}/actions/runs/{run['id']}/jobs?per_page=50").get("jobs", []):
+                if j.get("status") == "queued":
+                    jobs.append(j.get("labels", []))
+        if jobs:
+            for r in gh_get(f"/repos/{repo}/actions/runners?per_page=100").get("runners", []):
+                runners[r["name"]] = {"name": r["name"], "status": r["status"], "busy": r["busy"],
+                                      "labels": [l["name"] for l in r.get("labels", [])]}
+    return jobs, list(runners.values())
+
+
+def runner_name(pid):
+    """Name this Listener registered with (agentName in its .runner file), None if unreadable."""
+    try:
+        with open(os.path.join(os.readlink(f"/proc/{pid}/cwd"), ".runner"), encoding="utf-8-sig") as f:
+            return json.load(f).get("agentName")
+    except (OSError, ValueError):
+        return None
+
+
 def manual_suites():
     """Suite Playwright lanciate con systemd-run (unit run-uNNN.service) da agenti sulla macchina."""
     n = set()
@@ -410,6 +488,7 @@ def main():
         return
     last_awake, idle_since, last_load, served, granted = {}, {}, 0, {}, set()
     paused_at, probes, hold_until = {}, {}, {}
+    last_poll, queued_units = 0.0, set()
     try:                                            # un riavvio non azzera l'attesa di chi e' fermo da ore
         served = {k: float(v) for k, v in json.load(open(STATE)).items()}
     except (OSError, ValueError):
@@ -451,6 +530,17 @@ def main():
                                 and pending_data(r["listener"]))
             else:
                 r["pending"] = pending_data(r["listener"]) or recent_log(r["listener"])
+        if QUEUE_REPOS and QUEUE_TOKEN and now - last_poll >= QUEUE_POLL:
+            last_poll = now
+            try:
+                qjobs, qrunners = fetch_queue()
+                by_name = {runner_name(r["listener"]): u for u, r in gov.items() if r["stopped"] and not r["worker"]}
+                queued_units = queued_wanted(qjobs, qrunners, by_name)
+            except Exception as e:                  # network or token trouble must never stop the governor
+                queued_units = set()
+                log(f"coda GitHub non letta: {type(e).__name__}")
+        for u, r in gov.items():
+            r["queued"] = u in queued_units and r["stopped"]
         extra = manual_suites()
         stop, cont = decide(gov, load1, now, last_awake, extra=extra, served=served, granted=granted)
         for u in stop:
@@ -474,6 +564,10 @@ def main():
                 motivo = f" per {pending_data(r['listener'])} byte arrivati dopo la pausa (puo' essere un job)"
                 hold_until[u] = now + HOLD_S
                 probes[u] = probes.get(u, 0) + 1
+            elif r.get("queued"):
+                motivo = " per un job in coda che aspetta lui"
+                queued_units.discard(u)
+                probes[u] = 0
             elif u in granted:
                 motivo = ' per fame (fermo da ' + str(int((now - served.get(u, now)) / 60)) + ' min)'
                 probes[u] = 0
