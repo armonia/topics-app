@@ -30,7 +30,6 @@ describe("triage at birth", () => {
   const agent = (body: Record<string, unknown>, by = "agent:jarvis") => rawCall(router, "POST", BOARD, { createdBy: by, ...body }, {});
   /** The person, from the board interface. */
   const person = (body: Record<string, unknown>) => call(router, "POST", BOARD, body);
-  const cardsOf = (text: string) => db.query("SELECT id, status, parent_task_id AS parent, description, created_by AS by FROM tasks WHERE text = ?").all(text) as Array<{ id: string; status: string; parent: string | null; description: string | null; by: string | null }>;
   /** The notes the triage wrote: the notice of a card born without a bar (every agent card here) is another story. */
   const commentsOf = (id: string) => db.query("SELECT author, content, quiet FROM task_comments WHERE task_id = ? AND content NOT LIKE 'Incomplete card:%' ORDER BY created_at").all(id) as Array<{ author: string; content: string; quiet: number | null }>;
   const count = () => (db.query("SELECT COUNT(*) AS n FROM tasks").get() as { n: number }).n;
