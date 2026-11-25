@@ -30,7 +30,7 @@ import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { useMobile } from '../../hooks/useMobile';
 import { ConfirmDialog } from '../Shared/ConfirmDialog';
-import { SECTION_CARD, SELECTED_SURFACE, SELECTED_SURFACE_SOFT, TREE_ROW_CARD } from '@/lib/selectionStyles';
+import { sectionCard, SELECTED_SURFACE, SELECTED_SURFACE_SOFT, TREE_ROW_CARD } from '@/lib/selectionStyles';
 import { Spinner } from '../Shared/Spinner';
 import { SkeletonRows } from '../Shared/Skeleton';
 import { shortcut } from '../../lib/shortcutLabel';
@@ -801,7 +801,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
           data-testid="project-sidebar-git"
           role="button"
           aria-expanded={expanded}
-          className={`${SECTION_CARD} group/git`}
+          className={`${sectionCard(expanded)} group/git`}
         >
           {/* Left: icon + label + chevron.
               `min-w-0` e non `flex-shrink-0`: con tutt'e due i gruppi

@@ -1572,13 +1572,11 @@
     ],
     "client/src/lib/selectionStyles.test.ts": [
       "riga",
-      "risolvi",
-      "sezione"
+      "risolvi"
     ],
     "client/src/lib/selectionStyles.ts": [
       "CHROME_BAR_H_VAR",
-      "GLYPH_KBD_PADDING",
-      "riposo"
+      "GLYPH_KBD_PADDING"
     ],
     "client/src/lib/settings.ts": [
       "syncableSettings"

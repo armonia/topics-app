@@ -63,6 +63,7 @@ import { currentWindowLabel } from '../../lib/shell/tauri';
 import type { SendMessageOptions } from '@/hooks/useChat';
 import { SubjectInFront, useSeenFocusedPane } from '../../state/paneSeen';
 import { topicSubject } from '../../../../shared/attention';
+import { BrowserIsland } from '../Browser/BrowserIsland';
 
 // `lazyWarm`, not `lazy`, for the pane bodies: their chunks are asked for at
 // boot from the local pane-store snapshot (`state/pane/panePreload`), and a
@@ -556,6 +557,11 @@ export function StandaloneChatGroup({
   // this row (`titleSlot`).
   const projectInTitle = !mobile && !tabStrip && !!surfaceInFront && isProjectPaneId(surfaceInFront.id);
   const [titleSlot, setTitleSlot] = useState<HTMLDivElement | null>(null);
+  // Inside the project, a browser in front puts ITS tab on this row in place of
+  // the project's (25/11: the browser's tab was nowhere): the window draws it
+  // into `titleTabSlot` and says so through `setProjectTitleTaken`.
+  const [titleTabSlot, setTitleTabSlot] = useState<HTMLDivElement | null>(null);
+  const [projectTitleTaken, setProjectTitleTaken] = useState(false);
   const cellLit = inSplit && !!focusedPanelId && validatedOrderedIds.includes(focusedPanelId);
   // The room under the traffic lights, on the toggle cell only (the header below says why).
   const lightsInset = onToggleSidebar ? { paddingLeft: `var(${CONTENT_CHROME_INSET_PROPERTY}, 0px)` } : undefined;
@@ -872,6 +878,9 @@ export function StandaloneChatGroup({
       const ctx = getBrowserContextFromPaneId(paneId) || browserContextId;
       return (
         <LazyPane>
+          {/* An island on the window's ground with the tabs at the side, as in a
+              project (`BrowserIsland`); a split cell keeps its own card. */}
+          <BrowserIsland on={!mobile && !tabStrip && !inSplit}>
           <RemoteBrowserPanel
             contextId={ctx}
             // Restore the tab to its last page after a window restart (the
@@ -906,6 +915,7 @@ export function StandaloneChatGroup({
             // in that topic's folder, when it has one (NEWTAB-ARC-04).
             projectPath={topics[ctx]?.projectPath}
           />
+          </BrowserIsland>
         </LazyPane>
       );
     }
@@ -918,6 +928,8 @@ export function StandaloneChatGroup({
           projectPath={projectPath}
           chromeless={!mobile && !tabStrip}
           titleSlot={isPaneActive ? titleSlot : null}
+          titleTabSlot={isPaneActive ? titleTabSlot : null}
+          onTitleTab={isPaneActive ? setProjectTitleTaken : undefined}
           // Same signal the browser pane above gets, for the same reason: the
           // keep-alive wrapper's `display:none` does not reach the panes nested
           // inside this window (nor their OS-level native views), so a window
@@ -1157,7 +1169,8 @@ export function StandaloneChatGroup({
               data-testid="cell-title-row"
               className={`flex-1 flex items-center min-w-0 self-stretch ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
             >
-              {surfaceInFront && renderTabBar(true)}
+              {surfaceInFront && !(projectInTitle && projectTitleTaken) && renderTabBar(true)}
+              {projectInTitle && <div ref={setTitleTabSlot} className="flex items-center min-w-0 empty:hidden" data-testid="title-inner-tab" />}
               {/* The strip's "+", kept where the strip went: it adds INTO this
                   cell, which the header's "+" cannot. */}
               {(inSplit || projectInTitle || newChatInCell || availableTypes.length > 0) && (

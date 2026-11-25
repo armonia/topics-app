@@ -359,7 +359,7 @@ export const TopicItem = memo(function TopicItem({
         // accende al passaggio del mouse. Il `relative` che gli serve lo porta
         // già `sidebarRowCard`.
         `group ${ROW_CARD} flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} cursor-pointer ${TAB_LABEL_TYPE} select-none`,
-        sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier, nested: depth > 0, tab }),
+        sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier, tab }),
         // Preview panels show italic name
         isPreview && 'italic',
         archived && ARCHIVED_ROW
