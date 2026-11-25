@@ -147,6 +147,8 @@ async function bootOnce(s: ServerUnderTest): Promise<void> {
       APP_DATA_DIR: join(s.root, "app-data"),
       TOPICS_HOME: join(s.root, "topics-home"),
       TOPICS_PUBLIC_DIR: join(s.root, "public"),
+      // Run from an agent worktree the server would drop the tunnel port; every dir and port here is hermetic already.
+      TOPICS_ALLOW_WORKTREE_PROD: "1",
       TOPICS_BROWSER_SWEEP: "0",
       TOPICS_DISABLE_PTY_BRIDGE: "1",
       TOPICS_PTY_SOCKET: join(s.root, "pty.sock"),
