@@ -601,6 +601,8 @@
 
     "server/routes/outbound.test.ts": 1049,
 
+    "server/routes/chat-handler.ts": 811,
+
     "server/routes/tasks-board.ts": 1605,
 
     "server/routes/tasks-land.ts": 917,
