@@ -72,6 +72,15 @@ export interface RequestLoginArgs {
   resume?: unknown;
 }
 
+/** One tab name per login request (the host), so open_browser_pane never reuses an older tab. */
+function defaultLoginTabName(url: string): string {
+  try {
+    return `Login ${new URL(url).host}`;
+  } catch {
+    return "Login";
+  }
+}
+
 /**
  * request_login: open the login page in its own tab, raise it (detached window
  * when asked) and wait for the person to get past the wall. Credentials are
@@ -94,7 +103,7 @@ export async function callRequestLogin(
     ({ contextId, startUrl, deadline } = { contextId: resume.contextId, startUrl: resume.startUrl, deadline: resume.deadline });
   } else {
     if (typeof toolArgs.url !== "string" || !toolArgs.url) throw new Error("request_login: 'url' (string) is required");
-    const name = typeof toolArgs.name === "string" && toolArgs.name.trim() ? toolArgs.name.trim() : "Login";
+    const name = typeof toolArgs.name === "string" && toolArgs.name.trim() ? toolArgs.name.trim() : defaultLoginTabName(toolArgs.url);
     // A NEW tab, always: a fresh name per login keeps the agent's own work tabs untouched.
     const opened = await callOpenBrowserPane(args, { url: toolArgs.url, name }, fetchImpl);
     if (!opened.contextId) throw new Error("request_login: the pane opened without a contextId, cannot track the login");

@@ -89,7 +89,7 @@ export const TOOLS = [
       type: "object",
       properties: {
         url: { type: "string", description: "The login page URL (https://...). Required unless `resume` is given." },
-        name: { type: "string", description: "Tab label (default 'Login')." },
+        name: { type: "string", description: "Tab label (default 'Login <host>', so each site gets its own tab)." },
         detached: { type: "boolean", description: "Also pop the topic out into its own window so it grabs attention." },
         resume: {
           type: "object",
