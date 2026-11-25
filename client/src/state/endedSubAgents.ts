@@ -54,31 +54,6 @@ export interface EndedSubAgent {
 }
 
 /**
- * `waiting`: the prompt has not reached it yet. `busy`: it is working its turn.
- * `idle`: its turn is over. `ended`: its process is gone.
- */
-export type SubAgentState = 'waiting' | 'busy' | 'idle' | 'ended';
-
-/**
- * A live child's state. The server reads it from the child's transcript
- * (`subAgentPhase`, SUBAGENT-16): a child whose prompt never arrived is not
- * "idle", which is what the PTY bytes said of it. An older server sends no
- * phase, and then the busy flag is all there is.
- */
-function liveState(s: Pick<TerminalSessionInfo, 'busy' | 'subAgentPhase'>): SubAgentState {
-  if (s.subAgentPhase === 'waiting-prompt') return 'waiting';
-  if (s.subAgentPhase === 'working') return 'busy';
-  if (s.subAgentPhase === 'finished') return 'idle';
-  return s.busy ? 'busy' : 'idle';
-}
-
-export interface SubAgentRow {
-  id: string;
-  name: string;
-  state: SubAgentState;
-}
-
-/**
  * Upper bound on what is remembered. Board tasks spawn sub-agents too, and an
  * entry is only removed by a dismissal or an archive: without a bound the list
  * would only ever grow in localStorage. The oldest go first.
@@ -148,29 +123,6 @@ export function dismissInMemory(memory: SubAgentMemory, id: string): SubAgentMem
     ended: hasRow ? memory.ended.filter((e) => e.id !== id) : memory.ended,
     dismissed: bounded([...memory.dismissed.filter((d) => d !== id), id]),
   };
-}
-
-/**
- * The strip's rows for one chat: the live children first (waiting, busy or idle, in
- * roster order), then the ended ones that are not live again, oldest first.
- */
-export function subAgentRowsFor(
-  parentSessionKey: string,
-  live: readonly Pick<TerminalSessionInfo, 'id' | 'name' | 'parentSessionKey' | 'busy' | 'subAgentPhase'>[],
-  ended: readonly EndedSubAgent[],
-): SubAgentRow[] {
-  const rows: SubAgentRow[] = [];
-  const liveIds = new Set<string>();
-  for (const s of live) {
-    if (s.parentSessionKey !== parentSessionKey) continue;
-    liveIds.add(s.id);
-    rows.push({ id: s.id, name: s.name, state: liveState(s) });
-  }
-  for (const e of ended) {
-    if (e.parentSessionKey !== parentSessionKey || liveIds.has(e.id)) continue;
-    rows.push({ id: e.id, name: e.name, state: 'ended' });
-  }
-  return rows;
 }
 
 // --- The store ----------------------------------------------------------------

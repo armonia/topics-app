@@ -5,7 +5,7 @@
  * step that leaves.
  *
  * Two temporary repos stand in for the parent (this Mac) and the node: no
- * `origin` anywhere, the `~/.claude/jarvis/home` case the proposal names.
+ * `origin` anywhere, an agent's home, the case the proposal names.
  *
  * @covers SUBAGENT-26
  */
@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { adoptCarriedBranch, materializeChildCheckout, snapshotParentAsBundle } from "./subagent-bundle";
+import { adoptCarriedBranch, snapshotParentAsBundle } from "./subagent-bundle";
 import { plantCarriedBranch } from "../services/branch-on-origin";
 
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
@@ -34,9 +34,25 @@ afterEach(() => {
   roots = [];
 });
 
+/** Test-only child checkout: a fresh repo that fetches the snapshot bundle and checks the branch out. */
+async function materializeChildCheckout(input: { targetDir: string; branch: string; bytes: Uint8Array }): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const { targetDir, branch, bytes } = input;
+  git(targetDir, "init", "-q", "-b", "__topics-bootstrap__");
+  const file = join(tempDir("subagent-bundle-file-"), "snapshot.bundle");
+  writeFileSync(file, bytes);
+  try {
+    git(targetDir, "bundle", "verify", file);
+    git(targetDir, "fetch", "--no-tags", file, `${branch}:refs/heads/${branch}`);
+    git(targetDir, "checkout", "-q", branch);
+  } catch (err) {
+    return { ok: false, reason: String(err) };
+  }
+  return { ok: true };
+}
+
 describe("subagent-bundle: andata, commit sul ramo, ritorno", () => {
   it("file identici tra il ramo del figlio e quello adottato dal genitore, albero del genitore intatto", async () => {
-    // The parent repo: no `origin`, a plain local checkout, like `~/.claude/jarvis/home`.
+    // The parent repo: no `origin`, a plain local checkout, like an agent's home.
     const parent = tempDir("subagent-parent-");
     git(parent, "init", "-q", "-b", "main");
     writeFileSync(join(parent, "a.txt"), "base\n");
@@ -182,6 +198,33 @@ describe("subagent-bundle: andata, commit sul ramo, ritorno", () => {
     expect(adopted.ok).toBe(false);
     expect(git(parent, "rev-parse", "topics/open")).toBe(before);
     expect(git(parent, "status", "--porcelain")).toBe("");
+  });
+
+  it("a branch that moves between the read and the update is not overwritten (compare-and-swap)", async () => {
+    const parent = tempDir("subagent-parent-");
+    git(parent, "init", "-q", "-b", "main");
+    writeFileSync(join(parent, "a.txt"), "base\n");
+    git(parent, "add", ".");
+    git(parent, "commit", "-q", "-m", "base");
+    const baseTip = git(parent, "rev-parse", "main");
+    // The parent already has the branch at the base commit; the carried tip is a commit ahead of it.
+    git(parent, "branch", "topics/race", baseTip);
+    const { carriedRef } = await import("../services/branch-on-origin");
+    git(parent, "update-ref", carriedRef("topics/race"), git(parent, "commit-tree", "-m", "carried", "-p", baseTip, `${baseTip}^{tree}`));
+
+    // A runner that moves the branch right before the update-ref lands: a concurrent writer.
+    let rival = "";
+    const racing = async (cwd: string, args: string[]) => {
+      if (args[0] === "update-ref") {
+        rival = git(cwd, "commit-tree", "-m", "rival", "-p", baseTip, `${baseTip}^{tree}`);
+        git(cwd, "update-ref", "refs/heads/topics/race", rival);
+      }
+      const r = Bun.spawnSync(["git", "-C", cwd, ...args], { env: gitEnv });
+      return { code: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
+    };
+    const adopted = await adoptCarriedBranch({ repoPath: parent, branch: "topics/race", run: racing as never });
+    expect(adopted.ok).toBe(false);
+    expect(git(parent, "rev-parse", "topics/race")).toBe(rival);
   });
 
   it("repo senza origin: bundleBranch cade sulla storia intera, non fallisce", async () => {

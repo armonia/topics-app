@@ -587,6 +587,7 @@ describe("handleMessage", () => {
     const names = tools.map((t) => t.name);
     expect(names).toEqual([
       "open_browser_pane",
+      "request_login",
       "close_browser_pane",
       "browser_list_tabs",
       "browser_focus_tab",
@@ -705,7 +706,7 @@ describe("handleMessage", () => {
       // Aprono, chiudono, spostano o scrivono qualcosa — pane, processi, board,
       // topic, progetti, chat. `browser_focus_tab` è qui di proposito: portare
       // una tab in primo piano cambia ciò che la persona ha davanti.
-      "open_browser_pane", "close_browser_pane", "browser_focus_tab", "import_chrome",
+      "open_browser_pane", "request_login", "close_browser_pane", "browser_focus_tab", "import_chrome",
       "browser_act", "browser_eval", "browser_save_state", "browser_load_state",
       "browser_upload",
       // It reloads or navigates the page before it reads it.
@@ -869,6 +870,27 @@ describe("handleMessage", () => {
       expect(invisibile).toContain("NO visible pane");
       expect(invisibile).toContain("browser_focus_tab");
       expect(invisibile).not.toContain("Opened browser pane");
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
+  test("open_browser_pane: what was shown rides in the text before the context, and the road note leads (SHOWN-01, SHOWN-03)", async () => {
+    const orig = globalThis.fetch;
+    (globalThis as any).fetch = stubFetch(async () =>
+      new Response(
+        JSON.stringify({ url: "/api/media?path=x", title: "", visible: true, contextId: "topic-1", media: "/m/a b.png", note: "Nobody is looking at this chat's pane." }),
+        { status: 200 },
+      ),
+    );
+    try {
+      const resp = await handleMessage(
+        { jsonrpc: "2.0", id: 79, method: "tools/call", params: { name: "open_browser_pane", arguments: { url: "/m/a b.png" } } },
+        ARGS,
+      );
+      const text = (resp!.result as any).content[0].text as string;
+      expect(text.startsWith("Nobody is looking")).toBe(true);
+      expect(text.endsWith("[media: /m/a b.png] [contextId: topic-1]")).toBe(true);
     } finally {
       (globalThis as any).fetch = orig;
     }
@@ -1936,6 +1958,27 @@ describe("callAskUserQuestion", () => {
     expect(JSON.parse(text)).toEqual({ answers: { Auth: "OAuth" } });
   });
 
+  test("a picture that is not on disk is refused, and the error names it", async () => {
+    let called = false;
+    const fetchImpl = stubFetch(async () => { called = true; return new Response("{}", { status: 200 }); });
+    await expect(
+      callAskUserQuestion(
+        { baseUrl: "http://x", sessionKey: "s" },
+        { questions: [{ question: "Which?", options: [{ label: "A", image: "/nowhere/ghost-proposal.png" }, { label: "B" }] }] },
+        fetchImpl,
+      ),
+    ).rejects.toThrow("/nowhere/ghost-proposal.png");
+    expect(called).toBe(false);
+  });
+
+  test("pictures that exist go to the server untouched", async () => {
+    const seen: { body?: string } = {};
+    const fetchImpl = stubFetch(async (_u, init) => { seen.body = String(init?.body); return new Response(JSON.stringify({ answers: { Q: "A" } }), { status: 200 }); });
+    const qs = [{ question: "Q", images: [import.meta.path], options: [{ label: "A", image: import.meta.path }, { label: "B" }] }];
+    await callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, { questions: qs }, fetchImpl);
+    expect(JSON.parse(seen.body!).questions).toEqual(qs);
+  });
+
   test("carries metadata through when the server returns it", async () => {
     const fetchImpl = stubFetch(async () =>
       new Response(JSON.stringify({ answers: { Q: "A" }, metadata: { other: "free text" } }), { status: 200 }),
@@ -2211,6 +2254,17 @@ describe("callSendToAgent", () => {
     expect(seen.url).toBe("http://x/api/sessions/s/agents/kid1/send");
     expect(seen.init?.method).toBe("POST");
     expect(JSON.parse(String(seen.init?.body))).toEqual({ input: "hi" });
+  });
+
+  test("a child of another session says whose result wakes and how to follow it", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ ok: true, sent: 2, wakes: "topic:parent-chat" }), { status: 200 }),
+    );
+    const result = await callSendToAgent({ baseUrl: "http://x", sessionKey: "s" }, { agent_id: "kid1", input: "hi" }, fetchImpl);
+    expect(result).toContain("topic:parent-chat");
+    expect(result).toContain("wakes that session, not this one");
+    expect(result).toContain('read_agent(agent_id="kid1")');
+    expect(result).not.toContain("a chat is woken");
   });
 
   test("ownership 404 from the server surfaces as an error", async () => {

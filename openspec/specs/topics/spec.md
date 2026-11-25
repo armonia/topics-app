@@ -794,6 +794,17 @@ schermo anche sotto i 768px SENZA aprire il cassetto; l'identita' no.
 - **THEN** la card dell'identita' e' in fondo alla colonna, non in alto
 - **AND** e' lei ad aprire il menu che tiene stato, comandi e persone
 
+### Requirement: SIDEBAR-COLOR-01 — Il colore scelto per un topic e' uno swatch quadrato, mai un pallino
+
+Il colore che chi usa l'app sceglie per un topic SHALL essere disegnato come uno
+SWATCH QUADRATO (angoli quasi vivi). NON SHALL essere un cerchio: ogni indicatore
+di STATO della colonna (serve attenzione, sta lavorando, ha finito) e' rotondo, e
+un colore scelto con la stessa forma si legge come uno stato che non c'e'.
+
+#### Scenario: un colore scelto accanto a un pallino di stato
+- **GIVEN** un topic con un colore scelto
+- **THEN** il colore SHALL avere angolo quadrato e NON SHALL usare `rounded-full`
+
 ### Requirement: STATUSLINE-05 — I livelli del menu utente si aprono DI LATO, e gli agenti in corso si contano dal pulsante
 
 Le voci del menu della card SHALL essere raggruppate per gerarchia, separate da

@@ -1,9 +1,9 @@
 /**
- * The reviewer's repro of 31/10 on the real agent routes: on the `armonia`
- * workflow, an agent asks the person with `add_comment(options)` and then
- * delivers without `human_ask`. The question is a question however it is
- * asked: the card reaches Human review with it and rings (`task:review-ready`),
- * also when the question is written after the delivery.
+ * The reviewer's repro of 31/10 on the real agent routes: an agent asks the
+ * person with `add_comment(options)` and then delivers without `human_ask`.
+ * The question is a question however it is asked: the card carries it as its
+ * `human_ask` and rings (`task:review-ready`). There is no AI review column
+ * any more: every delivery waits on a person.
  *
  * @covers KANBAN-102
  */
@@ -13,8 +13,6 @@ import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
 import { createTaskService } from "../services/tasks";
 import { freshDb, PID } from "../services/tasks-test-db";
-import { writeBoardWorkflow } from "../services/board-workflow";
-import { _resetAiReviewNotices } from "../services/ai-review-notice";
 
 const TOPIC = "topic-worker";
 const SK = "sk-worker";
@@ -25,10 +23,7 @@ let router: ReturnType<typeof createTasksRouter>;
 
 beforeEach(() => {
   db = freshDb();
-  db.run("CREATE TABLE board_workflows (scope TEXT PRIMARY KEY, preset TEXT NOT NULL, updated_at TEXT NOT NULL)");
   db.run("INSERT INTO topics (id) VALUES (?)", [TOPIC]);
-  writeBoardWorkflow(db, PID, "armonia", "2026-10-31T10:00:00.000Z");
-  _resetAiReviewNotices();
   broadcasts = [];
   const topic = { id: TOPIC, name: "worker", projectPath: "/Users/x/Projects/topics-app" };
   const ctx = {
@@ -69,42 +64,35 @@ const ask = (id: string) => call("POST", `/api/sessions/${SK}/tasks/${id}/commen
 const deliver = (id: string) => call("PATCH", `/api/sessions/${SK}/tasks/${id}`, { status: "review", summary: "two layouts ready" });
 const rang = (id: string) => broadcasts.filter((b) => b.type === "task:review-ready" && b.taskId === id).length;
 
-test("a question in the thread, then a delivery without human_ask: Human review, and it rings", async () => {
+test("a question in the thread, then a delivery without human_ask: the question is the human_ask, and it rings", async () => {
   const id = apiCard();
   expect((await ask(id)).status).toBe(201);
   const d = await deliver(id);
   expect(d.status).toBe(200);
-  expect(d.body).toMatchObject({ status: "review", stage: "human_review", humanAsk: "Which layout do you prefer?" });
+  expect(d.body).toMatchObject({ status: "review", humanAsk: "Which layout do you prefer?" });
+  expect(d.body.stage).toBeUndefined();
   expect(rang(id)).toBe(1);
 });
 
-test("a question written after the delivery moves the card out of AI review, and it rings", async () => {
+test("a delivery with no question rings too: it waits on a person all the same", async () => {
   const id = apiCard();
   const d = await deliver(id);
-  expect(d.body).toMatchObject({ stage: "ai_review" });
-  expect(rang(id)).toBe(0);
-  expect((await ask(id)).status).toBe(201);
-  const row = db.query("SELECT stage, human_ask FROM tasks WHERE id = ?").get(id);
-  expect(row).toEqual({ stage: "human_review", human_ask: "Which layout do you prefer?" });
-  expect(rang(id)).toBe(1);
-  // A further comment on a card already in Human review does not ring again.
-  await ask(id);
+  expect(d.body).toMatchObject({ status: "review" });
+  expect(d.body.stage).toBeUndefined();
   expect(rang(id)).toBe(1);
 });
 
-// Fourth review of 31/10, point 7: the board API cannot open a machine card
-// straight into Human review without a question.
 const born = (body: Record<string, unknown>) =>
   call("POST", `/api/boards/${PID}/tasks`, { text: "born in review", status: "review", createdBy: "agent:api", ...body });
 
-test("a machine card born in review: Human review only with human_ask, AI review otherwise", async () => {
+test("a machine card born in review has no column to name but the plain one: human_review is refused", async () => {
   const refused = await born({ stage: "human_review" });
-  expect(refused.status).toBe(409);
-  expect(refused.body).toMatchObject({ code: "human_review_needs_ask" });
-  const routed = await born({});
-  expect(routed.status).toBe(201);
-  expect(routed.body).toMatchObject({ status: "review", stage: "ai_review" });
-  const asked = await born({ stage: "human_review", human_ask: "Which layout?" });
+  expect(refused.status).toBe(400);
+  const plain = await born({});
+  expect(plain.status).toBe(201);
+  expect(plain.body).toMatchObject({ status: "review" });
+  expect(plain.body.stage).toBeUndefined();
+  const asked = await born({ human_ask: "Which layout?" });
   expect(asked.status).toBe(201);
-  expect(asked.body).toMatchObject({ stage: "human_review", humanAsk: "Which layout?" });
+  expect(asked.body).toMatchObject({ humanAsk: "Which layout?" });
 });

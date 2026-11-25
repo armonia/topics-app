@@ -80,15 +80,6 @@ export const POPOVER_PANEL =
   'glass-surface border border-app-border rounded-lg shadow-lg popover-enter';
 
 /**
- * The popover card with NO entrance, for something that wears the look but is
- * not a surface that opens: a card that sits in the page from the start.
- * `popover-enter` (index.css) on `POPOVER_SURFACE` / `POPOVER_PANEL` is the
- * shared 90ms entrance of everything that pops open.
- */
-export const POPOVER_LOOK =
-  'glass-surface border border-app-border rounded-lg shadow-lg';
-
-/**
  * Una riga di menu: icona + etichetta. **45px dove c'è un dito**, 30px dove c'è
  * un puntatore.
  *

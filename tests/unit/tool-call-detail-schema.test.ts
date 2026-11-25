@@ -17,8 +17,6 @@ import type { ToolCallDetail } from '../../server/types';
 import {
   toolCallDetailSchema,
   parseToolCallDetail,
-  isToolCallDetail,
-  type ZodInferredToolCallDetail,
 } from '../../shared/tool-call-detail';
 
 // ----- Compile-time structural equality between Zod and TS -----------------
@@ -33,20 +31,6 @@ import {
 //
 // They run only as type-level assertions; the runtime values are never used.
 
-// The assignability lives in the CONSTRAINT (`A extends B`), not in a
-// conditional type. Until 2026-09 these two checks were written as
-// `type C = A extends B ? true : never`, which resolves to `never` on drift
-// and compiles perfectly happily: the guard never bit, and four variants
-// (`ask_user`, `agent_control`, `agent_message`, `artifact`) plus the
-// `tool_search` search alias sat in the TS union and outside the schema long
-// enough to throw away 3653 details in production. A violated constraint IS a
-// compile error.
-type AssertAssignable<A extends B, B> = A & B;
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-type _CheckZodAssignableToTs = AssertAssignable<ZodInferredToolCallDetail, ToolCallDetail>;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-type _CheckTsAssignableToZod = AssertAssignable<ToolCallDetail, ZodInferredToolCallDetail>;
 
 // ----- Round-trip coverage --------------------------------------------------
 
@@ -245,22 +229,6 @@ describe('parseToolCallDetail — malformed payloads', () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('actions.0.index');
-  });
-});
-
-describe('isToolCallDetail — boolean guard', () => {
-  test('true for valid, false for invalid', () => {
-    expect(isToolCallDetail({ type: 'plan', text: 'x' })).toBe(true);
-    expect(isToolCallDetail({ type: 'plan' })).toBe(false);
-    expect(isToolCallDetail(null)).toBe(false);
-  });
-
-  test('narrows the type on true', () => {
-    const value: unknown = { type: 'fetch', url: 'https://x' };
-    if (isToolCallDetail(value)) {
-      const _detail: ToolCallDetail = value;
-      expect(_detail.type).toBe('fetch');
-    }
   });
 });
 

@@ -48,7 +48,8 @@ export function judgeCiMain(runs: CiRun[] | null): Verdict {
 export function judgeE2eMain(jobs: CiJob[] | null): Verdict {
   const id = "e2e-main";
   if (!jobs) return { id, ok: false, detail: "CI jobs not readable" };
-  const e2e = jobs.filter((j) => /^e2e/i.test(j.name));
+  // "e2e placement / ..." jobs manage the runner, they are not tests: skipped there is neutral
+  const e2e = jobs.filter((j) => /^e2e/i.test(j.name) && !(/^e2e placement/i.test(j.name) && j.conclusion === "skipped"));
   if (e2e.length === 0) return { id, ok: false, detail: "no e2e job in the last CI run" };
   const bad = e2e.filter((j) => j.conclusion !== "success");
   return { id, ok: bad.length === 0, detail: bad.length ? `red: ${bad.map((j) => j.name).join(", ")}` : `${e2e.length} e2e jobs green` };

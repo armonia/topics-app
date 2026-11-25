@@ -12,7 +12,7 @@
  * Un `grep` in un test è brutto e regge dove un tipo non arriva: TypeScript non
  * può impedire di scrivere SQL in una stringa.
  *
- * @covers GUEST-06
+ * @covers GUEST-06, ORG-03
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";

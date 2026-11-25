@@ -21,6 +21,7 @@ import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { isDesktop } from '@/lib/shell';
 import { useT } from '@/hooks/useT';
 import type { BundleDrift } from './bundleDrift';
+import { Spinner } from '../Shared/Spinner';
 
 function platformLabel(): string {
   // The desktop shell (Tauri) exposes no native platform field — derive it from
@@ -174,9 +175,9 @@ export function VersionPanel({
           data-testid="menu-restart"
           className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-mini font-medium hover:bg-app-hover transition-colors ${restart.highlight ? 'text-primary' : 'text-app-text'}`}
         >
-          {restart.desktop
-            ? <RotateCcw size={12} className={restart.busy ? 'animate-spin' : ''} />
-            : <RefreshCw size={12} className={restart.busy ? 'animate-spin' : ''} />}
+          {restart.busy
+            ? <Spinner size="sm" tone="current" />
+            : restart.desktop ? <RotateCcw size={12} /> : <RefreshCw size={12} />}
           <span>{restart.label}</span>
         </button>
       )}
@@ -246,7 +247,7 @@ function UpdateBox({
   }
 
   if (state === 'checking') {
-    return <div className="flex items-center gap-1.5 text-mini text-app-text-muted"><RefreshCw size={12} className="animate-spin" /> {tr('version.checking')}</div>;
+    return <div className="flex items-center gap-1.5 text-mini text-app-text-muted"><Spinner size="sm" tone="current" /> {tr('version.checking')}</div>;
   }
   if (state === 'update-available') {
     // In automatico si DICE che sta arrivando, non si chiede di scaricarla: il

@@ -19,7 +19,7 @@
  * simple and one more dependency on a path this central is paid for forever.
  */
 
-import { getAccessToken, recoverAfter401 } from "./auth";
+import { AllAccountsExhaustedError, switchAccountAfterExhaustion, getAccessToken, recoverAfter401 } from "./auth";
 import { claudeCliUserAgent } from "./cli-user-agent";
 import {
   ApiHeadersTimeoutError, ApiHttpError, ApiStreamError, ApiTransportError, parseRetryAfter, retryRound,
@@ -33,6 +33,7 @@ import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "../partial-tool-inp
 import type { ProviderUsage } from "../types";
 import { decide, DEFAULT_AUTONOMY, recordTurnCreatedPaths, turnTempDir, type TurnScope } from "./permissions";
 import { randomUUID } from "crypto";
+import { resolve } from "path";
 import { applyPromptCache } from "../prompt-cache";
 import {
   windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS,
@@ -411,7 +412,7 @@ export async function pingPromptCache(
       method: "POST", headers: apiHeaders(token, longWindow), body: JSON.stringify(body), signal: abort.signal,
     });
     if (!res.ok || !res.body) {
-      throw new Error(`keep-alive answered ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
+      throw new Error(`keep-alive answered ${res.status} from ${new URL(anthropicMessagesUrl()).host}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -511,6 +512,8 @@ async function streamOnce(
   if (!res.ok) {
     const answeredAt = Date.now();
     const detail = await res.text().catch(() => "");
+    // Host only (never the token): tells whether the account proxy answered.
+    console.warn(`[native] API ${res.status} from ${new URL(apiUrl).host}: ${detail.slice(0, 200)}`);
     // The engine held a request to the end of its hold and said 429: no
     // account freed up (it logs `cap-exhausted` in the same tick). Trying
     // again would park the next attempt for another hold, up to the policy's
@@ -529,6 +532,7 @@ async function streamOnce(
       spiegaErrore(res.status, detail, opts.model),
       res.status,
       parseRetryAfter(res.headers.get("retry-after")),
+      detail,
     );
   }
   if (!res.body) throw new ApiTransportError("API answered 200 with an empty body", false);
@@ -1004,6 +1008,10 @@ export async function runAgentTurn(
     // start. Without this, the raw `OAUTH_REFRESH_FAILED` text reached the
     // chat instead of telling the person what to do.
     const detail = err instanceof Error ? err.message : String(err);
+    if (err instanceof AllAccountsExhaustedError) {
+      handler.onError(detail);
+      return { turnEnd: { end: "error", cause: "rate-limit", detail }, text: "", usage: zeroUsage };
+    }
     const msg = `sessione Claude scaduta: ${detail}. Fai \`claude\` → /login, poi riprova`;
     handler.onError(msg);
     return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: zeroUsage };
@@ -1091,6 +1099,7 @@ export async function runAgentTurn(
         renewToken: recoverAfter401,
         onRetry: (info) => handler.onRetry?.(info),
         onSaturated: () => saturationHold(auth.token),
+        onAccountExhausted: switchAccountAfterExhaustion,
       });
       // The API answered: an outage hold is over, as when a claude-code child
       // streams (`claude/api-outage.ts`); it walls this runtime's chats too.
@@ -1222,9 +1231,23 @@ export async function runAgentTurn(
       // Fired BEFORE the call, because the handler is what blocks: it long
       // polls for the answer, so anything published afterwards would arrive
       // once the wait is already over.
-      const askSchema = detectUserInputRequest({ name: t.name!, input: t.input ?? {} });
+      //
+      // `opts.allowTool` only exists for a child (subagent policy or remote-node
+      // spec), whose chat nobody watches: showing the panel here and denying the
+      // call a few lines below (CHILD_FORBIDDEN_TOOL) still left the box sitting
+      // in the hidden topic, because the broadcast ran first. A child's question
+      // never reaches the screen at all; it comes back as a denied tool result.
+      const askSchema = opts.allowTool ? null : detectUserInputRequest({ name: t.name!, input: t.input ?? {} });
       if (askSchema) handler.onUserInputRequired?.(t.id!, t.name!, askSchema);
-      const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY, turnScope);
+      // `bash`'s own cwd, resolved the same way `recordTurnCreatedPaths` does,
+      // so a relative `rm` (`rm -rf scratch`, run from the turn's temp folder)
+      // is judged on where it actually lands, not rejected for having no
+      // leading `/`.
+      const bashInput = (t.input ?? {}) as Record<string, unknown>;
+      const bashCwd = t.name === "bash"
+        ? resolve(opts.toolContext.workspace, String(bashInput.cwd ?? opts.toolContext.workspace))
+        : undefined;
+      const verdict = decide(t.name!, bashInput, opts.autonomy ?? DEFAULT_AUTONOMY, bashCwd ? { ...turnScope, cwd: bashCwd } : turnScope);
       // THE USER'S HOOK SPEAKS AFTER THE PERMISSION, never instead of it
       // (HOOKS-02): a tool the verdict denied is not offered to the hook, and
       // a tool the verdict allowed can still be refused by the user's own

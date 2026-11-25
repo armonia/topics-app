@@ -170,7 +170,7 @@ export function patchOpenTool(
   };
 }
 
-/** Only for the tests: the registry is process memory. */
+/** @internal Only for the tests: the registry is process memory. */
 export function _resetTurnBodyFlushers(): void {
   flushers.clear();
 }

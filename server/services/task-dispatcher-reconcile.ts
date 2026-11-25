@@ -6,7 +6,7 @@
 import { type Task } from "./tasks";
 import { logActivity } from "../db/activity-log";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { BOOT_QUEUED_NOTE, rotateFrom, CHIP_QUEUED, CHIP_WORKING, LIVENESS_DEAD_SWEEPS, RECOVERABLE_DISPATCH_STATES } from "./task-dispatcher-support";
+import { isMirrorCard, BOOT_QUEUED_NOTE, rotateFrom, CHIP_QUEUED, CHIP_WORKING, LIVENESS_DEAD_SWEEPS, RECOVERABLE_DISPATCH_STATES } from "./task-dispatcher-support";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
 export function createReconcile(ctx: DispatcherCtx) {
@@ -142,6 +142,7 @@ export function createReconcile(ctx: DispatcherCtx) {
     let running: Task[] = [];
     try { running = deps.svc.list({ scope: "all", status: "in_progress" }); }
     catch (err) { log("reconcile list failed", err); }
+    if (deps.isActive?.() === false) running = running.filter(isMirrorCard);
     // IL RECUPERO ARRIVA NEL LOG. Il 18/08 il server ha ripreso 303 card e
     // `grep 'Server ripartito' topics-server.log` ne trovava ZERO: le note
     // andavano solo in `task_comments`, quindi per sapere quante card aveva
@@ -180,7 +181,7 @@ export function createReconcile(ctx: DispatcherCtx) {
       if (justBuried.has(t.id)) continue;
       // A card that names a NODE is never resumed HERE: its lane puts it back
       // in the queue instead (`task-dispatcher-remote-node.ts`).
-      const remoteQueued = ctx.runs.remote.queueAfterRestart(t);
+      const remoteQueued = await ctx.runs.remote.queueAfterRestart(t);
       if (remoteQueued !== null) { if (remoteQueued) inCoda++; continue; }
       // Only touch tasks the DISPATCHER had in hand when the process died:
       // mid-turn (working), mid-claim (starting — the claim precedes bindTopic,
@@ -347,6 +348,22 @@ export function createReconcile(ctx: DispatcherCtx) {
           let rejection: { text: string; commentIds: string[] } | null = null;
           try { rejection = deps.svc.pendingHumanReopen({ taskId: t.id }); }
           catch { rejection = null; }
+          // A card cut on a question its person has not answered is waiting, not
+          // interrupted: the nudge would tell the agent to carry on without the
+          // answer. The answer reaches the session through the chat route. A human
+          // rejection above still resumes: it is news the agent has not read.
+          let onQuestion = false;
+          try { onQuestion = !rejection && !!deps.hasOpenQuestion?.("topic:" + topicId.slice(0, 8)); }
+          catch { onQuestion = false; }
+          if (onQuestion) {
+            try {
+              deps.svc.claimInterruption({
+                taskId: t.id,
+                note: "Server ripartito mentre la card aspettava una tua risposta: non la riprendo da sola, riparte quando rispondi.",
+              });
+            } catch { /* dedupe/best-effort */ }
+            continue;
+          }
           try {
             deps.svc.claimInterruption({
               taskId: t.id,
@@ -466,13 +483,6 @@ export function createReconcile(ctx: DispatcherCtx) {
         });
       }
     } catch (err) { log("avviso card senza padrone fallito", err); }
-    // 1-sexies) A CARD LEFT IN AI REVIEW: whoever opened it was told when it
-    //    entered the column (`services/ai-review-notice.ts`); one still there,
-    //    untouched, past `AI_REVIEW_REMIND_MS` is the coordinator's. The
-    //    service sends the reminder and stamps the card. Its own `try`, like
-    //    the one above, and before the auto-dispatch gate for the same reason.
-    try { deps.svc.sweepStaleAiReview?.(); }
-    catch (err) { log("AI review reminder failed", err); }
     // 1-bis) LE CHECKLIST FERME CHE NESSUNO STA GUARDANDO. La domanda sui figli
     //    fermi si arma su due EVENTI (un figlio che si ferma, il turno del padre
     //    che finisce), e una card che si era fermata prima non ne vedrà mai un
@@ -564,6 +574,16 @@ export function createReconcile(ctx: DispatcherCtx) {
         ctx.queue.emit(t);
       }
     } catch (err) { log("rientro delle card fermate dalla macchina fallito", err); }
+    // 1-quater-ter) A card parked because its board mapped to no project
+    //    directory returns once the directory is found again.
+    try {
+      for (const t of deps.svc.sweepUnresolvedProjectParked({
+        resolvable: (projectId) => acceso(projectId) && !!deps.resolveProject(projectId),
+      })) {
+        log(`cartella del progetto di nuovo trovata: ${t.id} rimessa in coda`);
+        ctx.queue.emit(t);
+      }
+    } catch (err) { log("rientro delle card senza cartella fallito", err); }
     // 2) Opportunistically fill free slots on every board that has queued todos.
     //
     //    UNA PROIEZIONE, NON I TASK. Qui serve un insieme di id di board, e si

@@ -15,6 +15,7 @@
  */
 
 import type { Database } from "bun:sqlite";
+import { markSystemChat } from "../lib/wake-adoption";
 import { randomUUID } from "node:crypto";
 import type { AttemptState, TaskAttempt } from "../../shared/task-attempt";
 
@@ -164,6 +165,7 @@ export function createTaskAttemptStore(db: Database): TaskAttemptStore {
       if (patch.model !== undefined) { sets.push("model = ?"); params.push(patch.model); }
       if (!sets.length) return one(id);
       db.prepare(`UPDATE task_attempts SET ${sets.join(", ")} WHERE id = ?`).run(...(params as never[]), id);
+      if (patch.topicId) markSystemChat(db, patch.topicId, "attempt");
       return one(id);
     },
 

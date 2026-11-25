@@ -42,6 +42,8 @@ export interface TasksLate {
   runChecksGate(
     taskId: string, projectId: string, legMs: number,
     checkout?: () => Promise<{ cwd: string; commit: string | null } | null>,
+    /** Drop a retained verdict first: the caller wants this commit measured again, not the last answer. */
+    fresh?: boolean,
   ): Promise<ChecksLeg>;
   tellChatAboutChecksWait(
     sessionKey: string, topicId: string | null, taskId: string, projectId: string,

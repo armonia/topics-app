@@ -40,6 +40,7 @@ import { ProviderDefaultModel } from './ProviderDefaultModel';
 import { AgentRuntimeChoice } from './AgentRuntimeChoice';
 import { TurnCheckpointsChoice } from './TurnCheckpointsChoice';
 import { ClaudePlanUsage } from './ClaudePlanUsage';
+import { Spinner } from '../Shared/Spinner';
 
 export interface TestResult {
   ok: boolean;
@@ -192,7 +193,7 @@ export function ProviderDetail(props: ProviderDetailProps) {
           <span className="break-words">{entry?.lastError ?? word}</span>
         </p>
         <button type="button" data-testid="provider-detail-retry" disabled={props.testing} onClick={props.onTest} className="flex items-center gap-1 rounded-md border border-app-border px-2.5 py-1 text-compact text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11">
-          <RefreshCw size={12} className={props.testing ? 'animate-spin' : ''} aria-hidden="true" />
+          {props.testing ? <Spinner size="sm" tone="current" /> : <RefreshCw size={12} aria-hidden="true" />}
           {tr('common.retry')}
         </button>
       </DetailRow>
@@ -221,7 +222,7 @@ export function ProviderDetail(props: ProviderDetailProps) {
             onClick={props.onTest}
             className="flex h-7 shrink-0 items-center gap-1 rounded-md border border-app-border px-2 text-mini text-app-text hover:bg-app-hover disabled:opacity-50 coarse:h-11 coarse:min-w-11"
           >
-            <RefreshCw size={11} className={props.testing ? 'animate-spin' : ''} aria-hidden="true" />
+            {props.testing ? <Spinner size={11} tone="current" /> : <RefreshCw size={11} aria-hidden="true" />}
             {tr('ai.providers.test')}
           </button>
         )}

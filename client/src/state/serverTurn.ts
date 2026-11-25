@@ -16,6 +16,8 @@
  * server: its revisions start again, and its word replaces the old one.
  */
 
+import { createKeyedListeners } from '../lib/keyedListeners';
+
 /** The ledger's word on one session (the `turn:state` frame without its type). */
 export interface ServerTurn {
   boot: string;
@@ -38,30 +40,21 @@ export interface TurnRef {
 }
 
 const turns = new Map<string, ServerTurn>();
-const turnSubscribers = new Map<string, Set<() => void>>();
+const turnSubscribers = createKeyedListeners<string>();
 
 /** Notify consumers that the server's word for this session may have changed. */
 function notifyTurn(sessionKey: string): void {
-  for (const listener of turnSubscribers.get(sessionKey) ?? []) listener();
+  turnSubscribers.emit(sessionKey);
 }
 
 /** Subscribe to turn state for one session. */
 export function subscribeServerTurn(sessionKey: string, listener: () => void): () => void {
-  let listeners = turnSubscribers.get(sessionKey);
-  if (!listeners) {
-    listeners = new Set();
-    turnSubscribers.set(sessionKey, listeners);
-  }
-  listeners.add(listener);
-  return () => {
-    listeners?.delete(listener);
-    if (listeners?.size === 0) turnSubscribers.delete(sessionKey);
-  };
+  return turnSubscribers.subscribe(sessionKey, listener);
 }
 
-/** Only for tests: how many turn listeners remain. */
+/** @internal Only for tests: how many turn listeners remain. */
 export function __serverTurnSubscriberCount(sessionKey: string): number {
-  return turnSubscribers.get(sessionKey)?.size ?? 0;
+  return turnSubscribers.size(sessionKey);
 }
 /**
  * The latest Stop heard per session, whatever carried it: the close that says
@@ -189,6 +182,21 @@ export function openTurnRef(sessionKey: string): TurnRef | undefined {
   return t?.open ? { boot: t.boot, turnId: t.turnId } : undefined;
 }
 
+/**
+ * True only when this window has ALREADY HEARD the close of the turn a
+ * statement names: same boot, a turn id no older than the named one, and the
+ * word held says closed. Silence is not a close, so a statement this module
+ * cannot read - a refusal that names no turn at all - answers false: there the
+ * session may well be busy with a turn nobody here has heard of yet, and the
+ * only honest thing is to keep waiting.
+ */
+export function turnAlreadyClosed(sessionKey: string, statement: unknown): boolean {
+  if (!isServerTurn(statement)) return false;
+  const held = turns.get(sessionKey);
+  if (!held || held.open) return false;
+  return held.boot === statement.boot && held.turnId >= statement.turnId;
+}
+
 /** The latest Stop by a person this window has heard of on a session. */
 export function lastStopOf(sessionKey: string): TurnRef | undefined {
   return stops.get(sessionKey);
@@ -203,7 +211,7 @@ export function noteStopHeard(sessionKey: string): void {
   if (t && t.turnId > 0) noteStop(sessionKey, { boot: t.boot, turnId: t.turnId });
 }
 
-/** Only for tests: forget everything. */
+/** @internal Only for tests: forget everything. */
 export function __resetServerTurns(): void {
   turns.clear();
   turnSubscribers.clear();

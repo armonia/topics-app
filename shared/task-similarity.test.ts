@@ -159,6 +159,80 @@ describe('fratelli: quello che NON va fuso', () => {
   });
 });
 
+describe('descrizione come segnale secondario', () => {
+  /**
+   * Read by hand on 2026-11-24 from the 90 backlog cards: the title alone is
+   * not enough (Dice below threshold or zero), but the two cards talk about
+   * the same work and the description says so plainly. The title stays
+   * primary: these same pairs without a description stay below threshold
+   * (see the tests above with the same text).
+   */
+  test('stessa tornata sui tre siti, STATO.md in entrambe', () => {
+    const v = compareTasks(
+      'Ripresa lavoro 22/11: Villa Corsini, Barberia, Forno',
+      'Rifinitura generatore siti: villa, barberia, forno',
+      undefined,
+      "Generatore dei siti per villa corsini, barberia e forno: aggiornato STATO.md con l'esito del giro di stanotte.",
+      'Rifinitura del generatore siti per villa corsini, barberia e forno, con STATO.md aggiornato.',
+    );
+    expect(v.duplicate).toBe(true);
+  });
+
+  test('«chi consuma Claude» e «chi consuma la quota» sono la stessa domanda', () => {
+    const v = compareTasks(
+      'Un comando che dice chi consuma Claude adesso',
+      'chi sta consumando la quota, sessione per sessione',
+      undefined,
+      'Comando per vedere chi sta consumando la quota Claude adesso, sessione per sessione.',
+      'Vedere chi sta consumando la quota Claude, sessione per sessione.',
+    );
+    expect(v.duplicate).toBe(true);
+  });
+
+  test("l'ordine Ehiweb 529592 citato in due modi è lo stesso ricontrollo", () => {
+    const v = compareTasks(
+      'Ehiweb ordine 529592: verifica stato',
+      'Ricontrollo ordine Ehiweb 529592 e mail',
+      undefined,
+      'Verifica stato ordine Ehiweb 529592 e mail del corriere.',
+      'Ricontrollo stato ordine Ehiweb 529592 e mail del corriere.',
+    );
+    expect(v.duplicate).toBe(true);
+  });
+
+  test('un hash di commit è un ancora: due commit diversi restano due card', () => {
+    // Known false positive: without the anchor this pair scored 0.75 and merged.
+    const v = compareTasks('CI rossa su main dopo f8807ccc', 'CI rossa su main dopo a98250a0');
+    expect(v.score).toBeGreaterThan(DUPLICATE_THRESHOLD);
+    expect(v.duplicate).toBe(false);
+    expect(v.reason).toBe('anchors-differ');
+  });
+
+  test('descrizione troppo corta non conta: resta il titolo a decidere', () => {
+    const v = compareTasks(
+      'Un comando che dice chi consuma Claude adesso',
+      'chi sta consumando la quota, sessione per sessione',
+      undefined,
+      'ok',
+      'fatto',
+    );
+    expect(v.duplicate).toBe(false);
+  });
+
+  test('i fratelli restano fratelli anche con descrizioni simili', () => {
+    // The description does not override the anchors guard: this is the case that matters.
+    const v = compareTasks(
+      'browser_screenshot su WebView2 + WebKitGTK',
+      'browser_eval_js su WebView2 + WebKitGTK',
+      undefined,
+      'Porting del comando sul nuovo browser embedded, stesso giro di test manuale.',
+      'Porting del comando sul nuovo browser embedded, stesso giro di test manuale.',
+    );
+    expect(v.duplicate).toBe(false);
+    expect(v.reason).toBe('anchors-differ');
+  });
+});
+
 describe('gruppi su una board', () => {
   const board: SimilarTask[] = [
     { id: 'a', text: 'store: UserMemoryStore.update() + test', createdAt: '2026-08-01T10:00:00Z' },

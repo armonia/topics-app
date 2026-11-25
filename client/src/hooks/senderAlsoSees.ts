@@ -33,6 +33,9 @@
  *    from, the one surely watching, saw only a spinner for minutes. A partial
  *    can reach it after the result from the SSE: `withPartialResult` refuses to
  *    write on a row that has closed.
+ *  · `stream:reasoning_translation` - a reasoning sentence translated into the
+ *    chat language. It travels only on WS and is stored by its source text, so
+ *    twice leaves the same pair.
  *
  * THE RULE FOR ADDING ONE, which is the part that matters: the event must write
  * a FIXED state on the row, not accumulate. Receiving it twice has to leave the
@@ -47,7 +50,8 @@ export type SenderVisibleEventType =
   | 'stream:tool_detail'
   | 'stream:compaction'
   | 'stream:command-answer'
-  | 'stream:tool_update';
+  | 'stream:tool_update'
+  | 'stream:reasoning_translation';
 
 /** The exceptions, in one place, so a test can count them. */
 export const SENDER_ALSO_SEES: readonly SenderVisibleEventType[] = [
@@ -59,6 +63,7 @@ export const SENDER_ALSO_SEES: readonly SenderVisibleEventType[] = [
   'stream:compaction',
   'stream:command-answer',
   'stream:tool_update',
+  'stream:reasoning_translation',
 ];
 
 /** Should this event also be delivered to whoever owns that session's SSE? */

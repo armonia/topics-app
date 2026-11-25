@@ -285,8 +285,17 @@ export function bootHeadlessTurns(scope: AfterDispatchPrep) {
   // Reattach variant: POST /api/chat with mode:"reattach" and NO user message —
   // the route calls provider.reattach (adopt the surviving broker turn) instead of
   // sendChat. Same SSE drain to learn when the turn ends. Used by the dispatcher's
-  // reconcile REATTACH branch after a server restart.
-  async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number; idleMs?: number }, provider: string = "claude-code"): Promise<TurnEndInfo> {
+  // reconcile REATTACH branch after a server restart, and by the boot's adoption of
+  // every surviving chat turn (`boot/reattach.ts`).
+  //
+  // `dispatched` only for the dispatcher's own card turns. It used to be sent on
+  // every reattach, and the attention state reads it as «a card is the subject»
+  // (rule 2 of `attention/compose.ts`, idle before any wait or open turn): after
+  // every reload of the server, every 2-10 minutes here, each adopted chat turn
+  // went idle, a question it then asked never lit amber, and its end never lit
+  // «finished» (23/11: 10 of the 11 chats with a turn open had no attention row).
+  // A card's topic stays the card's anyway: the route also asks `runningTaskOwnsTopic`.
+  async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number; idleMs?: number }, provider: string = "claude-code", { dispatched = false }: { dispatched?: boolean } = {}): Promise<TurnEndInfo> {
     const url = new URL("http://localhost/api/chat");
     // Il provider si DICHIARA, non si lascia indovinare alla rotta.
     //
@@ -305,7 +314,7 @@ export function bootHeadlessTurns(scope: AfterDispatchPrep) {
     // quindici minuti su topic:9fe7a291 il 2026-08-18, una per riavvio del
     // server. La rotta adesso rifiuta quel caso (501 `reattach_unsupported`),
     // ma la cura sta qui: chi conosce il proprietario lo scrive.
-    const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach", dispatched: true, provider });
+    const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach", ...(dispatched ? { dispatched: true } : {}), provider });
     // Stesso patto di runHeadlessTurn: residuo via prima di iniziare.
     takeTurnEnd(sessionKey);
     const resp = await topicsRouter(

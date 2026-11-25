@@ -3,14 +3,7 @@
  */
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 import {
-  recordBrowserOrigin,
-  getBrowserOrigin,
-  clearBrowserOrigin,
-  enqueueProjectBrowserReopen,
-  drainProjectBrowserReopens,
-  enqueueProjectBrowserNavigate,
-  drainProjectBrowserNavigates,
-  resolvePinnedBrowserOrigin,
+  recordBrowserOrigin, getBrowserOrigin, enqueueProjectBrowserReopen, drainProjectBrowserReopens, enqueueProjectBrowserNavigate, drainProjectBrowserNavigates, resolvePinnedBrowserOrigin,
 } from "./browserOriginStore";
 import type { ClosedTabRecord } from "./closedTabRecord";
 
@@ -106,14 +99,6 @@ describe("recordBrowserOrigin / getBrowserOrigin", () => {
     recordBrowserOrigin("ctx1", "/tmp/other", "https://two.com");
     expect(writes).toBe(4);
     expect(getBrowserOrigin("ctx1")).toMatchObject({ projectPath: "/tmp/other", url: "https://two.com", title: "Uno" });
-  });
-
-  test("clearBrowserOrigin removes only the target contextId", () => {
-    recordBrowserOrigin("ctx1", "/tmp/a", "https://a.com");
-    recordBrowserOrigin("ctx2", "/tmp/b", "https://b.com");
-    clearBrowserOrigin("ctx1");
-    expect(getBrowserOrigin("ctx1")).toBeNull();
-    expect(getBrowserOrigin("ctx2")?.url).toBe("https://b.com");
   });
 });
 

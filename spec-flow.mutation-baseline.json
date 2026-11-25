@@ -1,11 +1,11 @@
 {
   "$schema": "spec-flow-mutation-baseline-v1",
   "scores": {
-    "server/providers/native/permissions.ts": 62.8,
-    "server/services/dispatch-card-price.ts": 82.8,
+    "server/providers/native/permissions.ts": 64.7,
+    "server/services/dispatch-card-price.ts": 84,
     "server/services/dispatch-card-weight.ts": 77.3,
     "server/services/dispatch-topic-identity.ts": 64.8,
-    "server/services/landing-files.ts": 80,
+    "server/services/landing-files.ts": 81.2,
     "server/services/landing-verdict.ts": 63.8
   }
 }

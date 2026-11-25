@@ -52,7 +52,7 @@ const CHIP_ICON: Record<NonNullable<BoardTaskSeed['chips']>[number]['icon'] & st
   alert: CircleAlert,
 };
 
-export const ORG_TONE: Record<OrgKey, Tone> = { nocera: 'green', sarim: 'amber', armonia: 'neutral', euro: 'blue' };
+export const ORG_TONE: Record<OrgKey, Tone> = { nocera: 'green', orbit: 'amber', armonia: 'neutral', euro: 'blue' };
 
 export interface BoardItem {
   id: string;
@@ -95,9 +95,9 @@ export function targetPath(t: BoardTarget): string {
     case 'quality': return P.quality();
     case 'programs': return P.programs();
     case 'settings': return P.settings(t.section);
-    case 'sarimCallCenter': return P.sarimCallCenter();
-    case 'sarimFlow': return P.sarimFlow(t.flow);
-    case 'org': return t.org === 'nocera' ? P.overview() : t.org === 'sarim' ? P.sarimOverview() : P.org(t.org);
+    case 'orbitCallCenter': return P.orbitCallCenter();
+    case 'orbitFlow': return P.orbitFlow(t.flow);
+    case 'org': return t.org === 'nocera' ? P.overview() : t.org === 'orbit' ? P.orbitOverview() : P.org(t.org);
   }
 }
 
@@ -120,7 +120,7 @@ function caseItem(c: LiveCase, copy: UiCopy): BoardItem {
     area,
     title: c.title,
     chips,
-    path: c.org === 'sarim' ? P.sarimRecord(c.id) : P.record(c.id),
+    path: c.org === 'orbit' ? P.orbitRecord(c.id) : P.record(c.id),
     haystack: norm(`${c.id} ${c.title} ${c.subject} ${area} ${orgName(c.org)} ${OFFICE_LABEL[c.office]} ${c.counterpart} ${assignee} ${c.protocol?.number ?? ''}`),
     due,
   };

@@ -458,9 +458,11 @@ export function createLaunch(ctx: DispatcherCtx) {
           taskId,
           requeue: !exhausted,
           parkState: CHIP_FAILED,
+          // The card says WHY, in the error's own words: a bare "failed" hid a
+          // wrong model name for six hours.
           reason: exhausted
-            ? "Avvio agent fallito ripetutamente. Parcheggiato in backlog."
-            : "Avvio agent fallito, rimesso in coda.",
+            ? `Avvio agent fallito ripetutamente. Parcheggiato in backlog. Motivo: ${startErrorText(err)}`
+            : `Avvio agent fallito, rimesso in coda. Motivo: ${startErrorText(err)}`,
         });
       } catch { /* best-effort */ }
       if (worktreeId) await ctx.fanout.cleanupWorktree(worktreeId, { preserveWork: true });
@@ -469,4 +471,10 @@ export function createLaunch(ctx: DispatcherCtx) {
     }
   }
   return { launch };
+}
+
+/** The message of a start failure, trimmed to what fits a card chip. */
+export function startErrorText(err: unknown): string {
+  const text = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, " ").trim();
+  return text.length > 400 ? `${text.slice(0, 399)}…` : text || "errore sconosciuto";
 }

@@ -1,5 +1,5 @@
 /**
- * @covers AUTHGATE-01
+ * @covers AUTHGATE-01, LAN-OPEN-01
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";

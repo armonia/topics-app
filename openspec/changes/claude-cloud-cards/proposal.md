@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Aperta: la Fase 1 è in main (`server/providers/claude-cloud/`, `tests/e2e/board-cloud-card.spec.ts`); manca la Fase 2, la board fuori dal Mac (nessun file né ricetta di deploy della board su un server, valutazione ancora aperta), e manca un test su una sessione cloud vera per interrupt e archivio (`claude-cloud.test.ts` copre solo `fixtures/ping-two-turns.json`).
+
 ## Da decidere
 
 Risposte di Attilio del 26/10:

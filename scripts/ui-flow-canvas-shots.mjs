@@ -14,8 +14,8 @@
  *   consorzio-card-dettaglio-chiaro.png  (a step's detail open in the side panel)
  *   app-esecuzione-chiaro.png          app-esecuzione-scuro.png
  *   app-esecuzione-dettaglio-chiaro.png
- *   sarim-editor-chiaro.png            sarim-card-scuro.png   ...
- *   telefono-consorzio-editor-chiaro.png  telefono-sarim-card-scuro.png  ...
+ *   orbit-editor-chiaro.png            orbit-card-scuro.png   ...
+ *   telefono-consorzio-editor-chiaro.png  telefono-orbit-card-scuro.png  ...
  *
  * The desktop capture of an editor is scrolled to the split (the cases side by
  * side are the point); of a card or an execution, to the step on show. The
@@ -42,16 +42,16 @@ const VIEWS = [
   { id: "consorzio-editor", entry: "consorzio", path: "/flussi/nocera-pec", mode: "edit" },
   { id: "consorzio-card", entry: "consorzio", path: "/da-fare/card/PEC-2418/flusso", mode: "read" },
   { id: "app-esecuzione", entry: "app", path: "/flussi/pec/esecuzioni/e-0412", mode: "run" },
-  { id: "sarim-editor", entry: "sarim", path: "/flussi/sarim-segnalazioni", mode: "edit" },
-  { id: "sarim-card", entry: "sarim", path: "/da-fare/card/SG-4124/flusso", mode: "read" },
+  { id: "orbit-editor", entry: "orbit", path: "/flussi/orbit-segnalazioni", mode: "edit" },
+  { id: "orbit-card", entry: "orbit", path: "/da-fare/card/SG-4124/flusso", mode: "read" },
 ];
-const START = { app: "/panoramica", sarim: "/da-fare", consorzio: "/da-fare" };
+const START = { app: "/panoramica", orbit: "/da-fare", consorzio: "/da-fare" };
 /** The phone has the editor and the card of both demos, and the execution. */
 const PHONE_VIEWS = VIEWS;
 const THEMES = [["chiaro", "light"], ["scuro", "dark"]]; // allow-italian: file names of the captures (light, dark)
 
 const servers = {};
-for (const entry of ["consorzio", "sarim", "app"]) servers[entry] = await serveDist(SCRIPT, entry, DIST);
+for (const entry of ["consorzio", "orbit", "app"]) servers[entry] = await serveDist(SCRIPT, entry, DIST);
 const errors = [];
 const missing = [];
 const saved = [];

@@ -216,12 +216,12 @@ function sanitizeTombstones(raw: unknown): Record<string, TombstoneMark> | null 
   return capped;
 }
 
-function sanitizeGroup(raw: unknown): Group | null {
+function sanitizeGroup(raw: unknown, keepDrafts: boolean): Group | null {
   if (!isPlainObject(raw)) return null;
   if (typeof raw.id !== 'string' || !raw.id) return null;
   if (!Array.isArray(raw.paneIds)) return null;
   const rawPaneIds = raw.paneIds.filter(
-    (x): x is string => typeof x === 'string' && !x.startsWith('draft:'),
+    (x): x is string => typeof x === 'string' && (keepDrafts || !x.startsWith('draft:')),
   );
   // Dedup within the group: a paneId listed twice would render its content (and
   // its whole window) twice — the GroupLayout render guard catches it at the last
@@ -253,26 +253,27 @@ function sanitizeGroup(raw: unknown): Group | null {
   return { id: raw.id, paneIds, splitRatio, splitAxis };
 }
 
-function sanitizePanes(raw: unknown): Record<string, Pane> | null {
+function sanitizePanes(raw: unknown, keepDrafts: boolean): Record<string, Pane> | null {
   if (!isPlainObject(raw)) return null;
   const out: Record<string, Pane> = {};
   for (const [key, v] of Object.entries(raw)) {
     // Drafts are device-local pre-promotion scratch panes (mirror of
     // selectSyncableSnapshot's outbound stripping). Drop them on inbound so a
     // cross-tab storage event from a sibling tab can't seed someone else's
-    // draft into this tab's store.
-    if (key.startsWith('draft:')) continue;
+    // draft into this tab's store. `keepDrafts` is only for this device's own
+    // snapshot read back at boot (see `sanitizeSnapshot`).
+    if (!keepDrafts && key.startsWith('draft:')) continue;
     const p = sanitizePane(v);
     if (p && p.id === key) out[key] = p;
   }
   return out;
 }
 
-function sanitizeGroups(raw: unknown): Record<string, Group> | null {
+function sanitizeGroups(raw: unknown, keepDrafts: boolean): Record<string, Group> | null {
   if (!isPlainObject(raw)) return null;
   const out: Record<string, Group> = {};
   for (const [key, v] of Object.entries(raw)) {
-    const g = sanitizeGroup(v);
+    const g = sanitizeGroup(v, keepDrafts);
     if (g && g.id === key) out[key] = g;
   }
   // Cross-group dedup: a paneId may legally live in only ONE group — the
@@ -369,16 +370,21 @@ function sanitizeClosedStack(raw: unknown): ClosedPaneRecord[] | null {
  * Returns `null` if the root shape is unusable. Otherwise returns only the
  * fields that are safe to apply via HYDRATE_FROM_SNAPSHOT, with all
  * device-local data stripped.
+ *
+ * `keepDrafts`: the snapshot is the one THIS device wrote to its own storage
+ * (`selectLocalSnapshot`, read back by `hydrateFromLocalSnapshot` at boot), so
+ * its draft panes are this device's new chats and come back with the reload.
+ * Every other source (server, WS, a sibling tab's storage event) strips them.
  */
-export function sanitizeSnapshot(raw: unknown): SanitizedSnapshot | null {
+export function sanitizeSnapshot(raw: unknown, { keepDrafts = false }: { keepDrafts?: boolean } = {}): SanitizedSnapshot | null {
   if (!isPlainObject(raw)) return null;
   const out: SanitizedSnapshot = {};
   if (raw.panes !== undefined) {
-    const p = sanitizePanes(raw.panes);
+    const p = sanitizePanes(raw.panes, keepDrafts);
     if (p) out.panes = p;
   }
   if (raw.groups !== undefined) {
-    const g = sanitizeGroups(raw.groups);
+    const g = sanitizeGroups(raw.groups, keepDrafts);
     if (g) out.groups = g;
   }
   // Entity-ref invariant: every group paneId must have a matching `panes`

@@ -5,12 +5,12 @@
  * Nothing here is invented. The weight is the provider's own report: a native
  * child's registry and last measured context, a CLI child's transcript (the
  * tokens of its last call are its context). With no report the fields are
- * absent and the UI draws nothing. The estimate is the median of the children
- * of the same runtime that already finished, and exists only past the sample
- * floor of `estimateFromHistory`.
+ * absent and the UI draws nothing. The estimate is read from the children of
+ * the same runtime that already finished, and exists only past the sample
+ * floor of `estimateBasis`.
  */
 import type { Database } from "bun:sqlite";
-import { estimateFromHistory } from "../../shared/task-countdown";
+import { HISTORY_CAP, estimateBasis, type EstimateBasis } from "../../shared/task-countdown";
 import type { WorkWeight } from "../../shared/live-work";
 import { getSessionContext } from "../db/session-context";
 import { readNativeUsage } from "../providers/native-usage-registry";
@@ -61,22 +61,19 @@ function emptyUsage(): SessionUsage {
   return { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0, cacheReadTokens: 0, billableTokens: 0 };
 }
 
-/** How many finished children of a runtime the estimate is read from, at most: the recent ones say more. */
-const HISTORY_ROWS = 50;
-
 /**
- * The median duration of the children of a runtime that finished, by the rows
- * of the `subagents` table (created to ended). `undefined` below the sample
- * floor: no history, no estimate.
+ * The estimate of a child of a runtime, from the children of that runtime that
+ * finished, by the rows of the `subagents` table (created to ended), the most
+ * recent first. `undefined` below the sample floor: no history, no estimate.
  */
-export function childEstimateMs(db: Database, runtime: SubagentRow["runtime"]): number | undefined {
+export function childEstimate(db: Database, runtime: SubagentRow["runtime"]): EstimateBasis | undefined {
   const rows = db
     .query(
       `SELECT created_at AS c, ended_at AS e FROM subagents
         WHERE COALESCE(runtime, 'claude-code') = ? AND ended_at IS NOT NULL AND state IN ('retired', 'stopped')
         ORDER BY ended_at DESC LIMIT ?`,
     )
-    .all(runtime, HISTORY_ROWS) as Array<{ c: string; e: string }>;
+    .all(runtime, HISTORY_CAP) as Array<{ c: string; e: string }>;
   const durations = rows.map((r) => ({ agentMs: Date.parse(r.e) - Date.parse(r.c) }));
-  return estimateFromHistory(durations) ?? undefined;
+  return estimateBasis(durations) ?? undefined;
 }

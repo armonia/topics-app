@@ -10,6 +10,7 @@ import { groupByStatus, planDrop, type DropPlan, type OrderScope } from '../../l
 import { resolveProjectRefs, type useBoardProjectLabels } from '../../lib/boardProjectsStore';
 import type { useBoardFeed } from '../../hooks/useBoardFeed';
 import { columnIdOfDropTarget, dropsOnOtherProject } from './boardLanes';
+import { laneProjectOf, projectOfPath, type GroupKey } from './boardGrouping';
 import { PRIORITY_LABEL } from './constants';
 import { taskActionErrorMessage } from './taskActionError';
 import type { useBoardMotion } from './useBoardMotion';
@@ -37,7 +38,10 @@ interface BoardDragArgs {
   tasks: readonly BoardTask[];
   byStatus: Parameters<typeof planDrop>[0]['byStatus'];
   boardColumns: Parameters<typeof columnOfTask>[0];
-  grouped: boolean;
+  /** The grouping levels in force: a drop across projects is refused when one of them is the project. */
+  groupLevels: readonly GroupKey[];
+  /** Child board id to parent board id (accorpa): cards of a merged family share one lane, so a drop between them is not «another project». */
+  projectParent?: ReadonlyMap<string, string>;
   orderScope: OrderScope;
   setActiveId: (id: string | null) => void;
   setDropNotice: (notice: string | null) => void;
@@ -55,7 +59,7 @@ interface BoardDragArgs {
 /** The drag-and-drop wiring of the board: sensors, the two dnd-kit handlers and
  *  the optimistic write a drop turns into. */
 export function useBoardDrag({
-  tasks, byStatus, boardColumns, grouped, orderScope, setActiveId, setDropNotice, setPendingWrites,
+  tasks, byStatus, boardColumns, groupLevels, projectParent, orderScope, setActiveId, setDropNotice, setPendingWrites,
   onCardError, patchTask, refetch, beginDrag, endDrag, flushDeferredRead, holdColumnsSnap, skipFlight,
 }: BoardDragArgs) {
   const tr = useT();
@@ -164,12 +168,17 @@ export function useBoardDrag({
     endDrag();
     const task = tasks.find((t) => t.id === e.active.id);
     if (!task) { flushDeferredRead(); return; }
-    // WHICH WORKFLOW COLUMN the hand let go on: a column's own id (Triage, AI
-    // review...) or a card inside one. `planDrop` speaks statuses, so it gets
+    // WHICH WORKFLOW COLUMN the hand let go on: a column's own id (CI is
+    // never a drop target, the server refuses it) or a card inside one. `planDrop` speaks statuses, so it gets
     // the column's base; the column itself travels as `stage`.
     // A card keeps its project: a drop in another project's lane is refused with
     // a word, not carried out as a status change in a project nobody aimed at.
-    if (grouped && dropsOnOtherProject(task, e.over ? String(e.over.id) : null, (id) => tasks.find((t) => t.id === id)?.projectId)) {
+    const laneOf = (projectId: string) => laneProjectOf(projectId, projectParent);
+    if (groupLevels.includes('project') && dropsOnOtherProject(
+      { projectId: laneOf(task.projectId) }, e.over ? String(e.over.id) : null,
+      (id) => { const p = tasks.find((t) => t.id === id)?.projectId; return p === undefined ? undefined : laneOf(p); },
+      (path) => projectOfPath(path, groupLevels),
+    )) {
       setDropNotice(tr('board.drop.otherProject'));
       flushDeferredRead();
       return;
@@ -196,8 +205,7 @@ export function useBoardDrag({
     // reads as a bug. `onDragStart` already cleared the previous one, so this
     // only ever adds.
     if (plan?.redirectedFrom === 'in_progress') setDropNotice(tr('board.drop.inProgressRedirected'));
-    // The column changes, the status may not (AI review → Human review): the
-    // stage says it. Only when the card really lands in that column: a
+    // The column changes, the status may not: the stage says it. Only when the card really lands in that column: a
     // redirected drop goes where the redirect sends it, with no stage.
     if (plan && targetColumn && !plan.redirectedFrom) {
       const landsIn = plan.patch.status ?? task.status;
@@ -209,7 +217,7 @@ export function useBoardDrag({
     // No plan = no write to wait for: the parked read has nothing left to
     // queue behind.
     if (plan) dropTo(task, plan); else flushDeferredRead();
-  }, [tasks, byStatus, boardColumns, dropTo, endDrag, flushDeferredRead, grouped, orderScope, setActiveId, setDropNotice, skipFlight, tr]);
+  }, [tasks, byStatus, boardColumns, dropTo, endDrag, flushDeferredRead, groupLevels, projectParent, orderScope, setActiveId, setDropNotice, skipFlight, tr]);
   return { sensors, onDragStart, onDragEnd };
 }
 

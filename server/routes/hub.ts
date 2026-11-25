@@ -1,7 +1,7 @@
 /**
  * `/api/hub/*` and `/api/switchboard/*`: the bridge to the usage hub (:3360)
  * and to switchboard (:3335), the two always-on local services whose UI moves
- * into Topics (plan: ~/.claude/jarvis/docs/hub-in-topics.md, track 0).
+ * into Topics (plan: <harness-home>/docs/hub-in-topics.md, track 0).
  *
  *   /api/hub/<rest>?q          -> <hub>/api/<rest>?q
  *   /api/switchboard/<rest>?q  -> <switchboard>/api/<rest>?q
@@ -23,7 +23,9 @@
  * Guests never get here: `/api/hub` is not in `isGuestAllowedPath`'s allowlist.
  */
 import type { AppContext, RouteHandler } from "../types";
+import { validateWaitingOpen, type WaitingStore } from "../attention/waiting-items";
 import { aggregateProxyUsage, localMidnight, proxyUsageCsv } from "../usage/proxy-usage";
+import { readQuotaReadings } from "../usage/quota-readings";
 import { parseUsageDays, parseUsageFilter, type HubUsageDays } from "../../shared/hub-usage";
 
 export const HUB_DEFAULT_URL = "http://127.0.0.1:3360";
@@ -53,6 +55,8 @@ export interface HubBridgeDeps {
    *  "waiting for you" item closed) reaches every window without waiting
    *  for the next tick. */
   live?: { snapshot(): Promise<unknown>; refresh?(): Promise<void> };
+  /** The inbox of items waiting for the person, owned by Topics: the hub's attention write path lands here instead of on the hub (card 10508340). */
+  waiting?: WaitingStore;
 }
 
 /**
@@ -119,14 +123,61 @@ export function createHubRouter(ctx: Pick<AppContext, "json">, deps: HubBridgeDe
     }
   };
 
+  /**
+   * An open or a close of a waiting item, taken by Topics' own inbox. A close
+   * is also forwarded to the hub for the ids it bridged, or its next list
+   * would bring the item back. null = not ours (a close of an id the inbox
+   * does not know): the hub's own handling stays.
+   */
+  async function waitingWrite(req: Request): Promise<Response | null> {
+    const store = deps.waiting!;
+    const text = await req.clone().text();
+    let b: Record<string, unknown>;
+    try { b = JSON.parse(text) as Record<string, unknown>; } catch { return json({ error: "invalid JSON" }, 400); }
+    const readBack = async () => {
+      let cap: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([deps.live?.refresh?.().catch(() => {}), new Promise<void>((r) => { cap = setTimeout(r, WRITE_READ_BACK_MS); })]);
+      clearTimeout(cap);
+    };
+    if (b.kind === "chiudi") { // allow-italian: the hub's wire verb
+      const ref = typeof b.ref === "string" ? b.ref : "";
+      if (!ref) return json({ error: "ref required" }, 400);
+      const hubIds = store.hubIdsOf(ref);
+      if (!store.close(ref, { until: b.until })) return null;
+      const base = hubBase();
+      if (base) {
+        await Promise.all(hubIds.map((id) => fetchImpl(`${base}/api/attesa`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ kind: "chiudi", ref: id, ...(b.until != null ? { until: b.until } : {}) }), // allow-italian: the hub's wire verb
+          signal: AbortSignal.timeout(headersTimeoutMs),
+        }).catch(() => {})));
+      }
+      await readBack();
+      return json({ ok: true });
+    }
+    const invalid = validateWaitingOpen(b);
+    if (invalid) return json({ error: invalid }, 400);
+    const item = store.open(b);
+    await readBack();
+    return json({ ok: true, ...item });
+  }
+
   return async (req, url, pathname, method) => {
     // The first paint of a panel: what the WebSocket would have pushed so far.
     if (pathname === "/api/hub-live" && method === "GET") {
       if (!deps.live) return json({ error: "hub live data not available on this server" }, 503);
       return json(await deps.live.snapshot());
     }
+    if (pathname === "/api/quota-readings" && method === "GET") {
+      const readings = readQuotaReadings();
+      return readings ? json({ readings }) : json({ error: "no quota history on this machine" }, 404);
+    }
     if (pathname === "/api/hub-usage" && method === "GET") return hubUsage(url, false);
     if (pathname === "/api/hub-usage.csv" && method === "GET") return hubUsage(url, true);
+    if (deps.waiting && method === "POST" && pathname === "/api/hub/attesa") { // allow-italian: the hub's own path
+      const answered = await waitingWrite(req);
+      if (answered) return answered;
+    }
     let upstream: "hub" | "switchboard";
     let rest: string;
     if (pathname.startsWith("/api/hub/")) { upstream = "hub"; rest = pathname.slice("/api/hub/".length); }

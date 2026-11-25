@@ -36,7 +36,7 @@ describe('testServerEnv XDG isolation', () => {
   });
 });
 
-/** @covers KANBAN-95 */
+/** @covers KANBAN-119 */
 describe('testServerEnv server browsers', () => {
   it('points PLAYWRIGHT_BROWSERS_PATH at the same cache the runner sees', () => {
     // start-test-server.sh isolates HOME, so without this the server looks

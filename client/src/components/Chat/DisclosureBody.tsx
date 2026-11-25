@@ -21,7 +21,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { animateEl, EASE, MOTION } from '../../lib/motion';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 
-export function DisclosureBody({ open, children, className, id, testId, onMotion }: {
+export function DisclosureBody({ open, children, className, id, testId, onMotion, instantClose }: {
   open: boolean;
   children: ReactNode;
   /** Applied to the box that holds the children (indent, padding, border). */
@@ -29,13 +29,20 @@ export function DisclosureBody({ open, children, className, id, testId, onMotion
   id?: string;
   testId?: string;
   onMotion?: (durationMs: number) => void;
+  /**
+   * Closes in one frame, like under reduced motion. For a body that folds by
+   * itself (nobody pressed) at a moment the transcript must not be moving: an
+   * animation that is still running when the turn ends is a move of the
+   * transcript after the end.
+   */
+  instantClose?: boolean;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [shownOpen, setShownOpen] = useState(open);
   const [closing, setClosing] = useState(false);
   if (shownOpen !== open) {
     setShownOpen(open);
-    setClosing(!open && !prefersReducedMotion());
+    setClosing(!open && !instantClose && !prefersReducedMotion());
   }
   const animatedOpenRef = useRef(open);
   useLayoutEffect(() => {

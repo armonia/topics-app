@@ -22,7 +22,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DispatchBrake, PlanUsage, PlanUsageWindow, ProviderHold, UsageWindowKind } from "../../shared/provider-hold";
-import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "../../shared/provider-hold";
+import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, readDeclaredReset } from "../../shared/provider-hold";
 export type { PlanUsage, ProviderHold, UsageWindowKind };
 
 /**
@@ -33,6 +33,14 @@ export type { PlanUsage, ProviderHold, UsageWindowKind };
  * the Claude account, so their calls stay unchanged by this being a map.
  */
 const DEFAULT_KEY = "claude";
+/**
+ * THE WALL ONLY THE BOARD OBEYS. An error that declares its reset while Claude's
+ * accounts are spent but the reserve is left (`holdFromDeclaredReset`) keeps the
+ * dispatcher's cards waiting for the reset, and nothing else: the reserve is the
+ * person's, who may confirm it from a live chat, so no chat, wake, resend or
+ * banner reads this key. Same device as `CLOUD_HOLD_KEY`: a key of its own.
+ */
+export const BOARD_HOLD_KEY = "claude-board";
 const holds = new Map<string, ProviderHold>();
 /** Fires on the Claude hold only: it is the one the status-bar banner and the
  *  resume sweep were built to show. A held Codex is read by the dispatcher
@@ -107,7 +115,9 @@ export function configureProviderHoldStore(path: string, nowMs: number = Date.no
 }
 
 /** Tests only: forget the file and the outage seen so far, so one test's
- *  state does not reach the next. */
+ *  state does not reach the next.
+ * @internal
+ */
 export function resetProviderHoldStore(): void {
   storePath = null;
   outage.expired = 0;
@@ -149,6 +159,19 @@ export function setProviderHold(hold: { untilMs: number; window: UsageWindowKind
     for (const cb of listeners) { try { cb(next); } catch { /* a listener's failure is its own */ } }
   }
   return next;
+}
+
+/**
+ * The hold a turn's error text asks for when it declares its own reset
+ * (`readDeclaredReset`), or null when it declares none or the instant is past.
+ * The plan is spent and the error says until when: a card that met it waits for
+ * that hour instead of retrying into the same wall (19/11: the reserve stop of the
+ * account engine read as a plain provider error, four attempts, card in backlog).
+ */
+export function holdFromDeclaredReset(text: string | null | undefined, nowMs: number = Date.now()): { untilMs: number; window: UsageWindowKind; reason: string } | null {
+  const untilMs = readDeclaredReset(text);
+  if (untilMs == null || untilMs <= nowMs) return null;
+  return { untilMs, window: "usage_limit", reason: "il piano è esaurito" }; // allow-italian: task queue reason
 }
 
 /** The provider accepted a request: whatever the memo said, the wall for
@@ -382,7 +405,7 @@ export function resetClaudeEarlyStopLift(): void {
 export function dispatchBrakes(nowMs: number = Date.now()): DispatchBrake[] {
   const out: DispatchBrake[] = [];
   const usage = planUsage(nowMs);
-  const claude = providerHold(nowMs, DEFAULT_KEY);
+  const claude = providerHold(nowMs, DEFAULT_KEY) ?? providerHold(nowMs, BOARD_HOLD_KEY);
   if (claude) {
     const read = claude.window === "five_hour" ? usage?.fiveHour : claude.window === "seven_day" ? usage?.sevenDay : null;
     out.push({ provider: "claude", window: claude.window, utilization: read?.utilization ?? null, untilMs: claude.window === "api-down" ? null : claude.untilMs });

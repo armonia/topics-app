@@ -17,7 +17,6 @@
  * loses fast refresh.
  */
 import { lazyWarm, warm } from '@/lib/lazyWarm';
-import { prefetchAccountPanel } from './accountPanelLazy';
 
 // Destructured on purpose: a bare `import()` is opaque to knip.
 const loadTopicsMenuItems = async () => {
@@ -27,8 +26,9 @@ const loadTopicsMenuItems = async () => {
 
 export const TopicsMenuItems = lazyWarm(loadTopicsMenuItems, (m) => m.TopicsMenuItems);
 
-// The identity block at the top of the same sheet: warmed with the rows, or
-// the sheet would open short and grow under the finger a frame later.
+// The identity block at the top of the same sheet, account panel included (it
+// travels in this chunk): warmed with the rows, or the sheet would open short
+// and grow under the finger a frame later.
 const loadMobileIdentityMenuItems = async () => {
   const { MobileIdentityMenuItems: Body } = await import('./MobileIdentityMenuItems');
   return { MobileIdentityMenuItems: Body };
@@ -39,7 +39,6 @@ export const MobileIdentityMenuItems = lazyWarm(loadMobileIdentityMenuItems, (m)
 let prefetched = false;
 
 export function prefetchTopicsMenuItems(): void {
-  prefetchAccountPanel();
   if (prefetched) return;
   prefetched = true;
   Promise.all([warm(loadTopicsMenuItems), warm(loadMobileIdentityMenuItems)]).catch(() => { prefetched = false; });

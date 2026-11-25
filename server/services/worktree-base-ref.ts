@@ -76,6 +76,25 @@ export async function fetchRemoteBase(
 }
 
 /**
+ * What a LAND measures and realigns a branch against: `origin/<main>`, just
+ * fetched, or the local main when there is no remote copy.
+ *
+ * With one exception: a remote main that shares NO commit with the local one
+ * is not the trunk but a mirror whose history was rewritten (a public copy
+ * published without some folders). Merging it fails every land with «refusing
+ * to merge unrelated histories», so every card of that project stayed in
+ * review (21/11). There the local main is the trunk.
+ */
+export async function resolveLandingBase(run: GitRunner, repoPath: string, mainBranch: string): Promise<string> {
+  const { ref } = await fetchRemoteBase(run, repoPath, mainBranch);
+  if (!ref) return mainBranch;
+  // `merge-base` exits 1 only when there is no common ancestor; any other
+  // failure (a local main that does not exist) keeps the remote, as before.
+  const common = await run(repoPath, ["merge-base", ref, mainBranch]);
+  return common.code === 1 ? mainBranch : ref;
+}
+
+/**
  * The trunk a card is born from and lands on.
  *
  * `origin/<branch>` when the local branch has nothing of its own, the LOCAL

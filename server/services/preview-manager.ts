@@ -83,11 +83,39 @@ export interface PreviewProcess {
   /** True while the process is still running. */
   alive(): boolean;
   kill(): void;
+  /**
+   * The last lines the child wrote (stdout+stderr), to say WHY it died. Without
+   * them a preview that fails to start boiled down to "did not answer" and
+   * nobody could tell missing dependencies from a broken build from an ignored
+   * port. Optional: test handles have no output.
+   */
+  tail?(): string;
 }
 
 export interface PreviewCommand {
-  /** argv to spawn (e.g. ["bun", "run", "dev"]). */
+  /** argv to spawn (e.g. ["bun", "run", "dev"]). `{port}` in an argument becomes the chosen port. */
   cmd: string[];
+  /**
+   * Steps to run in the worktree BEFORE the spawn, one after the other (e.g.
+   * installing dependencies). A worktree is born without `node_modules` and
+   * without a built bundle: spawning `dev` directly died there, and the 40 s
+   * wait mistook it for "slow". A failing step ends the boot with its output
+   * in the reason.
+   */
+  prepare?: string[][];
+  /**
+   * A file the preview command writes its real deep-link path into (`/` + query),
+   * once it has something specific to show. `{port}` in it becomes the chosen
+   * port. The manager exports it as `PREVIEW_DEEP_LINK_FILE`, waits for it after
+   * the server answers, and falls back to `deepLinkPath` when it never appears.
+   * It exists because the page worth photographing can depend on data the command
+   * creates at boot (an example topic with a fresh id), so no fixed path fits.
+   */
+  deepLinkFile?: string;
+  /** Cap for each `prepare` step, ms. Default 300000. */
+  prepareTimeoutMs?: number;
+  /** How long to wait for the server to answer, ms. Default: the manager's. */
+  readyTimeoutMs?: number;
   /** Path appended to http://localhost:<port> for the deep-link (default "/"). */
   deepLinkPath: string;
   /** Extra env for the child (merged over PORT). */
@@ -105,6 +133,14 @@ export interface PreviewManagerDeps {
   resolveCommand(taskId: string, wt: PreviewWorktree): PreviewCommand | null;
   /** Spawn the command detached in `cwd` with `env`. Injected for tests. */
   spawn(cmd: string[], opts: { cwd: string; env: Record<string, string> }): PreviewProcess;
+  /**
+   * Runs one `prepare` step to completion. `ok` = exit 0 within the cap; `tail`
+   * = the last lines of output. Absent => steps are skipped (the boot goes on
+   * anyway, as before).
+   */
+  runStep?(cmd: string[], opts: { cwd: string; env: Record<string, string>; timeoutMs: number }): Promise<{ ok: boolean; tail: string }>;
+  /** Reads the deep-link file of `PreviewCommand.deepLinkFile`: its trimmed text, or null when absent. */
+  readDeepLink?(file: string): string | null;
   /**
    * HTTP GET a url; resolve true if the server answered (any status).
    * NON è una prova d'identità: dice solo che la porta parla. Vedi
@@ -279,6 +315,17 @@ export interface PreviewManager {
 const DEFAULT_RANGE: [number, number] = [3400, 3450];
 
 /**
+ * How long to wait for a command's deep-link file once its server answers, ms.
+ *
+ * The wait ends the moment the file appears, so a generous cap costs nothing on
+ * a healthy run. It used to be 15 s: on a loaded machine the seeding that
+ * writes the file takes longer, the shot fell back to `/` (the app's empty
+ * shell), the empty-shell gate retired it, and the visible card was parked for
+ * a missing photo with its live preview up.
+ */
+const DEEP_LINK_WAIT_MS = 120_000;
+
+/**
  * The pool from TOPICS_PREVIEW_PORTS ("low-high"), else the default. A Topics node that
  * shares its machine with CI runners (the permanent node, deploy/permanent-node/ci-runners.sh) moves
  * its previews below 3342, where the runners can neither bind nor connect, while the e2e
@@ -348,6 +395,16 @@ function defaultPortFree(port: number): Promise<boolean> {
   });
 }
 
+const ANSI_ESCAPE = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*[A-Za-z]", "g");
+
+/** Output of a child process reduced to what fits in a note: last lines, never more than ~400 characters. */
+function tailOf(raw: string): string {
+  const lines = raw.replace(ANSI_ESCAPE, "").split("\n").map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return "";
+  const text = lines.slice(-4).join(" ⏎ ");
+  return `: ${text.length > 400 ? "…" + text.slice(-400) : text}`;
+}
+
 export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   const live = new Map<string, LivePreview>();
   const range = deps.portRange ?? previewPortRange();
@@ -394,8 +451,8 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
    * del pool è di un altro progetto, il figlio esce subito (EADDRINUSE) e la
    * risposta dello sconosciuto passava per «server pronto».
    */
-  async function waitReady(url: string, proc: PreviewProcess): Promise<boolean> {
-    const deadline = now() + readyTimeoutMs;
+  async function waitReady(url: string, proc: PreviewProcess, timeoutMs: number): Promise<boolean> {
+    const deadline = now() + timeoutMs;
     while (now() < deadline) {
       if (!proc.alive()) return false;
       if (await deps.probe(url)) return proc.alive();
@@ -441,13 +498,17 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
    * era solo la consegna (che sul niente tace); quando a chiedere è una persona,
    * «non è stato possibile» senza il perché non è una risposta.
    */
-  async function bootPreview(taskId: string): Promise<{ preview: { url: string; port: number } | null; reason: string | null }> {
-    const no = (reason: string) => ({ preview: null, reason });
+  async function bootPreview(taskId: string): Promise<{ preview: { url: string; port: number } | null; reason: string | null; attempted: boolean }> {
+    // `attempted` = we really tried to start something. It tells a project with
+    // no interface (no command: silence is right) from one that has one and did
+    // not come up (say so, with the reason).
+    let attempted = false;
+    const no = (reason: string) => ({ preview: null, reason, attempted });
 
     // Reuse a still-alive server (re-review after a reject+fix).
     const existing = live.get(taskId);
     if (existing) {
-      if (existing.proc.alive()) return { preview: { url: existing.url, port: existing.port }, reason: null };
+      if (existing.proc.alive()) return { preview: { url: existing.url, port: existing.port }, reason: null, attempted: true };
       live.delete(taskId); // dead — fall through and recreate
       try { deps.unregisterProcess?.(taskId); } catch { /* ignore */ }
     }
@@ -459,6 +520,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     const command = deps.resolveCommand(taskId, wt);
     if (!command || command.cmd.length === 0) return no("nessun comando di avvio riconosciuto per questo progetto (né script `dev`/`start` né override)");
 
+    attempted = true;
     const port = await pickPort();
     if (port == null) {
       log(`[preview] no free port in ${range[0]}-${range[1]} for ${taskId}`);
@@ -470,23 +532,47 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     // uscita nuova può dimenticarsene.
     try {
       let proc: PreviewProcess;
+      const withPort = (argv: string[]) => argv.map((a) => a.split("{port}").join(String(port)));
+      const deepLinkFile = command.deepLinkFile ? command.deepLinkFile.split("{port}").join(String(port)) : null;
+      const childEnv = {
+        PORT: String(port), HOST: "127.0.0.1", BROWSER: "none",
+        ...(deepLinkFile ? { PREVIEW_DEEP_LINK_FILE: deepLinkFile } : {}),
+        ...(command.env ?? {}),
+      };
+      const argv = withPort(command.cmd);
       try {
         deps.ensureMediaDir();
-        proc = deps.spawn(command.cmd, {
-          cwd: wt.absPath,
-          env: { PORT: String(port), HOST: "127.0.0.1", BROWSER: "none", ...(command.env ?? {}) },
-        });
+        // Preparation steps first: dependencies and builds do NOT belong inside
+        // the readiness wait, which is made for a server that is coming up.
+        if (deps.runStep) {
+          for (const step of command.prepare ?? []) {
+            const stepArgv = withPort(step);
+            const res = await deps.runStep(stepArgv, { cwd: wt.absPath, env: childEnv, timeoutMs: command.prepareTimeoutMs ?? 300_000 });
+            if (!res.ok) {
+              log(`[preview] prepare step failed for ${taskId}: ${stepArgv.join(" ")}`);
+              return no(`il passo \`${stepArgv.join(" ")}\` non è riuscito${tailOf(res.tail)}`);
+            }
+          }
+        }
+        proc = deps.spawn(argv, { cwd: wt.absPath, env: childEnv });
       } catch (err) {
         log(`[preview] spawn failed for ${taskId}`, err);
-        return no(`avvio fallito: \`${command.cmd.join(" ")}\` non è partito`);
+        return no(`avvio fallito: \`${argv.join(" ")}\` non è partito`);
       }
 
       const probeUrl = `http://127.0.0.1:${port}/`;
-      const ready = await waitReady(probeUrl, proc);
+      const waitMs = command.readyTimeoutMs ?? readyTimeoutMs;
+      const ready = await waitReady(probeUrl, proc, waitMs);
       if (!ready) {
+        const exited = !proc.alive();
+        const tail = proc.tail?.() ?? "";
         log(`[preview] server for ${taskId} never became ready on :${port} — killing`);
         await spegniAlbero(proc, taskId);
-        return no(`\`${command.cmd.join(" ")}\` non ha risposto su :${port} entro ${Math.round(readyTimeoutMs / 1000)}s (dipendenze non installate? build mancante?)`);
+        return no(
+          exited
+            ? `\`${argv.join(" ")}\` è uscito prima di rispondere su :${port}${tailOf(tail)}`
+            : `\`${argv.join(" ")}\` non ha risposto su :${port} entro ${Math.round(waitMs / 1000)}s${tailOf(tail)}`,
+        );
       }
 
       // Risponde: ma è LUI? Un dev server estraneo già in ascolto sulla porta del
@@ -499,13 +585,26 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       }
       if (owns === "unknown") log(`[preview] owner of :${port} unverified for ${taskId} (child alive — accepting)`);
 
-      const deepLink = command.deepLinkPath && command.deepLinkPath.startsWith("/") ? command.deepLinkPath : "/";
+      let deepLink = command.deepLinkPath && command.deepLinkPath.startsWith("/") ? command.deepLinkPath : "/";
+      if (deepLinkFile && deps.readDeepLink) {
+        // The command writes the file once its data is seeded, so waiting for it
+        // is the real "ready to be photographed": the server answering only says
+        // the port is open.
+        const until = now() + DEEP_LINK_WAIT_MS;
+        for (;;) {
+          let found: string | null = null;
+          try { found = deps.readDeepLink(deepLinkFile); } catch { found = null; }
+          if (found && found.startsWith("/")) { deepLink = found; break; }
+          if (!proc.alive() || now() >= until) break;
+          await sleep(readyPollMs);
+        }
+      }
       const url = `http://localhost:${port}${deepLink}`;
       live.set(taskId, { taskId, port, url, proc, worktreePath: wt.absPath, startedAt: now() });
       try {
         deps.registerProcess?.({ taskId, port, pid: proc.pid, command: command.cmd.join(" "), cwd: wt.absPath });
       } catch { /* panel registration is best-effort */ }
-      return { preview: { url, port }, reason: null };
+      return { preview: { url, port }, reason: null, attempted: true };
     } finally {
       reserved.delete(port);
     }
@@ -550,6 +649,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       let url: string | null = null;
       let refusedLocal = false;
       let bootFailure: string | null = null;
+      let bootAttempted = false;
       if (cur && isLocalUrl(cur) && (await deps.probe(cur))) {
         if (await reusable(taskId, cur)) url = cur;
         else refusedLocal = true;
@@ -561,7 +661,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       if (!url) {
         const res = await bootPreview(taskId);
         if (res.preview) { url = res.preview.url; nostro = true; deps.setOutputUrl(taskId, url); }
-        else bootFailure = res.reason;
+        else { bootFailure = res.reason; bootAttempted = res.attempted; }
       }
 
       if (!url) {
@@ -584,6 +684,18 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
           // nulla. Ma la richiesta è di una persona: il no va motivato.
           deps.addReviewNote(taskId, {
             content: `⚠️ Ricattura evidenza: nessuna anteprima possibile. Motivo: ${bootFailure ?? "il progetto non è avviabile da questo worktree"}. Allega tu l'anteprima, oppure rimanda il task all'agente.`,
+          });
+        } else if (bootAttempted && bootFailure) {
+          // The project HAS a start command and it did not come up: the reason is
+          // written, otherwise the card stays blind and nobody knows why
+          // (measured: 235 boots never ready in the logs and almost no note).
+          // `service`, not `review-note`: it is a condition of the worktree, not
+          // a finding about this work. With no start command (`attempted` false)
+          // we stay quiet, as before.
+          deps.addReviewNote(taskId, {
+            kind: "service",
+            replaces: PREVIEW_NOTE_SLOT,
+            content: `${PREVIEW_NOTE_PREFIX} non avviata. ${bootFailure}.`,
           });
         }
         return;

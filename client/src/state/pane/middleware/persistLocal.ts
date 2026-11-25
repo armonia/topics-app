@@ -42,6 +42,7 @@ import { DEFAULT_SPACE_ID } from '../types';
 import { getTabId } from './syncCrossTab';
 import { PANE_STORE_LOCAL_KEY } from './storageKeys';
 import { spaceWindowId } from '../../../lib/windowRole';
+import { isNestedInTopicsPane } from '../../../lib/shell/nestedPane';
 
 // La chiave sta in `storageKeys.ts`: la legge anche `syncCrossTab`, e finché
 // viveva qui quei due moduli si importavano a vicenda (vedi il file).
@@ -128,6 +129,9 @@ export function hydrateFromLocalSnapshot(): void {
             server_seq: seq,
             seq,
           },
+          // This device wrote this snapshot: its new chats (draft panes) are
+          // its own and come back, with the text the draft pane reads back.
+          ownDrafts: true,
         },
       });
     }
@@ -177,6 +181,7 @@ function flushNow(): void {
  */
 export function flushLocalPaneStoreNow(): void {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  if (isNestedInTopicsPane()) return;
   flushNow();
 }
 
@@ -184,6 +189,10 @@ export function initLocalPersistence(): void {
   if (started) return;
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   started = true;
+  // Mirror mode (nested in a Topics pane): when the pane shares an origin with
+  // the real app, this snapshot would reach it through the `storage` event
+  // (syncCrossTab) and open the same tab there. Nothing is subscribed.
+  if (isNestedInTopicsPane()) return;
 
   // Full snapshot: debounced.
   usePaneStore.subscribe(

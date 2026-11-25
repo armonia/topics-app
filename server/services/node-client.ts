@@ -21,6 +21,9 @@ import * as nodeFs from "node:fs";
 import { join } from "node:path";
 import type { ProvidersSnapshot } from "../../shared/types";
 import { CLAUDE_CODING_PROVIDERS } from "../../shared/task-coding-models";
+import { getPrimaryRole } from "../lib/primary-role";
+import type { WorktreePlanEntryPayload } from "../../shared/worktree-plan";
+import type { WorktreePolicy, WorktreeSummary } from "../../shared/worktree-summary";
 
 export type NodeFailureReason =
   | "unreachable"
@@ -170,6 +173,19 @@ export interface NodeRunReport {
    * would read «the node delivered no branch» over a session that failed.
    */
   reason?: string | null;
+  /**
+   * The run's card was ARCHIVED on the node (its board DELETE archives the subtree and
+   * leaves the status alone, so an archived run still reports `in_progress`). Without this
+   * bit a reattach after a restart follows a card nobody will ever move again. An older
+   * node, or the Claude cloud, does not send it: absent reads as "not archived", which is
+   * what every caller assumed before.
+   */
+  archived?: boolean;
+  /**
+   * What the run has spent on the node so far, absolute (a floor, like the local
+   * counters). An older node does not send it: absent reads as "unknown".
+   */
+  usage?: { tokens: number; cacheReadTokens: number; costCents: number } | null;
 }
 
 export type BundleResult = { empty: true } | { empty: false; bytes: Uint8Array };
@@ -213,6 +229,33 @@ export interface NodeClient {
   cancelRun(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<void>;
   /** The Claude ids the node's ready Claude coding runtimes list: what its cards can run. */
   codingModels(input: { baseUrl: string; token: string }): Promise<string[]>;
+  /**
+   * The app version the node really runs (`/api/version`), `null` when it does not say, and
+   * what it speaks: `worktreeStandard` is false on a node built before the worktree routes.
+   */
+  readVersion(input: { baseUrl: string; token: string }): Promise<NodeVersion>;
+  /** The node's worktree summary (`null` until its first measure), with its folders when `list`. */
+  worktreeSummary(input: { baseUrl: string; token: string; list?: boolean }): Promise<NodeWorktreeReport>;
+  /** Sends a worktree policy; `dryRun` answers before/after and writes nothing. A refused value is `rejected`. */
+  putWorktreePolicy(input: { baseUrl: string; token: string; policy: WorktreePolicy; dryRun?: boolean }): Promise<NodePolicyResult>;
+  /** One cleanup pass on the node now, or (`dryRun`) its preview. */
+  worktreeGc(input: { baseUrl: string; token: string; dryRun?: boolean }): Promise<Record<string, unknown>>;
+}
+
+export interface NodeVersion {
+  version: string | null;
+  worktreeStandard: boolean;
+}
+
+export interface NodeWorktreeReport {
+  summary: WorktreeSummary | null;
+  entries?: WorktreePlanEntryPayload[] | null;
+}
+
+export interface NodePolicyResult {
+  dryRun: boolean;
+  before: WorktreePolicy;
+  after: WorktreePolicy;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 1500;
@@ -333,6 +376,9 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     "User-Agent": userAgent,
     Accept: "application/json",
     ...(token ? { Cookie: `${NODE_SESSION_COOKIE}=${token}` } : {}),
+    // Every call to a node carries the primary's epoch, so the node learns the highest one and
+    // refuses a replaced primary. Read here, once for every client: no caller can forget it.
+    ...(getPrimaryRole()?.outgoingHeaders() ?? {}),
     ...extra,
   });
   const delegatedHeaders = (delegation: NodeRunBinding | undefined): Record<string, string> =>
@@ -366,7 +412,8 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     async pairRequest(baseUrl) {
       const out = await callJson<Partial<PairRequestResult>>(
         `${baseUrl}/api/auth/pair/request`,
-        { method: "POST", headers: headersFor(null) },
+        // The node records this machine as the primary that paired it (its channel).
+        { method: "POST", headers: headersFor(null, getPrimaryRole()?.pairingHeaders()) },
         "pair request",
       );
       if (typeof out.requestId !== "string" || typeof out.claim !== "string" || typeof out.code !== "string") {
@@ -522,6 +569,8 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         baseSha: typeof out.baseSha === "string" ? out.baseSha : null,
         stat: out.stat ?? null,
         reason: typeof out.reason === "string" ? out.reason : null,
+        archived: out.archived === true,
+        usage: parseRunUsage(out.usage),
       };
     },
 
@@ -557,6 +606,54 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         runUrl(baseUrl, runId, !!delegation),
         { method: "DELETE", headers: headersFor(token, delegatedHeaders(delegation)) },
         "cancel run",
+      );
+    },
+
+    async readVersion({ baseUrl, token }) {
+      const out = await callJson<{ version?: unknown; worktreeStandard?: unknown }>(
+        `${baseUrl}/api/version`,
+        { method: "GET", headers: headersFor(token) },
+        "read version",
+      );
+      return {
+        version: typeof out.version === "string" && out.version ? out.version : null,
+        worktreeStandard: out.worktreeStandard === 1,
+      };
+    },
+
+    // The three worktree calls never carry a delegation: they are the primary's, on its channel.
+    async worktreeSummary({ baseUrl, token, list }) {
+      const out = await callJson<{ summary?: unknown; entries?: unknown }>(
+        `${baseUrl}/api/nodes/worktrees${list ? "?list=1" : ""}`,
+        { method: "GET", headers: headersFor(token) },
+        "worktree summary",
+      );
+      const summary = out.summary && typeof out.summary === "object" ? out.summary as WorktreeSummary : null;
+      return list ? { summary, entries: Array.isArray(out.entries) ? out.entries as WorktreePlanEntryPayload[] : null } : { summary };
+    },
+
+    async putWorktreePolicy({ baseUrl, token, policy, dryRun }) {
+      const out = await callJson<{ dryRun?: unknown; before?: unknown; after?: unknown }>(
+        `${baseUrl}/api/nodes/worktree-policy`,
+        {
+          method: "PUT",
+          headers: headersFor(token, { "Content-Type": "application/json" }),
+          body: JSON.stringify({ ...policy, ...(dryRun ? { dryRun: true } : {}) }),
+        },
+        "worktree policy",
+      );
+      return {
+        dryRun: out.dryRun === true,
+        before: (out.before ?? {}) as WorktreePolicy,
+        after: (out.after ?? {}) as WorktreePolicy,
+      };
+    },
+
+    async worktreeGc({ baseUrl, token, dryRun }) {
+      return callJson<Record<string, unknown>>(
+        `${baseUrl}/api/nodes/worktrees/gc${dryRun ? "?dryRun=1" : ""}`,
+        { method: "POST", headers: headersFor(token) },
+        "worktree cleanup",
       );
     },
 
@@ -673,4 +770,12 @@ export function removeDelegatedNodeToken(
     // Revocation in the database is authoritative. A stale file contains a
     // credential the node has already invalidated and is retried on reissue.
   }
+}
+
+/** The usage block of a run report; anything that is not three finite numbers reads as unknown. */
+function parseRunUsage(raw: unknown): NodeRunReport["usage"] {
+  if (!raw || typeof raw !== "object") return null;
+  const u = raw as Record<string, unknown>;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.trunc(v) : 0);
+  return { tokens: n(u.tokens), cacheReadTokens: n(u.cacheReadTokens), costCents: n(u.costCents) };
 }

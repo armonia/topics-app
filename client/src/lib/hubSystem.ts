@@ -2,12 +2,12 @@
  * Readers of the hub's live topics (state/hubLive.ts): waiting items, alerts,
  * red gates, automations, services and quotas, for the places of Topics that
  * show them (openspec/changes/hub-smistamento). Pure functions over the hub's
- * JSON: the hub owns the shapes (~/.claude/jarvis/tools/usage-hub/src/server.mjs),
+ * JSON: the hub owns the shapes (<harness-home>/tools/usage-hub/src/server.mjs),
  * so everything here is defensive and drops what it does not recognise instead
  * of throwing on a field the hub renamed.
  */
 import { proxyLabels } from './proxyLabels';
-import type { ProxyText } from './proxyEvents';
+import { WAITING_KINDS, type WaitingKind } from '../../../shared/waiting-kind';
 
 type Raw = Record<string, unknown>;
 
@@ -17,8 +17,8 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 
 // ── Waiting for you (the hub's waiting list) ─────────────────────────────────
 
-export const WAITING_KINDS = ['decisione', 'spesa', 'pubblico', 'vista'] as const; // allow-italian: the hub's wire values, compared by value
-export type WaitingKind = (typeof WAITING_KINDS)[number];
+export { WAITING_KINDS };
+export type { WaitingKind };
 
 export interface WaitingItem {
   id: string;
@@ -190,35 +190,6 @@ export function firingAlerts(data: unknown): FiringAlert[] {
   return out;
 }
 
-// ── Red gates (/api/gates) ───────────────────────────────────────────────────
-
-export interface RedGate {
-  id: string;
-  /** The delegation class (`interattivo`, `batch`...) or the provider a brake holds. */
-  name: string;
-  kind: 'class' | 'brake';
-  reason: string;
-}
-
-/**
- * The hub's gates are the delegation decisions: one per class, plus the brake
- * in front of each batch provider. A gate is red when it says `go: false`.
- */
-export function redGates(data: unknown): RedGate[] {
-  if (!isObject(data)) return [];
-  const out: RedGate[] = [];
-  const read = (group: unknown, kind: RedGate['kind']) => {
-    if (!isObject(group)) return;
-    for (const [name, g] of Object.entries(group)) {
-      if (!isObject(g) || g.go !== false) continue;
-      out.push({ id: `${kind}:${name}`, name, kind, reason: str(g.reason) ?? '' });
-    }
-  };
-  read(data.classes, 'class');
-  read(data.brakes, 'brake');
-  return out;
-}
-
 // ── Automations (/api/automations/summary) ───────────────────────────────────
 
 export interface AutomationSummary {
@@ -383,10 +354,8 @@ export interface AccountEvent {
   count: number;
   /** The proxy's type of the latest occurrence (`cap-exhausted` is a cap, `all-exhausted` a limit). */
   type: string;
-  /** The latest occurrence as the proxy wrote it: the panel reads its notes from it (`accountNotes`). */
+  /** The latest occurrence as the proxy wrote it: the bell's row reads its notes from it (`accountNotes`). */
   latest: Record<string, unknown>;
-  /** What the latest occurrence adds, as the hub's page wrote it (how it switched and why, the minutes, the error): set by the panel. */
-  notes?: ProxyText[];
 }
 
 const ACCOUNT_EVENT_KIND: Record<string, AccountEventKind> = {

@@ -8,13 +8,14 @@
  * project-scoped board API (client/src/lib/board.ts).
  */
 import { useHeldDraft } from './useHeldDraft';
+import { DraftCard } from './DraftCard';
 import { useCreatedFlash } from './useCreatedFlash';
 import { useWorktreeStatus } from './useWorktreeStatus';
 import { EMPTY_WRITES, useBoardDrag, useDragPreview } from './useBoardDrag';
 import { DeliveryControl, LoadAdviceChip, MissionsMenu, WorktreeControl } from './BoardToolbarControls';
 import { InlineFilters } from './InlineFilters';
 import { useT } from '../../hooks/useT';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import { Archive, ChevronRight, Music4, Settings } from 'lucide-react';
@@ -33,7 +34,7 @@ import { useBoardFeed } from '../../hooks/useBoardFeed';
 import { canAbsorbBoardTaskFrame } from '../../lib/boardTasksStore';
 import {
   boardApi, boardIdForPath, showsLandingDebt, TASK_STATUSES,
-  STAGE_CI, STATUS_LABEL, taskDetailBump, WORKFLOW_PRESETS, columnOfTask,
+  STAGE_CI, STATUS_LABEL, taskDetailBump, WORKFLOW_COLUMNS, columnOfTask,
   type BoardTask, type TaskStatus, type BoardSettings, type BoardWorkflowView,
 } from '../../lib/board';
 import { applyPendingWrites, groupByStatus, manualStatusTarget, type OrderScope } from '../../lib/boardOrder';
@@ -41,45 +42,47 @@ import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/colum
 import { useBoardMotion } from './useBoardMotion';
 import { useDrawerPresence } from './useDrawerPresence';
 import { useRowSnapHold } from './useRowSnapHold';
+import { scrollEdgesRef, trackScrollEdges } from './useScrollEdges';
 import { BoardSkeleton } from './BoardSkeleton';
 import { DropNotice } from './DropNotice';
 import {
-  BOARD_GROUP_BY_STORAGE_KEY, BOARD_SHOW_DONE_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
-  readBoardGroupBy, readBoardShowDone, writeBoardPreference, type BoardGroupBy, type BoardLayout,
+  BOARD_SHOW_DONE_STORAGE_KEY, COLUMNS_LANE_ROW, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
+  readBoardShowDone, writeBoardPreference, type BoardLayout,
 } from './boardGeometry';
-import { laneDropId, type BoardLane } from './boardLanes';
-import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
-import { useProjectLanes } from './useProjectLanes';
+import { laneDropId } from './boardLanes';
+import { ColumnsToggle, DensitySlider, DoneToggle, GroupSelectors, ViewSelector } from './BoardViewControls';
+import { BoardColumn } from './BoardColumn';
+import { MERGED_COLUMN, mergeInColumnOrder, viewHasColumns } from './columnsMode';
+import { GroupedBoard } from './GroupedBoard';
+import { effectiveLevels, firstLevelFor, groupTasks, leavesOf, NO_VALUE, type GroupKey, type GroupNode } from './boardGrouping';
+import { effectiveDensity, useBoardViewState } from './useBoardViewState';
+import { draftLaneOf } from './draftPreview';
 import { useCollapsedProjects } from './useCollapsedProjects';
-import { DETAIL_LEVELS, DETAIL_STORAGE_KEY, countByProject, readDetailLevel, type DetailLevel } from './detailLevel';
-import { QUICK_FILTERS, countQuickFilters, taskMatchesQuick, type QuickFilter } from './quickFilters';
-import { DetailSlider } from './DetailSlider';
-import { ProjectsSummary } from './ProjectsSummary';
+import { OriginFilterBar } from './OriginFilterBar';
+import { WorkflowView } from './WorkflowView';
+import { BoardTable } from './BoardTable';
+import { ownerLabel } from './ownerChip';
+import { useOwnerName } from '../../hooks/useOwnerName';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
-import { useBoardProjectLabels } from '../../lib/boardProjectsStore';
+import { resolveProjectRefs, useBoardFamilies, useBoardProjectLabels } from '../../lib/boardProjectsStore';
+import { mergedParentMap } from '../../../../shared/project-family';
+import { MergedBoardsContext } from './mergedBoards';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
-import { CREATED_FLASH_MS, PRIORITY_DOT, TOOLBAR_CONTROL_H, TOOLBAR_ICON_W, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
-import { taskMatchesFilters } from './taskFilter';
+import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, TOOLBAR_ICON_W, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
+import { BOARD_PRESET_STORAGE_KEY, initialBoardFilters, taskMatchesFilters } from './taskFilter';
 import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
-import { Card, Column } from './Card';
+import { Card } from './Card';
 import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
 import { OrchestratorDrawer } from './OrchestratorDrawer';
 import { BoardSettingsPanel } from './BoardSettingsPanel';
 import { ScheduledCardsControl } from './ScheduledCardsControl';
-import { SpinnerFallback } from '../Shared/Spinner';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import type { Mission } from '../../lib/missions';
 import { useDevInstall } from '../../hooks/useDevInstall';
 import { registerFindFallback, useFindPaneId } from '../../state/findRegistry';
-
-// Lazy: the Plan is opened from the global board only, it stays out of the first load.
-const PlanView = lazy(async () => {
-  const { PlanView: Body } = await import('./PlanView');
-  return { default: Body };
-});
 
 /** The Plan's cards are not dragged: one stable empty sensor list for its DndContext. */
 const NO_SENSORS: never[] = [];
@@ -245,6 +248,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     }));
   }, [orchestratorTopic]);
   const columnsScrollRef = useRef<HTMLDivElement>(null);
+  // The row's handle: it keeps `columnsScrollRef` and tracks which edges still have columns past them (the soft edge).
+  const setColumnsRow = useCallback((row: HTMLDivElement | null) => {
+    columnsScrollRef.current = row;
+    if (!row) return undefined;
+    const stop = trackScrollEdges(row);
+    return () => { columnsScrollRef.current = null; stop(); };
+  }, []);
   // The card in hand, if any. Declared here because the snap hold below reads
   // it: the finger that carries a card is not a finger scrolling the row.
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -307,18 +317,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // waiting to drift.
   const storageKey = `board:filters-${mode === 'all' ? 'all' : projectId}`;
   const [filters, setFilters] = useState<BoardFilters>(() => {
-    try {
-      const stored = localStorage.getItem(storageKey);
-      // `labels` è arrivato dopo: un filtro salvato da una versione precedente
-      // non ce l'ha, e senza il default `filters.labels.length` esploderebbe al
-      // primo render su ogni board già usata.
-      const parsed = stored ? JSON.parse(stored) : null;
-      return { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [], ...(parsed ?? {}) };
-    } catch { return { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [] }; }
+    try { return initialBoardFilters(localStorage.getItem(storageKey), localStorage.getItem(BOARD_PRESET_STORAGE_KEY)); }
+    catch { return initialBoardFilters(null, null); }
   });
   useEffect(() => {
-    try { localStorage.setItem(storageKey, JSON.stringify(filters)); } catch { /* private mode */ }
+    try { localStorage.setItem(storageKey, JSON.stringify({ ...filters, v: 2 })); } catch { /* private mode */ }
   }, [filters, storageKey]);
+  const personName = useOwnerName();
 
   useEffect(() => {
     let alive = true;
@@ -356,7 +361,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       .catch(() => { /* the default columns stay */ });
     return () => { alive = false; };
   }, [hasProject, projectId]);
-  const boardColumns = workflow?.columns ?? WORKFLOW_PRESETS.default;
+  const boardColumns = workflow?.columns ?? WORKFLOW_COLUMNS;
 
   // L'ARCHIVIO È UNA VISTA, non una colonna: stessa board, stesse colonne, ma
   // popolate da `?archived=1`. Sta nello stato della pane e non nei `filters`
@@ -371,23 +376,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // prop). A preference the person flips on and off between sessions, not a
   // property of the task — localStorage, not the server: no board needs to
   // know which view you're looking at it in.
-  const [storedDetail, setDetail] = useState(readDetailLevel);
-  // The Plan is a view of the GLOBAL board only; a project board falls back to the kanban.
-  const detail: DetailLevel = mode !== 'all' && storedDetail === 'plan' ? 'grid' : storedDetail;
+  // The view and the grouping are kept PER BOARD (the global one and each project).
+  const { detail, setDetail, groupBy: groupByPref, thenBy: thenByPref, setGroupBy, setThenBy, density: densityPref, setDensity, columns: columnsPref, setColumns } = useBoardViewState(mode === 'all' ? 'all' : projectId);
+  const cardDensity = effectiveDensity(densityPref, detail);
   const planVisible = detail === 'plan';
-  const detailLevels = useMemo(() => DETAIL_LEVELS.filter((l) => mode === 'all' || l !== 'plan'), [mode]);
-  // One-click filter above the board, in AND with the search filters and with every view.
-  const [quick, setQuick] = useState<QuickFilter | null>(null);
-  useEffect(() => {
-    try { localStorage.setItem(DETAIL_STORAGE_KEY, storedDetail); } catch { /* private mode, best effort */ }
-  }, [storedDetail]);
-  // The summary level has no columns; the row below it keeps the grid shape.
+  // The cards view has no columns; the row below it keeps the grid shape.
   const boardLayout: BoardLayout = detail === 'list' ? 'list' : 'grid';
-  // Per-viewer view choices, kept beside the layout: lanes per project, and the Done column.
-  const [groupByPref, setGroupByPref] = useState<BoardGroupBy>(readBoardGroupBy);
+  // «Columns: one»: every status in one column per leaf (with grouping by project, the stacked project cards).
+  const single = columnsPref === 'single' && viewHasColumns(detail);
+  // The levels the view can really draw (the kanban never groups by status; a project board has no project level).
+  const groupLevels = useMemo(() => effectiveLevels(groupByPref, thenByPref, detail, mode === 'all'), [groupByPref, thenByPref, detail, mode]);
   // The Done column is out of the way until asked for: a board of live work.
   const [showDone, setShowDone] = useState(readBoardShowDone);
-  useEffect(() => { writeBoardPreference(BOARD_GROUP_BY_STORAGE_KEY, groupByPref); }, [groupByPref]);
   useEffect(() => { writeBoardPreference(BOARD_SHOW_DONE_STORAGE_KEY, String(showDone)); }, [showDone]);
   const { collapsed: collapsedProjects, toggle: toggleProjectCollapsed } = useCollapsedProjects();
   // Le righe non le legge più questa pane: le legge `useBoardFeed`, che in
@@ -412,10 +412,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Le voci si tolgono quando la PATCH ha finito: da lì in poi il server sa.
   const [pendingWrites, setPendingWrites] = useState<ReadonlyMap<string, Partial<BoardTask>>>(EMPTY_WRITES);
   const tasks = useMemo(() => applyPendingWrites(feedTasks, pendingWrites), [feedTasks, pendingWrites]);
+  // Accorpa: the projects merged into another share its lane (global board) and
+  // its live updates (project board). Child board id -> parent board id.
+  const families = useBoardFamilies();
+  const projectParent = useMemo(() => mergedParentMap(families), [families]);
+  const mergedChildren = useMemo(
+    () => new Set(families.filter((l) => l.mode === 'accorpa' && l.parentProjectId === projectId).map((l) => l.projectId)),
+    [families, projectId],
+  );
+
   // Ghost card of what the composer is about to create (card 058ea722), held until the real one arrives.
   const { draft, setDraft, holdCreated } = useHeldDraft(tasks);
 
-  const { justCreated, flashCreated, scrollTarget, setScrollTarget, keepClearRef, onCreatedHere } = useCreatedFlash(holdCreated, refetch);
+  const { justCreated, pinnedIds, clearPinned, flashCreated, scrollTarget, setScrollTarget, keepClearRef, onCreatedHere } = useCreatedFlash(holdCreated, refetch);
 
   // Live updates. In 'all' mode any task event is relevant; in 'project' mode
   // only events for this project (or project-less broadcasts) trigger a refetch.
@@ -448,13 +457,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         // it. Asking for a read here would land in the same coalescer and pay
         // the feed anyway, which is the traffic this skips.
         const absorbed = mode === 'all' && m.type === 'task:updated' && canAbsorbBoardTaskFrame(m.task);
-        if (!absorbed && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) refetch();
+        if (!absorbed && (mode === 'all' || m.projectId === undefined || m.projectId === projectId || mergedChildren.has(m.projectId))) refetch();
         // Il lampo è il segnale «è nato un task», e non ha un autore
         // privilegiato: qui passano anche le creazioni remote (agent, MCP, un
         // altro device), che sono proprio quelle che altrimenti comparirebbero
         // in silenzio. L'eco della propria POST rientra da qui ed è innocua.
         if (m.type === 'task:created' && typeof m.task?.id === 'string'
-          && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
+          && (mode === 'all' || m.projectId === undefined || m.projectId === projectId || mergedChildren.has(m.projectId))) {
           flashCreated(m.task.id);
         }
         // A turn that ended (or a task that left 'working') drops its live chip;
@@ -466,7 +475,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       // Live per-turn preview from the dispatcher: model + tokens-so-far +
       // execution-time-so-far, ticked on the card while the agent works.
       if (m.type === 'task:usage-live' && typeof m.taskId === 'string'
-        && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
+        && (mode === 'all' || m.projectId === undefined || m.projectId === projectId || mergedChildren.has(m.projectId))) {
         setLiveUsage((prev) => {
           const n = new Map(prev);
           // "The turn ended": drop the chip NOW. Waiting for a `task:updated`
@@ -483,7 +492,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         });
       }
       if (m.type === 'task:awaiting-human' && typeof m.taskId === 'string'
-        && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
+        && (mode === 'all' || m.projectId === undefined || m.projectId === projectId || mergedChildren.has(m.projectId))) {
         setAwaitingHuman((prev) => {
           const has = prev.has(m.taskId!);
           if (m.waiting === has) return prev; // nessun cambio: niente re-render
@@ -493,6 +502,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         });
       }
       if (m.type === 'board:settings' && m.projectId === projectId && m.settings) setSettings(m.settings);
+      // Accorpa / separa changes which projects this board reads: a project row
+      // update (the only frame it travels in) re-reads a single-project board.
+      if (m.type === 'project:updated' && mode !== 'all') refetch();
       // Global switch flipped anywhere (any board, any client) → this pill too.
       // E anche le CARD: da quando ognuna porta la ragione per cui è ferma
       // (`queueReason`, risolta dal server), l'interruttore è un ingrediente di
@@ -505,7 +517,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         refetch();
       }
     });
-  }, [onMessage, projectId, refetch, mode, flashCreated]);
+  }, [onMessage, projectId, refetch, mode, flashCreated, mergedChildren]);
 
   // Wake-up refresh: a window coming back from sleep/background has yesterday's
   // board (WS events happened while it slept) — and the live "ci sta mettendo"
@@ -535,17 +547,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // comparatore (e a `planDrop`, che lì non scrive posizioni).
   const orderScope: OrderScope = mode === 'all' ? 'cross-project' : 'board';
 
-  // The cards the search filters let through, before the quick filter: its counts read from here.
-  const filtered = useMemo(() => tasks.filter((task) => taskMatchesFilters(task, filters)), [tasks, filters]);
-  const quickCounts = useMemo(() => countQuickFilters(filtered), [filtered]);
-  const visibleTasks = useMemo(() => (quick ? filtered.filter((task) => taskMatchesQuick(task, quick)) : filtered), [filtered, quick]);
-  // The Plan hides the board cards these filters hide; a card the board does not hold (a sub-card) stays.
-  const visibleTaskIds = useMemo(() => {
-    if (!quick && filtered.length === tasks.length) return null;
-    const hidden = new Set(tasks.map((t) => t.id));
-    for (const t of visibleTasks) hidden.delete(t.id);
-    return (id: string) => !hidden.has(id);
-  }, [tasks, filtered, visibleTasks, quick]);
+  // The cards every filter lets through. Cards created from this window are
+  // exempt until the filters change (see `pinnedIds`): «My work» hides cards
+  // in progress, and a card just written must not vanish under the hand.
+  const visibleTasks = useMemo(
+    () => tasks.filter((task) => pinnedIds.has(task.id) || taskMatchesFilters(task, filters, { personName })),
+    [tasks, filters, pinnedIds, personName],
+  );
+  useEffect(() => { clearPinned(); }, [filters, clearPinned]);
   const byStatus = useMemo(() => groupByStatus(visibleTasks, orderScope), [visibleTasks, orderScope]);
 
   /**
@@ -827,20 +836,47 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     [projectIndex],
   );
 
-  // ONE LANE PER PROJECT, only on the cross-project board (a project board has
-  // one project, its lane would be the board itself). Split after the columns
-  // (`splitIntoLanes`), so a lane keeps the board's order inside each column.
-  const grouped = mode === 'all' && groupByPref === 'project';
+  // THE GROUPS, up to two levels, in every view and mode. The split happens
+  // after the column split, so a group keeps the board's order inside each
+  // column; the hidden columns (Done) are left out before the counts are made.
+  const grouped = groupLevels.length > 0;
   // The archive view keeps every column: what was closed is what it is there to show.
   // The CI column shows only while something is in it: a board without CI rows never fills it.
   const shownColumns = useMemo(
     () => boardColumns.filter((c) => (showDone || showArchived || c.base !== 'done') && (c.id !== STAGE_CI || (byColumn.get(c.id)?.length ?? 0) > 0)),
     [boardColumns, showDone, showArchived, byColumn],
   );
-  const columnIds = useMemo(() => boardColumns.map((c) => c.id), [boardColumns]);
-  const { lanes, draftPlacement, draftLane, laneNameById } = useProjectLanes({
-    grouped, showArchived, draft, tasks, byColumn, columnIds, projectIndex,
-  });
+  const groupSource = useMemo(() => shownColumns.flatMap((c) => byColumn.get(c.id) ?? []), [shownColumns, byColumn]);
+  const projectNameById = useMemo(
+    () => new Map<string, string>(resolveProjectRefs([...new Set(tasks.map((t) => t.projectId))], projectIndex).map((p) => [p.projectId, p.name])),
+    [tasks, projectIndex],
+  );
+  // Where the composer's ghost sits: in its project's group when the first level is the project, above the groups otherwise.
+  const draftPlacement = useMemo(
+    () => (grouped && !showArchived ? draftLaneOf(draft ?? null, groupSource.map((t) => t.projectId)) : null),
+    [grouped, showArchived, draft, groupSource],
+  );
+  const draftProject = draftPlacement && draftPlacement.kind !== 'above' && groupLevels[0] === 'project' ? draftPlacement.projectId : null;
+  const groups = useMemo(() => (grouped ? groupTasks(groupSource, groupLevels, {
+    nameOfProject: (id) => projectNameById.get(id) ?? id,
+    statusOrder: TASK_STATUSES,
+    keepEmptyProject: draftProject,
+    personName,
+    projectParent,
+  }) : []), [grouped, groupSource, groupLevels, projectNameById, draftProject, personName, projectParent]);
+  const draftLeafPath = useMemo(
+    () => (draftProject ? leavesOf(groups.filter((g) => g.key === (projectParent.get(draftProject) ?? draftProject)))[0]?.path ?? null : null),
+    [groups, draftProject, projectParent],
+  );
+  const groupLabel = useCallback((level: GroupKey, key: string): string => {
+    if (key === NO_VALUE) return tr('board.group.none');
+    switch (level) {
+      case 'status': return STATUS_LABEL[key as TaskStatus] ?? key;
+      case 'owner': return ownerLabel(key, tr);
+      case 'priority': return PRIORITY_LABEL[Number(key)] ?? key;
+      default: return key;
+    }
+  }, [tr]);
 
   // Il movimento della board si aggancia qui: misura le colonne quando la firma
   // cambia e anima chi si e' spostato. Mentre una card e' IN MANO non anima
@@ -872,17 +908,17 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     return () => { window.removeEventListener('focusin', sync); window.removeEventListener('focusout', sync); };
   }, []);
   const { sensors, onDragStart, onDragEnd } = useBoardDrag({
-    tasks, byStatus, boardColumns, grouped, orderScope, setActiveId, setDropNotice, setPendingWrites,
+    tasks, byStatus, boardColumns, groupLevels, projectParent, orderScope, setActiveId, setDropNotice, setPendingWrites,
     onCardError, patchTask, refetch, beginDrag, endDrag, flushDeferredRead, holdColumnsSnap, skipFlight,
   });
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
   // The Plan draws the board's own card, compact: one card, two views (Plan + Kanban).
-  const renderPlanCard = useCallback((taskId: string) => {
+  const renderPlanCard = useCallback((taskId: string, showProject = false) => {
     const t = tasksById.get(taskId);
     if (!t) return null;
     return (
       <Card
-        task={t} onOpen={openTask} showProject={false} onRefetch={refetch} onOpenTopic={onOpenTopic}
+        task={t} onOpen={openTask} showProject={showProject} onRefetch={refetch} onOpenTopic={onOpenTopic}
         error={cardError?.taskId === t.id ? cardError.message : null}
         onError={onCardError}
         sessionState={resolveSession(t.assignedTopicId)}
@@ -891,19 +927,21 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         projectPath={projectPathById.get(t.projectId)}
         live={liveUsage.get(t.id)}
         awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
-        density="compact"
+        density={cardDensity}
       />
     );
-  }, [tasksById, openTask, refetch, onOpenTopic, cardError, onCardError, resolveSession, projectId, settings, projectPathById, liveUsage, awaitingHuman]);
+  }, [tasksById, openTask, refetch, onOpenTopic, cardError, onCardError, resolveSession, projectId, settings, projectPathById, liveUsage, awaitingHuman, cardDensity]);
   // One workflow column, on the flat board or inside a project lane.
   const renderColumn = (
     { id: columnKey, base: status, label: columnLabel }: (typeof boardColumns)[number],
     columnTasks: BoardTask[],
-    lane?: BoardLane,
+    lane?: { path: string; projectKnown: boolean },
+    merged = false,
   ) => (
-    <Column
-      key={lane ? laneDropId(columnKey, lane.projectId) : columnKey}
-      dropId={lane ? laneDropId(columnKey, lane.projectId) : undefined}
+    <BoardColumn
+      merged={merged ? shownColumns : undefined}
+      key={lane ? laneDropId(columnKey, lane.path) : columnKey}
+      dropId={lane ? laneDropId(columnKey, lane.path) : undefined}
       inLane={!!lane}
       status={status}
       columnId={columnKey === status ? undefined : columnKey}
@@ -912,10 +950,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       onOpen={openTask}
       onCreate={(text) => create(status, text)}
       canCreate={mode === 'project' && !showArchived}
-      // In a lane the header already names the project: the eyebrow would repeat it on every card.
-      showProject={mode === 'all' && !lane}
+      // When a group header already names the project, the eyebrow would repeat it on every card.
+      showProject={mode === 'all' && !lane?.projectKnown}
       layout={boardLayout}
-      viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}${lane ? `:${lane.projectId}` : ''}`}
+      density={cardDensity}
+      viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}${lane ? `:${lane.path}` : ''}`}
       cardError={cardError}
       onCardError={onCardError}
       onRefetch={refetch}
@@ -931,9 +970,29 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       justCreated={justCreated}
       archived={showArchived}
       onOpenSettings={toggleSettings}
-      draft={draft && draft.status === status && !showArchived && columnOfTask(boardColumns, { status })?.id === columnKey
-        && (!lane || lane.projectId === draftLane) ? draft : undefined}
+      draft={draft && !showArchived && (merged || (draft.status === status && columnOfTask(boardColumns, { status })?.id === columnKey))
+        && (!grouped ? true : lane?.path === draftLeafPath) ? draft : undefined}
     />
+  );
+
+  // The composer's ghost: above the groups when it belongs to no group of its own (or the view has no columns to put it in).
+  const draftAbove = (grouped || detail === 'table') && !showArchived && draft && (planVisible || detail === 'table' || !draftLeafPath) ? draft : undefined;
+  // A group of the kanban/list: the status columns, holding only the group's cards.
+  const renderColumnsLeaf = (node: GroupNode) => {
+    const ids = new Set(node.tasks.map((t) => t.id));
+    const lane = { path: node.path, projectKnown: groupLevels.includes('project') };
+    if (single) return renderColumn(MERGED_COLUMN, mergeInColumnOrder(shownColumns, byColumn, ids), lane, true);
+    return (
+      <div ref={boardLayout === 'list' ? undefined : scrollEdgesRef} data-testid="board-lane-columns-row" className={boardLayout === 'list' ? 'flex flex-col gap-2' : COLUMNS_LANE_ROW}>
+        {shownColumns.map((column) => renderColumn(column, (byColumn.get(column.id) ?? []).filter((t) => ids.has(t.id)), lane))}
+      </div>
+    );
+  };
+  // A group of the cards view: the cards alone, no status columns.
+  const renderCardsLeaf = (node: GroupNode) => (
+    <div data-testid="board-cards-grid" className="grid grid-cols-1 gap-2 sm:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))]">
+      {node.tasks.map((t) => <div key={t.id} className="min-w-0">{renderPlanCard(t.id, mode === 'all' && !groupLevels.includes('project'))}</div>)}
+    </div>
   );
 
   const dragPreview = useDragPreview(activeTask, mode, projectIndex);
@@ -1117,6 +1176,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     // volta sola, al montaggio, e non a ogni ridisegno. Solo opacita': muovere
     // le colonne mentre appaiono le farebbe leggere come se stessero arrivando
     // da qualche parte, e non arrivano da nessuna parte.
+    <MergedBoardsContext.Provider value={mergedChildren}>
     <div className="reveal-in relative flex h-full flex-col overflow-hidden" data-testid="kanban-board">
       {/* Header: a project/all toggle inside a project, a static label globally.
           On phone the toolbar is too dense to fit — it becomes a single
@@ -1129,7 +1189,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           (colonne su fondo diverso), e la riga in piu' disegnava un confine che
           si vedeva gia' da solo. Le strisce che compaiono sotto (errore,
           archivio, impostazioni) portano il proprio bordo quando servono. */}
-      <div className="relative shrink-0">
+      {/* `@container`: the view labels follow the PANE's width, not the window's.
+          At 1440px with the sidebar and the file pane open the board is ~950px
+          wide, and `xl:` (a viewport query) kept the labels on and pushed the
+          grouping and the actions past the right edge. */}
+      <div className="relative shrink-0 @container">
       {/* `overflow-y-hidden`: a bar is fixed chrome and never scrolls vertically
           (KANBAN-MOBILE-01). `overflow-x: auto` alone turns the other axis into
           `auto` as well (CSS Overflow 3), so any child reaching past the 36px
@@ -1151,11 +1215,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           <>
             <button
               onClick={() => setMode('project')}
-              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'project' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'project' ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
             >{tr('board.toolbar.thisProject')}</button>
             <button
               onClick={() => setMode('all')}
-              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'all' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'all' ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
             >{tr('board.toolbar.allProjects')}</button>
           </>
         )}
@@ -1178,12 +1242,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             button that swaps side-by-side columns for stacked sections (see
             `boardLayout` above and `layout` on `Column`). Same spot, same
             style as the archive toggle below — not a second menu. */}
-        <DetailSlider value={detail} onChange={setDetail} levels={detailLevels} />
-        <BoardViewToggles
-          canGroup={mode === 'all'}
-          groupBy={groupByPref} onGroupBy={setGroupByPref}
-          showDone={showDone} onShowDone={setShowDone}
-        />
+        <ViewSelector value={detail} onChange={setDetail} />
+        {detail !== 'workflow' && <>
+          {detail !== 'table' && <DensitySlider value={cardDensity} onChange={setDensity} />}
+          {viewHasColumns(detail) && <ColumnsToggle value={columnsPref} onChange={setColumns} />}
+          <GroupSelectors
+            view={detail} hasProjects={mode === 'all'}
+            groupBy={firstLevelFor(detail, groupByPref)} thenBy={thenByPref} onGroupBy={setGroupBy} onThenBy={setThenBy}
+          />
+        </>}
+        <DoneToggle showDone={showDone} onShowDone={setShowDone} />
         <div className="ml-auto flex items-center gap-2">
           {hasProject && mode === 'project' && <ScheduledCardsControl projectId={projectId} />}
           {/* THE COUNT IS GONE (asked on 29/08): in "all" mode the toggle two
@@ -1215,7 +1283,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               // `py-0.5` it was 21px tall, and under a finger the 44px band its
               // `.tap-expand-y` projected ran over the layout toggle beside it.
               className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini disabled:cursor-wait disabled:opacity-60 ${
-                orchestratorTopic ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10 hover:text-app-text'
+                orchestratorTopic ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 hover:text-app-text'
               }`}
             >
               {/* THE NOTES, not the speech bubble. The bubble said "you can
@@ -1242,7 +1310,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               data-testid="board-archived-toggle"
               aria-pressed={showArchived}
               onClick={() => setShowArchived((v) => !v)}
-              className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showArchived ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showArchived ? 'bg-black/10 dark:bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
               title={showArchived ? tr('board.archive.hide') : tr('board.archive.show')}
             ><Archive className="h-3.5 w-3.5" /></button>
           )}
@@ -1257,7 +1325,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onClick={toggleSettings}
             aria-expanded={showSettings}
             aria-haspopup="menu"
-            className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+            className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showSettings ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
             title={tr('board.toolbar.dispatchSettings')}
           ><Settings className="h-3.5 w-3.5" /></button>
         </div>
@@ -1272,7 +1340,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       )}
       </div>
       <div className="shrink-0 px-2 pb-1.5 empty:hidden sm:hidden"><BrakeChip band /></div>
-      {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact leading-4 text-rose-300">{error}</div>}
+      {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact leading-4 text-rose-800 dark:text-rose-300">{error}</div>}
       {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
           il gesto. Un archivio in cui si guarda soltanto è il punto da cui
           siamo partiti. */}
@@ -1280,7 +1348,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         <div data-testid="board-archived-banner" className="flex shrink-0 items-center gap-2 bg-amber-400/10 px-3 py-1.5 text-compact leading-4 text-amber-200">
           <Archive className="h-3.5 w-3.5 shrink-0" />
           <span>{tr('board.archive.banner', { count: tasks.length, restore: taskActionWord('restore', tr).label })}</span>
-          <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-white/10">{tr('board.archive.hide')}</button>
+          <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-black/5 dark:hover:bg-white/10">{tr('board.archive.hide')}</button>
         </div>
       )}
       {/* THE SETTINGS ARE A DROPDOWN, anchored to the ⚙ (KANBAN-75), not a band
@@ -1335,23 +1403,35 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           (the drawer positions itself; out of flow, the board re-expands). */}
       <div ref={drawerHostRef} className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
-          <div role="group" aria-label={tr('board.quick.label')} data-testid="board-quick-filters" className="flex shrink-0 items-center gap-1 overflow-x-auto px-2 py-1">
-            {QUICK_FILTERS.map((q) => (
-              <button key={q} type="button" data-testid={`board-quick-${q}`} aria-pressed={quick === q}
-                onClick={() => setQuick((cur) => (cur === q ? null : q))}
-                className={`flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-compact leading-4 coarse:min-w-11 ${quick === q ? 'border-primary bg-primary/15 text-app-text' : 'border-app-border text-app-text-secondary hover:bg-white/5'}`}
-              >{tr(`board.quick.${q}`)}<span data-testid={`board-quick-count-${q}`} className="tabular-nums text-app-text-muted">{quickCounts[q]}</span></button>
-            ))}
-          </div>
-          {planVisible ? (
-            <Suspense fallback={<SpinnerFallback fill />}>
-              {/* A DndContext with no sensors: the board's card is a sortable,
-                  and here nothing is dragged — the Plan moves cards with its
-                  own «move to» control. */}
-              <DndContext sensors={NO_SENSORS}>
-                <PlanView onOpenTask={openTask} onOpenTopic={onOpenTopic} renderTaskCard={renderPlanCard} isVisible={visibleTaskIds} />
-              </DndContext>
-            </Suspense>
+          {detail !== 'workflow' && <OriginFilterBar tasks={tasks} filters={filters} onChange={setFilters} personName={personName} />}
+          {detail === 'workflow' ? (
+            <WorkflowView columns={boardColumns} tasks={tasks} rules={workflow?.rules ?? null} onOpenKanban={() => setDetail('grid')} onOpenSettings={hasProject ? toggleSettings : undefined} />
+          ) : detail === 'table' ? (
+            <BoardTable
+              tasks={groupSource} columns={shownColumns} groups={groups} levels={groupLevels}
+              collapsed={collapsedProjects} onToggle={toggleProjectCollapsed}
+              nameById={projectNameById} pathById={projectPathById} labelOf={groupLabel}
+              draftAbove={draftAbove} showProject={mode === 'all' && !groupLevels.includes('project')}
+              personName={personName} onOpen={openTask}
+            />
+          ) : planVisible ? (
+            /* A DndContext with no sensors: the board's card is a sortable, and
+               here nothing is dragged. The cards are the board's own, compact. */
+            <DndContext sensors={NO_SENSORS}>
+              <div data-testid="plan-view" className={COLUMNS_ROW_LIST}>
+                {grouped ? (
+                  <GroupedBoard
+                    groups={groups} levels={groupLevels} columns={shownColumns} showColumnCounts={false} wide
+                    collapsed={collapsedProjects} onToggle={toggleProjectCollapsed}
+                    nameById={projectNameById} pathById={projectPathById} labelOf={groupLabel}
+                    draftAbove={draftAbove} renderLeaf={renderCardsLeaf}
+                  />
+                ) : <>
+                  {draftAbove && <div data-testid="board-draft-above" className="mx-auto w-full max-w-3xl shrink-0"><DraftCard draft={draftAbove} /></div>}
+                  {renderCardsLeaf({ tasks: groupSource } as GroupNode)}
+                </>}
+              </div>
+            </DndContext>
           ) : <>
           <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); endDrag(); flushDeferredRead(); setDropNotice(null); }}>
             {/* NO `scroll-smooth` ON A PHONE, and that is the fix for "the
@@ -1382,27 +1462,20 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                 snap-carousel (there's nothing to peek at off to the side).
                 The test id is the row's handle for the e2e: its snap classes
                 come and go with `useRowSnapHold`, so they cannot name it. */}
-            {detail === 'summary' ? (
-              <ProjectsSummary
-                rows={countByProject(boardColumns.map((c) => byColumn.get(c.id) ?? []))}
-                columnLabels={boardColumns.map((c) => c.label ?? STATUS_LABEL[c.base])}
-              />
-            ) : (
-            <div ref={columnsScrollRef} data-testid="kanban-columns-row" data-keeps-smooth-scroll="" className={boardLayout === 'list' || grouped
+            <div ref={setColumnsRow} data-testid="kanban-columns-row" data-keeps-smooth-scroll="" className={boardLayout === 'list' || grouped || single
               ? COLUMNS_ROW_LIST
               : `${COLUMNS_ROW_GRID} ${columnsSnap.held ? '' : 'snap-x snap-mandatory'} sm:scroll-smooth`}>
               {grouped ? (
-                <ProjectLanes
-                  lanes={lanes} columns={shownColumns} layout={boardLayout}
-                  nameById={laneNameById} pathById={projectPathById}
+                <GroupedBoard
+                  groups={groups} levels={groupLevels} columns={shownColumns} showColumnCounts wide={boardLayout === 'list' || single} framed={single}
                   collapsed={collapsedProjects} onToggle={toggleProjectCollapsed}
-                  draftAbove={draftPlacement?.kind === 'above' ? draft ?? undefined : undefined}
-                  draftLane={draftLane}
-                  renderColumn={renderColumn}
+                  forceOpenPath={(node) => node.path === draftLeafPath}
+                  nameById={projectNameById} pathById={projectPathById} labelOf={groupLabel}
+                  draftAbove={draftAbove} renderLeaf={renderColumnsLeaf}
                 />
-              ) : shownColumns.map((column) => renderColumn(column, byColumn.get(column.id) ?? []))}
+              ) : single ? renderColumn(MERGED_COLUMN, mergeInColumnOrder(shownColumns, byColumn), undefined, true)
+                : shownColumns.map((column) => renderColumn(column, byColumn.get(column.id) ?? []))}
             </div>
-            )}
             {/* Portal to <body>: the overlay is position:fixed, and a transformed
                 ancestor (pane translateX, FLIP animations) would re-anchor fixed
                 positioning to itself — the ghost card then renders far from the
@@ -1447,7 +1520,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                         {dragPreview.badges.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-1">
                             {dragPreview.badges.map((b) => (
-                              <span key={b} className="rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
+                              <span key={b} className="rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
                             ))}
                           </div>
                         )}
@@ -1517,5 +1590,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         )}
       </div>
     </div>
+    </MergedBoardsContext.Provider>
   );
 }

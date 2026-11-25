@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  ADD_MENU_MNEMONICS,
-  ADD_MENU_ROWS_BY_SCOPE,
-  type AddMenuItemId,
-} from './paneMnemonics';
+import { ADD_MENU_MNEMONICS, type AddMenuItemId } from './paneMnemonics';
+import { buildAddMenuItems } from '../../../components/Shared/addMenuItems';
 import { getPaneConfig } from './paneConfig';
 import { TERMINAL_AGENT_LABELS } from '../../../lib/terminalAgents';
 
@@ -35,10 +32,22 @@ const LABELS: Record<AddMenuItemId, string> = {
   'open-project': 'Progetto…',
 };
 
+/**
+ * Le righe che il menu costruisce DAVVERO per uno scope, con ogni callback così
+ * nessuna riga manca per assenza di handler. `open-project` compare solo sul
+ * desktop (lo decide `buildAddMenuItems`) e il test gira sul web: nello scope
+ * standalone la si aggiunge a mano.
+ */
+function rowsFor(scope: 'project' | 'standalone'): AddMenuItemId[] {
+  const noop = () => {};
+  const ids = buildAddMenuItems({ scope, onNewChat: noop, onAddPane: noop, onProjectPicker: noop }).map((row) => row.id);
+  return scope === 'standalone' && !ids.includes('open-project') ? [...ids, 'open-project'] : ids;
+}
+
 describe('mnemonics del menu "New…"', () => {
   it('ogni riga dichiarata ha una lettera', () => {
     for (const scope of ['project', 'standalone'] as const) {
-      for (const id of ADD_MENU_ROWS_BY_SCOPE[scope]) {
+      for (const id of rowsFor(scope)) {
         expect(ADD_MENU_MNEMONICS[id], `${scope}/${id}`).toBeTruthy();
       }
     }
@@ -49,7 +58,7 @@ describe('mnemonics del menu "New…"', () => {
     // `board` (Board generale) condividono la D proprio perché non compaiono
     // mai insieme — sono la stessa riga in due contesti.
     for (const scope of ['project', 'standalone'] as const) {
-      const letters = ADD_MENU_ROWS_BY_SCOPE[scope].map((id) => ADD_MENU_MNEMONICS[id].toLowerCase());
+      const letters = rowsFor(scope).map((id) => ADD_MENU_MNEMONICS[id].toLowerCase());
       const dupes = letters.filter((l, i) => letters.indexOf(l) !== i);
       expect(dupes, `collisioni in scope ${scope}`).toEqual([]);
     }
@@ -101,11 +110,8 @@ describe('mnemonics del menu "New…"', () => {
     expect(ADD_MENU_MNEMONICS['claude-code']).toBe('C');
   });
 
-  it('ogni riga dichiarata negli scope esiste nella mappa, e viceversa', () => {
-    const declared = new Set<string>([
-      ...ADD_MENU_ROWS_BY_SCOPE.project,
-      ...ADD_MENU_ROWS_BY_SCOPE.standalone,
-    ]);
-    expect([...declared].sort()).toEqual(Object.keys(ADD_MENU_MNEMONICS).sort());
+  it('ogni riga costruita negli scope esiste nella mappa, e viceversa', () => {
+    const built = new Set<string>([...rowsFor('project'), ...rowsFor('standalone')]);
+    expect([...built].sort()).toEqual(Object.keys(ADD_MENU_MNEMONICS).sort());
   });
 });

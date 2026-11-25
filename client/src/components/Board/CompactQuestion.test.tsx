@@ -41,9 +41,9 @@ describe('CompactQuestion', () => {
     expect(html).not.toContain('card-compact-reply');
   });
 
-  test('the card draws it for a review card with a pending question, in compact only', () => {
+  test('the card draws it for a review card with a pending question, in compact only (not on a title-only card)', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'Card.tsx'), 'utf8');
-    expect(src).toContain("compact && task.status === 'review' && pending && (");
+    expect(src).toContain("compact && !titleOnly && task.status === 'review' && pending && (");
     expect(src).toContain('<CompactQuestion question={pending.question} options={replyOptions}');
   });
 });

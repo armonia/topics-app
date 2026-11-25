@@ -38,8 +38,13 @@ import { readDispatcherSource } from "../../tests/helpers/dispatcher-source";
 const REPO = join(import.meta.dir, "..", "..");
 const dispatcher = readDispatcherSource();
 const doc = readFileSync(join(REPO, "docs/board-protocol.md"), "utf8");
-const board = readFileSync(join(REPO, "shared/board.ts"), "utf8");
-const mcp = readFileSync(join(REPO, "server/mcp/topics-mcp-server.ts"), "utf8");
+// shared/board.ts is a barrel since the split (8c3f0d4d): the constants live in the
+// modules it re-exports, so the contract is read across all of them.
+const boardBarrel = readFileSync(join(REPO, "shared/board.ts"), "utf8");
+const board = [boardBarrel, ...[...boardBarrel.matchAll(/from '\.\/(board-[a-z-]+)'/g)]
+  .map((m) => readFileSync(join(REPO, `shared/${m[1]}.ts`), "utf8"))].join("\n");
+// The tool definitions live in the catalog module the MCP server composes.
+const mcp = readFileSync(join(REPO, "server/mcp/tool-catalog.ts"), "utf8");
 
 /** The source of ONE tool definition, from its `name:` to the next one's. */
 function mcpTool(nome: string): string {
@@ -77,6 +82,10 @@ const REGOLE_CHE_PARLANO_ALL_AGENTE: Array<{ n: string; nel_doc: string; nell_en
   { n: "1", nel_doc: "Consegna = lavoro COMMITTATO sul branch", nell_envelope: /status="review"/ },
   { n: "2", nel_doc: "La consegna include l'ULTIMO MIGLIO", nell_envelope: /LAST MILE/i },
   { n: "3", nel_doc: "Ogni claim con EVIDENZA verificabile", nell_envelope: /evidence/i },
+  // 3-bis: the review card. The kickoff interpolates the constant like 5-bis,
+  // and the `summary` description of `update_task` carries it too, because
+  // that is the field the agent is filling when it writes the card.
+  { n: "3-bis", nel_doc: "La consegna E' la card di review: cinque campi fissi", nell_envelope: /`- \$\{REVIEW_CARD_RULE\}`/, in_constant: "THE DELIVERY SUMMARY IS THE REVIEW CARD" },
   { n: "4", nel_doc: "Anteprima = evidenza DUREVOLE", nell_envelope: /PREVIEW/ },
   { n: "5", nel_doc: "Azioni sull'ambiente dell'umano: mai senza ok esplicito", nell_envelope: /HUMAN'S ENVIRONMENT/i },
   { n: "5-bis", nel_doc: "Quando chiedi una decisione, la TUA scelta va per prima", nell_envelope: /` {2}\$\{RECOMMENDED_OPTION_RULE\}`/, in_constant: "first element of `options`", in_mcp: { tools: ["comment_task", "comment_global_task"], nella_descrizione: /\$\{RECOMMENDED_OPTION_RULE\}/ } },
@@ -119,7 +128,7 @@ describe("docs/board-protocol.md e l'envelope dicono le stesse regole", () => {
     // envelope, to the server means a note saying it does not belong there. It
     // counts `N-bis` too, because one of those has already walked under the gate.
     const numerate = [...doc.matchAll(/^(\d+(?:-bis|-ter)?)\. \*\*/gm)].map((m) => m[1]);
-    expect(numerate).toEqual(["1", "1-bis", "2", "3", "4", "5", "5-bis", "5-ter", "6", "7", "8"]);
+    expect(numerate).toEqual(["1", "1-bis", "2", "3", "3-bis", "4", "5", "5-bis", "5-ter", "6", "7", "8"]);
   });
 
   test("ogni regola del documento che parla all'agente e' ancorata, o e' annotata come non sua", () => {
@@ -130,6 +139,11 @@ describe("docs/board-protocol.md e l'envelope dicono le stesse regole", () => {
     const anchored = new Set(REGOLE_CHE_PARLANO_ALL_AGENTE.map((r) => r.n));
     const NOT_FOR_THE_AGENT = ["1-bis", "6", "8"];
     expect(numerate.filter((n) => !anchored.has(n))).toEqual(NOT_FOR_THE_AGENT);
+  });
+
+  test("3-bis: the resume and the update_task summary carry the same constant", () => {
+    expect(readFileSync(join(REPO, "server/services/task-dispatcher-resume.ts"), "utf8")).toMatch(/^\s+REVIEW_CARD_RULE,$/m);
+    expect(mcpTool("update_task")).toContain("${REVIEW_CARD_RULE}");
   });
 
   test("both say the e2e of a delivery runs on the pull request CI, never here", () => {

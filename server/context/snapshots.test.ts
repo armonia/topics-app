@@ -10,7 +10,6 @@ import {
   clearSnapshots,
   getSnapshots,
   pushSnapshot,
-  snapshotCounts,
 } from "./snapshots";
 
 function envelope(topicId: string, marker: string): ContextEnvelope {
@@ -99,16 +98,4 @@ describe("snapshots", () => {
     expect(out.length).toBe(0);
   });
 
-  it("pushing an envelope with empty topicId is a no-op (no leakage to '' key)", () => {
-    pushSnapshot(envelope("", "ghost"));
-    expect(getSnapshots("").length).toBe(0);
-    expect(snapshotCounts()).toEqual({});
-  });
-
-  it("snapshotCounts reports per-topic sizes", () => {
-    pushSnapshot(envelope("t1", "a"));
-    pushSnapshot(envelope("t1", "b"));
-    pushSnapshot(envelope("t2", "x"));
-    expect(snapshotCounts()).toEqual({ t1: 2, t2: 1 });
-  });
 });

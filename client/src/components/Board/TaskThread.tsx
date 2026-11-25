@@ -10,7 +10,7 @@ import { type TaskSessionState, canOpenTaskSession } from '../../lib/taskSession
 import { isThreadSpeech, parseQuestionBlock, boardDrafts, type BoardTask, type TaskComment } from '../../lib/board';
 import { taskActionWord } from './taskActionWords';
 import { type TimelineItem } from './taskTimeline';
-import { ArrowUpRight, ChevronRight, X, Paperclip, ArrowUp, Square, StickyNote } from 'lucide-react';
+import { ChevronRight, X, Paperclip, ArrowUp, Square, StickyNote } from 'lucide-react';
 import { COMPACT_MD_CLS, mediaPaneIdFor } from './constants';
 import type { RefObject, Dispatch, SetStateAction } from 'react';
 import { isDoneThreadService, isServiceComment } from '../../../../shared/task-comment-service';
@@ -27,6 +27,7 @@ import { EffortBadge } from '../Chat/EffortBadge';
 import { markActiveComposer } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
 import { ZoomableImage } from '../Shared/ImageLightbox';
+import { DeliveryEvidence } from './DeliveryEvidence';
 import { COMPOSER_CARD, COMPOSER_ICON_BUTTON, COMPOSER_TEXTAREA } from '../Chat/composerStyles';
 import { BoardCommandHint } from './BoardCommandHint';
 import { MessageContent } from '../MessageContent';
@@ -122,7 +123,7 @@ export const SessionRun = memo(function SessionRun({ items, sessionKey }: {
     && item.hasThreadReply === next.items[index].hasThreadReply
     && item.foldProgress === next.items[index].foldProgress));
 
-export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, commentRef, composerAreaRef, composerPlaceholder, composerSendTitle, draft, error, fileDragOver, fileInputRef, isAgentReview, isMobile, load, loadFailedMessage, onOpenTopic, saveCommentCursor, send, sending, sessionState, sessionTopic, setAttachments, setDraft, setError, setFileDragOver, shownEffort, stopAgent, task, taskId, tr, twoCol, uploadFiles, uploading, workspaceOpen }: {
+export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, commentRef, composerAreaRef, composerPlaceholder, composerSendTitle, draft, error, fileDragOver, fileInputRef, canSendToAgent, sendToAgentWord, isAgentReview, isMobile, load, loadFailedMessage, onOpenTopic, saveCommentCursor, send, sending, sessionState, sessionTopic, setAttachments, setDraft, setError, setFileDragOver, shownEffort, stopAgent, task, taskId, tr, twoCol, uploadFiles, uploading, workspaceOpen }: {
   agentBusy: boolean;
   attachments: StagedAttachment[];
   busy: boolean;
@@ -136,6 +137,8 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
   fileDragOver: boolean;
   fileInputRef: RefObject<HTMLInputElement | null>;
   isAgentReview: boolean;
+  canSendToAgent: boolean;
+  sendToAgentWord: string;
   isMobile: boolean;
   load: () => Promise<void>;
   loadFailedMessage: string | null;
@@ -213,7 +216,7 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
                 <button
                   data-testid="task-stale-retry"
                   onClick={() => { void load(); }}
-                  className="shrink-0 rounded px-1.5 py-0.5 text-amber-100 underline decoration-dotted hover:bg-white/10"
+                  className="shrink-0 rounded px-1.5 py-0.5 text-amber-100 underline decoration-dotted hover:bg-black/5 dark:hover:bg-white/10"
                 >
                   {tr('board.task.loadRetry')}
                 </button>
@@ -225,7 +228,7 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
                 className={`mb-2 flex items-start gap-2 rounded border border-red-500/30 px-2 py-1.5 text-mini ${STATUS_CHIP.danger}`}
               >
                 <span className="min-w-0 flex-1 break-words">{error}</span>
-                <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
+                <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-black/5 dark:hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
               </div>
             )}
             <BoardCommandHint
@@ -240,7 +243,7 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
                     {a.isImage ? (
                       <ZoomableImage src={getMediaUrl(a.path)} alt={a.name} title={a.name} testId="task-composer-attachment-image" className="h-12 w-12 rounded object-cover" />
                     ) : (
-                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-mini text-app-text-heading">
+                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-1 text-mini text-app-text-heading">
                         <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
                       </span>
                     )}
@@ -292,8 +295,8 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
               <button type="button" data-testid="task-composer-submit"
                 onClick={() => { if (agentBusy && !draft.trim() && !attachments.length) void stopAgent(); else void send(); }}
                 disabled={busy || sending || uploading || (!agentBusy && !draft.trim() && !attachments.length)}
-                title={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).title : isAgentReview ? tr('board.task.sendToAgent') : composerSendTitle}
-                aria-label={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).label : isAgentReview ? tr('board.task.sendToAgent') : composerSendTitle}
+                title={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).title : canSendToAgent ? sendToAgentWord : composerSendTitle}
+                aria-label={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).label : canSendToAgent ? sendToAgentWord : composerSendTitle}
                 className={`flex ${COMPOSER_ICON_BUTTON} shrink-0 items-center justify-center rounded-lg transition-all disabled:opacity-50 ${
                   draft.trim() || attachments.length ? 'bg-primary text-white hover:bg-primary-hover'
                     : agentBusy ? 'bg-app-text/15 text-app-text hover:bg-app-text/25'
@@ -322,7 +325,7 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
   );
 }
 
-export function ThreadRows({ details, agentBusy, answerOption, busy, children, commentReceipt, composerHeight, deliveryWord, detailsOpen, foldedDeliveryNotes, lastClientHeightRef, lastHeightRef, lastThreadComment, lastTopRef, openTaskPane, ownerName, pending, previewInThread, replyOptions, sending, sessionKey, sessionRuns, stickRef, task, threadContentRef, threadScrollRef, timeline, tr, uploading }: {
+export function ThreadRows({ details, agentBusy, answerOption, busy, children, commentReceipt, composerHeight, deliveryWord, detailsOpen, foldedDeliveryNotes, lastClientHeightRef, lastHeightRef, lastThreadComment, lastTopRef, openTaskPane, ownerName, mediaPaths, pending, replyOptions, sending, sessionKey, sessionRuns, stickRef, task, threadContentRef, threadScrollRef, timeline, tr, uploading }: {
   details?: React.ReactNode;
   agentBusy: boolean;
   answerOption: (opt: string) => Promise<void>;
@@ -340,7 +343,7 @@ export function ThreadRows({ details, agentBusy, answerOption, busy, children, c
   openTaskPane: (paneId: string) => boolean;
   ownerName: string | null;
   pending: { question: string; options: string[]; } | null;
-  previewInThread: boolean;
+  mediaPaths: string[];
   replyOptions: string[];
   sending: boolean;
   sessionKey: string | null;
@@ -403,7 +406,7 @@ export function ThreadRows({ details, agentBusy, answerOption, busy, children, c
                   {replyOptions.map((opt) => (
                     <button key={opt} disabled={sending || busy || uploading}
                       onClick={() => void answerOption(opt)}
-                      className="rounded border border-app-border bg-white/5 px-2.5 py-1.5 text-left text-compact leading-4 text-app-text hover:bg-white/10 disabled:opacity-50">
+                      className="rounded border border-app-border bg-black/5 dark:bg-white/5 px-2.5 py-1.5 text-left text-compact leading-4 text-app-text hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50">
                       {stripMarkdown(opt)}
                     </button>
                   ))}
@@ -482,6 +485,7 @@ export function ThreadRows({ details, agentBusy, answerOption, busy, children, c
         }}
       >
         <div ref={threadContentRef} className="chat-measure space-y-2 px-3">
+        {mediaPaths.length > 0 && <DeliveryEvidence paths={mediaPaths} />}
         {details}
         {detailsOpen && chronicle.length > 0 && (
           <div data-testid="task-chronicle" className="rounded-md border border-app-border-subtle px-2 py-2">
@@ -490,14 +494,6 @@ export function ThreadRows({ details, agentBusy, answerOption, busy, children, c
               <ThreadRuns comments={chronicle} renderRow={wordRow} renderStatusRun={statusRun} isService={() => false} />
             </div>
           </div>
-        )}
-        {task.previewImage && !previewInThread && (
-          <button type="button" data-testid="task-conversation-attachment" onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
-            className="flex w-full items-center gap-2 rounded border border-app-border px-2.5 py-2 text-left text-compact leading-4 text-app-text-secondary hover:bg-white/5 coarse:min-h-11">
-            <Paperclip className="h-3.5 w-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">{task.previewImage.split('/').pop()}</span>
-            <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
-          </button>
         )}
         {/* THE EMPTY STATE SAYS WHAT WILL HAPPEN, not that it is empty. A plain
             "No comments" stated an absence that is already visible
@@ -540,6 +536,7 @@ export function ThreadRows({ details, agentBusy, answerOption, busy, children, c
             phase={task.dispatchState === 'queued' ? tr('board.task.dispatch.queued') : task.dispatchState === 'starting' ? tr('board.task.dispatch.starting') : tr('board.task.dispatch.working')}
             since={task.dispatchState === 'working' ? sessionRuns.since : null}
             tool={liveTool?.source === 'session' ? runningToolLabel(liveTool.msg) : null}
+            taskId={task.id}
           />
         )}
         </div>

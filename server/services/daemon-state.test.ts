@@ -32,6 +32,12 @@ describe("worktreeIsolationHome", () => {
     expect(worktreeIsolationHome(join(HOME, ".topics"), HOME)).toBeNull();
   });
 
+  it("isolates a checkout Topics made under a root moved in Settings (it carries Topics' owner marker)", () => {
+    // worktree-standard T1: the root is a setting, so the path alone no longer says it.
+    expect(worktreeIsolationHome("/Volumes/fast/wt/topics-app/brisk-oak", HOME, true)).toBe(join("/Volumes/fast/wt/topics-app/brisk-oak", ".topics-daemon"));
+    expect(worktreeIsolationHome("/Volumes/fast/wt/topics-app/brisk-oak", HOME, false)).toBeNull();
+  });
+
   it("handles a trailing separator on baseDir", () => {
     const base = wt("serene-bulb");
     expect(worktreeIsolationHome(base + "/", HOME)).toBe(join(base + "/", ".topics-daemon"));

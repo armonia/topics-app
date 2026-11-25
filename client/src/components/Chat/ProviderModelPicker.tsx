@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, Loader2, Route } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Route } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { ModelSelector } from '../Shared/ModelSelector/ModelSelector';
@@ -11,6 +11,7 @@ import { effectiveTopicsRouting } from '../../../../shared/task-coding-models';
 import { modelTriggerText, triggerLine } from '../../lib/modelLabel';
 import { HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, OPEN_MODEL_SELECTOR_EVENT, type OpenModelSelectorDetail } from '../../lib/openHome';
 import type { ProvidersTarget } from '../Settings/AIProvidersSection';
+import { Spinner } from '../Shared/Spinner';
 
 export interface ProviderModelOverride {
   provider: string;
@@ -219,7 +220,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
           {chipText}
         </span>
         {loadState === 'loading' ? (
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+          <Spinner size="sm" tone="current" />
         ) : failed ? (
           <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
         ) : (

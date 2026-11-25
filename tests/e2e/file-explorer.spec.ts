@@ -343,7 +343,7 @@ test.describe("File Explorer — albero, editor e ricerca", () => {
     // The content in the editor should be from the LAST file (src/index.ts)
     // which contains 'export const hello = "modified"'
     // Wait for loading spinner to disappear
-    const spinner = page.locator('[data-testid="editor-tabs"] .animate-spin');
+    const spinner = page.locator('[data-testid="editor-tabs"] [data-spinner]');
     await expect(spinner).not.toBeVisible({ timeout: 5000 });
 
     // Check that CodeEditor content shows the correct file content

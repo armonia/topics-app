@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Aperta: manca `client/src/lib/slashCommands.ts` (assente: `/context`, `/cost`, `/status`, `/compact` e `/<skill>` non gestiti), manca `server/providers/claude/out-of-turn.ts` (assente: CHAT-OOT-01 non costruito), manca il tetto `MAX_TAIL_READ` in `claude-session-tracker.ts` (assente). Compattazione, `/model`, `/clear`, striscia todo e clamp dei corpi sono in main; CHAT-PERM-01 è superato dal canale MCP `permission`.
+
 # Change: chat-claude-code-parity
 
 ## Why

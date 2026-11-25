@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import {
-  Search, Moon, Sun, Monitor, File,
-  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog, Gauge, Workflow, BarChart3, Blocks, Bot, Layers, ScrollText,
-} from 'lucide-react';
+  Search, Moon, Sun, Monitor, File, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog, Gauge, Workflow, BarChart3, Blocks, Bot, Layers, ScrollText} from 'lucide-react';
 import { useHubEverRead } from '../../state/hubLive';
 import { openUserMenu } from '../../lib/openUserMenu';
+import { openSystemPlace } from '../System/systemNav';
 import { openProcessesLog } from '../../state/processesLog';
 import { EmptyState } from './EmptyState';
 import { ClaudeIcon } from './ClaudeIcon';
@@ -41,6 +40,7 @@ import { AddMenuIcon } from './AddMenuIcon';
 import type { PaneType } from '../../types';
 import { shortcut } from '../../lib/shortcutLabel';
 import { homeCommands } from './paletteHomeCommands';
+import { Spinner } from './Spinner';
 
 export interface CommandAction {
   id: string;
@@ -483,7 +483,7 @@ export function CommandPalette({
         ['usage', 'usage.open', 'usage.openHint', <BarChart3 size={14} />, utility('dashboard')],
         ['processes', 'processes.open', 'processes.openHint', <MonitorCog size={14} />, utility('processes')],
         ['agents', 'agentsJobs.open', 'agentsJobs.openHint', <Bot size={14} />, () => openUserMenu('agents')],
-        ['context', 'palette.context', 'palette.contextHint', <Layers size={14} />, () => openUserMenu('context')],
+        ['context', 'palette.context', 'palette.contextHint', <Layers size={14} />, () => openSystemPlace('harness')],
         ['features', 'features.open', 'features.openHint', <Blocks size={14} />, utility('features')],
         ['log', 'palette.log', 'palette.logHint', <ScrollText size={14} />, () => openProcessesLog()],
         ['automations', 'automations.open', 'automations.openHint', <Workflow size={14} />, utility('automations')],
@@ -899,7 +899,7 @@ export function CommandPalette({
                       </>
                     )}
                     {(searchResults.length > 0 || searchLoading) && (
-                      <SectionHeader label={t('palette.section.messages')} rightSlot={searchLoading ? <Loader2 size={10} className="animate-spin" /> : null} />
+                      <SectionHeader label={t('palette.section.messages')} rightSlot={searchLoading ? <Spinner size="xs" tone="current" /> : null} />
                     )}
                     {searchResults.map(item => renderRow(item, { highlight: true }))}
                   </>

@@ -14,11 +14,15 @@ guardiano fa sì che quel nodo esista quando serve e non costi quando non serve.
   node-pool permanent-ci    installa o riallinea i runner della CI sul nodo permanente (deploy/permanent-node/ci-runners.sh)
   node-pool --selftest  le decisioni pure, senza rete
 
+Memorie e regole degli agenti (harness-sync, accanto a questo file): a ogni giro lancia, staccato, `harness-sync run`
+con i nodi pronti; dopo un riallineamento del codice lo forza. Cosa e dove sta in ~/.topics/harness-sync.config.json
+(fuori dal repo), lo stato in ~/.topics/harness-sync.json. Senza quel file non fa niente.
+
 NODO PERMANENTE (Attilio, Discord 10/11 23:31): topics-permanent-node, un cx53 sempre acceso nel progetto topics-nodes,
 fa da runner della CI di topics-app e da nodo di Topics sul posto 1. Finché esiste, il pool non accende
 nodi a richiesta (e `hetzner-tetto puo` li rifiuta comunque): il posto 1 è lui, mai cancellato, e le card
-che vi entrano sono 2 mentre la CI lavora, 4 quando è ferma. Topics ha la precedenza anche sulla CPU
-(ci.slice con peso basso, deploy/permanent-node/ci-runners.sh).
+che vi entrano sono 2 mentre la CI lavora, 4 quando è ferma. La CI ha la precedenza sulla CPU, Topics
+prende il server quando la CI è ferma (ci.slice a 500, topics.service a 100, deploy/permanent-node/ci-runners.sh).
 
 Posti, non server: il posto N è la riga `machines` con base_url http://127.0.0.1:(3400+N), stabile fra
 una vita e l'altra (stesso hostname = stessa riga). Ogni vita è un server Hetzner nel progetto
@@ -33,7 +37,7 @@ gli effimeri). Un nodo muore quando è senza card da 10 minuti e alla sua ora pa
 10 minuti; il label expires (+2 h, spostato in avanti mentre lavora) lo cancella anche se questo
 registro lo ha perso.
 """
-import base64, json, math, os, signal, ssl, subprocess, sys, time, urllib.request
+import base64, datetime, json, math, os, signal, ssl, subprocess, sys, time, urllib.request
 
 HOME = os.path.expanduser("~")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -47,6 +51,10 @@ LOG = os.environ.get("NODE_POOL_LOG", os.path.join(HOME, ".claude/jarvis/logs/no
 KEY = os.path.join(HOME, ".ssh/offload_hetzner")
 TETTO_BIN = os.path.join(HOME, "bin/hetzner-tetto")
 STRUMENTI = os.environ.get("WINFLEET_STRUMENTI", os.path.join(HOME, "Projects/winfleet/nodo/strumenti.txt"))
+
+HARNESS_SYNC = os.path.join(HERE, "harness-sync")
+# Tetto mensile di tutti i server Hetzner (lo stesso di hetzner-tetto, quello che la tray mostra come «x / 60 €»)
+SPEND_CAP_EUR = float(os.environ.get("NODE_POOL_SPEND_CAP_EUR", "60"))
 
 MAX_NODES = int(os.environ.get("NODE_POOL_MAX", "3"))
 CAP_EUR = float(os.environ.get("NODE_POOL_CAP_EUR", "10"))
@@ -64,6 +72,10 @@ LPORT, RPORT, PROXY = 3400, 3410, 3391
 # privileged there, so no CI job can take it while the tunnel is down, and 3400-3450 is
 # the preview pool the e2e servers use (deploy/permanent-node/ci-runners.sh).
 PERMANENT_RPORT = 3301
+
+
+# Chi ospita i server di questo pool: finisce nello stato per i nomi della tray
+PROVIDER_LABEL = "Hetzner"
 
 
 def rport(sl):
@@ -99,6 +111,41 @@ def month_spend(lives, now):
     month = time.strftime("%Y-%m", time.localtime(now))
     return round(sum(billed_hours(l["created"], l.get("ended") or now) * l["eur_h"]
                      for l in lives if time.strftime("%Y-%m", time.localtime(l["created"])) == month), 4)
+
+
+def _day(ts):
+    return time.strftime("%Y-%m-%d", time.localtime(ts))
+
+
+def spend_daily(lives, fixed, now):
+    """Spesa del mese corrente giorno per giorno: [{day, eur}] dal primo a oggi. Ogni ora pagata va al giorno in cui
+    comincia (Hetzner fattura a ore intere per eccesso). Il nodo permanente costa le sue ore del mese al prezzo orario
+    fino al prezzo mensile, come in hetzner-tetto; senza il suo dato conta solo il pool."""
+    lt = time.localtime(now)
+    month = time.strftime("%Y-%m", lt)
+    first = time.mktime((lt.tm_year, lt.tm_mon, 1, 0, 0, 0, 0, 0, -1))
+    days = {}
+    for dd in range(1, 32):
+        ts = time.mktime((lt.tm_year, lt.tm_mon, dd, 0, 0, 0, 0, 0, -1))
+        if _day(ts).startswith(month) and ts <= now:
+            days[_day(ts)] = 0.0
+
+    def charge(start, hours, eur_h, cap=None):
+        spent = 0.0
+        for k in range(hours):
+            day = _day(start + k * 3600)
+            if day not in days:
+                continue
+            cost = eur_h if cap is None else min(eur_h, max(0.0, cap - spent))
+            days[day] += cost
+            spent += cost
+    for l in lives:
+        if time.strftime("%Y-%m", time.localtime(l["created"])) == month:
+            charge(l["created"], billed_hours(l["created"], l.get("ended") or now), l["eur_h"])
+    if fixed and fixed.get("eur_h"):
+        start = max(first, fixed["created"])
+        charge(start, billed_hours(start, now), fixed["eur_h"], cap=fixed.get("eur_month"))
+    return [{"day": k, "eur": round(v, 4)} for k, v in sorted(days.items())]
 
 
 def should_delete(created, idle_since, now):
@@ -154,6 +201,12 @@ def selftest():
     assert month_spend([{"created": now - 70 * 60, "ended": now, "eur_h": 0.5}], now) == 1.0
     assert free_slot({"1": {"server_id": 5}}) == 2 and free_slot({}) == 1
     assert permanent_slots(0) == 4 and permanent_slots(3) == 2, "card del nodo permanente: 2 con la CI, 4 senza"
+    t0 = time.mktime((2026, 11, 3, 10, 0, 0, 0, 0, -1))
+    sd = spend_daily([{"created": t0, "ended": t0 + 90 * 60, "eur_h": 0.5}], None, t0 + 5 * 86400)
+    assert sd[0]["day"].endswith("-01") and sd[0]["eur"] == 0 and len(sd) == 8, "dal primo del mese a oggi"
+    assert next(x for x in sd if x["day"].endswith("-03"))["eur"] == 1.0, "90 minuti = 2 ore pagate"
+    fx = spend_daily([], {"created": t0 - 86400, "eur_h": 1.0, "eur_month": 30.0}, t0 + 3 * 86400)
+    assert round(sum(x["eur"] for x in fx), 2) == 30.0, "il nodo fisso si ferma al prezzo mensile"
     print("selftest ok")
 
 
@@ -257,11 +310,20 @@ def known_file(ip):
 _SERVER_OF_IP = {}
 
 
+# One shared connection per node: every short command used to be a fresh ssh login, ~5 a minute,
+# each one a logind session on the node (card e809a470). Multiplexed commands are channels of
+# the same session. ServerAliveInterval kills a dead master in ~45 s instead of hanging callers.
+MUX_DIR = os.path.join(HOME, ".ssh", "cm")
+MUX = ["-o", "ControlMaster=auto", "-o", f"ControlPath={MUX_DIR}/topics-node-%C", "-o", "ControlPersist=10m",
+       "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+
+
 def ssh(ip, cmd, timeout=120, inp=None):
     known = known_file(ip)
     os.makedirs(os.path.dirname(known), exist_ok=True)
-    return subprocess.run(["ssh", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-                           "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", "-o", "LogLevel=ERROR",
+    os.makedirs(MUX_DIR, mode=0o700, exist_ok=True)
+    return subprocess.run(["ssh", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "IPQoS=af41", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+                           *MUX, "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", "-o", "LogLevel=ERROR",
                            f"root@{ip}", cmd], capture_output=True, text=True, timeout=timeout, input=inp)
 
 
@@ -322,7 +384,9 @@ def recipe():
     node_major = subprocess.run(["node", "-v"], capture_output=True, text=True).stdout.strip().lstrip("v").split(".")[0] or "22"
     with open(os.path.join(HERE, "user-data.sh.tmpl")) as f:
         t = f.read()
-    return (t.replace("@APT@", " ".join(apt)).replace("@NPM@", " ".join(npm))
+    with open(os.path.join(HERE, "logind-stale-sessions")) as f:
+        guard = f.read().rstrip("\n")
+    return (t.replace("@LOGIND_GUARD@", guard).replace("@APT@", " ".join(apt)).replace("@NPM@", " ".join(npm))
              .replace("@NODE_MAJOR@", node_major).replace("@COMMIT@", commit_of_mac()))
 
 
@@ -403,7 +467,7 @@ def open_tunnel(sl):
     if tunnel_alive(sl):
         return True
     known = known_file(sl['ip'])
-    p = subprocess.Popen(["ssh", "-N", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
+    p = subprocess.Popen(["ssh", "-N", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "IPQoS=af41", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
                           "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=accept-new",
                           "-o", f"UserKnownHostsFile={known}", "-L", f"127.0.0.1:{LPORT + sl['n']}:127.0.0.1:3341",
                           "-R", f"127.0.0.1:{rport(sl)}:127.0.0.1:{PROXY}", f"root@{sl['ip']}"],
@@ -494,7 +558,7 @@ def bring_up(state, n, reason):
         save_state(state)
         log(f"posto {n}: nessun server ({eur})")
         return None
-    sl.update({"server_id": server["id"], "name": server["name"], "created": t0, "eur_h": eur, "idle_since": None})
+    sl.update({"server_id": server["id"], "name": server["name"], "provider": PROVIDER_LABEL, "created": t0, "eur_h": eur, "idle_since": None})
     state["lives"].append({"server_id": server["id"], "slot": n, "created": t0, "eur_h": eur, "reason": reason})
     save_state(state)
     ip = wait_ready(server)
@@ -537,6 +601,20 @@ def finish(state, sl, t0=None):
     return sl
 
 
+def forget_machine(machine_id):
+    """Toglie dal Mac la riga della macchina di un server a ore appena cancellato: senza, resta per
+    sempre come «Nodo cloud N» spento, un fantasma che la tray e la lista dei nodi continuano a
+    mostrare. Con una card ancora legata alla riga il Mac risponde 409: la riga resta, il prossimo
+    appaiamento sullo stesso posto la riprende. Non solleva mai: la cancellazione del server è già fatta."""
+    if not machine_id:
+        return
+    try:
+        mac("DELETE", f"/api/machines/{machine_id}")
+        log(f"macchina {machine_id} tolta dal Mac")
+    except Exception as e:
+        log(f"macchina {machine_id} non tolta dal Mac: {e}")
+
+
 def delete(state, n, reason):
     sl = state["slots"].get(str(n)) or {}
     close_tunnel(sl)
@@ -557,7 +635,8 @@ def delete(state, n, reason):
                 l["ended"] = time.time()
                 log(f"cancellato {sl.get('name')} id={sid} dopo {int((l['ended'] - l['created']) / 60)} min "
                     f"({billed_hours(l['created'], l['ended'])} h pagate × {l['eur_h']} €): {reason}")
-    state["slots"][str(n)] = {"n": n, "machine_id": sl.get("machine_id")}
+    forget_machine(sl.get("machine_id"))
+    state["slots"][str(n)] = {"n": n}
     save_state(state)
     # tray e `hetzner-tetto json` leggono il registro del tetto: va riscritto subito, non al giro dopo
     if sid:
@@ -582,7 +661,10 @@ def ensure_permanent(state, fx):
             delete(state, PERMANENT_SLOT, "il posto passa al nodo permanente")
         sl = {"n": PERMANENT_SLOT, "machine_id": (state["slots"].get(key) or {}).get("machine_id")}
         state["slots"][key] = sl
-    sl.update({"server_id": fx["id"], "name": fx["name"], "fixed": True, "ip": ip, "eur_h": 0.0,
+    fc = fixed_cost(fx)
+    if fc:
+        state["fixed_cost"] = fc
+    sl.update({"server_id": fx["id"], "name": fx["name"], "fixed": True, "provider": PROVIDER_LABEL, "ip": ip, "eur_h": 0.0,
                "created": sl.get("created") or time.time(), "idle_since": None})
     if not sl.get("ready"):
         if fx.get("status") != "running":
@@ -630,6 +712,10 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     if not c or sl.get("aligned") == c or sl.get("align_failed") == c:
         sl.pop("behind_since", None)
         sl["draining"] = False
+        # un fallimento è del commit che non è passato: se il nodo è già a quello del Mac non ce n'è più
+        # (la tray lo leggeva per sempre come «riallineamento fallito»)
+        if sl.get("aligned") == c:
+            sl.pop("align_failed", None)
         return
     # The clock starts when the node first falls behind and only stops once it is aligned again:
     # a Mac commit that moves every few minutes must not restart it
@@ -638,7 +724,8 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     if busy:
         if not sl.get("draining") and now - sl["behind_since"] >= BEHIND_S and sl.get("machine_id"):
             if set_slots(sl, key, 0):
-                sl["draining"], sl["drain_since"] = True, now
+                # drain_until: la tray dice «card ferme fino alle HH:MM» leggendo questo, non ricalcolandolo
+                sl["draining"], sl["drain_since"], sl["drain_until"] = True, now, now + DRAIN_MAX_S
                 log(f"posto {key}: nodo indietro da {int((now - sl['behind_since']) / 60)} min, lo svuoto ({busy} card in corso)")
         elif sl.get("draining") and now - sl.get("drain_since", now) >= DRAIN_MAX_S:
             sl["draining"], sl["behind_since"] = False, now
@@ -654,6 +741,9 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
         sl["align_failed"] = c
     else:
         sl["aligned"] = c
+        sl.pop("align_failed", None)
+    global _REALIGNED
+    _REALIGNED = _REALIGNED or a.returncode == 0
     log(f"posto {key}: nodo permanente riallineato a {c[:10]} (exit {a.returncode})")
     if sl.get("draining"):
         sl["draining"] = False
@@ -678,13 +768,59 @@ def permanent_ci():
         raise SystemExit("node-pool: gh non dà i token di registrazione e rimozione dei runner")
     known = known_file(ip)
     os.makedirs(os.path.dirname(known), exist_ok=True)
-    subprocess.run(["scp", "-q", "-i", KEY, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+    subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
                     "-o", f"UserKnownHostsFile={known}", os.path.join(HERE, "..", "permanent-node", "ci-runners.sh"),
                     f"root@{ip}:/root/ci-runners.sh"], check=True, timeout=120)
     r = ssh(ip, f"read -r REG_TOKEN; read -r REMOVE_TOKEN; export REG_TOKEN REMOVE_TOKEN; N={CI_RUNNERS} bash /root/ci-runners.sh",
             timeout=1800, inp=f"{tok}\n{rm_tok}\n")
     print(r.stdout.strip()[-500:], r.stderr.strip()[-1500:], sep="\n")
     return r.returncode
+
+
+# ── memorie e regole degli agenti ─────────────────────────────────────────────────
+
+_REALIGNED = False   # vero se in questo giro il nodo permanente è stato riallineato al codice del Mac
+
+
+def fixed_cost(fx):
+    """Prezzi del nodo permanente come li fattura Hetzner: €/h e tetto mensile, per spend_daily."""
+    try:
+        loc = ((fx.get("datacenter") or {}).get("location") or fx.get("location") or {}).get("name")
+        prices = fx["server_type"]["prices"]
+        p = next((p for p in prices if p["location"] == loc), prices[0])
+        # «Z» finale: fromisoformat lo capisce solo da Python 3.11, e il giro può girare col python di sistema
+        created = datetime.datetime.fromisoformat(fx["created"].replace("Z", "+00:00")).timestamp()
+        return {"name": fx["name"], "created": created, "eur_h": float(p["price_hourly"]["gross"]),
+                "eur_month": float(p["price_monthly"]["gross"])}
+    except Exception:
+        return None
+
+
+def harness_targets(state):
+    """I nodi pronti da servire: quelli con server, indirizzo e riga `machines`."""
+    out = []
+    for key, sl in sorted(state["slots"].items()):
+        if sl.get("ready") and sl.get("ip") and sl.get("machine_id") and sl.get("server_id"):
+            _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
+            out.append({"machine_id": sl["machine_id"], "name": sl.get("name") or f"Nodo cloud {key}", "kind": "linux",
+                        "ip": sl["ip"], "key": KEY, "known_hosts": known_file(sl["ip"])})
+    return out
+
+
+def run_harness_sync(targets, force=False):
+    """Lancia harness-sync staccato: un primo trasferimento di centinaia di MB non deve fermare il giro.
+    Il tetto «al più ogni 15 minuti» e il lucchetto stanno dentro harness-sync. Non solleva mai."""
+    if not os.path.exists(HARNESS_SYNC):
+        return False
+    try:
+        p = subprocess.Popen([sys.executable, HARNESS_SYNC, "run", "--targets", "-"] + (["--force"] if force else []),
+                             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        p.stdin.write(json.dumps(targets).encode())
+        p.stdin.close()
+        return True
+    except Exception as e:
+        log(f"harness-sync non partito: {e}")
+        return False
 
 
 # ── comandi ─────────────────────────────────────────────────────────────────────
@@ -702,6 +838,7 @@ def memory_held(state, now):
 
 
 def giro():
+    sweep_stale_bundles()
     with Lock("giro"):
         state = load_state()
         now = time.time()
@@ -756,7 +893,17 @@ def giro():
                 continue
             if sl.get("ip") and not tunnel_alive(sl):
                 log(f"posto {key}: tunnel riaperto ({open_tunnel(sl)})")
+        # carico di ogni posto per la tray: «acceso, N card». Solo lettura del DB del Mac.
+        for sl in state["slots"].values():
+            if sl.get("machine_id") and (sl.get("server_id") or sl.get("fixed")):
+                try:
+                    sl["cards"] = slot_busy(sl["machine_id"])
+                except Exception:
+                    pass
+        state["spend_daily"] = spend_daily(state["lives"], state.get("fixed_cost"), now)
+        state["spend_cap_eur"] = SPEND_CAP_EUR
         save_state(state)
+        run_harness_sync(harness_targets(state), force=_REALIGNED)
         # 3. domanda: col nodo permanente non si accendono nodi a richiesta
         if fx:
             return 0
@@ -776,6 +923,7 @@ def giro():
 
 
 def hook():
+    sweep_stale_bundles()
     try:
         payload = json.load(sys.stdin)
     except Exception:
@@ -817,6 +965,55 @@ def hook():
     return 0
 
 
+BUNDLE_SUFFIX = ".bundle"
+# Longer than the worst live bundle: 300 s to create it plus 600 s of scp.
+STALE_BUNDLE_S = 3600
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def sweep_stale_bundles(now=None, state_dir=None):
+    """Remove the bundles a previous run left in the state dir: the process that wrote one is gone,
+    or it is older than any live transfer. Returns the names removed. Runs at the start of every
+    `giro` and `hook`, so a leak from before the try/finally (or a SIGKILL) is gone within a minute."""
+    now = time.time() if now is None else now
+    d = state_dir or ST
+    removed = []
+    try:
+        names = os.listdir(d)
+    except FileNotFoundError:
+        return removed
+    for f in names:
+        if not f.endswith(BUNDLE_SUFFIX):
+            continue
+        path = os.path.join(d, f)
+        pid_part = f[: -len(BUNDLE_SUFFIX)].rsplit("-", 1)[-1]
+        pid = int(pid_part) if pid_part.isdigit() else None
+        try:
+            age = now - os.path.getmtime(path)
+        except FileNotFoundError:
+            continue
+        mine = pid == os.getpid()
+        if mine or (pid is not None and _pid_alive(pid) and age < STALE_BUNDLE_S):
+            continue
+        try:
+            os.remove(path)
+            removed.append(f)
+        except FileNotFoundError:
+            pass
+    if removed:
+        log(f"bundle rimasti tolti: {len(removed)}")
+    return removed
+
+
 def sync_repo(sl, origin, repo, git_name, git_email):
     """Il ramo di default del repo va sul nodo con un git bundle (anche i repo privati: il nodo non ha token).
     Il clone sul nodo firma i suoi commit con l'identità di QUESTO checkout (letta dal Mac dal dispatcher),
@@ -827,20 +1024,28 @@ def sync_repo(sl, origin, repo, git_name, git_email):
     head = subprocess.run(["git", "-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], capture_output=True, text=True).stdout.strip() or "origin/main"
     branch = head.split("/", 1)[1]
     ref = f"refs/remotes/origin/{branch}"
-    bundle = os.path.join(ST, f"{name}-{os.getpid()}.bundle")
-    b = subprocess.run(["git", "-C", repo, "bundle", "create", bundle, ref], capture_output=True, text=True, timeout=300)
-    if b.returncode != 0:
-        raise SystemExit(f"node-pool: git bundle fallito: {b.stderr[-200:]}")
-    _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
-    known = known_file(sl['ip'])
-    subprocess.run(["scp", "-q", "-i", KEY, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", bundle, f"root@{sl['ip']}:/tmp/{os.path.basename(bundle)}"], check=True, timeout=600)
-    os.remove(bundle)
+    bundle = os.path.join(ST, f"{name}-{os.getpid()}{BUNDLE_SUFFIX}")
+    # The local bundle goes in every outcome: a failed or timed-out scp used to leave it here,
+    # and nothing else ever removed it (26 bundles, 2.7 GB in ten days).
+    try:
+        b = subprocess.run(["git", "-C", repo, "bundle", "create", bundle, ref], capture_output=True, text=True, timeout=300)
+        if b.returncode != 0:
+            raise SystemExit(f"node-pool: git bundle fallito: {b.stderr[-200:]}")
+        _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
+        known = known_file(sl['ip'])
+        subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", bundle, f"root@{sl['ip']}:/tmp/{os.path.basename(bundle)}"], check=True, timeout=600)
+    finally:
+        try:
+            os.remove(bundle)
+        except FileNotFoundError:
+            pass
     # base64, not shell-quoted: a name/email may carry an apostrophe, and this whole block already
     # sits inside a single-quoted `su -c '...'` that a stray one would break out of.
     name64 = base64.b64encode(git_name.encode()).decode()
     email64 = base64.b64encode(git_email.encode()).decode()
     script = f"""set -e
 B=/tmp/{os.path.basename(bundle)}
+trap 'rm -f $B' EXIT
 chmod 644 $B
 su - topics -c '
 set -e

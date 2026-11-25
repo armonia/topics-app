@@ -1,0 +1,27 @@
+name: Dependency audit (daily)
+
+# `bun audit` against the committed baseline, once a day on main, so a new
+# advisory turns red even on a day with no push. The failing step names the
+# package and the advisory. This moves to the Topics scheduled-jobs engine once
+# that is ready.
+on:
+  schedule:
+    - cron: "41 5 * * *" # 05:41 UTC daily, off the :00 mark
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run check:security --only=dependencies

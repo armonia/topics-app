@@ -89,7 +89,7 @@ export function registerFleetScriptSource(fn: () => FleetScriptRef[]): void {
   scriptSource = fn;
 }
 
-/** Test seam: forget every registration (unit tests register their own). */
+/** @internal Test seam: forget every registration (unit tests register their own). */
 export function _resetFleetSockets(): void {
   sockets.clear();
   sessionSource = null;
@@ -389,6 +389,7 @@ function finish(
  * interval), which the `ps time` delta counts as zero.
  */
 let machineCpuSource: () => number | null = () => { try { return machineCpuPct(); } catch { return null; } };
+/** @internal Test seam: swaps the machine CPU probe for a fixed reading; the real probe depends on the host. */
 export function _setMachineCpuSource(fn: (() => number | null) | null): void {
   machineCpuSource = fn ?? (() => { try { return machineCpuPct(); } catch { return null; } });
 }
@@ -428,6 +429,7 @@ const readChildrenCpuSeconds: () => number | null = (() => {
 
 /** Where the children's CPU seconds come from, injectable for a test. */
 let childrenCpuSource: () => number | null = readChildrenCpuSeconds;
+/** @internal Test seam: swaps the children CPU probe for a fixed reading; the real probe depends on the host. */
 export function _setChildrenCpuSource(fn: (() => number | null) | null): void {
   childrenCpuSource = fn ?? readChildrenCpuSeconds;
   prevChildren = null;
@@ -542,6 +544,7 @@ export interface FleetLoadReading {
  * Clears the fleet cache and the CPU base. It exists for the bench: without it
  * every case would inherit the reading of the one before, and the COLD path —
  * the only one that can stampede — would never be reachable twice.
+ * @internal
  */
 export function _resetFleetUsageCache(): void {
   cached = null;

@@ -1,8 +1,8 @@
 /**
  * board-work-countdown.spec.ts - the countdown of work in progress and its exact weight.
  *
- * WHY. A card in progress now says how long it still has to go (the median of
- * the cards its project already closed) and how heavy its session is (the
+ * WHY. A card in progress now says how long it still has to go (from the cards
+ * its project already closed, re-read at half, three quarters and the end) and how heavy its session is (the
  * provider's own context share, the room before compaction, the sub-agents it
  * launched). Unit tests pin the arithmetic; this spec shows the one thing they
  * cannot: the number on the card goes DOWN as the work goes on, on the board
@@ -25,6 +25,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectIdForPath } from "../../shared/board";
+import { VIDEO_ON } from "./video-evidence";
 
 /** A real folder: the board of a project exists only once a chat is bound to its path. */
 const PROJECT_DIR = mkdtempSync(join(tmpdir(), "work-countdown-"));
@@ -33,7 +34,7 @@ const BOARD_ID = projectIdForPath(PROJECT_DIR);
 
 hermetic(test);
 
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const MIN = 60_000;
 /** Where the evidence lands: the CI uploads this folder as an artifact. */
@@ -85,7 +86,7 @@ test.describe("Board: countdown and weight of work in progress", () => {
         if (t.id === runningId) {
           return { ...t, status: "in_progress", assignedTopicId: topicId, agentMs: runningMs, agentTokens: 180_000, agentCostCents: 240, subtaskCount: 0, subtaskDoneCount: 0 };
         }
-        if (created.includes(t.id) && t.id !== runningId) return { ...t, status: "done", agentMs: (10 + 5 * closed++) * MIN }; // median 20 min
+        if (created.includes(t.id) && t.id !== runningId) return { ...t, status: "done", agentMs: (10 + 5 * closed++) * MIN }; // 10..30 min: 24 min at departure (0.7 quantile)
         return t;
       });
       await route.fulfill({ json: { ...body, tasks } });
@@ -135,10 +136,11 @@ test.describe("Board: countdown and weight of work in progress", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openBoard(page);
     const card = page.locator(`[data-task-card="${runningId}"]`);
-    // Median of the five closed cards is 20 min, five minutes of work are behind: about 15 to go.
+    // 24 min at departure from the five closed cards, five minutes of work are behind: about 19 to go.
     await expect(card.getByTestId("card-countdown")).toHaveAttribute("data-state", "left");
+    await expect(card.getByTestId("card-countdown")).toHaveAttribute("data-revised", "false");
     const first = await minutesLeft(page);
-    expect(first).toBe(15);
+    expect(first).toBe(19);
     // The exact context, from the provider: 30% and the child the card launched.
     await expect(card.getByTestId("context-share")).toContainText("30%");
     await expect(card.getByTestId("card-children")).toBeVisible();
@@ -149,7 +151,13 @@ test.describe("Board: countdown and weight of work in progress", () => {
       await openBoard(page);
       await expect.poll(() => minutesLeft(page), { timeout: 15_000 }).toBeLessThan(first);
     }
-    await expect.poll(() => minutesLeft(page), { timeout: 15_000 }).toBe(5);
+    // Half way (12 min) the figure held: too few closed cards lasted past it to say otherwise.
+    await expect.poll(() => minutesLeft(page), { timeout: 15_000 }).toBe(9);
+    // Past three quarters the card will not make it: the figure is raised and the chip says so, never «over».
+    runningMs = 30 * MIN;
+    await openBoard(page);
+    await expect(card.getByTestId("card-countdown")).toHaveAttribute("data-revised", "true", { timeout: 15_000 });
+    await expect.poll(() => minutesLeft(page), { timeout: 15_000 }).toBeGreaterThan(0);
   });
 
   test("the drawer weighs the session exactly and counts the child in", async ({ page }) => {

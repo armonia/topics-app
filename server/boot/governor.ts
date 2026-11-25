@@ -27,6 +27,7 @@ import { totalmem as osTotalmem } from "node:os";
 import { budgetShare, capMode } from "../../shared/board";
 import type { AfterListen } from "./scope";
 import { late } from "./late";
+import { dispatcherLogLine } from "../services/task-dispatcher-support";
 
 export function bootGovernor(scope: AfterListen) {
   const { broadcastToAll, claudeSessionTracker, ctx, db, delegatedRevocations, dispatcherSvc, memSignal, memoryOwners, memoryPressureSignal, recordDispatchMemoryHistory, swapFreezeLedger, taskDispatcher, turniInVolo } = scope;
@@ -118,7 +119,7 @@ export function bootGovernor(scope: AfterListen) {
   setActiveBudgetGovernor(budgetGovernor);
 
 
-  taskDispatcher.reconcile({ reason: "boot" }).catch((err) => console.error("[dispatcher] boot reconcile failed", err));
+  taskDispatcher.reconcile({ reason: "boot" }).catch((err) => console.error(dispatcherLogLine("boot reconcile failed"), err));
 
   /** Under sustained swap the youngest heavy check round is interrupted, never red, and restarts by itself. */
   const swapBrake = createSwapBrake({
@@ -321,7 +322,7 @@ export function bootGovernor(scope: AfterListen) {
     if (!dispatchReconcileHeld()) {
       void freshFleet
         .then(() => taskDispatcher.reconcile({ reason: "poll" }))
-        .catch((err) => console.error("[dispatcher] poll reconcile failed", err));
+        .catch((err) => console.error(dispatcherLogLine("poll reconcile failed"), err));
     }
     void delegatedRevocations.tick().catch((err) => console.error("[delegated-revoke] retry failed", err));
     void freshFleet.then(() => budgetGovernor.sampleOnce()).catch((err) => console.error("[budget] sample failed", err));

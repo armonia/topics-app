@@ -2,6 +2,1172 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.1 — 2026-11-25
+
+### Sotto il cofano
+- Fix ci-governor selftest race on SIGSTOP/SIGCONT delivery under load
+
+## 2.5.0 — 2026-11-25
+
+### Correzioni
+- **ui** · one row grammar in the sidebar, and no ground at rest
+- **tauri** · the reused browser view passes the island flag too
+
+### Sotto il cofano
+- **ui** · the new comments quote the report in English
+- **ui** · the browser tab in the title row is a portal in flow, not a floating surface
+
+## 2.4.110 — 2026-11-25
+
+### Correzioni
+- **tauri** · a pop-out window is dressed on the main thread, not on a tokio worker
+- **ui** · a project's browser in front is the title, and its page is an island
+- **tauri** · corner_plan is macOS-only outside tests, like its neighbours
+
+## 2.4.108 — 2026-11-25
+
+### Correzioni
+- **board** · table shows the project first, with its icon, on the design system tokens
+- **ci** · main gates green again after two lands
+- **ci** · the request_login land and the wait-branch land, made green
+- **test** · check-e2e-touched reads the fetch of its own step
+- **layout** · with tabs at the side the title is the real tab, and the project column is islands
+- **layout** · keep the front on close only on the desktop title
+- a new chat comes back after a reload; the queue chip scene leaves flight
+
+### Sotto il cofano
+- **design** · a project's window with only its title is approved
+- spec-flow D20 design system gate with the recorded debt as baseline
+- un contenitore non viene richiesto due volte, e il rimando di una card del nodo torna al nodo
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-25 [skip ci]
+- la cura dei contenitori torna d'accordo con i suoi test e con il piano
+- clear four unit reds main carries since today's lands
+- **design** · the board's table view of 25/11 is approved
+- **e2e** · the File section's card is its island, the header a row in it
+- **e2e** · the table view's seed reads like a real board
+- **e2e** · focus-pane carries the daemon token; the rail step is measured to the File island
+- **e2e** · the parked-children question starts from a step that was being worked
+- **design** · the title as the real tab and the project islands are approved
+
+## 2.4.107 — 2026-11-25
+
+### Correzioni
+- **tasks** · a declared wait keeps the worktree branch; a phantom delivery branch no longer pins the overflow
+
+### Sotto il cofano
+- Build OAuth popups on about:blank so the engine keeps their opener
+
+## 2.4.106 — 2026-11-25
+
+### Correzioni
+- **ci-governor** · a starving runner keeps its turn, a real message wakes it
+- **dispatcher** · a card cut on an open question is not resumed with the interrupted-turn nudge
+
+### Sotto il cofano
+- test expects per-host tab name, tool-surface golden regenerated (card 27cb396b)
+- Il rifiuto del land non pretende le righe github-ci nemmeno in modo before: la coda CI le misura
+- Il test dell'adozione passa dal percorso vero: la figlia rilancia, viene archiviata, il servizio del genitore resta vivo
+- register browser:login-request in outbound schema tests, undo unrelated json reformat
+
+## 2.4.105 — 2026-11-25
+
+### Correzioni
+- **layout** · a project's window shows only its title, which is its tab
+- **layout** · no "+" on a project's title, its row in the column has it
+
+### Sotto il cofano
+- Il cancello degli intrecci torna nella CI ora che spec-flow 0.7.0 è su npm
+
+## 2.4.104 — 2026-11-25
+
+### Sotto il cofano
+- Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio
+- La compressione notturna tocca solo i transcript delle sessioni, non il lavoro degli agenti
+- E2E-VIDEO-01: dichiara il requisito dei video e2e e il @covers del test
+- Il controllo sui check non misurati non aspetta in modo after le righe github-ci che la CI scrive dopo il land
+- one tab per host, MCP tool-list tests know the new tool (card d20d270b)
+- Sul Mac la cartella temporanea dei test sta in /tmp: i socket non passano più 104 caratteri
+
+## 2.4.103 — 2026-11-25
+
+### Sotto il cofano
+- lower ci.slice memory ceiling and reserve memory for system.slice and topics (card 0ecda178)
+- Un figlio che rilancia senza wake il servizio fermato del genitore lo lascia al genitore
+- Split server/services/tasks/shared.ts into six factory modules behind the same barrel
+- Split tasks/shared.ts: baselines and unused type exports
+- Land guard: a card's own branches include its spawned children and worktree branch
+- Main verde: covers del test usage-limit e baseline dopo i land della notte
+- Land refuses a delivery with null checks on a board that declares a bar
+- E2E clips sized to the viewport, not Playwright's 800x500
+- Chat nuova: il primo messaggio in volo si salva su disco e torna nel campo dopo un riavvio
+- Test di contratto: leggono i moduli di shared/board.ts dopo lo split
+- Spazio mancante nell'import di firstSend
+- Node deliveries emit task-deliver so the retrospective hook sees them
+- Re-measure the pre-review gate: failures are the 401 auth env, same on the parent commit
+- Re-measure the pre-review gate after bun install restored jscpd
+- Land also refuses a delivery whose bar was measured only in part
+- Sub-agent no-news replies on a later turn no longer wake the parent
+- seed-before-navigation uses /manifest.json, not /favicon.ico
+- Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290
+- e2e-video-size test: spawn the running bun binary so it also works on Windows
+- La spazzata del land-push spinge main una volta per repo, e ripete un rifiuto solo se cambia
+- Una corsa vecchia che il nodo non ha più non si scrive come errore
+- Un transcript troppo grande per cercarci un fork si dice una volta, non a ogni giro
+- Land refuses an unmeasured delivery on every path, not only the automatic one
+- Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13
+- declare BROWSER-LOGIN-01, move the login branch out of browser-bridge (card 2d18548c)
+- Main verde dopo lo split di tasks/shared.ts: import rimasti e test che leggevano il file vecchio
+
+## 2.4.102 — 2026-11-25
+
+### Sotto il cofano
+- Replace real names in the client with fictitious ones, content (ORBIT, Alfa Impianti)
+- Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle
+- Claude CLI usage-limit sentence: read as a rate-limit and hold until the declared reset, so the resume sweep resends the turn by itself
+
+## 2.4.101 — 2026-11-25
+
+### Novità
+- **main-ci** · red-main cards carry a fixed recipe and run on Sonnet
+- **native** · skip a spent account until its reset and retry the turn on the next one
+
+### Correzioni
+- **tests** · run gate-coverage and native-shutdown-notice tests serially
+- **worktrees** · no reap, prune or remove loses work the review found exposed
+- **restart-gate** · the vacuum and the auto-land read what WORKS, a parked card is not working
+
+### Sotto il cofano
+- serialize process-groups and tauri macOS legs
+- Disk budget: fix deadcode-prod/untraced-tests gates, make legacy transcript readers gz-aware
+- tauri runs whatever process-groups ends with
+- **restart-gate** · the wiring test reads the split stream count
+- **restart-gate** · English name for the vacuum test db
+- Replace real names in the client with fictitious ones (ORBIT, Alfa Impianti)
+
+## 2.4.100 — 2026-11-25
+
+### Correzioni
+- **sidebar** · a project's tabs show open or closed, and a row opens its own sub-agents
+- **worktree-gc** · judge other tools' fresh rows, lift vanished hook locks, keep git off live sessions
+- **worktree-hook** · one folder per session, atomic name claim, nothing lost on failure
+
+### Sotto il cofano
+- **e2e** · the hand-made land removes a locked worktree the way the reap does
+- drop the spec-flow 0.7.0 intersections step until 0.7.0 is published
+
+## 2.4.99 — 2026-11-25
+
+### Correzioni
+- **worktrees** · judge what a folder holds now, and never reap what Topics cannot prove it made
+- **worktrees** · every cross-node and cross-tool door leaves Topics' proof, and nothing is removed without it
+- **split** · count the cells on screen, not the ones the layout remembers
+- **sidebar** · a closed row takes no fill under the pointer
+- **worktrees** · a Topics worktree whose HEAD left its branch is judged by HEAD
+
+### Sotto il cofano
+- dup: keep main's baseline; the lowered one was measured on this Mac, where jscpd counts 360 lines fewer than CI
+- **providers** · share the in-flight run registry across the HTTP providers
+- **providers** · one stopAllChildren for the codex and muse exec providers
+- **browser** · one fitSurface for the select-element overlay geometry
+
+## 2.4.98 — 2026-11-24
+
+### Novità
+- **split** · a row of the column splits like a tab, one landing for every pane drop
+- **split** · the drop footprint names what lands, the centre is an outline, nothing animates
+- **split** · every side and 'even out' from every sheet, and a row opens beside
+- **split** · a split cell says what it holds and who has the focus, and the split answers the keyboard
+- **split** · a project row maps the splits inside its window
+
+### Correzioni
+- **split** · the column's toggle sits on the head of the first cell only
+- **split** · an empty chat in a short narrow cell keeps its greeting under the title
+- **split** · a narrow cell's empty field stays one line
+- **split** · a closed row dropped on the centre of the pool opens there
+- **split** · keep the lights inset line and count the project row's map
+- **worktrees** · the GC moves only what Topics proves it made, into a quarantine
+
+### Sotto il cofano
+- **split** · the split redesign change, from what is measured broken today
+- **split** · American names the identifier gate knows, ceilings follow PanelGrid down
+- **split** · the seven split scenarios, done the way a person does them
+- **split** · the change is done, its seven requirements join the layout spec
+- Cancelli rossi della PR cross-nodo: lint del server, codice morto e l'intreccio senza prova
+- Hook di Claude Code: il token non sta più negli argomenti di curl
+- the project-family backfill script is a manual entry point
+- **split** · the narrow-cell check waits on frames and the divider, not on the clock
+- **split** · the narrow-cell scenario is SPLIT-03b
+- **split** · hand the focus to a divider after the last chat took it
+
+## 2.4.97 — 2026-11-24
+
+### Novità
+- **sidebar** · tabs live in one place, with three states for every kind
+
+### Correzioni
+- **sidebar** · three states inside project windows, gates green, suite on the old layout
+
+### Sotto il cofano
+- Hook dei worktree: la rimozione archivia anche il lavoro non committato
+- Porta di registrazione: il GC non cancella più rami e checkout altrui
+- Cancelli rossi del ramo: nomi non inglesi e git senza ambiente isolato
+- Prova del ramo cross-nodo: e2e delle impostazioni, sonda con il vero Claude Code, tipi dei finti
+- an open row's circle closes its tab, the stop test and the target-size audit read it
+- Le anteprime accanto al bordo sfumato si caricano da sole: Chromium perde la distanza di caricamento pigro sotto la maschera della riga, e la card saltava di altezza al primo swipe (board-preview-cap rosso 4 su 4)
+- Rimette verdi i rossi della PR dei worktree standard
+
+## 2.4.96 — 2026-11-24
+
+### Novità
+- **agent** · request_login records a notice linking to the topic, plus a 1440 px e2e
+
+### Correzioni
+- bring main's any budget and identifier gate back to green
+
+### Sotto il cofano
+- table view, bare empty columns, one column per project, scroll edges
+- the detail slider follows a drag (mouse, pen, finger)
+- Rossi della CI: celle contate dopo il resize, due any arrivati da main
+- name the requirement the keyed listener registry test covers
+- Rossi ereditati da main: requisito del registro di ascolto, parole fuori dizionario
+- Standard dei worktree e progetti accorpati
+- keep the live AI bridge out of the suite
+- Porta di registrazione dei worktree e regole di percorso per Windows
+- Hook dei worktree di Claude Code e porta per gli altri strumenti
+- Worktree di ogni macchina: il nodo riferisce, il primario manda la policy
+- Hook dei worktree di Claude Code: i file della traccia, separati da T12
+- Intrecci fra funzionalita': ogni incontro dichiarato ha una prova che li nomina tutti e due
+
+## 2.4.95 — 2026-11-24
+
+### Correzioni
+- **restart-gate** · a turn waiting for a person is parked, not streaming (#1634)
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-24 [skip ci]
+
+## 2.4.94 — 2026-11-24
+
+### Correzioni
+- never let an isolated spawn_agent fall back to the remote fast path
+
+### Sotto il cofano
+- memory stores: read an agent's deposit from its workspace, readable store names, one grouped problem for unreceived project memories
+- Share one keyed listener registry across the client stores
+- Share the CLI binary resolver across claude, codex, kimi and muse
+- dup: jscpd ratchet on exact duplicated lines, wired into gates:fast
+- Remove internal duplication in files route, grants query, message thread writes and pending actions
+- Duplicate detection: description as secondary signal, commit hashes as anchors
+- Share the incremental JSONL scanner between the claude and codex transcript titles
+- client-bundle job cap above the sum of its step caps, so it never ends cancelled
+- long-session growth budget in its own push-only job, so a judged tree still gets it
+- a judged push still runs the growth job
+- growth job builds the client before its bench
+
+## 2.4.93 — 2026-11-24
+
+### Sotto il cofano
+- reload gate: read the migrations registry without a pipe that SIGPIPE can break
+- main skips a tree a pull request already judged; Playwright deps cached in unit and gates; client built once per run
+- playwright-browsers action: a step name with ': ' broke the YAML of the composite
+- tree steps and client-bundle fail open; tests evaluate the proven outputs and guard the bundle fallback
+- client-bundle continues on error with short step caps; the board's contract test knows the e2e needs client-bundle
+- every step of client-bundle continues on error, so the board never reads it red while the run goes on
+
+## 2.4.92 — 2026-11-23
+
+### Sotto il cofano
+- board brakes: a shorter spend chip, so the restart time stays in sight
+
+## 2.4.90 — 2026-11-23
+
+### Correzioni
+- **context** · drop the topic directory, switch_topic resolves names
+
+### Sotto il cofano
+- tool surface golden: switch_topic takes a name or an id
+- security alerts: an ssh server keeps one card instead of a new one every round
+- board brakes: the chip says when the 24h spend cap stops the queue
+- name the spend amounts in English for the identifier gate
+
+## 2.4.89 — 2026-11-23
+
+### Sotto il cofano
+- skill tool: a skill folder linked from outside the root is read; a link to any other file still is not
+
+## 2.4.88 — 2026-11-23
+
+### Sotto il cofano
+- Node check checkouts no longer outlive the server that opened them
+- A turn-end hook can ask the agent to carry on, like Claude Code's Stop
+- Draw the turn-end hook's continuation as one service line
+- Prove the hook continuation on the real chat route
+- Hook continuation: count the chain on the rows, and never race a newer turn
+- Hook continuation: keep a retried hook row marked, and yield only to a turn the goal loop really bought
+- A reply the output cap cut is still an answer
+- hook-continuation: header comment in English (comment-language gate)
+
+## 2.4.87 — 2026-11-23
+
+### Correzioni
+- **security** · BitLocker never turned on answers 0, read it as off
+- **security** · keep machine-security.ts at its 813-line bloat baseline
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-23 [skip ci]
+
+## 2.4.86 — 2026-11-23
+
+### Sotto il cofano
+- LAND-19: il test del checkout di controllo tagliato a meta' dichiara cosa copre (check:untraced-tests rosso su main)
+- Mac updates: count from the first skipped fix, not the latest offer
+- machine-security.ts a 813 righe entra nella baseline (check:bloat rosso su main da 5b91df71a)
+
+## 2.4.85 — 2026-11-23
+
+### Sotto il cofano
+- Test del freno della finestra: rosso nell'ultimo minuto del giorno (#1613)
+
+## 2.4.82 — 2026-11-23
+
+### Sotto il cofano
+- ci-governor: mai congelare un Listener che sta prendendo un job
+- Give the stray-daemon fixture time to listen on a loaded machine
+- System health: jobs with no agent run as main, and problems read in the reader's language
+- Keep CI as the off switch of the real-temp check
+- ci-governor: dopo il SIGSTOP si rilegge, e se e' arrivato un job il Listener riparte subito
+- ci-governor: nel docstring la misura che scarta systemctl stop/start al posto di SIGSTOP
+
+## 2.4.81 — 2026-11-23
+
+### Correzioni
+- **security** · ssh-only servers stop timing out to «unknown»
+
+### Sotto il cofano
+- Fase CI: la classificazione dei guasti passa in ci-evidence-fault.ts, ci-evidence.ts e il suo test tornano sotto il cricchetto
+- Test di untracked-files: git e lo script girano con gitEnv(), come chiede il cancello git-env-nei-test
+- names and jobs read from IDENTITY.md in both of its formats
+- Fix scripts/slot.ts win32 wiring: output and nested quotes
+- System page: own pane type system-page, Select in the Log filters, agents in the Tools e2e stub (T4)
+- Test untracked-files: git col suo ambiente isolato
+- Select gate: normalise path separators so the exemption matches on Windows
+- exec-turn test: fake CLIs for every case, Muse prompt read from its file, hung child exits by itself
+- Relay tests: sign host proofs from a test helper, not a shared export
+- Nodo cloud: togli usermod dai template, aspetta il via libera sulla sicurezza
+- exec-turn test: fake CLI reads the argv prompt file before stdin (Muse never closes stdin)
+- stopped-log filters use Shared Select, not native <select>
+- Pre-review: run the tests of the touched files on the machine doing the review
+- route-table test: add agentPermissionsRouter to GOLDEN_ORDER
+- Remove the dead chain-parked unblock cure, fill in the daily-checks doc
+- Pre-push e gates:fast di nuovo verdi su main
+- Make slot and parallel tests portable: bun -e one-liners instead of POSIX sleep/exit
+- Baseline del bloat: ci-evidence.test.ts a 821 righe con i due test della testa ereditata
+- Disk budget: test tracciati su SYSTEM-DISK-01, niente verde senza database
+- I server SSH non mostrano più lo storico CPU e RAM del PC
+- Carry recent board.ts additions into the split modules
+- Main di nuovo verde su unit e gates: check:instance-strings motivato, nomi in inglese
+- Server fisso: tetto sui job CI in parallelo di tutti i repo (ci-governor)
+- Nodo cloud: guardia per le sessioni logind bloccate in closing, ssh condiviso dal Mac
+- Land pre-push probe: run the hook through sh on Windows
+- Compress aging agent transcripts; opt-in media expiry (debt G5)
+- disk-budget-check e' un ingresso di produzione (job launchd notturno), non uno script di sviluppo
+- Fix new Italian comment lines flagged by check:comment-language
+- Codice morto in produzione di nuovo a 596: il budget disco gira da launchd
+- ci-governor: il turno va a chi aspetta da piu' tempo (prima prendevano sempre gli stessi due runner e la CI di topics-app restava in coda)
+- the nightly disk-budget check ships, so its two server modules are production code
+- Lavoro in corso unico: il server sa di ogni turno, e un agente al lavoro si vede col numero
+- Prove di SUBAGENT-30 e BGVIS-10: i due video dell'e2e e i tre momenti della tab, della sidebar e della striscia
+- engine-log: example chat ids no longer read as email accounts
+- drop the production entry for disk-budget-check, main already excludes its two pure modules
+- Security cards stay on the hub that measured the machine
+- ci-governor: un runner fermo da oltre 20 minuti passa avanti (fame)
+- ci-governor: un Listener ripreso resta sveglio almeno 10 minuti (o fino al job)
+- engine-log: gli esempi di chat WhatsApp nei commenti non sembrano piu' indirizzi (check:instance-strings, account 2 > 0)
+- Fix card id cited in worktree-discard comment
+- node-check-worktree test declares what it covers (LAND-04), and names its real card
+- Tools and the phone context follow the System page (T4)
+- Trace the node check worktree test to LAND-19
+- Widen the spawn cap in the hung-git slim test
+- Judge real-temp escapes only on a CI runner
+
+## 2.4.80 — 2026-11-22
+
+### Sotto il cofano
+- System page: Health, Harness, Tools, Memories and Log in one pane, with the sidebar row and its problem count (T4)
+- cura chain-parked e unknown (T2)
+- Nodo cloud: log degli accessi leggibili (gruppi adm e systemd-journal) e misura dell'esposizione con piu' tentativi
+- Audit delle dipendenze rosso: una card sulla board degli avvisi, chiusa quando torna verde
+- stopped-log reads the engine's real log schema, all 8 stop reasons in words
+- Fase CI: i passi che falliscono (push, draft PR) nel log; un guasto della board non rimanda in review una card già atterrata
+- machine-health: a node whose build lacks the security route reports unknown checks instead of silence
+- Meno @internal: via gli alias di test e i re-export che nessuno usa
+- **deadcode-prod** · trace the 596-file baseline to its source
+- Fuse duplicated blocks: shared exec-turn helpers for Codex and Muse, MCP connection base class, shared judge helpers for the measurement scripts
+- Nodo cloud: gruppi di lettura log anche dallo snapshot, ultima misura di esposizione tenuta con limite di eta'
+- Fix scripts/slot.ts: run gates on win32 without /bin/sh
+- Audit delle dipendenze: card legata all'id della run, repo dal remote git, token e log
+- System page: one shared health reading, Log reads the real engine.log and process.log, @covers on the new tests (T4)
+- gate rossa quando ci sono file nuovi fuori da git
+- Fase CI: guasto della board solo per timeout, rete o credenziali; primo push di nuovo passeggero; dopo 3 giri con guasto il segno si chiude con una nota
+- Shared exec-turn: tests that turn both providers red, deadline entry for the shared spawn, baseline and orphan comments cleaned
+- System page: Log lines as time/agent/chat/text with real account parsing and per-file limit; column counts and agent links; Harness where-to-change; per-agent tool access with Limit; named memory stores (T4)
+- una card aperta assorbe una nuova run rossa, ancora una sola
+- Esposizione nodo: ultima misura in una memoria passata dal chiamante, niente reset di stato di modulo
+- fix AGENTS-05 e2e route/locator, open-section-on-phone in one tap, stopped register fits the 768px column
+- fix the unknown and chain-parked cures per review
+- Meno @internal: test sui moduli veri, via export di sola prova, motivo su ogni seam rimasto
+
+## 2.4.79 — 2026-11-22
+
+### Sotto il cofano
+- Add Agents navigation: overview, agent page, Configure with a channel tree
+- un figlio nativo si pilota anche da una sessione diversa dal genitore
+- Log server degli errori di navigazione nativa, striscia spenta su navigazione riuscita
+- per-agent activity from channel turns, validated route edits, English comments (T3)
+- overview with To fix on top and filtered activity, agent page Now/Errors/Upcoming/How it is made, Configure summaries, searchable channel tree with threads (T3)
+- schedule words comment marked as quoted Italian (T3)
+- channel tree on one column grid, human model names, thread title first in activity (T3)
+- strings in their own catalogue, readJson in configSummary, e2e testid for scheduled jobs (T3)
+- typed readJson calls in configSummary, agents dictionaries listed as catalogues in ui-language scan (T3)
+- Codex passa da un proxy locale che salta l'indirizzo morto di chatgpt.com
+- Proxy di Codex: URL col segreto costruito per campi, nomi che il cancello conosce
+- Permissions route and view, stopped-turns register (T3 follow-up)
+- Test del proxy: niente limiti di tempo stretti, reggono un Mac a load 30
+
+## 2.4.77 — 2026-11-22
+
+### Correzioni
+- nome inglese per il ref simbolico
+
+### Sotto il cofano
+- Rotta dei problemi di sistema: contraddizioni e lavori dal registro, chat dei canali senza nome, regole nel SOUL
+- Test dei rami su origin: tetto di 120 s ai test con repo veri
+
+## 2.4.76 — 2026-11-22
+
+### Novità
+- **agent** · request_login opens a login tab, raises it and waits for the sign-in
+
+### Sotto il cofano
+- Restore live-code tests deleted with dead helpers, rewritten on the live functions; fix Card.test for the removed LiveToolLine
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-22 [skip ci]
+- bloat lowered only for shortened files; language ratchets re-recorded; test fixes for lint and bloat
+- I rami delle card chiuse lasciano origin a ogni giro dell'audit
+- **worktrees** · dichiara WORKTREE-17 per la pulizia dei rami su origin
+- Destructure the dynamic import so the dead-code gate sees terminal-bridge-socket
+- env isolato nel test dei rami su origin
+- Rotta unica dei problemi di sistema degli agenti: un tipo per problema con frase, gravità e destinazione
+- Spazzata dei rami: i nodi non toccano i rami delle card altrui, e la vita si rilegge prima del delete
+- browser-close-keeps-session: seed the session before each test again (the deleted helper also did the seeding)
+
+## 2.4.75 — 2026-11-22
+
+### Sotto il cofano
+- Memory stores: the turn of an agent receives its own index (storesForTurn wired into context assembly)
+- Dead exports in shared/: test-only guards deleted with their tests, script-used ones tagged @knipignore
+- Dead exports in server/lib and server/providers: dead helpers deleted with their tests, script-used and seam ones tagged
+- Dead exports in server/services and server/routes: test-only helpers deleted with their tests, the rest tagged
+- Dead exports in the rest of server/: test-only helpers deleted with their tests, the rest tagged
+- Close the six reasons not to reattach a node run after a restart
+- Memory stores tests cover the SYSTEM-PAGE-01 requirement
+- Riaggancio dopo il riavvio: i test provano lo slot di run-2 e archived su tutta la catena
+- Dead exports in client/src: dead helpers deleted with their tests, repointed barrels, true seams tagged
+- Il consumo di un giro su nodo arriva all'origine e conta nei punti del progetto della card
+- Giro giornaliero: i test mordono finestra, modello e card, e l'e2e lascia le foto
+- Memory stores: GET /api/memory-stores/turn gives an agent its scoped indexes; the turn assembler no longer pushes them
+- readVerdict marcato @internal: main tornava rosso su check:deadcode-prod
+- Dead exports in server/ and shared/ (rest): barrels repointed to their source modules, test-only helpers deleted with their tests
+
+## 2.4.74 — 2026-11-22
+
+### Novità
+- **machines** · security mark codes+i18n, route whitelist, statusVisual colours, no shield on cloud node, renumber MACHINE-09
+
+### Correzioni
+- **motore** · credito finito = limite che riprende da solo, non errore
+
+### Sotto il cofano
+- Il server degli e2e non scrive piu' nel file di salute della produzione
+- Verifica di Topics: ragioni solo sulle card oltre soglia, schema dei test dalle migration vere, catena fino al primo backlog, età dall'ultimo ingresso in todo e da wait_since, nodo spento con corsa aperta, piano esaurito, cause da reason.kind
+- Il rosso del riallineamento dice di fondere origin/main, non main
+- security i18n leaves are catalogues for the UI-language gate
+- Catalogo strumenti con filtro per agente applicato alla rotta del turno
+- Persona a strati condivisi fra tutti gli agenti
+- Verifica di Topics: ore della catena dalla radice parcheggiata, pesanti in memoria, velocità senza orologio
+- Rinomina inv in inventory nel test del filtro strumenti (gate lingua identificatori)
+- Le foto della sicurezza si scattano anche a 375 px
+- Verifica di Topics: la riga dei task ha un tipo, any-budget torna a 398
+- Rinomina Persona in AgentPersona e aggiunge lo script di migrazione del SOUL principale
+- Il test del filtro strumenti dichiara cosa copre e perde una funzione duplicata
+- Un porto occupato da un altro file non riprova con lo stesso numero
+- Persona a cinque strati: regole e profilo separati, AGENTS.md nello strato agente, variante per ospiti nel muro
+- Il cartello dice «credito esaurito» invece di «limite di richieste»
+- Il tetto del bundle segue la misura della CI (+233 byte del cartello del credito)
+- Il filtro degli strumenti dell'agente arriva davvero al turno nativo
+- La Verifica di Topics si legge anche sul telefono senza l'hub
+- Guardiano del nodo Windows: logica di decisione provata da Pester, config esterna, installer
+- Reattach a still-open node run after a server restart instead of always queueing
+- Direct unit tests for the filter chain the turn runs
+- Guardiano del nodo: salva le prove prima di riavviare e ruota il log del demone
+- Guardiano del nodo: la rotazione salta il log tenuto dal demone e non blocca mai l'avvio
+- Guardiano del nodo: il percorso del log del demone da config non viene piu' sovrascritto
+- Drop the placeholder requirement id from the node-restart reattach suite
+- Register the node-restart reattach line growth in the bloat baseline
+- Verifica di Topics T2: le cause note si curano da sole, le altre aprono una card d'indagine
+- Verifica di Topics: giro giornaliero con una sola lettura AI (CHECK-04)
+- topics-check-daily: lint
+- fast gira anche sul nodo Windows
+- Verifica di Topics T2: le cure toccano solo card in todo senza corsa aperta, un problema per nodo, pin pubblicato, tetto riprovato il giorno dopo
+- Il nodo riceve intera la revisione anche dopo un riavvio
+- start goes through serve so server.ts stays in the production graph
+- Verifica di Topics T2: cure ristrette a card libere, bounce contato dopo la cura, interruttore aperto = attesa, tetto che sopravvive al riavvio, report delle cure in GET /api/topics-check
+- Memory stores: list, search, edit and archive every agent/project deposit
+- Commenti di node-run-brief a posto per il gate della lingua
+- Fix the reattach-on-restart path for a still-open node run
+- Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language
+- Rename Italian test identifier to pass check:identifier-language
+- Unblock check:comment-language on node-run-brief after the main realign
+- Verifica di Topics T2: bounce curato e indagine reggono al riavvio, il tetto resta nella riga della Verifica, cablaggio dei deps provato
+- un problema sotto il tetto resta capped, non torna curato a giri alterni
+- Riga della Verifica: il tetto delle indagini e' nell'e2e, e il numero non sbaglia l'accordo
+
+## 2.4.73 — 2026-11-22
+
+### Sotto il cofano
+- Fix any-budget overshoot and import cycle in agents registry
+- Verifica di Topics: la causa memoria legge dispatch_error, le attese volute e la coda non sono ore perse (deriveQueueReason), nuova causa nodo appeso, test della route
+- Rifiuto per modello: valori senza prefisso come il runner, test su due nodi saltati e su /api/version
+- Move backfillAgentAccounts out of the production registry
+- declare the requirement covered by dispatch-overflow.models
+- Verifica di Topics: il giro legge la ragione della coda da queueReasonOf e classifica per tone; orologio iniettato nella route, età dall'ingresso in todo, nodo appeso da poll/silenzio, catena in backlog, programmata scaduta
+- Tag untraced test with its covered requirement (KANBAN-76)
+- Il land del modello mancante aveva lasciato rossa la CI di main
+- machines integration fakes implement readVersion
+- take main's machines integration fakes
+
+## 2.4.72 — 2026-11-22
+
+### Sotto il cofano
+- Il sistema degli agenti in due repo: la parte di topics-app (#1486)
+- Rifiuto per modello: skip accumulato per macchina, prefissi, Codex/Muse esclusi, versione nel battito via /api/version aperta al nodo
+
+## 2.4.71 — 2026-11-22
+
+### Correzioni
+- **machines** · security mark hit area 24px (usability audit target-size)
+
+### Sotto il cofano
+- neutralize a merge message the repo's pre-push refuses, keep the id prefix
+- Verifica di Topics: stesso predicato del dispatcher (app_settings.auto_dispatch e board_settings.dispatch_paused), test sullo schema delle migration vere, tre test sul confine
+- **land** · give the pre-push land test its own git identity for CI
+- Spunta T1 in tasks.md: registro agenti già landato in 244072d4fd8
+- auth.ts: reflow the test-runner comment so its @internal tag fits under the 800-line ceiling
+- Verifica di Topics: CheckResult diventa ProofResult (no-type-mirrors), riga Automazioni allineata alla colonna del chevron (ROWALIGN-02)
+- **land** · repo-local identity and a direct hook check in the pre-push land test
+- Il nome del progetto in un modulo suo: il registro della campanella non si porta dietro la sidebar
+- Un solo risolutore della cartella engine e migrazione per gli account persi
+- read core.hooksPath explicitly and run the hook through runBounded
+- Con l'hub acceso la campanella chiusa legge le sue liste: hub-off le ammette, e HUBBR-06 dice il numero unico
+- **land** · show what the hook answered when it does not refuse
+- instance-strings ratchet (check:instance-strings), wired into pre-push; comment-only harness paths cleaned
+- Verifica di Topics: la riga Automazioni sta sola sopra il blocco fissato (niente slot chevron, ROWALIGN-03), filtro in sidebar-chevron-column, attesa della riga in sidebar-row-touch
+- **land** · surface why the hook did not refuse
+- read the hook with the live environment; test pins hooksPath over the suite isolation
+- Requirement ids and coverage tags for the agents registry spec
+- Nodi dichiarano versione e modelli; un nodo senza il modello della card non la riceve e il rifiuto non parcheggia
+
+## 2.4.70 — 2026-11-22
+
+### Sotto il cofano
+- One-line @internal tags: the 136 new four-line blocks said the same thing in one line
+- Verifica di Topics: la riga Automazioni e la vista ci sono anche senza hub (solo la Verifica), e2e hub-off aggiornato
+- I parser dell'hub fuori dal primo download, e i due test nuovi dicono cosa provano
+
+## 2.4.69 — 2026-11-22
+
+### Sotto il cofano
+- Tag test-only hooks with @internal so knip --production skips them; baseline exports 414 -> 250
+- Tag test seams with @internal (accessors and tables that exist only for tests); baseline exports 250 -> 227
+- Verifica di Topics: soglie sul confine, turno vivo, spostamenti sani non contano, giro unico, stati in attesa e ferma
+- Drop four functions only their own tests called (containsWakePhrase, shareFraction, formatMatchCounter, hasConversationMedia) with those tests; baseline exports 227 -> 223
+- Agenti e Sistema: la change con barra e scenari, e il feedback del 22/11 nel DESIGN.md
+- agenti-e-sistema: canali ad albero, ereditato senza ripetizioni, strumenti e memoria come strati, memorie cercabili
+- Verifica di Topics: indice su created_at, lettura della sola finestra, misura ai volumi veri (2,4 ms con 66k commenti e 2.016 campioni)
+- La campanella, il Dock e «Ora» dicono lo stesso numero, e le automazioni che aspettano stanno nella lista
+- Registro agenti dinamico dalla configurazione del motore canali
+
+## 2.4.68 — 2026-11-22
+
+### Sotto il cofano
+- Remove the unwired «Per te» summary sweep and its UI; keep for_you columns inert
+- Verifica di Topics: giro dei 5 minuti con tre voci in ore perse, senza modelli
+- Mark quoted UI label comments as intentional Italian
+- Lavori programmati: le occorrenze perse con il giro ancora aperto sono overlap, e un giro senza card non risulta creato
+- Bloat baseline: only the overflow test entry, with its reason
+- Drop isGhostScript and hasRunningScriptsInWorktree: nothing in production calls them; baseline 416 -> 414
+
+## 2.4.67 — 2026-11-21
+
+### Sotto il cofano
+- a card pinned to a machine at its seats waits in todo without spending an attempt
+- Record the new size of the overflow test file in the bloat baseline
+- Una card che torna vuota da due nodi di fila resta qui sei ore invece di rimbalzare fra i nodi
+- deadcode-prod: scripts and UI gallery are not production, queue the gate, test parseCounts
+
+## 2.4.66 — 2026-11-21
+
+### Sotto il cofano
+- **e2e** · wait for sidebar rows before measuring touch heights
+- Un nodo rotto resta fuori anche dopo un riavvio, e la card spostata dal sistema lo lascia subito
+- Il Cloud col freno aperto non riprende la card che ha appena lasciato
+- Split shared/board.ts into five modules under 800 lines behind the same barrel
+
+## 2.4.65 — 2026-11-21
+
+### Novità
+- **machines** · security shield beside each node and its four checks in the row (MACHINE-06)
+
+### Correzioni
+- **ci-phase** · bisect a red landed batch instead of bouncing every card
+
+### Sotto il cofano
+- La sonda Linux legge il firewall di iptables e filtra gli accessi falliti sul server
+- Il firewall del kernel vale acceso solo se guarda IPv4 e IPv6 su ogni interfaccia
+- **e2e** · wait on the viewport width, not a fixed sleep
+- Stop relaunching a hung paired node forever
+- Un nodo appeso non riceve più card nuove dall'overflow né le tiene legate
+- Drop duplicate knip.jsonc entries and a closed one-off migration
+- check-deadcode-prod: avoid non-English identifier
+- wire check:deadcode-prod in CI, drop healed blind spots
+- deadcode-prod: teach blindspots probe, qa-gate and rails test about production-only patterns
+
+## 2.4.64 — 2026-11-21
+
+### Sotto il cofano
+- Disk budget: pure ratio+cap evaluation, a measuring script, and a generic log retention
+
+## 2.4.62 — 2026-11-21
+
+### Sotto il cofano
+- a capo vero nella condizione del prep fermo (un \n letterale passava «n» come argomento in più)
+- Le righe CI portano la testa del loro giro: un verde della testa precedente non diventa pass della nuova
+- Fondi 4 copie di sleep con timer unref in server/lib/unref-sleep
+- Land senza niente da fondere: chiude la card solo se il ramo è verificato vuoto; la decisione non si riprova (logica in tasks-land-nothing.ts)
+- tasks-land-nothing: tipo del broadcast dal core
+- Daily dependency audit workflow and 24h reboot-required warning (SEC-01 T4)
+- MACHINE-08: servers without Topics measured over read-only SSH
+- SEC-02: mask secrets in tool arguments and output before storing and before replaying to the model
+- Un check di sicurezza rosso apre una card sola e la chiude quando torna verde (MACHINE-07)
+- Singular day in reboot-required warning (SEC-01 T4)
+- runsOf restituisce RunRow invece di Record<string, any>
+- --production gives a credible verdict, with a ratchet gate (check:deadcode-prod)
+- Una riga CI di un'altra testa si rilegge sulla testa nuova invece di chiudere il giro
+- I tipi dei lavori programmati hanno un nome loro, non quello di un tipo del client
+- La pulizia dei segreti cerca il DB dove sta davvero
+- La pulizia dei segreti non riporta indietro le righe scritte nel frattempo
+- move test-only exclusions from ignore to production-only project negations
+- I test degli avvisi di sicurezza dichiarano MACHINE-07
+- pem, aws e ubuntu sono parole del progetto per il cancello dei nomi
+- Nomi inglesi nel test dell'oscuramento dei segreti
+- Nodo fisso: la CI ha la precedenza sulla CPU (ci.slice 500, Topics 100) anche in un nodo rifatto da zero
+
+## 2.4.61 — 2026-11-21
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-21 [skip ci]
+- The board id helper of the root-paths rewrite has English names
+- un prep fermo riceve prima la spinta (etichetta riscritta), poi la quarantena; via il watchdog del listener
+- Lavori programmati 2/8: comandi a orario e API /api/scheduled-jobs
+- Lavori programmati 2/8: rilievi della revisione (morto senza codice = interrotto, codice scritto durante la sonda, trap del watchdog)
+- Revert "merge task 68c5aa1c-6a92-4b12-b71f-eed633f0c107: Approvazione senza commit chiude la card in review"
+
+## 2.4.60 — 2026-11-21
+
+### Sotto il cofano
+- Land senza niente da fondere: la persona approva e la card si chiude; la decisione non si riprova ogni sweep
+- sicurezza presidiata, la sicurezza di server e nodi si vede accanto a loro, apre una card quando diventa rossa, si aggiorna da sola e i segreti non si salvano in chiaro
+- The root-paths rewrite moves a home spelled with ~ or $HOME wherever its name ends
+
+## 2.4.59 — 2026-11-21
+
+### Sotto il cofano
+- Agenti e dati dell'app vivono nella casa di Topics, una sola radice
+- The root-paths rewrite test names the requirement it proves (PROJ-ID-01)
+- A rekeyed board leaves its record, so the old id still lands on the moved board
+- la quarantena del runner prep rientra da sola dopo 30 min; watchdog sul listener dei runner del nodo
+- Lavori programmati: migrazione rinumerata dopo il conflitto con task-for-you
+- The rewrite finds a folder that ends the value, and merges a pane retired twice
+- Il land usa il main locale quando origin/main è uno specchio senza storia in comune
+- Lavori programmati: rilievi della revisione (lavoro guasto non blocca gli altri, lavoro cancellato non parte)
+
+## 2.4.58 — 2026-11-21
+
+### Sotto il cofano
+- Il test di detectResultSyntax dichiara CHAT-TOOL-04, e la spec dice dei risultati JSON e diff
+- Il testo colorato delle tool card resta a 11px, come il blocco che lo contiene
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-20 [skip ci]
+- La radice dati vecchia, se e' solo un collegamento, scrive dove punta
+- si capisce di chi è ogni card e da dove arriva
+- La riscrittura dei percorsi vecchi ha il suo comando, il collegamento un nome inglese
+- Gli screenshot della Board si fanno anche su questo Mac, col motore della app; i feedback del 20/11 nel DESIGN.md
+- La barra della Board sta nello schermo a 1440 anche coi pannelli aperti
+- La barra della Board tiene margine per i font piu' larghi della CI; la Board del 20/11 e' approvata
+- Lo schizzo della barra dei filtri, nel commento, in inglese
+- Le due estremità dello slider del dettaglio hanno un nome
+- Un sotto-agente parte su Claude Code solo se la persona lo chiede
+- La riga dei filtri è alta come quella dello scheletro: le colonne non saltano di 4 px
+- Al dito il selettore «Il mio lavoro | Tutto» e lo slider del dettaglio sono bersagli da 44 px
+- Il selettore «Il mio lavoro | Tutto» torna come approvato; è lo scheletro a copiarne l'altezza
+
+## 2.4.57 — 2026-11-20
+
+### Sotto il cofano
+- Il menu del profilo si apre con chi sei in cima: le righe non scivolano più sotto il puntatore
+- Toglie il BOM da syntaxHighlight.ts e dal suo test
+
+## 2.4.56 — 2026-11-20
+
+### Sotto il cofano
+- Old board id resolves to the moved project's board (card 266a3e1e)
+- Declare what the board alias test covers
+- Persist board aliases so an old board id reaches the moved project (card 266a3e1e)
+- Project quota: strings into the main catalogues, quota row field topicId, migrations manifest regenerated after merging main
+- Preview recapture: wait for the seeded deep link long enough under load
+- Il test degli aiuti per le immagini delle domande dice cosa copre (ASK-01)
+- Avvio fallito: la card dice il motivo; modello sconosciuto rifiutato alla creazione con l'elenco dei validi; motore non pronto = coda
+- La spec delle domande con immagini aspetta lo stato di invio, non 600 ms
+- una board aperta attraverso un link tiene le sue card
+- la spec dell'anteprima card non usa piu' un nome di famiglia nudo, ora rifiutato alla creazione
+- i punti di tre giorni fa contano nella settimana, non nelle 24 ore del misuratore
+- La spec delle domande con immagini aspetta che il pannello si chiuda e la riga tenga la scelta
+- La spec delle domande con immagini porta ogni immagine in vista prima di controllare che sia caricata
+- baseline follows the scores that rose tonight [skip ci]
+
+## 2.4.55 — 2026-11-20
+
+### Sotto il cofano
+- move HighlightedPre out of ToolCards to stay under the bloat threshold
+- **automations** · spread nullable jobs safely in one-shot test
+- Translate permissions.ts header comment to English
+- dichiara @covers nello spec sidebar-row-touch-768
+- Land waits while main is red; file-tree yield test uses the JS walk; Playwright install retries on apt 503 (card 878779bd)
+- move Codex spawn_agent ask-user tests to their own file
+- Board settings warn when a registered project cannot have a worktree (#1358)
+- topics/ivory-sloop (card 10508340) (#1339)
+- Per-project quota: correct count (nested transcripts, per-model weight, cards keep their project, one folder one project, single calls), surfaces, 24h limit and a meter in the sidebar and the Dashboard, with no pause
+- Pass beforeMerge to tryMerge only when there is something to check; test red-main refusal and repair-card pass (card 98fc16ec)
+- trova il checkout dopo uno spostamento e chiude la card già su main (#1371)
+- Quality bar: a skipped placement job is neutral, a skipped e2e shard stays red
+- Lavori programmati: copia della change in openspec
+- Lavori programmati 1/8: un motore solo (tabelle, schedule condiviso, tick, azione card)
+- Lavori programmati: fix lint e export inutilizzato
+- import RecordedHandler in codex.test.ts after the split
+- niente nome di persona
+- Cron di jarvis-channels: esiti e consumi dei giri in Topics (tabella cron_runs)
+- toglie i sette requisiti NOT BUILT, archivia le change costruite, stato in cima alle aperte
+- Lavori programmati: i test dichiarano cosa coprono
+- declare @covers SUBAGENT-23 on codex.subagent-ask.test.ts
+- riallinea le 50 change aperte al codice, promuove i delta con @covers, archivia le costruite e chiude le superate
+- Link Supporto e community nel menu utente (invito Discord in un solo punto, spec USERMENU-11)
+- Lavori programmati: messaggi dello schedule condiviso in inglese
+- pair remaining bg-white/N and amber tone after main realign
+- filter read noise before the window check (a dip just before the window no longer inflates the return); meter table naming
+- declare @covers SUBAGENT-23 on permission.test.ts; gate scripts read the right path on Windows
+- Revisione automatica delle PR aperte: giro su modello economico, off finché repo e workflow sono impostati
+- Lavori programmati: nomi dei tipi senza doppioni client/server
+- Il nodo cloud non prende card che non può eseguire: rifiuti per repository e account tornano subito in coda, un avviso per causa
+- Test dei rifiuti del cloud (file nuovo, forzato: l'exclude locale ignora providers/)
+- Quota history sampler: one series per login, silent while a foreign writer is alive (card 29aa4259)
+- Revisione automatica PR: niente raffica all'accensione, una revisione per giro, card in review sui difetti, esito letto da claude -p
+- rilascia la prenotazione del nodo permanente se il prep resta in coda oltre 5 minuti
+- prep fermo oltre 5 minuti, il runner esce dalla pool permanent-prep e la run viene rilanciata
+- Un solo avviso per causa anche quando l'account si scopre dopo il primo rifiuto
+- change mostrato-nel-messaggio (M1 spec delta)
+- Ciò che l'agente mostra resta nel messaggio: media nel segno dell'apertura, indirizzi giusti, strada per sottoagenti/card/terminale, frasi nuove (M1)
+- cards parked for an unresolvable project folder return to todo by themselves
+- Rilancio della CI: gli e2e rossi (browser nativo, domande) non toccano il nodo cloud
+- La domanda porta l'immagine, anche nelle opzioni (M2)
+- Review card readable: Ti chiede block, Rimanda/Chiudi bar, plain-words summary
+- Test schema: for_you columns in migration order
+
+## 2.4.54 — 2026-11-19
+
+### Sotto il cofano
+- Windows temp cleanup in spawn-child ask tests no longer fails on EBUSY
+- Narrow machine-like owner credentials to node by traces, not by name (#1367)
+- a drop under 5 points is read noise, not a weekly reset
+
+## 2.4.53 — 2026-11-19
+
+### Sotto il cofano
+- Una card che incontra il limite del piano con il reset dichiarato aspetta, e il muro è solo della board (#1360)
+- topics/furtive-dahlia (card 8f2d0c9f) (#1362)
+
+## 2.4.52 — 2026-11-19
+
+### Correzioni
+- **subagent** · refuse ask_user_question for a Codex spawn_agent child too
+
+### Sotto il cofano
+- Name the pairing e2e fixture in plain English
+- a secondary server still works the node-run mirror cards from its primary
+- Mirror cards: tests that pin the restart blocks, and reserve the node-run key prefix
+- Give node pairing credentials their own scope instead of owner (#1364)
+
+## 2.4.51 — 2026-11-19
+
+### Correzioni
+- **subagent** · refuse ask_user_question for CLI spawn_agent children, not just native ones
+- **subagent** · never surface the ask-user panel for a spawned child, not just refuse its answer
+
+### Sotto il cofano
+- Remote children: gh's login is a mac-only resource too (SUBAGENT-28) (#1353)
+
+## 2.4.50 — 2026-11-19
+
+### Sotto il cofano
+- la prenotazione degli shard non si perde fra prepare-e2e e la partenza degli shard (#1315)
+- release-gate: nota sulla trappola del marcatore che salta la CI nel titolo di una PR (#1346)
+- Remote children: gh's login is a mac-only resource too (SUBAGENT-28)
+
+## 2.4.49 — 2026-11-19
+
+### Novità
+- **board** · delivery summary is the review card, five fixed fields (#1297)
+
+### Correzioni
+- **review-sweep** · the re-measure drops the verdict the gate still retains for that commit
+- **automations** · one-shot jobs are tasks, not rows of the automations list
+- **native** · rm guard ignores redirections, -- and $TMPDIR when checking temp targets
+- **ui** · keep task/orchestrator drawer opaque under native-frost below 1024px
+- scheda del task trasparente sulla Board stretta (#1292)
+
+### Sotto il cofano
+- Card su un nodo senza corsa: tornano in coda invece di restare in corso per sempre
+- **delivery-survives-reload** · the second card of the same test is not a duplicate of the first
+- Primary role, proven on two real servers: the secondary claims no card by any road, and a stale epoch is refused on every door
+- accept Windows absolute paths for previews and comment media
+- Comments in English (check:comment-language)
+- highlight JSON and unified-diff tool/shell output automatically
+- **delivery-survives-reload** · mark the quoted Italian log line, the comment-language gate counted it as new Italian
+- Primary epoch: a higher epoch is adopted only after the caller is authenticated and names a known machine; a state file that cannot be written no longer stops the boot
+- **red-bounce** · wait for the bounce, not for a red row that the bounce erases
+- Two-server test: an anonymous caller on an exempt nodes path adopts nothing either
+- **delivery-survives-reload** · cover the route's call to supersedeEarlierRounds
+- review card: the envelope gate knows the five headings by name, and a subtask gets no review-card warning
+- machine-health: a node whose build cannot read its memory gets it from its process list
+- **gates** · allow the two words the CI phase names use, check:identifier-language failed the PR
+- Primary epoch: the model proxy never adopts, an adopted epoch is at most one above and logged, a failed write leaves the role unchanged; the node client sends the epoch from one place and a real pairing proves the node adopts it
+- Two-server test: the anonymous claim declares the next epoch, so the one-step ceiling cannot hide an adoption before authentication
+- storia di CPU e memoria in linea nella riga, card del giorno come riga di stato, barre senza valore tolte (#1294)
+- Primary epoch: a node records the primary that paired it, and only that device carries a higher epoch in, under the machine id declared at pairing; no ceiling, no id from a header, loopback adopts nothing
+- righe e tessere a 44px anche a 768 con puntatore touch
+- count the Plan loader as span > canvas, the relative :has never matched (#1299)
+- **mcp** · pin the tool surface every profile sees in a golden file
+- **mcp** · split topics-mcp-server.ts into one module per tool family
+- **gates** · record the moved MCP comments and the cured server file
+- **gates** · move the MCP server's non-English names with their code
+- **claude-code** · characterize the one-shot complete() path before moving it
+- **claude-code** · move process record, CLI launch and partial input out of the provider
+- **claude-code** · type the moved partial-input event as unknown
+- identifier-language: stdin and oneshot are project words (the one-shot complete() path moved to claude/cli-launch.ts)
+- identifier-language: baseline down after the oneshot words joined the project list
+- an open wake breaker forbids the node even when online, and the card waits until it closes
+- Price a worktree card by where its board runs the checks: CI-only boards pay the agent, not the 4 GB list
+- prefix every stdout log line with an ISO timestamp
+- Spec KANBAN-118: dispatcher log lines carry their time; the timestamp test names it
+- finished chats show '· 34m fa' after the preview line
+- Retrigger CI after a cancelled runner
+- finished-ago outside the truncating span, i18n, e2e at 375 and 1440
+- Declare the spec requirement covered by the finished-ago e2e
+- finished-ago e2e: drive a real finished turn with a long last message
+- Primary epoch: the guard lives inside createNodesRouter, so the route-shadowing gate still finds the nodes router factory
+- un messaggio rifiutato da un turno già chiuso esce dalla coda da solo (#1287)
+- finished-ago e2e: accept the app language of the receipt
+- Sub-agents: a finished child no longer looks at work, its result reaches the parent during a provider hold (#1306)
+- Primary epoch: the nodes gate is one call into primary-role, so server/routes/nodes.ts stays within the 800-line bloat threshold
+- **utils** · pin the app context members and a message round trip
+- **utils** · move the message and stream helpers of createAppContext into server/app-context
+- **gates** · record the moved utils comments, names and size
+- **utils** · drop the imports that moved with the app-context modules
+- **utils** · stop exporting the app-context types nobody imports
+- **review-sweep** · move the review re-measure and conflict probe out of tasks-land.ts
+- topics/ivory-desert (card 7526e05d) (#1322)
+- Timestamp test: spell the helper name in full, the identifier gate rejects 'dep'
+- auto-land: a technical card stops waiting for a person on two false blocks
+- auto-land: land/send-back buttons are approval only when every question above them is approval words
+- **landing-files** · pin the scripts/*.json anchors so the mutation ratchet holds
+- English paraphrase in the approval-only comment
+- autoland-stats: mark the matched Italian status text
+- mark the approval word list as data the agents write
+- Card preview: the isolated server no longer inherits the live server's ports
+- Card preview: drop every TOPICS_* setting of the live server, not just its ports
+- Guardia rm: $TMPDIR tra apici singoli resta letterale
+- ignore malformed remote entries
+- Only the chosen primary can write a node's pairing channel
+- A pairing takes a node's channel only with an epoch above the node's
+- topics/prompt-pyre (card e830b367) (#1312)
+- Rename the integration pairing helper to an English name
+- topics/honest-hawk (card 0f8f8b9b) (#1336)
+- Require a local loopback session to approve a machine/node pairing
+- baseline follows the scores that rose tonight
+- Verify the local-session pairing guard with a real integration test
+- release-gate: il baseline di mutation del notturno non ferma la release (commit con [skip ci], file ammesso tra misurato e punta) (#1345)
+- una card parcheggiata dal nodo sblocca il pin se ce l'aveva messa l'overflow
+- Fix race in the group-TERM drain test (143 instead of 0) (#1342)
+- Boot sweep keeps recently archived chats in scope so tools orphaned at archive time get closed (#1337)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-19 [skip ci]
+- Show the before/after of the node-takeover approval card in an e2e spec
+
+## 2.4.48 — 2026-11-18
+
+### Correzioni
+- **ci-phase** · a round without a CI verdict is measured again, and a new round closes the card's earlier PRs
+- **review-sweep** · a review card with no verdict on its commit is measured, a green one in conflict goes back
+
+### Sotto il cofano
+- provider-hold: lift a plan hold when the account engine has a free account
+- provider-hold: ask the engine's selector, lift only the hold asked about, no re-arm flap
+- provider-hold: the anti re-arm covers only the very wall lifted, and asks the engine again
+- engine-free-account declares what it covers; English-only comment wording
+- provider-hold: re-arm probe covers earlier resets of the same window, and a stale probe re-arms nothing
+- Primary epoch: the primary sends its epoch to nodes and the receiver adopts the higher one; the gate sits inside the dispatcher tick; empty header means not declared
+- every card of a plan made here stays visible under active filters
+- the sidebar 'open elsewhere' row only counts windows it can focus, and a failed focus no longer opens the chat here
+
+## 2.4.47 — 2026-11-18
+
+### Sotto il cofano
+- Thinking body: no empty space under the last sentence (#1282)
+- Client nested in a Topics pane no longer drives the real app (#1285)
+- fornitore accanto all'email e frase delle 5 ore nelle schede account (#1283)
+
+## 2.4.46 — 2026-11-18
+
+### Sotto il cofano
+- grafici dei nodi con dettaglio al passaggio del mouse, memoria e storia di server e PC (#1279)
+
+## 2.4.45 — 2026-11-18
+
+### Sotto il cofano
+- CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1263)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-18 [skip ci]
+- browser pane: bounce size by 1px when a view comes on screen so it never stays black (#1266)
+
+## 2.4.44 — 2026-11-18
+
+### Sotto il cofano
+- niente useMemo con dipendenza da store esterno, il caso senza traduzioni esce subito
+- Nomi in inglese per il cancello degli identificatori
+
+## 2.4.43 — 2026-11-18
+
+### Sotto il cofano
+- Usage ledger: external calls (delegate jobs) name their project and count in it (06fda227) (#1265)
+- Thinking tradotto nella lingua della chat, gratis su macOS (Translation di Apple, helper Swift on-device)
+- Manifest delle migration riallineato dopo il merge di main
+- numeri da una fonte sola, ogni percentuale dice di cosa, agenti per nodo, quote per modello
+- ogni riga della panoramica dice quali agenti girano, per quale progetto e in che stato
+- Primary role and epoch: a non-primary server keeps dispatcher, scheduled cards and hub off; nodes, model proxy and tunnel refuse a lower epoch
+- the 'in another window' card leaves the grid, only the sidebar row stays
+- la prova della riga Thinking tradotta in un file suo, con video; il righello dei turni condiviso in un helper
+- il test della riga delle fasce misura con i font del Mac
+- consumo per progetto con conto giusto, avviso sul telefono e freno al budget
+- Reasoning translation: export solo ciò che serve fuori dal modulo
+- topics/gleaming-panther (card bb70db88) (#1270)
+- spawn dell'helper dichiarati (scadenza, motivo), trattino della regex annotato, registro dei tipi in uscita a 109
+- stato chat degli agenti; machine-agents: il dash lungo nella regex diventa escape (cancello check:emdash rosso su main)
+- Piano consumi: limite di default di 10 punti per progetto e una conferma sola che sblocca tutto
+- a card created from this window stays visible under active filters
+- Traduzione del reasoning: il wrapper dell'handler vive nel suo modulo e chat-handler resta a 800 righe; due rossi di main (nome vecchio gateway in una proposal) sistemati
+- la riga subordinata del progetto torna a centrare la tab
+- apple-adapter: tipo del processo figlio con stderr ignorato (typecheck del server)
+- topics/transient-bay (card 6d1e962f) (#1271)
+- Traduzione del ragionamento: requisito REASONING-TRANSLATE-01 nelle spec della chat, @covers sui test, binari di sistema dichiarati a knip
+- withReasoningTranslation riceve il servizio come gli altri: niente import a namespace che accecava il gate del codice morto
+
+## 2.4.42 — 2026-11-17
+
+### Sotto il cofano
+- Consumi per persona: mittente vero dei canali, registro d'uso esterno, «Chi ha consumato» (#1228)
+- Pannello delle domande: il tetto toglie anche la barra sopra la pane e ciò che sta sotto (#1234)
+- ssh del nodo cloud senza marcatura DSCP: IPQoS=none
+- ssh del nodo cloud con DSCP af41, scp senza marcatura
+- harness-sync: anche ssh_opts usa DSCP af41
+- la card con l'agente al lavoro mostra il loader, non il glifo in corso
+- accettato picomatch GHSA-fc5q-39xc-vjpf finché non esce una patch (#1241)
+- Un figlio finito è detto una volta sola; la riga della sidebar dice cosa si aspetta (#1237)
+- Marcatore persistente per le chat di sistema degli agenti (system_chats)
+- l'esempio della foto della tray torna a compilare (#1248)
+- Manifest delle migrazioni rigenerato
+- stima rivista a metà, 3/4 e fine giro; tempi in min, ore e giorni (#1235)
+- il testo lungo via /send arriva intero come paste (TERM-SEND-01)
+- i glifi di stato si cercano fra i visibili (il menu del composer ne ha di nascosti)
+- una riga per cosa, sottoagenti vuoti nascosti, barra provata col dato vero (#1243)
+- topics/tawny-marble (card 7749cf36) (#1247)
+- CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1260)
+- Usage ledger: external calls (delegate jobs) name their project and count in it
+- light-theme pairs for tints and tones, icons instead of text glyphs
+- drawer step count no longer carries the arrow glyph
+- fallback chip locator without the arrow glyph
+- Chi ha consumato: unire due persone dello stesso umano, stati di caricamento ed errore, etichetta dei record, e2e con video (USAGE-27) (#1262)
+- ogni scheda riempie la larghezza, grafici sulla storia che c'è, etichette uguali su tutti i nodi, niente tagli sul dato chiave
+- il test della riga di stato misura con i font del Mac, non con la stima delle altre piattaforme
+
+## 2.4.41 — 2026-11-17
+
+### Correzioni
+- **board** · un turno di chat non promuove card che la chat ha aperto per sé (#1230)
+
+### Sotto il cofano
+- un selettore di vista (kanban, lista, card) e raggruppamento a due livelli per board
+- Il loader si trasforma davvero quando l'AI cambia azione, anche nella tray (#1222)
+- Pannello delle domande a scelte: resta dentro la pane e scorre dentro di sé (#1229)
+- righe di tool, sottoagenti e card sulla stessa griglia (#1227)
+- English wording in canSendToAgent/canDecideReview comments
+- a comment on an archived node card stays a note
+- le spec che aprivano il Piano passano dal selettore di vista (Card)
+- Tab e riga di una chat col turno chiuso dicono cosa aspettano (sottoagente, processo, lavoro) (#1225)
+- il loader non si ferma più quando apri il menu (#1232)
+- an unreachable node says so in three words, not with the transport's timeout message
+
+## 2.4.40 — 2026-11-17
+
+### Correzioni
+- **chat** · una card che nessuno lavora non tiene su «in attesa di un lavoro in background» (#1224)
+
+### Sotto il cofano
+- node cards hide technical names and link the PC by name
+- rewrite the Italian code comments in English so the comment-language gate passes
+- a provider firewall in front of a node wins over its own ufw reading
+- Add an e2e spec measuring every board button at 44px under a coarse pointer (375 and 768)
+- Fix the touch target spec: an empty audit list is the pass, count the board buttons separately
+- Widen the sidebar 'action' toggle touch area to 44px
+- Make the card preview commands a 44px always-visible target under a coarse pointer
+- name the OS tools the security probes read, and spell out a regex the linter counts as hard
+- Evidence of a delivery: open at the top of the drawer, full-screen viewer with zoom and before/after divider
+- Evidence thumbnails keep a fixed box; viewer layer test and spec names in English
+- Declare PREVIEW-02 for the full-screen evidence tests
+- Evidence button gets an accessible name; spec waits for the frame to take its shape
+- Evidence divider: pointer capture is best effort
+- Evidence divider follows the drag with window listeners
+- Evidence spec moves the divider through its range input
+- Rebase fixup: evidence block in the extracted thread rows
+- write the health file where the tray reads it, not in the server's data folder
+
+## 2.4.39 — 2026-11-17
+
+### Sotto il cofano
+- node cards say memories, code and security, with small charts
+- per-machine security probes and 24h history in machines-health.json for the tray
+- harness-sync: put each project's memory where Claude Code on the node looks for it
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-17 [skip ci]
+- harness-sync: stop rsync --delete from wiping the node's own folders
+- nodo principale scelto a mano (analisi, proposta, tracce)
+- nodo principale per tutto il sistema agentico (strada completa, mappa, account)
+- sul principale i modelli Claude solo da abbonamento, con barra in T2
+- harness-sync: raise the open-files limit under launchd
+- harness-sync: resend at once what the node lost, without waiting for the 15 minute retry gate
+- Drop the empty left column from the Thinking row (#1223)
+
+## 2.4.38 — 2026-11-17
+
+### Sotto il cofano
+- Thinking row: label «Thinking», chevron only on hover and focus like the tool rows (#1221)
+- cloud-node: carry the Mac's agent rules and memories to the nodes, with the private part encrypted at rest
+
+## 2.4.37 — 2026-11-17
+
+### Sotto il cofano
+- verifica cron-gate Spinta, nessuna modifica al repo (falso allarme, soglia sistemata fuori repo) (#1219)
+
+## 2.4.36 — 2026-11-17
+
+### Sotto il cofano
+- baseline follows the scores that rose tonight
+- F02 transcript motion waits 30 s for the tool body to close on a loaded runner (card d8ee685d) (#1218)
+
+## 2.4.35 — 2026-11-17
+
+### Sotto il cofano
+- **git-status-native** · force a fresh generation between the disabled and native rounds (#1216)
+
+## 2.4.34 — 2026-11-17
+
+### Sotto il cofano
+- la finestra di fiducia ha 30 s invece di 7 e il log dice a che passo si ferma
+- topics/sleepy-phantom (card 3d431e73) (#1210)
+- sheet sidebar reopened after reload on phones, Plan status sign may be the canvas loader
+- **deploy-outcome** · 2 s deadline cap so a slow shell start still prints before it
+- Card 6b93490f: nessuna modifica qui, test riavvio di jarvis-channels già corretto in b7c8a2e1 (attesa del figlio da 3 a 30 s)
+
+## 2.4.33 — 2026-11-17
+
+### Sotto il cofano
+- Il loader mostra cosa sta facendo l'AI, ovunque e nella tray (#1204)
+
+## 2.4.32 — 2026-11-17
+
+### Sotto il cofano
+- an archived chat that launched work after being archived is alive (#1195)
+- Guardia rm per i turni: risolvere i target relativi contro il cwd (#1207)
+- in locale si unisce subito, la CI misura dopo e riporta i rossi a chi li ha fatti (#1203)
+- topics/brassy-hour (card 2a1f2e84) (#1208)
+
+## 2.4.31 — 2026-11-17
+
+### Sotto il cofano
+- Ragionamento in chat: la chiusura automatica avviene in un fotogramma (#1202)
+- la scheda della sincronizzazione memorie in un file suo, tray_menu_views.rs torna sotto le 800 righe (#1206)
+
+## 2.4.30 — 2026-11-17
+
+### Sotto il cofano
+- Ragionamento in chat: aperto mentre il modello pensa, chiuso quando risponde (#1194)
+- topics/patient-badger (card 3c348ab4) (#1191)
+- node-pool: cancellando un server a ore si toglie anche la sua macchina dal Mac
+- toglie il preset di workflow `armonia` (Triage, AI review, Human review) (#1197)
+- Anteprima di review: prepara il worktree, dice perché non parte, serve topics-app da un bundle suo (#1196)
+- un nodo per server vero, in ordine di dispatch, e la scheda delle memorie
+- heavy-command: cargo tauri build/run/nextest/bench and +toolchain forms enter the heavy-slot line (card 70eca86c)
+- Anteprima di topics-app: dati di esempio e pagina da fotografare scritta dallo script (#1200)
+- toglie il campo `preset` dal workflow e la lettura di board_workflows (#1199)
+- il fallimento di un riallineamento vecchio non resta per sempre, e la frase intera sta nel sottomenu
+- note on ghost queued CI runs that the API cannot cancel (#1179)
+
+## 2.4.29 — 2026-11-16
+
+### Correzioni
+- **chat** · una riadozione in corso risulta viva al watchdog anche se il figlio è già uscito (#1190)
+
+### Sotto il cofano
+- Align the reworded-wait test with agent waits staying in todo
+
+## 2.4.28 — 2026-11-16
+
+### Sotto il cofano
+- Agent waits and scheduled cards stay in todo: repeated waits grow the window (15 min, 1 h, 6 h, 24 h) instead of parking in backlog
+
+## 2.4.27 — 2026-11-16
+
+### Correzioni
+- **browser** · focus-pane mounts the panel with the same force-open fallback as open-pane
+- approve re-captures a missing delivery_commit before deciding CI
+
+### Sotto il cofano
+- a reload during a server restart gets one more reload once the server answers (card 10e0dd3d) (#1158)
+- La nightly rossa caricava un report che non esiste: ora carica video, trace e screenshot dei test che cadono (#1161)
+- worktree-gc: keep worktrees of running or recently ended sub-agents (#1164)
+- E2E time slack: discount the load two Playwright processes per runner add by design (#1141)
+- **browser** · move focus-pane mount flow into browser-bridge-focus to keep browser-bridge under the bloat limit
+- Il test del refresh a server giù non trovava le tab perché non trovava la pagina: il banco bloccava il service worker (#1172)
+- Split server/services/tasks.ts into tasks/ sibling modules by responsibility (#1165)
+- Usage read: say why the plan usage is unreadable (expired token, endpoint refusal) (#1178)
+- Delegation nudge: count wait_for_process and browser_eval as inline work, drop the last-step exit (#1177)
+- topics/cryptic-chimera (card 638aa944) (#1171)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-16 [skip ci]
+- topics/precise-marsh (card b89ed087) (#1183)
+
 ## 2.4.26 — 2026-11-16
 
 ### Sotto il cofano
@@ -68,6 +1234,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **native** · clear /login message when an expired token's refresh fails before the turn (#1125)
 - **terminal** · il focus tardivo non ruba la tastiera all'inbox appena aperta (#1126)
 - **board** · sveglia comment on a review card rejects and requeues like board_review reject (#1124)
+- **usage** · a 401 on the plan usage read recovers the OAuth token once and retries
 - **land** · a branch carried to another machine lands or is refused, never accepted (#1028)
 
 ### Sotto il cofano
@@ -204,6 +1371,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **tray** · machine card flat-detail condition compiles
 
 ### Sotto il cofano
+- needs_input and name-only assignee are readable on the card, not only in tooltips
+- a needs_input card shows the agent's actual question (human_ask) on the card, generic line only when none
+- no-reason needs_input says 'Question not recorded' instead of claiming a thread question
+- card-assignee governed by task.assignedTo
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-15 [skip ci]
 - topics/cheery-orbit (card 475724bc) (#868)
 - **tray** · machine cards laid out as the original (no frame, brake line, mini-dial legend, flat rows for cloud)
@@ -246,6 +1417,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - mark quoted menu wording in comments
 - voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)
 - i rami vecchi della card non tolgono i suoi commit (#1005)
+- audit dell'header della board a quattro larghezze
 - attesa riformulata tiene l'orologio; sha-off-main per commit in altri repo (#1008)
 - mobile board audit (read-only, no code change)
 - Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)
@@ -301,6 +1473,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - il turno adottato dopo un riavvio chiude il tentativo che aveva aperto (#976)
 - topics/ghostly-peacock (card c2908b93) (#971)
+
+## 2.3.107 — 2026-11-14
+
+### Correzioni
+- **board** · four misleading buttons (send/note, archive, closed-by-human, approve with unmerged branch)
 
 ## 2.3.106 — 2026-11-14
 

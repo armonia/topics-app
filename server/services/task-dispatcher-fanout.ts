@@ -191,8 +191,7 @@ export function createFanOut(ctx: DispatcherCtx) {
         cause: "fanout",
       });
       ctx.queue.emit(delivered);
-      // Only a card that waits on a PERSON rings: one routed to AI review goes
-      // back to whoever opened it (`awaitsHuman`, shared/workflow.ts).
+      // Only a card that waits on a PERSON rings (`awaitsHuman`, shared/workflow.ts).
       if (awaitsHuman(delivered)) {
         try {
           deps.broadcast({

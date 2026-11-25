@@ -45,10 +45,12 @@ async function readRows(page: import("@playwright/test").Page): Promise<RowMetri
   return page.evaluate(() => {
     const tree = document.querySelector('[role="tree"]');
     if (!tree) return [];
-    // The board row is not a row of the column: it stands alone above the
-    // pinned block and reserves no accordion box (LAYOUT-26, card 058ea722).
+    // The board and automations rows are not rows of the column: each stands
+    // alone above the pinned block and reserves no accordion box (LAYOUT-26,
+    // card 058ea722).
+    const standalone = '[data-testid="sidebar-board-generale"], [data-testid="sidebar-automations"]';
     const rows = Array.from(tree.querySelectorAll('[role="treeitem"]')).filter(
-      (row) => !row.matches('[data-testid="sidebar-board-generale"]') && !row.closest('[data-testid="sidebar-board-generale"]'),
+      (row) => !row.matches(standalone) && !row.closest(standalone),
     );
     return rows
       .map((row) => {

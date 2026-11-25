@@ -152,3 +152,72 @@ export interface SessionUsageResponse {
   source: 'native-runtime';
   absentMeansUnmeasured: true;
 }
+
+/**
+ * One project's share of the weekly Claude quota (project quota
+ *, USAGE-28): 100 points = one whole
+ * account for one week, the same unit `server/usage/person-usage.ts` reports
+ * per person, grouped by project instead.
+ */
+
+/** The steps the project menu's 24h limit selector offers (`null` = no limit). One list for the route that validates and the menu that draws. */
+export const QUOTA_LIMIT_CHOICES: ReadonlyArray<number | null> = [null, 5, 10, 15, 20, 30];
+
+/** What a project's limit is when nobody chose one. */
+export const DEFAULT_QUOTA_LIMIT = 10;
+
+/** Where a call came from, so a project's points can be read as "who spent them". */
+export type QuotaSurface =
+  /** A board card's own agent. */
+  | 'card'
+  /** A person's chat. */
+  | 'chat'
+  /** A subagent a card's agent started. */
+  | 'cardSubagent'
+  /** A subagent a chat's agent started. */
+  | 'chatSubagent'
+  /** A Claude Code session Topics never opened (a terminal, another tool). */
+  | 'outside'
+  /** A one-shot call (a title, a judge) made on behalf of a chat. */
+  | 'single';
+
+export const QUOTA_SURFACES: readonly QuotaSurface[] = ['card', 'chat', 'cardSubagent', 'chatSubagent', 'single', 'outside'];
+
+export interface QuotaPoints { points24h: number | null; points7d: number | null }
+
+/** One of the chats (or cards) that spent the most inside a project. */
+export interface QuotaChatRow extends QuotaPoints {
+  /** The topic id, so the row can link to the chat. */
+  topicId: string;
+  title: string;
+  /** `card` when the chat is a board card's agent, `chat` otherwise. */
+  surface: 'card' | 'chat';
+}
+
+export interface ProjectQuotaRow extends QuotaPoints {
+  /** `projectIdForPath(path)` of the project's own folder (a worktree folds onto it). `null` = outside any project. */
+  projectId: string | null;
+  /** The project's own folder; `null` for the "outside projects" bucket. */
+  projectPath: string | null;
+  /** Cost-weighted spend (list price, micro-dollars): the share of the hour's points the calls split. */
+  weighted24h: number;
+  weighted7d: number;
+  /** The 24h limit in points; `null` = no limit (or the "outside projects" bucket, which has none). */
+  limit: number | null;
+  /** Points per surface, every surface present. */
+  surfaces: Record<QuotaSurface, QuotaPoints>;
+  /** The heaviest chats by 24h points, then 7d points. */
+  topChats: QuotaChatRow[];
+}
+
+export interface ProjectQuotaResult {
+  /** `false` when there is no quota history file at all: points are null everywhere, only the weighted spend is real. */
+  quotaHistory: boolean;
+  /** Registered projects (also the idle ones, so their limit shows) and the "outside" bucket, heaviest first. */
+  projects: ProjectQuotaRow[];
+}
+
+/** What `GET /api/usage/projects/quota` answers. */
+export interface ProjectQuotaResponse extends ProjectQuotaResult {
+  cachedAt: string;
+}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
-import { Check, ChevronDown, ClipboardList, CornerDownRight, Laptop, Link2, Loader2, Lock, Paperclip, Send, Sparkles, X } from 'lucide-react';
+import { Check, ChevronDown, ClipboardList, CornerDownRight, Laptop, Link2, Lock, Paperclip, Send, Sparkles, X } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { useToast } from '../Shared/Toast';
 import { insertAtCaret } from '../../lib/insertAtCaret';
@@ -30,6 +30,7 @@ import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
 import { useComposerBoardSettings } from '../../hooks/useCardBoardSettings';
 import { BAND_OWN_PROPERTY } from '../../lib/selectionStyles';
+import { Spinner } from '../Shared/Spinner';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
  *  offre, ognuna con la CHIAVE della riga che dice cosa succede scegliendola.
@@ -89,7 +90,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
    * La porta dell'orchestratore chiama senza id: lì non nasce nessuna card, la
    * risposta è una sessione di chat.
    */
-  onCreated: (createdTaskId?: string) => void;
+  onCreated: (createdTaskIds?: string | string[]) => void;
   onError: (e: string) => void;
   /** Fuori dalla vista (ma vivo): un campo della board gli sta sopra. */
   hidden?: boolean;
@@ -518,7 +519,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     setProposal(null);
     boardDrafts.clearComposer();
     if (taRef.current) taRef.current.style.height = 'auto';
-    onCreated(out.created[0]?.taskId ?? '');
+    onCreated(out.created.map((c) => c.taskId));
   };
 
   return (
@@ -887,7 +888,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             title={tr('board.composer.attachTitle')}
             data-testid="composer-attach"
             className="shrink-0 rounded-lg p-1.5 text-app-text-secondary hover:bg-black/10 disabled:opacity-40 dark:hover:bg-white/10"
-          >{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</button>
+          >{uploading ? <Spinner size="sm" box={16} tone="current" /> : <Paperclip className="h-4 w-4" />}</button>
           <DictationButton
             testId="task-composer-dictation"
             onText={insertDictated}
@@ -899,7 +900,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             title={tr(todo ? 'board.composer.sendTodoTitle' : 'board.composer.sendBacklogTitle')}
             data-testid="composer-send"
             className="shrink-0 rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
-          >{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
+          >{submitting ? <Spinner size="sm" box={16} tone="current" /> : <Send className="h-4 w-4" />}</button>
         </div>
       </div>
     </div>

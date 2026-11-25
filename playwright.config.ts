@@ -1,6 +1,8 @@
 import { defineConfig } from "@playwright/test";
 import { E2E_BASE } from "./tests/e2e/helpers/test-server";
 import { CHROMIUM_LAUNCH } from "./tests/e2e/helpers/remote-gpu";
+import { suiteStorageState } from "./tests/e2e/helpers/tabs-position";
+import { DESKTOP_VIEWPORT, videoAt } from "./tests/e2e/video-evidence";
 
 // Two-tier E2E: the PR gate runs a fast, deterministic subset; the full suite —
 // including slow/perf/network/two-window/reload-persistence specs — runs nightly
@@ -108,7 +110,8 @@ const EVIDENCE = process.env.E2E_EVIDENCE === "1";
 //   slowMo  300 ms davanti a OGNI azione. Non è una prova, è un rallentatore
 //           perché il filmato sia guardabile da un umano.
 //
-// `E2E_VIDEO=1` aggiunge la clip. `E2E_NO_SLOWMO=1` toglie la pausa. Servono a
+// `E2E_VIDEO=1` (o `E2E_EVIDENCE=1`) aggiunge la clip, sempre alla dimensione del
+// viewport (`tests/e2e/video-evidence.ts`). `E2E_NO_SLOWMO=1` toglie la pausa. Servono a
 // rispondere con una misura, invece che a occhio, alla domanda «quanto ci costa
 // l'evidenza e quale pezzo».
 //
@@ -121,7 +124,8 @@ const EVIDENCE = process.env.E2E_EVIDENCE === "1";
 // «e' successo qualcosa»; il trace dice CHE COSA, e a che minuto.
 //
 // Il video resta a un tasto di distanza per quando serve una clip da guardare.
-const VIDEO = process.env.E2E_VIDEO === "1" && process.env.E2E_NO_VIDEO !== "1";
+// `E2E_EVIDENCE=1` also records the clip: the delivery bar asks for a .webm of every run.
+const VIDEO = (EVIDENCE || process.env.E2E_VIDEO === "1") && process.env.E2E_NO_VIDEO !== "1";
 /** Rimette i fotogrammi nel trace (la striscia di miniature). Vedi il commento su `trace`. */
 const TRACE_SCREENCAST = process.env.E2E_TRACE_SCREENCAST === "1";
 
@@ -304,10 +308,10 @@ export default defineConfig({
     actionTimeout: 15_000,
 
     baseURL: E2E_BASE,
-    // The board hides Done by default (a board of live work); the suite reads cards in
-    // Done, so a test starts with the column shown. board-group-density checks the default.
-    storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "topics.board.showDone", value: "true" }] }] },
-    video: EVIDENCE && VIDEO ? "on" : "retain-on-failure",
+    // Board filters and tab options the suite starts with: see suiteStorageState.
+    storageState: suiteStorageState(),
+    // The clip is sized to the viewport: left unset, Playwright scales it to 800x500.
+    video: videoAt(VIDEO ? "on" : "retain-on-failure", DESKTOP_VIEWPORT),
     // `E2E_SHOT=1`: uno screenshot alla fine di OGNI test, non solo sui rossi. Serve alle
     // ANTEPRIME delle card della living-doc: senza, la card mostra un rettangolo grigio col nome
     // dell'esito, perche' il trace con `screenshots: false` non contiene nessun fotogramma da
@@ -356,7 +360,7 @@ export default defineConfig({
           attachments: traceKeepsAttachments(process.versions.node),
         }
       : "on-first-retry",
-    viewport: { width: 1280, height: 800 },
+    viewport: DESKTOP_VIEWPORT,
     launchOptions: SLOWMO ? { slowMo: 300 } : {},
     permissions: ["clipboard-read", "clipboard-write"],
     // Lingua del BROWSER fissata all'italiano.
@@ -442,6 +446,7 @@ export default defineConfig({
         "**/mobile-screens-under-chrome.spec.ts",
         "**/mobile-bottom-bar-geometry.spec.ts",
         "**/board-mobile-phone.spec.ts",
+        "**/board-touch-targets-44.spec.ts",
         "**/mobile-edge-swipe-no-history.spec.ts",
         // The phone chrome feedback loop (05/10): its own viewport
         // (390x844 with a finger), the engine that ships, runs only in `webkit`.
@@ -505,6 +510,7 @@ export default defineConfig({
         hasTouch: true,
         isMobile: true,
         viewport: { width: 390, height: 844 },
+        video: videoAt(VIDEO ? "on" : "retain-on-failure", { width: 390, height: 844 }),
       },
     },
     /**
@@ -543,7 +549,7 @@ export default defineConfig({
       // Due spec, stesso telefono: la prima misura la CHROME (cosa c'è in alto e
       // in basso), la seconda il BORDO (chi si prende il trascinamento che parte
       // dal margine dello schermo, il cassetto o la cronologia).
-      testMatch: ["**/mobile-chrome-bar.spec.ts", "**/mobile-edge-swipe-no-history.spec.ts", "**/mobile-no-tab-strip.spec.ts"],
+      testMatch: ["**/mobile-chrome-bar.spec.ts", "**/mobile-edge-swipe-no-history.spec.ts", "**/mobile-no-tab-strip.spec.ts", "**/shown-in-message.spec.ts"],
       use: {
         browserName: "chromium",
         // GPU on the PC under pw-remote, nothing elsewhere: tests/e2e/helpers/remote-gpu.ts
@@ -551,6 +557,7 @@ export default defineConfig({
         hasTouch: true,
         isMobile: true,
         viewport: { width: 390, height: 844 },
+        video: videoAt(VIDEO ? "on" : "retain-on-failure", { width: 390, height: 844 }),
       },
     },
     {
@@ -580,6 +587,7 @@ export default defineConfig({
         hasTouch: true,
         isMobile: true,
         viewport: { width: 1280, height: 900 },
+        video: videoAt(VIDEO ? "on" : "retain-on-failure", { width: 1280, height: 900 }),
       },
     },
     /**
@@ -655,7 +663,12 @@ export default defineConfig({
         "**/project-row-hub.spec.ts",
         // The palette's entries for the hub's places and the board's brake chip, same reason as the bell.
         "**/palette-hub.spec.ts",
+        // The Board's origin filters, owner chips and Workflow view, shot on the engine the desktop app ships in.
+        "**/board-origin-filters.spec.ts",
         "**/board-frenato.spec.ts",
+        // The columns row's scrollbar band and its end room: the overlay scrollbar and the flex
+        // padding-end are WKWebView behaviour, so the bars are measured on the shell's engine.
+        "**/board-columns-scroll-edges.spec.ts",
         // The hub's status signals in the bell, the diary's kinds and the services' groups, same reason as the bell.
         "**/hub-status-signals.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone
@@ -671,6 +684,7 @@ export default defineConfig({
         // The board on a phone: the bar that does not scroll, the 44px search,
         // the columns that fill and the room under the last card (05/10).
         "**/board-mobile-phone.spec.ts",
+        "**/board-touch-targets-44.spec.ts",
         // A card that runs on «Cloud Claude»: the board as the desktop shell shows it, and the one
         // card scenario that can be filmed on this Mac (no agent runs here, the cloud is a fake).
         "**/board-cloud-card.spec.ts",
@@ -719,6 +733,9 @@ export default defineConfig({
         // A sub-agent's description is printed once, in the row or in the body, by
         // the measured truncation of the summary: the layout is read where it ships.
         "**/sub-agent-description-cut.spec.ts",
+        // The rows of a transcript on one grid (thinking, tools, sub-agents, cards, background jobs), read where it ships.
+        "**/chat-rows-layout.spec.ts",
+        "**/chat-rows-strip.spec.ts",
         "**/prompt-history.spec.ts",
         "**/goal-send-and-rate.spec.ts",
         // The goal bar starts closed, agent goal included, and opens on click.
@@ -775,7 +792,7 @@ export default defineConfig({
         "**/topic-browser-window-remote-return.spec.ts",
         "**/board-conversation-details.spec.ts",
         // "Recapture evidence" boots a worktree and photographs it. The server
-        // takes that photo with its own WebKit (KANBAN-95), so the whole
+        // takes that photo with its own WebKit (KANBAN-119), so the whole
         // delivery-preview path runs on this Mac without a Chromium.
         "**/board-recapture-preview.spec.ts",
         "**/chat-compact-command.spec.ts",
@@ -853,6 +870,8 @@ export default defineConfig({
         // The dispatch dashboard panel: the DOM reading runs in both engines, the
         // webkit run also gives the screenshot taken on the engine the app ships in.
         "**/board-dispatch-dashboard.spec.ts",
+        // The drawer's ground in a narrow window: WKWebView is where it was seen.
+        "**/board-drawer-opaque-narrow.spec.ts",
       ],
       use: {
         browserName: "webkit",

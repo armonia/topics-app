@@ -12,7 +12,17 @@
  * Only `running` holds a slot in the limits (SUBAGENT-15).
  */
 import type { Database } from "bun:sqlite";
+import { markSystemChat } from "./wake-adoption";
 import type { SubAgentResult } from "./subagent-result";
+import { noteSubagentWaitChanged } from "./subagent-wait-events";
+
+/** The parent chat of a child, to tell its attention state the children changed (BGVIS-10). */
+function announceChildChange(db: Db, id: string): void {
+  try {
+    const row = db.query("SELECT parent_session_key AS p FROM subagents WHERE id = ?").get(id) as { p: string } | null;
+    noteSubagentWaitChanged(row?.p);
+  } catch { /* a database that cannot answer announces nothing */ }
+}
 
 export type SubagentState = "running" | "retired" | "stopped" | "lost";
 /**
@@ -119,9 +129,11 @@ export function insertSubagent(
         row.runtime ?? "claude-code", row.sessionKey ?? null, row.tools ? JSON.stringify(row.tools) : null],
     );
   });
+  if ((row.runtime ?? "claude-code") === "topics") markSystemChat(db, row.id, "subagent");
   // Its own statement: a database without the column still gets the row above.
   const reason = row.runtimeReason;
   if (reason) attempt(undefined, () => { db.run("UPDATE subagents SET runtime_reason = ? WHERE id = ?", [reason, row.id]); });
+  noteSubagentWaitChanged(row.parentSessionKey);
 }
 
 /** Why the child was born where it was; null for a row older than the column. */
@@ -230,6 +242,7 @@ export function setSubagentState(db: Db, id: string, state: SubagentState, at = 
   attempt(undefined, () => {
     db.run("UPDATE subagents SET state = ?, ended_at = CASE WHEN ? = 'running' THEN NULL ELSE ? END WHERE id = ?", [state, state, at, id]);
   });
+  announceChildChange(db, id);
 }
 
 export function setSubagentSessionId(db: Db, id: string, claudeSessionId: string): void {
@@ -282,6 +295,14 @@ export function lastReportedTurnStatus(db: Db, id: string): string | null {
   return attempt(null, () => (db.query("SELECT status FROM subagent_reported_turns WHERE subagent_id = ? ORDER BY reported_at DESC, rowid DESC LIMIT 1").get(id) as { status: string } | null)?.status ?? null);
 }
 
+/** Branches of every child a parent ever spawned, whatever its state: they are the parent's own history. */
+export function subagentBranchesOf(db: Db, parentSessionKey: string): string[] {
+  return attempt([], () => {
+    const rows = db.query("SELECT branch FROM subagents WHERE parent_session_key = ? AND branch IS NOT NULL AND branch <> ''").all(parentSessionKey) as Array<{ branch: string }>;
+    return rows.map((r) => r.branch);
+  });
+}
+
 /** Running children: of one parent, or of the whole machine. */
 export function runningSubagents(db: Db, parentSessionKey?: string): SubagentRow[] {
   return attempt([], () => {
@@ -322,6 +343,17 @@ export function addPendingResult(db: Db, id: string, result: SubAgentResult): vo
     const prev = pendingResultsOf(db, id).filter((r) => !(r.turn === result.turn && r.status === result.status));
     db.run("UPDATE subagents SET pending_results = ? WHERE id = ?", [JSON.stringify([...prev, result]), id]);
   });
+  announceChildChange(db, id);
+}
+
+/** The pending result's card reached the parent chat as a row; only the parent's turn is still owed. */
+export function markPendingResultRowWritten(db: Db, id: string, turn: number, status: string): void {
+  attempt(undefined, () => {
+    const all = pendingResultsOf(db, id);
+    if (!all.some((r) => r.turn === turn && r.status === status)) return;
+    const next = all.map((r) => (r.turn === turn && r.status === status ? { ...r, rowWritten: true as const } : r));
+    db.run("UPDATE subagents SET pending_results = ? WHERE id = ?", [JSON.stringify(next), id]);
+  });
 }
 
 export function clearPendingResult(db: Db, id: string, turn: number, status: string): void {
@@ -329,6 +361,7 @@ export function clearPendingResult(db: Db, id: string, turn: number, status: str
     const rest = pendingResultsOf(db, id).filter((r) => !(r.turn === turn && r.status === status));
     db.run("UPDATE subagents SET pending_results = ? WHERE id = ?", [rest.length ? JSON.stringify(rest) : null, id]);
   });
+  announceChildChange(db, id);
 }
 
 export function pendingResultsOf(db: Db, id: string): SubAgentResult[] {
@@ -339,9 +372,20 @@ export function pendingResultsOf(db: Db, id: string): SubAgentResult[] {
   });
 }
 
-/** A result of one of this parent's children is still on its way to the chat. */
+/**
+ * A result of one of this parent's children is still on its way to the chat.
+ * `stopped` and `lost` are excluded: a `stop_agent` on a child whose earlier
+ * result never settled (its wake stuck behind a busy or held parent) left the
+ * "about to resume" line lit forever, long after `list_agents` already called
+ * the child gone. A result of a child that will
+ * never run again is abandoned, not awaited: it still reaches the chat as a
+ * plain row once the parent is free (`resultWakesParent`), it just stops
+ * counting as work in progress.
+ */
 export function parentHasPendingResults(db: Db, parentSessionKey: string): boolean {
-  return attempt(false, () => !!db.query("SELECT 1 FROM subagents WHERE parent_session_key = ? AND pending_results IS NOT NULL LIMIT 1").get(parentSessionKey));
+  return attempt(false, () => !!db.query(
+    "SELECT 1 FROM subagents WHERE parent_session_key = ? AND pending_results IS NOT NULL AND state NOT IN ('stopped', 'lost') LIMIT 1",
+  ).get(parentSessionKey));
 }
 
 /** Every result a restart found still owed to a parent chat. */

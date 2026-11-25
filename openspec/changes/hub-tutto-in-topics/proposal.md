@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** aperta: S1-S4 sono in main (HUBBR-06..22 in `openspec/specs/hub-bridge/spec.md`); R1-R4 vivono nel repo dell hub (`tools/usage-hub/rust/hub-service`, assente qui, esiti in `esito-R1.md` e `esito-R4.md`); mancano lo scambio dei chiamanti (C1), il 302 di `:3360` e `:3335` verso Topics (C2) e lo spegnimento (Z1), senza alcun commit in questo repo, e la tray unita (Y1/Y2) non ha un test che la nomini oltre ai `desktop-tauri/src-tauri/src/tray_menu_*_tests.rs` esistenti.
+
 # Hub, switchboard e tray dentro Topics: una porta, un servizio piccolo, nessuna app a parte
 
 ## Deciso da me

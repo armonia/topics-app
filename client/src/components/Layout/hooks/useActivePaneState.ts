@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useMemo, useRef } from 'react';
+import { DEFAULT_TOPIC_ICON } from '../../../lib/topicIcons';
 import type { Topic } from '../../../types';
 import { draftSessionKey } from '../../../state/firstSend';
 import {
@@ -48,7 +49,7 @@ export function useActivePaneState(args: UseActivePaneStateArgs): UseActivePaneS
         map[id] = {
           id,
           name: 'New Chat',
-          icon: '💬',
+          icon: DEFAULT_TOPIC_ICON,
           color: '#0066ff',
           sessionKey: draftSessionKey(id),
           createdAt: DRAFT_SENTINEL_TS,

@@ -5,7 +5,8 @@
  * Topics and the hub's «waiting for you» items together, deadlines first),
  * the broken group, quotas and accounts, the group to look at and the
  * finished one. History merges the hub's diary, without the routine runs that
- * went well. The pill says the figure of the group to decide, no sum.
+ * went well. ONE LEDGER: the pill, the «Ora» tab and the Dock say how many
+ * rows «Ora» lists (22/11: they said 104, 224 and 153 for one list).
  *
  * The Topics side is real: a Claude Code terminal asks a question and another
  * finishes a turn (the hooks route), a chat asks a permission (the bridge's own
@@ -44,9 +45,10 @@ import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
 import { taskSubject, terminalSubject, topicSubject } from "../../shared/attention";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ mode: "serial", timeout: 150_000 });
 
 const TOOL_INPUT = { command: "npm publish" };
@@ -164,6 +166,10 @@ async function dropScene(request: APIRequestContext, scene: Scene | null): Promi
 
 const panel = (page: Page) => page.getByTestId("inbox-panel");
 const groupKeys = (page: Page) => panel(page).locator("[data-bell-group]").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.bellGroup));
+/** How many rows «Ora» lists, group by group: the number the pill must say. */
+const rowsListed = (page: Page) => panel(page).locator("[data-bell-group]").evaluateAll((els) => String(els.reduce((n, e) => n + Number((e as HTMLElement).dataset.count ?? 0), 0)));
+/** The hub's rows of the default fake: 3 to decide, 2 broken, 2 quotas (an expired token, a full window), 2 to look at. */
+const HUB_ROWS = 9;
 
 test.describe("the bell in groups", () => {
   let hub: FakeHub | null = null;
@@ -202,11 +208,13 @@ test.describe("the bell in groups", () => {
     try {
       await page.goto("/");
       await expect(page.getByTestId("mobile-chrome-bar")).toBeVisible({ timeout: 30_000 });
-      // 3 of the hub, and (with the socket) the question, the permission and the review of Topics.
-      await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", withTopics ? "6" : "3", { timeout: 20_000 });
+      // The hub's 9 rows, and (with the socket) the question, the permission, the review and the finished turn of Topics.
+      await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", String(HUB_ROWS + (withTopics ? 4 : 0)), { timeout: 20_000 });
       await page.getByTestId("inbox-button").click();
       await expect(panel(page)).toBeVisible();
       await expect.poll(() => groupKeys(page), { timeout: 15_000 }).toEqual(["decide", "broken", "quota", "look", ...(withTopics ? ["finished"] : [])]);
+      // The sheet lists what the pill says.
+      await expect.poll(() => rowsListed(page)).toBe(await page.getByTestId("inbox-count").getAttribute("data-notification-count"));
       const decide = panel(page).getByTestId("inbox-waiting").locator("li");
       await expect(decide.first()).toHaveAttribute("data-source", "waiting");
       if (withTopics) {
@@ -227,7 +235,8 @@ test.describe("the bell in groups", () => {
       // The rest of the list, scrolled to its end: the finished at the bottom, the foot still in view.
       await panel(page).getByTestId("inbox-panel-now").evaluate((el) => { el.scrollTop = el.scrollHeight; });
       if (withTopics) await expect(panel(page).getByTestId("inbox-finished")).toBeInViewport();
-      await expect(panel(page).locator('[data-hub="live"]')).toBeInViewport();
+      // A hub that answers is not news: the foot never says «hub live».
+      await expect(panel(page).locator('[data-hub="live"]')).toHaveCount(0);
       await page.screenshot({ path: testInfo.outputPath("vero-campanella-a-gruppi-telefono-fine.png") });
     } finally {
       await ctx.close();
@@ -242,8 +251,8 @@ test.describe("the bell in groups", () => {
       await goToApp(page);
       await openMainChat(page, shot!);
       await expect(page.getByTestId("inbox-button")).toBeVisible({ timeout: 15_000 });
-      // The pill is the figure of the group to decide: 3 of the hub, 3 of Topics; never a sum with the warnings.
-      await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", withTopics ? "6" : "3", { timeout: 20_000 });
+      // The pill is how many rows «Ora» lists: the hub's 9, and Topics' 3 waits and 1 finished turn.
+      await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", String(HUB_ROWS + (withTopics ? 4 : 0)), { timeout: 20_000 });
 
       // The button is amber: something waits for the person.
       const button = page.getByTestId("inbox-button");
@@ -308,8 +317,10 @@ test.describe("the bell in groups", () => {
       await expect(broken).toHaveAttribute("data-count", "2");
       await expect(broken).not.toContainText("Gateway vecchio");
       await expect(broken).not.toContainText("Router dei modelli gratis");
+      // The expired token and the full window; the account switch is History's (it asks nothing of anybody).
       const quota = panel(page).getByTestId("bell-group-quota");
-      await expect(quota).toHaveAttribute("data-count", "3");
+      await expect(quota).toHaveAttribute("data-count", "2");
+      await expect(quota.locator('[data-source="account"][data-type="auto-switch"]')).toHaveCount(0);
       await expect(panel(page).getByTestId("bell-group-look")).toHaveAttribute("data-count", "2");
       if (withTopics) await expect(panel(page).getByTestId("inbox-finished")).toHaveAttribute("data-count", "1");
       // The chips on top say the same numbers as the groups.
@@ -321,14 +332,16 @@ test.describe("the bell in groups", () => {
       }
       // No file name of the contradiction reaches the screen.
       await expect(panel(page)).not.toContainText("rules-a.md");
-      // The pill and the chip of the group to decide say the same number.
-      await expect(panel(page).locator('[data-testid="bell-chip"][data-group="decide"]')).toHaveAttribute("data-count", (await page.getByTestId("inbox-count").getAttribute("data-notification-count")) ?? "");
+      // ONE NUMBER: the pill, the «Ora» tab and the rows of the groups.
+      const pill = (await page.getByTestId("inbox-count").getAttribute("data-notification-count")) ?? "";
+      await expect(panel(page).getByTestId("inbox-now-count")).toHaveText(pill);
+      expect(await rowsListed(page)).toBe(pill);
       // The times read as words of the panel (allow-italian: the copy under test): «adesso», «N min», a clock, «ieri».
       for (const time of await panel(page).getByTestId("bell-time").allTextContents()) {
         expect(time).toMatch(/^(adesso|\d+ min|\d{2}:\d{2}|ieri|\d{1,2} \S+)$/);
       }
-      // The foot: who is at work and whether the hub answers.
-      await expect(panel(page).locator('[data-hub="live"]')).toBeVisible();
+      // The foot says who is at work, never that the hub answers.
+      await expect(panel(page).locator('[data-hub="live"]')).toHaveCount(0);
       // Every group is on screen at once, the last one included.
       if (withTopics) await expect(panel(page).getByTestId("inbox-finished")).toBeInViewport();
       await expect(panel(page).getByTestId("bell-group-look")).toBeInViewport();
@@ -458,8 +471,9 @@ test.describe("the bell in groups", () => {
     await expect.poll(() => groupKeys(page), { timeout: 15_000 }).toEqual(["decide", "finished"]);
     await expect(panel(page).getByTestId("inbox-waiting").locator("li")).toHaveCount(2);
     await expect(panel(page).getByTestId("inbox-waiting").locator('[data-source="waiting"]')).toHaveCount(0);
-    // The pill is the figure of Topics alone.
-    await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", "2");
+    // The pill is the rows of Topics alone: the two waits and the finished turn.
+    await expect(page.getByTestId("inbox-count")).toHaveAttribute("data-notification-count", "3");
+    expect(await rowsListed(page)).toBe("3");
     const foot = panel(page).locator('[data-hub="down"]');
     await expect(foot).toBeVisible();
     await expect(foot.getByTestId("bell-footer-hub")).toHaveText(/^hub fermo (ora|da \d+ (min|h))$/);
@@ -470,7 +484,7 @@ test.describe("the bell in groups", () => {
     await band.getByTestId("bell-hub-retry").click();
     await expect(band).toHaveCount(0, { timeout: 15_000 });
     await expect.poll(() => groupKeys(page), { timeout: 15_000 }).toEqual(["decide", "broken", "quota", "look", "finished"]);
-    await expect(panel(page).locator('[data-hub="live"]')).toBeVisible();
+    await expect(panel(page).locator('[data-hub="down"]')).toHaveCount(0);
   });
 
   test("nothing waits, nothing broken: one line, and the log one click away", async ({ page, request }, testInfo) => {

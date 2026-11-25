@@ -23,6 +23,7 @@
 // sarebbe un accoppiamento nascosto fra loro; qui è il perno dichiarato, e si
 // prova senza alzare un server.
 
+import { askImagePath } from "../../shared/ask-images";
 import type { Database } from "bun:sqlite";
 import { cancelAsk, hasPendingAsk } from "../lib/ask-user-bridge";
 import { boardTaskForSession } from "./agent-census";
@@ -143,7 +144,7 @@ export interface AskRoutingDeps {
    * While this returned a boolean, the registry only knew that ONE question was
    * open, and the yes always went to the latest entry.
    */
-  comment: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => string | null;
+  comment: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string; media?: string[] }) => string | null;
   /** Consegna la risposta al rendez-vous della sessione che aspetta. */
   deliver: (sessionKey: string, answers: Record<string, string>) => boolean;
 }
@@ -154,6 +155,7 @@ export interface AskQuestion {
   header?: unknown;
   question?: unknown;
   options?: unknown;
+  images?: unknown;
 }
 
 /** Normalizza la prima domanda di un `ask_user_question` in testo + opzioni. */
@@ -161,6 +163,10 @@ export function normalizeAsk(questions: readonly AskQuestion[]): {
   key: string;
   text: string;
   options: string[];
+  /** Pictures of the question and of its options, as the agent wrote them. */
+  images: string[];
+  /** Which option carries which picture (1-based, in `images` order). */
+  optionImages: Array<{ label: string; image: string }>;
 } | null {
   const q = questions[0];
   if (!q) return null;
@@ -173,7 +179,19 @@ export function normalizeAsk(questions: readonly AskQuestion[]): {
         .filter((l): l is string => typeof l === "string" && !!l.trim())
         .map((l) => l.trim())
     : [];
-  return { key, text, options };
+  const optionImages = Array.isArray(q.options)
+    ? q.options.flatMap((o) => {
+        const option = o as { label?: unknown; image?: unknown } | null;
+        return option && typeof option.label === "string" && typeof option.image === "string" && option.image.trim()
+          ? [{ label: option.label.trim(), image: option.image.trim() }]
+          : [];
+      })
+    : [];
+  const questionImages = Array.isArray(q.images)
+    ? q.images.filter((i): i is string => typeof i === "string" && i.trim().length > 0).map((i) => i.trim())
+    : [];
+  const images = [...new Set([...questionImages, ...optionImages.map((o) => o.image)])];
+  return { key, text, options, images, optionImages };
 }
 
 /** Where the question went, and whether it is REALLY there. */
@@ -304,11 +322,17 @@ export function routeAskToTaskThread(
   // Chi chiede va detto: «la sessione di lavoro chiede» e «il coordinatore
   // chiede» portano a due risposte diverse, e nel thread si vede solo il testo.
   const intro = owner.isChild ? "Una sessione di lavoro di questo task chiede:" : "Domanda a meta' turno:";
+  // The pictures ride as attachments of the comment, and a line says which
+  // option each one belongs to: the quick-reply buttons are text.
+  const pictureLine = q.optionImages.length
+    ? `\n\nImmagini: ${q.optionImages.map((o) => `${o.label} = n. ${q.images.indexOf(o.image) + 1}`).join(", ")}`
+    : "";
   const ok = deps.comment({
     taskId: owner.taskId,
     projectId: owner.projectId,
-    content: `${intro}\n\n${q.text}`,
+    content: `${intro}\n\n${q.text}${pictureLine}`,
     options: q.options,
+    ...(q.images.length ? { media: q.images.map(askImagePath) } : {}),
     // The session the question came from: the writer turns it into the anchor
     // of the assistant row that asked.
     sessionKey: args.sessionKey,
@@ -465,7 +489,7 @@ export function closeRoutedAsk(deps: AskRoutingDeps, askId: string | undefined, 
   return false;
 }
 
-/** Solo per i test: il registro è memoria di processo. */
+/** @internal Solo per i test: il registro è memoria di processo. */
 export function _resetRoutedAsks(): void {
   routed.clear();
 }

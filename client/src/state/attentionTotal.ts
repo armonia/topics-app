@@ -1,8 +1,9 @@
 /**
- * THE ONE NUMBER Topics paints on the operating system: the Dock badge, the
- * macOS menu-bar tray glyph, the PWA Badging API, and the inbox's button all
- * project the value this module computes, and nothing else computes it
- * (ATTN-08, CHROME-COUNT-01, NOTIF-ONE-02).
+ * THE LIT SUBJECTS OF TOPICS (ATTN-08, CHROME-COUNT-01, NOTIF-ONE-02): the
+ * Topics part of the bell's ledger. The Dock, the tray, the PWA badge and the
+ * bell all show the ledger's total (`bellTotal` in `lib/bellGroups`), which
+ * is these subjects plus what the hub asks of the person; without the hub
+ * the two are the same number.
  *
  * One criterion: HOW MANY SUBJECTS ARE LIT. Subjects, not messages: a chat
  * with 39 unread messages is ONE (its row keeps showing 39). A subject is lit
@@ -66,42 +67,6 @@ export function chromeAttentionSubjects(
     out.push({ key: subject, kind: k.kind, id: k.id });
   }
   return out;
-}
-
-export function chromeAttentionTotal(
-  rows: AttentionRows,
-  topics: Record<string, Topic>,
-  terminalSessions: readonly TerminalSessionInfo[],
-): number {
-  return chromeAttentionSubjects(rows, topics, terminalSessions).length;
-}
-
-/** The tone of the bell's pill: amber, the blue of the lit subjects, or grey. */
-type BellTone = 'needs-you' | 'lit' | 'quiet';
-
-/**
- * THE BELL'S PILL (HUBBR-06). Without the hub it is THE ONE NUMBER above
- * (ATTN-08): amber when something waits for the person, blue otherwise.
- *
- * Where the hub is part of the installation the pill says the figure of ONE
- * group of the panel, the first that applies, so it never reads as a sum the
- * panel does not show:
- *   - amber, how many «Decidi tu» (the waits of Topics and the hub's items);
- *   - else blue, the lit subjects of Topics (the finished ones);
- *   - else grey, the hub's warnings.
- * The Dock, the tray and the PWA badge keep THE ONE NUMBER either way.
- */
-export function bellBadge(
-  chromeTotal: number,
-  topicsWaiting: number,
-  hub: { decide: number; alerts: number },
-  hubPresent: boolean,
-): { count: number; tone: BellTone } {
-  if (!hubPresent) return { count: chromeTotal, tone: topicsWaiting > 0 ? 'needs-you' : 'lit' };
-  const decide = topicsWaiting + hub.decide;
-  if (decide > 0) return { count: decide, tone: 'needs-you' };
-  if (chromeTotal > 0) return { count: chromeTotal, tone: 'lit' };
-  return { count: hub.alerts, tone: 'quiet' };
 }
 
 /** How many chats and terminals the tray menu lists: the menu stays short. */

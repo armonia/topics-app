@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { childEstimateMs, weightOf } from "./child-weight";
+import { childEstimate, weightOf } from "./child-weight";
 import { createTranscriptUsageReader } from "../services/transcript-usage";
 
 const usage = (over: Partial<{ billableTokens: number; cacheReadTokens: number; costUsd: number }> = {}) => ({
@@ -44,7 +44,7 @@ describe("transcript last call", () => {
   });
 });
 
-describe("childEstimateMs", () => {
+describe("childEstimate", () => {
   const mem = () => {
     const db = new Database(":memory:");
     db.run("CREATE TABLE subagents (id TEXT, runtime TEXT, state TEXT, created_at TEXT, ended_at TEXT)");
@@ -59,14 +59,17 @@ describe("childEstimateMs", () => {
     const db = mem();
     add(db, "a1", "topics", 3);
     add(db, "a2", "topics", 4);
-    expect(childEstimateMs(db, "topics")).toBeUndefined();
+    expect(childEstimate(db, "topics")).toBeUndefined();
   });
-  test("median of the finished children of the same runtime, nulls count as the CLI", () => {
+  test("the departure quantile of the finished children of the same runtime, nulls count as the CLI", () => {
     const db = mem();
     [2, 4, 6, 8, 50].forEach((m, i) => add(db, `c${i}`, i % 2 ? null : "claude-code", m));
     [1, 1, 1, 1, 1].forEach((m, i) => add(db, `t${i}`, "topics", m));
     add(db, "r9", "claude-code", 999, "running");
-    expect(Math.round((childEstimateMs(db, "claude-code") ?? 0) / MIN)).toBe(6);
-    expect(Math.round((childEstimateMs(db, "topics") ?? 0) / MIN)).toBe(1);
+    const cli = childEstimate(db, "claude-code");
+    // 0.7 of [2, 4, 6, 8, 50] min: 6 + 0.8 * 2 = 7.6
+    expect(Math.round((cli?.departureMs ?? 0) / MIN)).toBe(8);
+    expect(cli?.historyMs.map((ms) => Math.round(ms / MIN))).toEqual([2, 4, 6, 8, 50]);
+    expect(Math.round((childEstimate(db, "topics")?.departureMs ?? 0) / MIN)).toBe(1);
   });
 });

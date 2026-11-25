@@ -1,15 +1,7 @@
 /** @covers RES-ATTR-06 */
 import { describe, it, expect, beforeEach } from 'bun:test';
 import {
-  registerFeatureWeight,
-  collectFeatureWeights,
-  inventarioVisibile,
-  ordinaVoci,
-  voceVuota,
-  roughBytes,
-  _resetFeatureWeights,
-  _countFeatureWeightOwners,
-  type VocePeso,
+  registerFeatureWeight, collectFeatureWeights, ordinaVoci, voceVuota, roughBytes, _resetFeatureWeights, _countFeatureWeightOwners, type VocePeso,
 } from './featureWeight';
 
 const voce = (p: Partial<VocePeso>): VocePeso => ({
@@ -69,21 +61,9 @@ describe('un proprietario che fallisce', () => {
     expect(rotto.errore).toBe('boom');
     expect(v.find(x => x.id === 'sano')!.peso.entries).toBe(5);
   });
-
-  it('una voce in errore NON e\' vuota: non lo sappiamo, quindi resta visibile', () => {
-    expect(voceVuota(voce({ errore: 'boom' }))).toBe(false);
-    registerFeatureWeight('rotto', 'Rotta', 'trattenuto', () => { throw new Error('boom'); });
-    expect(inventarioVisibile()).toHaveLength(1);
-  });
 });
 
 describe('voci vuote', () => {
-  it('una funzionalita\' che non tiene niente non compare', () => {
-    registerFeatureWeight('vuota', 'Vuota', 'trattenuto', () => ({ entries: 0 }));
-    registerFeatureWeight('piena', 'Piena', 'trattenuto', () => ({ entries: 2 }));
-    const v = inventarioVisibile();
-    expect(v.map(x => x.id)).toEqual(['piena']);
-  });
 
   it('zero voci ma elementi presenti NON e\' vuota', () => {
     expect(voceVuota(voce({ peso: { entries: 0, items: 7 } }))).toBe(false);
@@ -95,12 +75,6 @@ describe('voci vuote', () => {
 
   it('tutto a zero e\' vuota', () => {
     expect(voceVuota(voce({ peso: { entries: 0, items: 0, memoryMB: 0, processCount: 0 } }))).toBe(true);
-  });
-
-  it('inventario interamente vuoto torna una lista vuota, non una sezione di zeri', () => {
-    registerFeatureWeight('a', 'A', 'trattenuto', () => ({ entries: 0 }));
-    registerFeatureWeight('b', 'B', 'misurato', () => ({ entries: 0, memoryMB: 0 }));
-    expect(inventarioVisibile()).toEqual([]);
   });
 });
 

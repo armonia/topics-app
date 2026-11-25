@@ -15,9 +15,14 @@ export const LIVE_WORK_ENDED_TTL_MS = 60_000;
 
 /**
  * `waiting`: its prompt has not reached it yet. `working`: its turn is open.
- * `ended`: its turn is over or its process is gone, for the last minute.
+ * `awaiting`: its turn is over and reported, and it waits on its own work (a
+ * sub-agent of its own, a command) to wake it again. Its row draws the loader
+ * only while that work is visibly running (`agentsAtWorkUnder` above zero, or
+ * a command or job of its own among its attention tasks): with nothing running
+ * it is a clock (18/11: fourteen idle children drew a loader for hours). `ended`: its
+ * turn is over or its process is gone, for the last minute.
  */
-export type LiveAgentState = "working" | "waiting" | "ended";
+export type LiveAgentState = "working" | "waiting" | "awaiting" | "ended";
 
 /**
  * What a sub-agent weighs, as the provider reported it. `usedTokens` and
@@ -51,11 +56,13 @@ export interface LiveAgentRow {
   /** Absent when nothing is measured on this child yet. */
   weight?: WorkWeight;
   /**
-   * How long a child like this takes, from the children of the same kind that
-   * already finished (their median); absent below the sample floor, and then
+   * How long a child like this takes at departure, from the children of the
+   * same kind that already finished; absent below the sample floor, and then
    * no countdown is drawn.
    */
   estimateMs?: number;
+  /** The durations that estimate came from, sorted ascending: the checkpoints re-read them (`revisedEstimate`). */
+  estimateHistoryMs?: number[];
 }
 
 export interface LiveCommandRow {
@@ -92,4 +99,33 @@ export interface ChildAgentRow extends LiveAgentRow {
  */
 export interface LiveChildren {
   agents: ChildAgentRow[];
+}
+
+/**
+ * How many agents work for a chat right now: its descendants, at any depth,
+ * whose own turn is open (`working`). The number the tab, the sidebar row and
+ * the strip print next to the loader. A child that closed its turn and waits
+ * on children of its own is not counted itself: its children are, so a chain
+ * of three that ends in one agent at work says 1, not 3. Every row is visited
+ * once, so a cycle in bad data cannot loop.
+ */
+export function agentsAtWorkUnder(agents: readonly ChildAgentRow[], topicId: string): number {
+  const byParent = new Map<string, ChildAgentRow[]>();
+  for (const a of agents) {
+    if (a.state === "ended") continue;
+    const list = byParent.get(a.parentTopicId);
+    if (list) list.push(a);
+    else byParent.set(a.parentTopicId, [a]);
+  }
+  let n = 0;
+  const seen = new Set<string>([topicId]);
+  const stack = [...(byParent.get(topicId) ?? [])];
+  while (stack.length) {
+    const a = stack.pop()!;
+    if (seen.has(a.id)) continue;
+    seen.add(a.id);
+    if (a.state === "working") n += 1;
+    stack.push(...(byParent.get(a.id) ?? []));
+  }
+  return n;
 }

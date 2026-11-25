@@ -17,7 +17,7 @@
  * The clocks are injected: the memory wait is not measured in real seconds, and
  * a test that slept through one would be measuring the machine it runs on.
  *
- * @covers RGATE-07, RGATE-08, KANBAN-15, KANBAN-92
+ * @covers RGATE-10, RGATE-11, KANBAN-15, KANBAN-92
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
@@ -59,7 +59,7 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
       ...base, ...extra,
     } as Parameters<typeof createTasksRouter>[2]);
     const router = boot();
-    const task = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "consegna" }))!.json();
+    const task = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "consegna", allow_duplicate: true }))!.json();
     db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(task.id);
     await call(router, "POST", `/api/sessions/s1/tasks/${task.id}/comments`, { content: "fatto, guarda demo/" });
     await call(router, "PATCH", `/api/boards/${task.projectId}/settings`, { reviewChecks: checks });
@@ -298,6 +298,119 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
     const said = await d.comments();
     expect(said).toContain("ripartiti da zero");
     expect(said).toContain("commit nuovo");
+  }, 60_000);
+
+  /**
+   * A ROUND CUT WHILE IT ONLY WAITED ON GITHUB RESUMES THE WAIT.
+   *
+   * 68 «interrupted by the shutdown» and 10 «il giro non riparte» in the log of // allow-italian: quotes the literal log line
+   * 18/11/2026: rounds whose local commands were green, cut while the pull
+   * request CI ran on GitHub, restarted from the commands at every boot and
+   * given up on after three. The run on GitHub was on the same head all along.
+   */
+  test("a reload during the CI wait resumes it: no local command again, no round burnt", async () => {
+    const ran = join(cwd, `ci-wait-${Date.now()}`);
+    let releaseCi: (() => void) | null = null;
+    const calls = { ci: 0 };
+    const d = await delivery([{ name: "bar", cmd: `echo x >> ${ran}` }, E2E_CI_CHECK], {
+      ciEvidence: async (input: { checks: Array<{ name: string; cmd: string }>; onCiWait?: (l: { prUrl: string }) => void }) => {
+        calls.ci += 1;
+        input.onCiWait?.({ prUrl: "https://github.com/o/r/pull/9" });
+        // Every reader but the last is the one a reload finds still polling.
+        if (calls.ci <= MAX_ROUNDS + 1) await new Promise<void>((resolve) => { releaseCi = resolve; });
+        return input.checks.map((c) => ({ name: c.name, cmd: c.cmd, ok: true, code: 0, ms: 1, timedOut: false, tail: "verde in CI" }));
+      },
+    });
+    expect((await d.deliver(500))!.status).toBe(202);
+    await until(() => d.gate().isOffLane(d.id), "the round waits on the CI");
+    // More reloads than the round cap allows, all of them during the wait.
+    for (let boot = 1; boot <= MAX_ROUNDS + 1; boot++) {
+      await until(() => releaseCi !== null, `reader ${boot} is polling`);
+      await stopReviewChecks();
+      releaseCi!(); releaseCi = null;
+      await until(() => !d.gate().isRunning(d.id), `wait ${boot} was cut`);
+      expect((await d.read()).status).toBe("in_progress");
+      _resetReviewChecksStop();
+      d.boot();
+    }
+    await until(async () => (await d.read()).status === "review", "the resumed wait reached review");
+    expect((await d.read()).checksState).toBe("pass");
+    // The local command ran ONCE, in the first round; every boot only read GitHub again.
+    expect((await Bun.file(ran).text()).trim().split("\n")).toHaveLength(1);
+    expect(calls.ci).toBe(MAX_ROUNDS + 2);
+    expect(await d.comments()).not.toContain("ripartiti da zero");
+    expect(d.remembered()).toEqual([]);
+  }, 60_000);
+
+  /**
+   * A CI ROW WITH NO VERDICT YET IS MEASURED AGAIN, NOT HANDED BACK.
+   *
+   * 29% of the `e2e-ci` rows of 133 rounds ended without a verdict, most of
+   * them on the 60-minute deadline with the run still queued; the gate read
+   * that as a failed delivery and the card went back to its agent with nothing
+   * to fix. Only a real red does that now.
+   */
+  test("a CI wait that ran out of time is measured again on the same head, and a real red is not", async () => {
+    const notYet = (c: { name: string; cmd: string }): CheckRun => ({
+      name: c.name, cmd: c.cmd, ok: false, code: 97, ms: 1, timedOut: false, notMeasured: true, transient: true,
+      tail: "NOT MEASURED: no CI verdict 60 minutes after the push",
+    });
+    const calls = { ci: 0 };
+    const d = await delivery([{ name: "bar", cmd: "true" }, E2E_CI_CHECK], {
+      ciEvidence: async (input: { checks: Array<{ name: string; cmd: string }> }) => {
+        calls.ci += 1;
+        return input.checks.map((c) => calls.ci === 1 ? notYet(c)
+          : { name: c.name, cmd: c.cmd, ok: true, code: 0, ms: 1, timedOut: false, tail: "verde in CI" });
+      },
+    });
+    const resp = (await d.deliver(20_000))!;
+    expect(resp.status).toBe(200);
+    expect((await d.read()).status).toBe("review");
+    expect((await d.read()).checksState).toBe("pass");
+    expect(calls.ci).toBe(2);
+
+    const red = { ci: 0 };
+    const r = await delivery([{ name: "bar", cmd: "true" }, E2E_CI_CHECK], {
+      ciEvidence: async (input: { checks: Array<{ name: string; cmd: string }> }) => {
+        red.ci += 1;
+        return input.checks.map((c) => ({ name: c.name, cmd: c.cmd, ok: false, code: 1, ms: 1, timedOut: false, tail: "e2e red on the pull request CI: e2e (1)" }));
+      },
+    });
+    const refused = (await r.deliver(20_000))!;
+    expect(refused.status).toBe(409);
+    expect(red.ci).toBe(1);
+  }, 60_000);
+
+  /**
+   * A ROUND THAT WAITS ON THE PULL REQUEST CI CLOSES THE CARD'S EARLIER PULL REQUESTS AT ITS START.
+   *
+   * A new round on a new branch leaves the earlier rounds' PRs open, each with
+   * its own CI run burning runner minutes; the round asks for them to be closed
+   * as soon as it begins, not only once its own draft is open. A bar with no CI
+   * row has no pull request of its own to protect, so it asks nobody.
+   */
+  test("a round with a CI row closes the card's earlier pull requests once, at its start; a bar without one does not", async () => {
+    const order: string[] = [];
+    const superseded: Array<{ cwd: string; taskId: string }> = [];
+    const withCi = await delivery([{ name: "bar", cmd: "true" }, E2E_CI_CHECK], {
+      supersedeEarlierRounds: async (input: { cwd: string; taskId: string }) => {
+        order.push("supersede"); superseded.push(input); return { closed: [] };
+      },
+      ciEvidence: async (input: { checks: Array<{ name: string; cmd: string }> }) => {
+        order.push("ci");
+        return input.checks.map((c) => ({ name: c.name, cmd: c.cmd, ok: true, code: 0, ms: 1, timedOut: false, tail: "verde in CI" }));
+      },
+    });
+    expect((await withCi.deliver(20_000))!.status).toBe(200);
+    expect(superseded).toEqual([{ cwd, taskId: withCi.id }]);
+    expect(order[0]).toBe("supersede");
+
+    const localOnly: Array<{ cwd: string; taskId: string }> = [];
+    const without = await delivery([{ name: "bar", cmd: "true" }], {
+      supersedeEarlierRounds: async (input: { cwd: string; taskId: string }) => { localOnly.push(input); return { closed: [] }; },
+    });
+    expect((await without.deliver(20_000))!.status).toBe(200);
+    expect(localOnly).toEqual([]);
   }, 60_000);
 
   test("a delivery cut before it ever realigned realigns at the boot, instead of inheriting an old commit", async () => {

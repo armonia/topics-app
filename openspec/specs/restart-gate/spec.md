@@ -282,18 +282,19 @@ Mac, un operatore) non aveva un cammino che non cambiasse lo stato. Il server
 SHALL esporre `GET /__daemon/idle`, di SOLA LETTURA, dietro lo stesso loopback e
 lo stesso bearer degli altri `/__daemon/*`.
 
-La risposta SHALL dire `idle`, `inFlight` (`taskDispatcher.busyCount()`),
-`holding` (la frase di `whatIsStillWorking`, `null` se niente trattiene),
+La risposta SHALL dire `idle` (niente LAVORA: vedi RGATE-12), `inFlight`
+(`taskDispatcher.busyCount()`), `holding` (la frase di `whatIsStillWorking`,
+`null` se niente trattiene, comprese le chat ferme su una persona),
 `unrecoverable` (card in volo più chat non riadottabili: la somma che il
-cancello passa a `quiescenceVerdict`) e `alreadyWaiting` (se un'attesa di
-riavvio è già in corso). SHALL leggere gli stessi predicati del cancello e NON
-SHALL avviare un'attesa, toccare la porta del dispatcher (`drain`/`undrain`) né
-mandare segnali.
+cancello passa a `quiescenceVerdict`), `waitingOnPerson` (quante chat aspettano
+una persona) e `alreadyWaiting` (se un'attesa di riavvio è già in corso). SHALL
+leggere gli stessi predicati del cancello e NON SHALL avviare un'attesa, toccare
+la porta del dispatcher (`drain`/`undrain`) né mandare segnali.
 
 #### Scenario: server a riposo
 - **GIVEN** un server senza turni in volo e senza attese di riavvio
 - **WHEN** arriva `GET /__daemon/idle` con il token del daemon
-- **THEN** la risposta SHALL essere 200 con `idle: true`, `holding: null`, `alreadyWaiting: false`
+- **THEN** la risposta SHALL essere 200 con `idle: true`, `holding: null`, `waitingOnPerson: 0`, `alreadyWaiting: false`
 - **AND** il server SHALL essere ancora in vita dopo la risposta, senza attesa avviata
 
 #### Scenario: senza token
@@ -329,3 +330,237 @@ a zero turni SHALL valere anche se si unisce a un'attesa già in corso.
 #### Scenario: un salvataggio senza commit
 - **GIVEN** un cambio dei sorgenti del server con `HEAD` fermo
 - **THEN** lo script SHALL chiedere `restart-when-idle` senza `zeroTurns`, con il minuto delle chat di sempre
+
+### Requirement: RGATE-10 — Una consegna che sta solo ASPETTANDO non trattiene il riavvio
+
+Un turno di card in volo il cui unico lavoro è ASPETTARE i nostri check
+pre-review — l'attesa di memoria, la spaziatura fra i rilasci, lo swap
+sostenuto, la coda del cancello dei check, il sondaggio fuori corsia della CI
+della pull request — NON SHALL trattenere un riavvio pianificato. Non trattiene
+neanche il suo stream: un turno di card passa da `/api/chat`, quindi la sua
+sessione è anche una chiave degli stream vivi, e lasciata lì tratterrebbe il
+riavvio una seconda volta come chat non riadottabile.
+
+«Solo aspettando» si legge da due registri, mai dalla riga della card: il
+cancello dei check dice che una corsa è VIVA, il registro del governatore dice
+se un comando di quella corsa è stato davvero lanciato. Corsa viva e nessun
+comando lanciato = sta aspettando. Una corsa con un comando IN CORSO trattiene
+il riavvio come oggi: quei minuti sono una misura, e tagliarli la butta via. Il
+dubbio — un registro che non risponde — SHALL trattenere, come ogni altro dubbio
+di questo cancello.
+
+Perché è lecito tagliarla: la consegna è RICORDATA e riemessa dal processo dopo
+(vedi sotto). Perché è necessario: il 15/09/2026 le due attese si tenevano a
+vicenda. La card cdc9f39b aveva consegnato, il suo `update_task` era fermo sui
+nostri check, e i check erano fermi nell'attesa di memoria su un Mac in swap —
+niente di nostro stava girando. Il cancello ha contato «1 turno/i di card della
+board non tornerebbe se lo tagliassi» e ha rinviato il riavvio per 31 minuti
+(«riavvio RINVIATO da 1924s»), mentre il drain teneva in coda sette altre card
+su «Riavvio del server in arrivo». Il riavvio aspettava i check, i check
+aspettavano memoria che un Mac in swap non restituiva, e al fallimento aperto
+dell'attesa (30 minuti) sarebbero partiti comandi pesanti su quello stesso Mac.
+A finirla è stato un SIGTERM a mano.
+
+#### Scenario: una consegna ferma nell'attesa di memoria
+- **GIVEN** un riavvio pianificato, una card in volo la cui corsa di check è viva senza nessun comando lanciato, e altre card in coda
+- **THEN** il cancello NON SHALL contarla fra ciò che trattiene, né come card né come chat
+- **AND** il riavvio SHALL procedere senza aspettare
+
+#### Scenario: un comando dei check sta girando
+- **GIVEN** la stessa card con un comando dei check effettivamente lanciato
+- **THEN** il riavvio SHALL essere rinviato come oggi
+- **AND** oltre il tetto lungo SHALL partire la notifica di riavvio trattenuto: un'attesa senza fine può essere accettabile, muta no
+
+#### Scenario: una consegna ferma sul sondaggio della CI
+- **GIVEN** una corsa che ha restituito la corsia e aspetta solo la CI della pull request
+- **THEN** il riavvio NON SHALL essere trattenuto da quella card
+
+### Requirement: RGATE-11 — La consegna tagliata da un riavvio torna da sola, ed è la STESSA consegna
+
+Il server SHALL ricordare, fuori dalla memoria del processo, la consegna a cui
+ha risposto «i check stanno ancora girando», con il corpo della richiesta come
+l'agente l'ha mandata e il commit che la corsa stava misurando. Al boot SHALL
+riemettere quella richiesta a se stesso per ogni card ancora in lavorazione.
+
+«Ancora in lavorazione» SHALL voler dire `in_progress`, e nient'altro. Review e
+done sono oltre la consegna; backlog e todo sono una card che qualcuno si è
+ripreso — il bottone «Ferma» la parcheggia in backlog, il reconcile del boot
+rimette in coda l'orfano del processo ucciso. Per quelle la riga SHALL essere
+solo DIMENTICATA, senza lanciare niente: riemetterla faceva girare la barra
+intera (tsc, eslint, `bun test`, vite) subito dopo un riavvio avvenuto perché la
+memoria era sotto il pavimento, scriveva `checks_state = 'pass'` e il commento
+di servizio su una card ferma, e si fermava solo alla transizione finale con un
+409 — la suite era già girata e il badge verde era già lì. Lo stato SHALL essere
+riletto anche al momento della riemissione, non solo quando la riga viene
+caricata: il giro di ripresa gira mentre il router si costruisce, il reconcile
+del dispatcher rimette in coda più tardi e in asincrono.
+
+La consegna riemessa SHALL essere la STESSA: nessun riallineamento in più su
+main (il worktree è già sull'albero che il primo riallineamento ha prodotto, e
+un secondo `git merge main` scriverebbe un merge che nessuno ha chiesto),
+nessun verdetto rosso, nessun tentativo consumato. Il commit ricordato SHALL
+essere quello che QUESTO giro stava misurando — il checkout letto dopo il
+riallineamento — e non l'ultima misura scritta sulla card: una consegna tagliata
+prima di arrivare al checkout non ha riallineato niente, e prendendo in prestito
+il commit vecchio (che su una riconsegna senza commit nuovo è proprio l'HEAD del
+worktree) il boot la leggeva come «stessa consegna» e saltava l'unico
+riallineamento che le serviva, misurando una base che main si era lasciata
+indietro.
+
+Senza questo, il taglio di RGATE-10 non sarebbe gratuito: il turno dell'agente
+muore col processo e con lui il suo `update_task`, quindi nessuno tornerebbe a
+chiedere e la card resterebbe `in_progress` con la spia dei check spenta al boot.
+
+#### Scenario: il riavvio taglia una consegna in attesa
+- **GIVEN** una consegna la cui corsa di check è stata interrotta dallo spegnimento
+- **WHEN** il processo dopo riparte
+- **THEN** la consegna SHALL essere riemessa dal server sullo stesso commit
+- **AND** i check SHALL girare una volta sola in più, senza un secondo riallineamento
+- **AND** la card SHALL entrare in review se sono verdi, senza righe rosse nel thread
+
+#### Scenario: la card è stata fermata o rimessa in coda mentre il server era giù
+- **GIVEN** una consegna ricordata la cui card è uscita da `in_progress` (parcheggiata in backlog dal bottone «Ferma», o rimessa in `todo` dal reconcile del boot)
+- **WHEN** il processo dopo riparte
+- **THEN** la riga SHALL essere cancellata senza riemettere niente
+- **AND** nessun comando dei check SHALL partire, e `checks_state` SHALL restare quello che era
+
+#### Scenario: il riavvio taglia la consegna prima del riallineamento
+- **GIVEN** una consegna a cui il cancello ha risposto «ancora in corso» senza aver mai risolto un checkout, su una card che porta il commit di una misura precedente
+- **WHEN** il processo dopo riparte
+- **THEN** la consegna riemessa SHALL riallinearsi su main prima di misurare
+
+### Requirement: RGATE-12 — Un turno che aspetta una PERSONA non LAVORA
+
+Una chat bloccata su una domanda (`ask_user_question`) a schermo è viva: il suo
+processo interroga il bridge ogni 25 secondi, la sua riga è `partial = 1`, e per
+la domanda non c'è nessun orologio che la chiuda. Ma non sta lavorando: aspetta.
+Il cancello SHALL contarla fra le chat ferme su una domanda e NON SHALL contarla
+anche fra gli stream o i turni aperti del broker.
+
+Contata due volte, vinceva la voce sbagliata: il 24/11/2026 una domanda lasciata
+senza risposta alle 02:06 teneva `GET /__daemon/idle` a `idle: false` alle
+11:58, con «3 chat in streaming», e uno script che decide il sonno del Mac
+doveva ignorare a mano ogni chat senza messaggi da un'ora. Non c'era niente da
+ripulire: il turno era davvero aperto, la domanda davvero senza risposta. Era
+sbagliata l'ETICHETTA, e con lei ogni conto che ne discende — la frase che
+nomina cosa trattiene, `unadoptable`, `workingChats` e `lostWorkingChats`.
+Quest'ultimo è il guasto che RGATE-09 vieta già a parole («una chat ferma su
+una DOMANDA resta fuori»): un riavvio a zero turni si sarebbe fermato dietro una
+domanda per tutto il tempo in cui nessuno rispondeva.
+
+Chi aspetta una persona SHALL essere riconosciuto dal registro del bridge, che
+dice «aspetta» nell'istante in cui è vero e smette nell'istante in cui qualcuno
+risponde, e non da una sonda in cache. Ma il registro è memoria e può
+mentire: una voce che il bridge non interroga più da oltre due minuti e mezzo
+(`ASK_POLL_LIVE_MS`: la gamba più lunga più la finestra di ritentativo) è un
+residuo, e un residuo NON SHALL mai nascondere un turno che lavora. Un
+predicato che non si riesce a leggere lascia il turno fra quelli che LAVORANO:
+il dubbio protegge il turno.
+
+Vale per le DOMANDE e non per i permessi. La decisione di un permesso muore col
+turno (`endStream` lo chiude come interrotto), quindi tagliare quel turno la
+perde: resta fra chi lavora, e trattiene come prima.
+
+`GET /__daemon/idle` SHALL rispondere `idle: true` quando l'unica cosa che
+trattiene sono chat ferme su una persona, e SHALL contarle in `waitingOnPerson`.
+Una chat che le righe dicono ferma ma che il registro non ha ancora confermato
+(subito dopo un boot, prima della gamba successiva del suo figlio) SHALL contare
+come lavoro e non anche come ferma.
+
+Il riavvio tratta una chat ferma su una domanda come ogni chat: se il suo
+processo torna dopo il riavvio non aspetta, altrimenti ha il minuto delle chat
+(`chatGraceMs`) e poi parte, perché la domanda sopravvive sulla sua riga. Uno
+stream fermo su una domanda SHALL contare nel calcolo del minuto, o un turno
+nativo che gira in questo processo verrebbe tagliato al primo giro senza il
+tempo di scrivere la risposta. Una riga rimasta `partial = 1` senza una domanda
+aperta e senza un processo che la regga NON SHALL essere contata da nessuna
+fonte: da sola non è un turno.
+
+Una gamba che ritira una risposta dal buffer SHALL chiudere la domanda che
+aveva riaperto (ogni gamba apre la domanda): una risposta data fra due gambe
+lasciava la domanda «aperta» per sempre, e un turno che ha ripreso a lavorare
+sarebbe sembrato fermo su una persona.
+
+#### Scenario: la domanda lasciata aperta tutta la notte
+- **GIVEN** una chat il cui turno è bloccato su una domanda senza risposta da ore, il cui bridge continua a interrogare
+- **WHEN** arriva `GET /__daemon/idle`
+- **THEN** la risposta SHALL avere `idle: true` e `waitingOnPerson: 1`
+- **AND** `holding` SHALL nominare «chat ferma su una domanda», non «chat in streaming»
+
+#### Scenario: accanto a una chat che lavora
+- **GIVEN** una chat ferma su una domanda e un'altra che sta streammando
+- **THEN** `idle` SHALL essere `false` e `holding` SHALL nominare solo quella che lavora
+- **AND** la chat ferma SHALL essere contata in `waitingOnPerson`
+
+#### Scenario: la risposta arriva
+- **GIVEN** una chat ferma su una domanda
+- **WHEN** la persona risponde e il turno riprende
+- **THEN** la chat SHALL tornare fra quelle che lavorano al giro successivo, senza etichetta rimasta
+
+#### Scenario: un residuo del registro
+- **GIVEN** una voce di domanda aperta che il bridge non interroga da più di `ASK_POLL_LIVE_MS`
+- **THEN** il turno su quella sessione SHALL essere contato come lavoro, non come fermo su una persona
+
+#### Scenario: un permesso a schermo
+- **GIVEN** un turno bloccato su un permesso
+- **THEN** il turno SHALL restare fra quelli che lavorano e trattenere come prima
+
+### Requirement: RGATE-13 — Chi altro legge «LAVORA»: la card ferma su una persona, l'auto-land, il vacuum
+
+RGATE-12 dice che un turno fermo su una persona non lavora, e lo dice per ogni
+lettore del cancello, non solo per `GET /__daemon/idle`. Tre lettori leggevano
+ancora il conteggio vecchio, quello che nomina anche le domande aperte.
+
+**La card.** Un turno di card fermo su una domanda il cui bridge interroga ancora
+(`askStillPolled`, lo stesso registro di RGATE-12) NON SHALL contare come lavoro:
+`working` è falso e `workingBusy` non lo nomina, quindi `idle` risponde `true`. SHALL
+però restare in `cards`, e il riavvio lo rinvia come oggi. Non è la regola delle
+chat, e la differenza è la RIPRESA: una chat tagliata su una domanda non viene
+ripresa (`resumeVerdict`: aspettare una persona non è un'interruzione da
+riparare), mentre il dispatcher riprende subito una card tagliata a metà turno
+con il sollecito del turno interrotto, che non guarda se la sua domanda è ancora
+aperta. Il modello la ripone in un secondo pannello o va avanti senza la
+risposta, che arriva dopo come messaggio. Per questo il rinvio della card resta
+finché la ripresa non rispetterà una domanda aperta: è lavoro a parte, e quel
+giorno la card potrà uscire da `cards` come la chat.
+
+Una card il cui turno TORNA dopo il riavvio (claude-code sotto il broker, un
+turno nativo staccato) non è in `cards`, e si parcheggia come ogni chat. È il caso
+di fatto: su 459 card degli ultimi 30 giorni 28 hanno interpellato una persona,
+21 su claude-code e 7 sul nativo, nessuna su Codex né su ACP. Resta a cards solo
+una card il cui turno vive nel processo del server. Una card senza sessione, una
+domanda che nessuno interroga più e un permesso restano lavoro: il dubbio
+protegge il turno.
+
+**L'auto-land.** `autoLandTurnCount` SHALL non contare le chat ferme su una
+persona, né come stream né come turni del broker: la domanda sopravvive sulla
+riga, e il land di un diff del server aspettava per tutto il tempo in cui nessuno
+rispondeva, fino alle sue tre ore, e poi rinunciava. SHALL contare ogni stream che
+lavora e ogni card in `cards`, ferma o no: il cancello la rinvierebbe.
+
+**Il vacuum.** Il giro del vacuum incrementale SHALL leggere `workingBusy` e non
+`busy`: `busy` è la frase del riavvio e nomina le domande, quindi una domanda
+lasciata aperta di notte saltava ogni giro. Il vacuum libera pagine su disco e
+tiene il lock di scrittura per pochi millisecondi: gli serve sapere se qualcosa
+CALCOLA, non se un riavvio sarebbe trattenuto.
+
+#### Scenario: una card che non torna, ferma su una domanda
+- **GIVEN** un turno di card nel processo del server bloccato su una domanda senza risposta, il cui bridge interroga
+- **WHEN** arriva `GET /__daemon/idle`
+- **THEN** la risposta SHALL avere `idle: true`
+- **AND** il cancello SHALL contarla in `cards` e rinviare il riavvio, come oggi
+
+#### Scenario: un land e una card ferma
+- **GIVEN** la stessa card ferma e un land in corso
+- **THEN** `working` SHALL essere `true`: il land riscrive main e non aspetta nessuno
+
+#### Scenario: la domanda lasciata aperta di notte e il vacuum
+- **GIVEN** una chat e una card ferme su una domanda da ore, niente altro in volo, pagine libere nel database
+- **WHEN** parte il giro del vacuum incrementale
+- **THEN** SHALL liberare le pagine
+- **AND** con una chat che streamma SHALL fermarsi come prima
+
+#### Scenario: il land di un diff del server accanto a una domanda
+- **GIVEN** una chat ferma su una domanda e nient'altro
+- **THEN** il conteggio dell'auto-land SHALL essere zero
+- **AND** SHALL restare positivo con una chat che lavora, o con una card che non torna anche se ferma

@@ -136,7 +136,7 @@ function ChatFooter() {
       {/* The chat's state, at the end of the transcript (chat-strips-in-transcript), on the composer's
           column. A strip that grows under a reader at the bottom leaves them there: that growth is
           `totalListHeightChanged`'s, like a row's. */}
-      {footer?.strips && <div data-testid="chat-end-strips" className="chat-measure">{footer.strips}</div>}
+      {footer?.strips && <div data-testid="chat-end-strips" className="chat-measure [&>:first-child]:mt-1.5">{footer.strips}</div>}
       <div style={{ height: `var(${ANCHOR_SLACK_PROPERTY}, 0px)` }} />{/* Room a fold closed near the end keeps below the last row (useDisclosureAnchor). */}
       {/* The composer's height as a CSS variable, written by its observer before the paint (panes:F15). */}
       <div style={{ height: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)` }} />

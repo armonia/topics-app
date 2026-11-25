@@ -228,6 +228,8 @@ export interface Task {
   overflowedAt?: string;
   /** ON THE WIRE only while it holds: the node an empty run came back from, which the overflow skips. */
   overflowSkipMachine?: string;
+  /** ON THE WIRE only while it holds: every node this card came back from (empty run, no model), all skipped. */
+  overflowSkipMachines?: string[];
   /**
    * ON THE WIRE only when set: on a node's MIRROR card, the branch its worktree
    * is born from instead of main (the origin card's own delivery branch, sent
@@ -264,20 +266,22 @@ export interface Task {
   openerTopicId?: string;
   /** That chat's name. */
   openerName?: string;
+  /** The always-on agent that chat belongs to (`shared/agent-home.ts`), when it is an agent's chat. */
+  openerAgent?: string;
   /**
    * The Jarvis channel the work came from, only while that chat exists: the linked
    * channel chat (`channel_topic_id`), else the opener chat when it is a channel chat.
-   * Display only: it grants nothing and wakes nothing.
+   * `agent` is the agent answering in it. Display only: it grants nothing and wakes nothing.
    */
-  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace };
+  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace; agent?: string };
   /**
    * The workflow column the card sits in when it is not the default one of its
-   * status (`triage`, `ai_review`, `human_review`; `shared/workflow.ts`).
+   * status (today only `ci`; `shared/workflow.ts`).
    * Absent = the default column: every card on a board with the default
    * workflow, so those rows read exactly as before.
    */
   stage?: string;
-  /** The question for the person a delivery carried (what sends it to Human review). Absent = none. */
+  /** The question for the person a delivery carried. Absent = none. */
   humanAsk?: string;
   /** Who decided the work goes to main ('human' | 'auto'); kept across a bounce. Absent = nobody yet. */
   landIntent?: "human" | "auto";
@@ -351,6 +355,12 @@ export interface Task {
   deliveryBranch: string | null;
   /** Branch tip at delivery time — the handle that outlives the reaped branch. */
   deliveryCommit: string | null;
+  /**
+   * The tip a review SENT BACK, kept so the same tip handed in again is read as
+   * "no work done" instead of a new delivery. Absent in the list projection,
+   * which does not select the column: read it from `svc.get`, never from a feed row.
+   */
+  priorCommit?: string | null;
   reviewAt: string | null;
   deliveryFilesChanged: number | null;
   deliveryInsertions: number | null;
@@ -469,6 +479,11 @@ export interface Task {
    * asks `svc.get`, which carries it whole.
    */
   recentComments: CardComment[];
+  /** Soft-deleted: off the board, kept for history. A GET still answers for
+   *  it (someone's drawer may be open on it), so the client has to be told —
+   *  a status untouched by `archive()` (still e.g. `review`) read as a live
+   *  card with its buttons active. */
+  archived: boolean;
 }
 
 export interface CreateTaskInput {
@@ -531,14 +546,11 @@ export interface CreateTaskInput {
   /** The executable acceptance bar. */
   bar?: string | null;
   /**
-   * The workflow column to be born in. Omitted = the server decides
-   * (`stageAtBirth`: triage for a card from a person on a board that has it).
+   * The workflow column to be born in. Omitted = the default column of the status.
    */
   stage?: string | null;
   /**
-   * The question for the person a card born in review carries. On a board
-   * with AI review it is what lets a card opened by an agent or a schedule be
-   * born in Human review, as on a delivery (`stageForDelivery`).
+   * The question for the person a card born in review carries.
    */
   humanAsk?: string | null;
 }
@@ -622,10 +634,8 @@ export interface UpdateTaskPatch {
    */
   stage?: string | null;
   /**
-   * THE QUESTION FOR THE PERSON, sent with a delivery. On a board with AI
-   * review it is what sends a card opened by an agent to Human review instead
-   * of back to whoever opened it (rule of 28/10: in review only what the
-   * person has to see). Empty/null clears.
+   * THE QUESTION FOR THE PERSON, sent with a delivery: what they have to look
+   * at or decide. Empty/null clears.
    */
   humanAsk?: string | null;
 }
@@ -633,6 +643,14 @@ export interface UpdateTaskPatch {
 export interface ListTasksInput {
   scope: "project" | "all";
   projectId?: string;
+  /**
+   * With `scope: "project"`: also read the cards of the projects merged into
+   * this one (`projects.parent_id` + `merge_mode = 'accorpa'`). ONLY the human
+   * board turns it on. The dispatcher and the agent doors keep the literal
+   * `project_id = ?`: a card of a child must dispatch from its own project,
+   * with its own settings, whatever board it is drawn on.
+   */
+  includeChildBoards?: boolean;
   status?: TaskStatus;
   /**
    * Only ROOT tasks (parent_task_id IS NULL). The board columns and the

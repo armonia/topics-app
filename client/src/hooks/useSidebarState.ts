@@ -3,6 +3,7 @@ import type { WSMessage } from '../types';
 import { normalizePinKey } from '../state/pane/adapters';
 import { mergePinnedLayout, placePinnedTile, reconcilePinnedLayout, type PinnedDropTarget, type PinnedRow } from '../components/Sidebar/pinnedLayout';
 import { apiFetch } from '../lib/shell/net';
+import { isNestedInTopicsPane } from '../lib/shell/nestedPane';
 
 /** Dove una cosa trascinata da fuori viene posata. Ri-esportato da qui perché è
  *  questo hook a offrire l'operazione (`pinAt`) che lo consuma. */
@@ -114,6 +115,10 @@ interface SidebarState {
    *  scartato a ogni GET, ogni push WS e ogni evento cross-tab — scritto e mai
    *  riletto, senza un solo errore. */
   pinnedLayout: PinnedRow[];
+  /** The hand order of the column's rows (lib/listOrder.ts): ids the person
+   *  placed by dragging. Rows it does not know go on top. Registered in
+   *  DEFAULT_STATE like every field, or the sanitizer drops it. */
+  listOrder: string[];
   // Legacy fields — kept for backward compat during migration, not used in new UI
   showProjects: boolean;
   showChats: boolean;
@@ -136,6 +141,7 @@ const DEFAULT_STATE: SidebarState = {
   showArchived: false,
   pinnedItems: [],
   pinnedLayout: [],
+  listOrder: [],
   // Legacy defaults
   showProjects: true,
   showChats: true,
@@ -252,6 +258,9 @@ function loadFromStorage(): SidebarState {
 }
 
 function saveToStorage(state: SidebarState): void {
+  // Nested in a Topics pane: same-origin pages would hand this to the real app
+  // through the `storage` listener below.
+  if (isNestedInTopicsPane()) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch { /* local mirror; the server copy is authoritative */ }
@@ -368,6 +377,8 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
    * c'è anche la disposizione delle tessere, cioè lavoro manuale.
    */
   const publish = useCallback(async (initial: SidebarState): Promise<void> => {
+    // Mirror mode: the sidebar layout (view, pins) is window state, not a setting.
+    if (isNestedInTopicsPane()) return;
     let next = initial;
     // Un ciclo e non una ricorsione: il retry è lo STESSO tentativo su una base
     // più recente, e scritto così il tetto dei giri è in vista invece di essere
@@ -502,6 +513,12 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     });
   }, []);
 
+  /** The hand order after a drag in the column (lib/listOrder.ts). */
+  const setListOrder = useCallback((next: string[]) => {
+    lastLocalChangeRef.current = Date.now();
+    setStateRaw(prev => ({ ...prev, listOrder: next }));
+  }, []);
+
   /**
    * La disposizione dopo un drag. Riconciliata comunque: chi chiama passa una
    * griglia, non la verità su cosa è fissato.
@@ -593,6 +610,8 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     pinnedIds,
     pinnedLayout: state.pinnedLayout,
     setPinnedLayout,
+    listOrder: state.listOrder ?? [],
+    setListOrder,
     pinAt,
     togglePin,
     snapshotPinned,

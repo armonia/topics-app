@@ -10,9 +10,10 @@
  * they start to matter, and says why it did not get there, with Retry.
  */
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Loader2, RotateCw } from 'lucide-react';
+import { AlertTriangle, RotateCw } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { pageTarget, serverNavErrorText } from './navErrorMessage';
+import { Spinner } from '../Shared/Spinner';
 
 /** Past this a load that has not answered says so: most pages are there by then. */
 const SILENT_AFTER_MS = 5_000;
@@ -60,7 +61,7 @@ export function BrowserPageWait({ url, loadingSince, error, onRetry }: BrowserPa
   return (
     <div data-testid="browser-page-opening" className="absolute inset-0 z-[6] flex items-center justify-center p-6 bg-app-bg pointer-events-none">
       <div className="min-w-0 max-w-md text-center">
-        <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" aria-hidden />
+        <Spinner size={24} box={28} className="mx-auto mb-2" />
         <p className="text-compact text-app-text-muted truncate">{tr('browser.load.opening', { target: pageTarget(url) })}</p>
         {waited >= SILENT_AFTER_MS && (
           <p className="mt-1 text-mini text-app-text-tertiary">{tr('browser.load.silent', { seconds: Math.floor(waited / 1_000) })}</p>

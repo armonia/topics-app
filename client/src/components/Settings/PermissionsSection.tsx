@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { ShieldCheck, Trash2, Loader2 } from 'lucide-react';
+import { ShieldCheck, Trash2 } from 'lucide-react';
 import { toolGrantsApi, type ToolGrant } from '../../lib/api';
+import { Spinner } from '../Shared/Spinner';
 
 /**
  * Gli strumenti a cui hai detto «Consenti sempre», e il gesto per ritirarlo.
@@ -62,7 +63,7 @@ export function PermissionsSection() {
 
       {grants === null ? (
         <div className="flex items-center gap-2 text-compact text-app-text-muted">
-          <Loader2 size={13} className="animate-spin" /> {tr('common.loading')}
+          <Spinner size={11} box={13} tone="current" /> {tr('common.loading')}
         </div>
       ) : grants.length === 0 ? (
         <div className="text-compact text-app-text-muted border border-dashed border-app-border rounded-md px-3 py-4 text-center">
@@ -91,7 +92,7 @@ export function PermissionsSection() {
                 data-testid={`tool-grant-revoke-${g.pattern}`}
                 className="shrink-0 rounded p-1.5 text-app-text-muted hover:bg-app-hover hover:text-red-500 disabled:opacity-40 transition-colors"
               >
-                {busy === g.pattern ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                {busy === g.pattern ? <Spinner size={11} box={13} tone="current" /> : <Trash2 size={13} />}
               </button>
             </li>
           ))}

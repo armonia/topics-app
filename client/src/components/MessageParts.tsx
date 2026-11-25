@@ -4,6 +4,8 @@ import { StreamTokenRateIndicator } from './Chat/StreamTokenRateIndicator';
 import { useT } from '../hooks/useT';
 import { useEffect, useState } from 'react';
 import { SparkLoader } from './Layout/StreamingIndicator';
+import { loaderActivityForAction } from './Layout/loaderState';
+import { useTopicAction } from '../state/agentActionHooks';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import { turnClock, formatTurnElapsed } from '../state/turnClock';
 import { phraseAt } from '../lib/thinkingPhrases';
@@ -60,6 +62,7 @@ function liveUsageTitle(u: {
 export function TurnActivityIndicator({
   since,
   sessionKey,
+  topicId,
   onMessage,
   awaitingInput,
   promptTokens,
@@ -76,6 +79,8 @@ export function TurnActivityIndicator({
   runningTool?: string | null;
   /** Serve solo per lo stato "lento": senza, l'indicatore resta quello normale. */
   sessionKey?: string;
+  /** The chat of the turn: while it works, the loader plays what its agent is doing. */
+  topicId?: string;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   /**
    * I numeri del turno in corso, presi dal MESSAGGIO e non da un'iscrizione
@@ -107,6 +112,7 @@ export function TurnActivityIndicator({
   awaitingInput?: boolean;
 }) {
   const tr = useT();
+  const action = useTopicAction(topicId);
   const [now, setNow] = useState(() => Date.now());
   // `awaitingInput` è fra le dipendenze perché l'apertura e la chiusura di
   // un'attesa si misurano su `now`: rileggere l'orologio subito al cambio fa
@@ -263,12 +269,13 @@ export function TurnActivityIndicator({
           language for what the other two surfaces already said their own way,
           and from outside the chat they looked like different states. The glyph
           lives in ONE place (`StreamingIndicator`), so they can no longer
-          drift. The "slow" state keeps the amber dot: it is the only one that
-          is NOT "working", and it deserves to look different. */}
+          drift. A slow turn or a retry is the same loader in amber playing
+          `sync`: it is NOT "working", so it looks different, but in the same
+          12px box, so the line does not move when the state changes. */}
       {state === 'slow' || state === 'retry' ? (
-        <span className="turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-amber-500" />
+        <SparkLoader className="shrink-0" state="waiting" activity="sync" />
       ) : (
-        <SparkLoader className="shrink-0" state={state === 'waiting' ? 'waiting' : 'working'} />
+        <SparkLoader className="shrink-0" state={state === 'waiting' ? 'waiting' : 'working'} activity={state === 'waiting' ? undefined : loaderActivityForAction(action)} />
       )}
         </>
       }

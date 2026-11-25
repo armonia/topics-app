@@ -16,15 +16,18 @@ import { accumulateTurnUsage, turnUsageWire } from "../usage/turn-usage";
 import { buildContextUpdate } from "../usage/usage-update";
 import { recordSessionContext } from "../db/session-context";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
+import { parseClaudeUsageLimit } from "../providers/claude/usage-limit";
 import { holdUntilLabel, setProviderHold } from "../lib/provider-hold";
+import { providerHoldKey } from "../../shared/provider-hold";
+import { rememberCodexHoldLogin } from "../lib/codex-login-watch";
 import type { ChatTurnScope } from "./chat-turn-scope";
 import { failedToolText } from "../lib/tool-finalize-status";
+import { withReasoningTranslation } from "../reasoning-translation/turn";
 
 /** Builds the provider stream handler of a turn. */
 export function createStreamHandler(turn: ChatTurnScope): void {
   const { SAVE_INTERVAL, addToolCallToLastMessage, appendTextBlock, appendThinkingBlock, appendToolBlock, blocks, broadcastToAll, broadcastToTopicSubscribers, broadcastTurnFrame, browserNavigatedTopics, browserService, controlDispatchDeps, ctx, deps, detectLocalhostAutoNav, finalizeStream, findToolBlock, globalOrchestrator, humanWait, inheritsOpenCompaction, late, liveCalls, markToolExecuting, matchedTopic, overrideModel, ownMirrored, ownRow, ownStream, partialMsg, persistTurnBody, priorToolTimes, providerSignalsExecStart, resetStreamTimer, rowOfFrame, sessionKey, settleTrackedTool, spawnedModel, sseToolCallDelta, trackBackgroundShell, trackedToolCallIds, undoInlineMarkAfterFailedTurn, updateBlockTool, updateLastMessage, updateStreamActivity, updateStreamContent, updateToolCallFields, updateToolCallResult, watchSessionForSubagents, writeSSE, writeToolResultSSE } = turn;
-  // The owed answers this turn carries reach the model with it: its
-  // first event settles them (`lib/answer-relay.ts`).
+  // The owed answers this turn carries reach the model with it: its first event settles them (`lib/answer-relay.ts`).
   const heardCarry = turn.carry ? () => { if (turn.carry) deps.answerRelay?.heard(turn.carry); } : null;
   const handler: StreamHandler = onFirstModelEvent(guardFinalizedTurn({
     onTextDelta: (text: string, _fullText: string) => {
@@ -760,15 +763,23 @@ export function createStreamHandler(turn: ChatTurnScope): void {
     onError: (error: string) => {
       console.error(`[StreamWS] Error for ${sessionKey}: ${error}`);
       // The second writer to the shared provider-hold memo (see
-      // server/lib/provider-hold.ts): Codex publishes no usage
-      // endpoint, only this sentence in the error itself, so this is
-      // where the wall becomes something the dispatcher can read
-      // instead of retrying four times into it (card 31be77d3).
+      // server/lib/provider-hold.ts): Codex publishes no usage endpoint,
+      // only this sentence in the error itself, so this is where the wall
+      // becomes something the dispatcher can read (card 31be77d3).
       if (turn.topicProvider.name === "codex") {
         const limit = parseCodexUsageLimit(error);
         if (limit) {
-          setProviderHold({ ...limit, window: "usage_limit", provider: "codex" });
+          setProviderHold({ ...limit, window: "usage_limit", provider: "codex" }); rememberCodexHoldLogin();
           console.warn(`[StreamWS] Codex usage limit recorded for ${sessionKey}: resumes at ${holdUntilLabel({ untilMs: limit.untilMs })}`);
+        }
+      }
+      // The Claude CLI's own "You've hit your limit · resets ..." is the same wall
+      // for Claude: hold until the reset so the resume sweep resends this turn then.
+      if (providerHoldKey(turn.topicProvider.name) === "claude") {
+        const limit = parseClaudeUsageLimit(error);
+        if (limit) {
+          setProviderHold({ ...limit, window: "usage_limit" });
+          console.warn(`[StreamWS] Claude usage limit recorded for ${sessionKey}: resumes at ${holdUntilLabel({ untilMs: limit.untilMs })}`);
         }
       }
       // Il turno e' fallito: il preambolo marcato come consegnato potrebbe
@@ -796,5 +807,5 @@ export function createStreamHandler(turn: ChatTurnScope): void {
       void finalizeStream("aborted", undefined, message?.turnEnd).catch(warnIfBusy(`finalize (aborted) of ${sessionKey}`));
     },
   }, () => turn.streamState === "finalized", late), heardCarry);
-  turn.handler = handler;
+  turn.handler = withReasoningTranslation(handler, turn);
 }

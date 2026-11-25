@@ -13,7 +13,7 @@ import { type ResourceFloorKind } from "./dispatch-capacity";
 import { NoCheckExemptionLedger } from "./dispatch-no-check-exemption";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { DispatcherDeps } from "./task-dispatcher-types";
-import { DEFAULT_RETRY_CAP } from "./task-dispatcher-support";
+import { DEFAULT_RETRY_CAP, dispatcherLogLine } from "./task-dispatcher-support";
 import type { RunSlot, TaskLedger, LiveTurn } from "./task-dispatcher-context";
 
 export function createDispatcherCore(deps: DispatcherDeps) {
@@ -71,7 +71,7 @@ export function createDispatcherCore(deps: DispatcherDeps) {
   const graceMs = deps.graceMs ?? 6000;
   const log =
     deps.log ??
-    ((m: string, e?: unknown) => (e ? console.error("[dispatcher] " + m, e) : console.log("[dispatcher] " + m)));
+    ((m: string, e?: unknown) => (e ? console.error(dispatcherLogLine(m), e) : console.log(dispatcherLogLine(m))));
 
   // Per-board retry economy (migration 050). A test override on
   // deps.retryBackoffMs wins so harness turns stay instant; otherwise both come

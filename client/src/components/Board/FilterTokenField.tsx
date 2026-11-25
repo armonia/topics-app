@@ -209,7 +209,11 @@ export function FilterTokenField({ value, onChange, assignees, persons, computer
       // is a strip that scrolls sideways and the pane is the whole screen, so
       // the floor is the viewport minus a peek of the next control: at 390 the
       // field was 231 wide and cut its own placeholder at "@agente, et".
-      className={`${filterFieldClass(active)} min-w-[calc(100vw-4.5rem)] max-w-[24rem] sm:min-w-[15rem]`}
+      // On a desktop the floor follows the BOARD's width (`@7xl`, the bar is
+      // the container), not the window's: at 1440 with the sidebar and the
+      // file pane open the board is ~950px and a 15rem field pushed the
+      // actions past the right edge.
+      className={`${filterFieldClass(active)} min-w-[calc(100vw-4.5rem)] max-w-[24rem] sm:min-w-[7rem] @7xl:min-w-[15rem]`}
     >
       <Search className="pointer-events-none h-3 w-3 shrink-0 text-app-text-secondary coarse:h-4 coarse:w-4" />
       {/* Every token is drawn, and every remove button stays a Tab stop. A `+N`
@@ -239,7 +243,9 @@ export function FilterTokenField({ value, onChange, assignees, persons, computer
         aria-label={tr('board.filter.searchLabel')}
         placeholder={pills.length > 0 ? '' : tr('board.filter.allPlaceholder')}
         data-testid="filter-token-input"
-        className={`${filterInputClass} min-w-[56px]`}
+        // `w-0`: the input's own default width (its `size`) no longer props the
+        // field open; the field's floor above decides, and the input fills it.
+        className={`${filterInputClass} w-0 min-w-[56px]`}
       />
       <SuggestionMenu
         visible={menuOpen}

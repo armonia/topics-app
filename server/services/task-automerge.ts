@@ -29,9 +29,8 @@
 //   • On any non-zero merge we `merge --abort`, so main is never left mid-conflict.
 //   • Serialized per repo path, so two approvals on the same project can't race.
 
-import { tmpdir } from "os";
 import { join } from "path";
-import { createHash } from "crypto";
+import { existsSync } from "fs";
 import { worktreeRegistrationLost } from "./worktree-registration";
 import { carriedBranch, isPlainBranchName, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { findAttributionViolations } from "./land-attribution-gate";
@@ -39,8 +38,11 @@ import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { lastLook } from "./landing-last-look";
 import { branchContentIsOnMain, branchContentWasOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
-import { fetchRemoteBase } from "./worktree-base-ref";
+import { resolveLandingBase } from "./worktree-base-ref";
+import { scratchDir, scratchId } from "./worktree-scratch";
 import { runGit } from "../lib/run-git";
+import { discardWorktree } from "../lib/worktree-discard";
+import { neutralizeRefusedMergeMessage } from "./land-prepush-message";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 import { makeSerialQueue } from "../lib/serial-queue";
@@ -461,9 +463,6 @@ export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRun
   return runGit(cwd, args, { identity: true, timeoutMs: args[0] === "fetch" ? SPAWN_TIMEOUT.query : SPAWN_TIMEOUT.long });
 }
 
-/** La firma del «manca un pezzo sotto» nell'output di git. */
-const MISSING_BASE = /modify\/delete|deleted in|does not exist|no such file/i;
-
 const BUILD_TIMEOUT_MS = 5 * 60_000;
 
 function defaultRunBuild(cwd: string): Promise<GitRunResult> {
@@ -542,11 +541,12 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
 
   /**
    * What the land compares and realigns the branch against: `origin/<main>`,
-   * just fetched. With no remote (or no such ref) it stays the local main, as
-   * before. A failed fetch does not stop the land: the local copy of `origin` is used.
+   * just fetched. With no remote (or no such ref, or a remote with no history in
+   * common, see `resolveLandingBase`) it stays the local main. A failed fetch
+   * does not stop the land: the local copy of `origin` is used.
    */
   async function comparisonBase(repoPath: string, mainBranch: string): Promise<string> {
-    return (await fetchRemoteBase(runGit, repoPath, mainBranch)).ref ?? mainBranch;
+    return resolveLandingBase(runGit, repoPath, mainBranch);
   }
 
   /**
@@ -665,7 +665,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       for (const raw of r.stdout.split("\n")) {
         const line = raw.trim();
         if (line.startsWith("worktree ")) path = line.slice("worktree ".length).trim() || null;
-        else if (line === `branch refs/heads/${target.branch}`) return path;
+        // A registration whose tree is gone (a discard killed between its
+        // rename and its prune, `worktree-discard.ts`) is no live checkout:
+        // the realign makes its own, and its `prune` drops this one.
+        else if (line === `branch refs/heads/${target.branch}`) return path && existsSync(path) ? path : null;
       }
       return null;
     }
@@ -747,7 +750,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       if (!Number.isFinite(behind) || behind <= 0) return null;
 
       const live = await branchWorktree();
-      const wtPath = live ?? join(tmpdir(), "topics-realign", createHash("sha1").update(`${repoPath}\n${target.branch}`).digest("hex").slice(0, 16));
+      const wtPath = live ?? join(scratchDir("realign"), scratchId(repoPath, target.branch));
       if (live) {
         const dirt = await worktreeRealDirt(live, runGit);
         if (dirt.length > 0) {
@@ -760,8 +763,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           };
         }
       } else {
-        await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
-        await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+        await discardWorktree(runGit, repoPath, wtPath);
         const add = await runGit(repoPath, ["worktree", "add", wtPath, target.branch]);
         if (add.code !== 0) {
           return {
@@ -813,8 +815,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         return null;
       } finally {
         if (!live) {
-          await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
-          await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+          await discardWorktree(runGit, repoPath, wtPath);
         }
       }
     }
@@ -916,6 +917,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     // worktree). The caller reacts per area: client/ → rebuild the served bundle,
     // server → restart, desktop-tauri → native rebuild.
     async function finishMerged(cwd: string, live: boolean, checkoutBranch: string): Promise<AutoMergeResult> {
+      // The title may carry text the repo's pre-push refuses: keep only the id prefix then.
+      await neutralizeRefusedMergeMessage(cwd, `merge task ${taskId}`).catch(() => false);
       const rev = await runGit(cwd, ["rev-parse", "--short", "HEAD"]);
       const diff = await runGit(cwd, ["diff", "--name-only", "HEAD^1", "HEAD"]);
       const files = diff.code === 0 ? diff.stdout.split("\n").filter(Boolean) : [];
@@ -944,38 +947,6 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       return {
         status: "skipped", code: "base-diverged",
         reason: `'${base}' non si fonde con '${defaultBranch}' locale: ${(m.stderr || m.stdout).trim().slice(-200) || "merge fallito"}. Riconcilia a mano, poi riprova il land`,
-      };
-    }
-
-    /**
-     * Porta su `cwd` SOLO i commit della card, in ordine, con `cherry-pick`.
-     *
-     * Serve quando il branch del task e' nato dall'HEAD del checkout condiviso e
-     * porta anche il lavoro di chi ci stava lavorando: mergiare il branch
-     * pubblicherebbe roba di altri, rifiutarsi lascia la consegna in un limbo.
-     * Si prende la terza strada — i suoi commit e basta.
-     */
-    /**
-     * «Conflitto» e «manca un pezzo sotto» sono due cose diverse, e all'agente
-     * servono due risposte diverse: nel primo caso deve riconciliare, nel
-     * secondo non c'è niente da riconciliare — il suo lavoro poggia su commit
-     * di un'altra sessione che non sono ancora su main, e finché non ci
-     * arrivano il pick fallirà uguale ogni volta che riprova.
-     */
-    function conflictOrDependency(missingBase?: boolean, dependsOn?: number): AutoMergeResult {
-      // Che ci siano commit estranei non prova niente: il pick selettivo parte
-      // PROPRIO perché ce ne sono. La prova è la natura del fallimento — git
-      // dice `modify/delete` quando il file che il commit modifica non esiste
-      // di qua, ed è la firma del pezzo mancante. Un conflitto di CONTENUTO
-      // resta un conflitto, e torna all'agente come prima.
-      if (!missingBase || !dependsOn) return { status: "conflict", branch };
-      return {
-        status: "skipped",
-        reason:
-          `il lavoro di questa card poggia su ${dependsOn} commit che stanno sul branch ` +
-          `'${branch}' ma NON sono suoi e non sono ancora su '${defaultBranch}': ` +
-          "non è un conflitto da riconciliare, manca un pezzo sotto. " +
-          "Landa prima quel lavoro, oppure ribasa la card su " + defaultBranch + ".",
       };
     }
 
@@ -1035,35 +1006,17 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     }
 
     /**
-     * Quanti commit sul branch NON sono di questa card e non sono ancora su
-     * main. Sono le sue DIPENDENZE possibili: il worktree nasce dall'HEAD del
-     * checkout condiviso, quindi il lavoro della card può poggiare su commit di
-     * un'altra sessione che il pick selettivo esclude per non pubblicarli.
-     *
-     * Quando succede, il pick fallisce su un file che su main non esiste ancora
-     * — ed è un'informazione diversa da «conflitto»: non c'è niente da
-     * riconciliare, manca un pezzo sotto. Dirlo cambia cosa fa l'agente.
-     */
-    async function unlandedForeign(cwd: string, mine: number): Promise<number> {
-      const tot = await runGit(cwd, ["rev-list", "--count", `${defaultBranch}..${branch}`]);
-      const n = Number.parseInt(tot.stdout.trim(), 10);
-      return Number.isFinite(n) && n > mine ? n - mine : 0;
-    }
-
-    /**
-     * Are the FOREIGN commits - the ones `pickOwnCommits` would leave out -
-     * already on main by CONTENT?
+     * The FOREIGN commits - reachable from another local branch - that are NOT
+     * on main by content. `[]` = the branch is mixed by ancestry only, and a
+     * plain merge publishes nothing main lacks. `null` = git could not say.
      *
      * WHY THE QUESTION EXISTS. "Reachable from another local branch" says the
-     * commit is not this card's; it does not say main lacks it. On 05/09/2026
+     * commit MAY not be this card's; it does not say main lacks it. On 05/09/2026
      * a `git pull --rebase` on the shared checkout rewrote the morning's
      * unpushed land merges into linear copies with new shas. Every card
      * branch that had realigned on the old main kept the ORIGINALS: 34 of
-     * cozy-vine's 40 commits ahead were shared with five other branches, so
-     * `mine < total`, the land cherry-picked the six own commits onto a main
-     * whose context had moved, and reported a conflict - on a branch whose
-     * plain merge was clean. Three cards in a row bounced back to their agents
-     * for a conflict none of them had written.
+     * cozy-vine's 40 commits ahead were shared with five other branches, and
+     * a plain merge was clean.
      *
      * Two tests, cheapest first.
      *
@@ -1076,27 +1029,23 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
      *    answer this here: the branch has already merged main, so the range it
      *    compares against is empty.
      * 2. The STAGE, for the rest: apply the commit without committing and look
-     *    at the index, as `pickOwnCommits` does. Nothing staged = the content
-     *    is on main however it got there.
+     *    at the index. Nothing staged = the content is on main however it got
+     *    there. The ORDER matters: on that branch six of the seventeen foreign
+     *    commits failed the pick (main's context had moved) and all six matched
+     *    by patch.
      *
-     * A foreign commit that passes neither - a pick that stages something, or
-     * fails - is not proven to be on main, and the selective path stays, since
-     * it is the one that knows how to name a missing dependency. Note the
-     * ORDER matters: on that branch six of the seventeen foreign commits
-     * failed the pick (main's context had moved) and all six matched by patch.
-     *
-     * `cwd` must be a clean checkout of main: the probe resets it after every
-     * pick, exactly as the selective landing does.
+     * `cwd` must be a clean checkout of main: the probe resets it after every pick.
      */
     const FOREIGN_PROBE_CAP = 200;
     const MAIN_FINGERPRINT_CAP = 400;
-    async function foreignAlreadyOnMain(cwd: string, own: { others: string[] }): Promise<boolean> {
+    async function foreignNotOnMain(cwd: string, own: { others: string[] }): Promise<string[] | null> {
       const all = await runGit(cwd, ["rev-list", "--reverse", "--no-merges", `${defaultBranch}..${branch}`]);
       const mine = await runGit(cwd, ["rev-list", "--no-merges", `${defaultBranch}..${branch}`, "--not", ...own.others]);
-      if (all.code !== 0 || mine.code !== 0) return false;
+      if (all.code !== 0 || mine.code !== 0) return null;
       const ownSet = new Set(mine.stdout.split("\n").map((s) => s.trim()).filter(Boolean));
       const foreign = all.stdout.split("\n").map((s) => s.trim()).filter((s) => s && !ownSet.has(s));
-      if (foreign.length === 0 || foreign.length > FOREIGN_PROBE_CAP) return false;
+      if (foreign.length === 0) return [];
+      if (foreign.length > FOREIGN_PROBE_CAP) return null;
 
       // 1. Fingerprints of what main gained since the oldest foreign commit left it.
       const onMain = new Set<string>();
@@ -1113,6 +1062,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       }
 
       let byPatch = 0;
+      const missing: string[] = [];
       for (const sha of foreign) {
         const fp = await patchFingerprint(cwd, sha);
         if (fp && onMain.has(fp)) { byPatch++; continue; }
@@ -1121,10 +1071,12 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         const staged = r.code === 0 ? await runGit(cwd, ["diff", "--cached", "--quiet", "HEAD"]) : null;
         await runGit(cwd, ["cherry-pick", "--quit"]).catch(() => undefined);
         await runGit(cwd, ["reset", "--hard", "HEAD"]).catch(() => undefined);
-        if (r.code !== 0 || staged === null || staged.code !== 0) return false;
+        if (r.code !== 0 || staged === null || staged.code !== 0) missing.push(sha);
       }
-      log(`[automerge] ${taskId}: ${foreign.length} foreign commit(s) on '${branch}' are already on '${defaultBranch}' (${byPatch} by patch, ${foreign.length - byPatch} by content): plain merge, no selective pick`);
-      return true;
+      if (missing.length === 0) {
+        log(`[automerge] ${taskId}: ${foreign.length} foreign commit(s) on '${branch}' are already on '${defaultBranch}' (${byPatch} by patch, ${foreign.length - byPatch} by content): plain merge`);
+      }
+      return missing;
     }
 
     /**
@@ -1138,69 +1090,35 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       return normalizePatch(r.stdout);
     }
 
-    async function pickOwnCommits(
-      cwd: string,
-      own: { others: string[] },
-    ): Promise<{ ok: boolean; conflict: boolean; dependsOn?: number; missingBase?: boolean }> {
-      // `--no-merges`: un commit di FUSIONE non si ricopia con un cherry-pick
-      // (git chiede `-m` e senza di quello esce non-zero), e non c'è niente da
-      // ricopiare — il contenuto che porta sta nei commit dei suoi due rami, che
-      // questa lista già enumera o esclude di proposito. Diventa obbligatorio da
-      // quando il land riallinea il ramo su main da sé: quel merge è il primo
-      // commit di fusione che compare di routine fra i commit «propri» del ramo.
-      const list = await runGit(cwd, ["rev-list", "--reverse", "--no-merges", `${defaultBranch}..${branch}`, "--not", ...own.others]);
-      const all = list.stdout.split("\n").map((x) => x.trim()).filter(Boolean);
-      if (list.code !== 0 || all.length === 0) return { ok: false, conflict: false };
-      // Un commit già landato resta nel range: `rev-list` guarda la discendenza,
-      // e il land RICOPIA invece di fondere, quindi la copia atterrata ha un altro
-      // sha. Rilandare la stessa card aggiungeva un commit VUOTO a main — successo
-      // apparente, e una storia che dice «landato due volte».
-      //
-      // Non si riconosce dal patch-id (`git cherry`): il pick ADATTA il commit al
-      // main del momento, quindi la copia atterrata ha un patch-id diverso
-      // dall'originale. Nemmeno dalla patch a rovescio: appena qualcun altro tocca
-      // quei file, le righe di contorno non combaciano più. Misurato il 10/08:
-      // entrambe le strade hanno lasciato passare lo stesso commit, comparso
-      // QUATTRO volte su main.
-      //
-      // La domanda giusta la sa rispondere solo il merge di git: si applica il
-      // commit SENZA committare e si guarda se resta qualcosa. Niente in stage =
-      // quel contenuto è già nell'albero, comunque ci sia arrivato.
-      let brought = 0;
-      for (const sha of all) {
-        const r = await runGit(cwd, ["cherry-pick", "-n", "--allow-empty", sha]);
-        if (r.code !== 0) {
-          // `--quit` lascia l'albero com'è, poi lo si riporta a HEAD: `--abort`
-          // da solo non basta dopo un `-n` andato male.
-          await runGit(cwd, ["cherry-pick", "--quit"]).catch(() => undefined);
-          await runGit(cwd, ["reset", "--hard", "HEAD"]).catch(() => undefined);
-          return {
-            ok: false, conflict: true,
-            missingBase: MISSING_BASE.test(`${r.stderr}\n${r.stdout}`),
-            dependsOn: await unlandedForeign(cwd, all.length),
-          };
-        }
-        const staged = await runGit(cwd, ["diff", "--cached", "--quiet", "HEAD"]);
-        if (staged.code === 0) {
-          // Niente da portare: già applicato. Si pulisce e si passa oltre.
-          await runGit(cwd, ["cherry-pick", "--quit"]).catch(() => undefined);
-          await runGit(cwd, ["reset", "--hard", "HEAD"]).catch(() => undefined);
-          continue;
-        }
-        // `-C` tiene messaggio E autore dell'originale: il lavoro resta di chi
-        // l'ha fatto, non di chi ha premuto «landa».
-        const c = await runGit(cwd, ["commit", "--no-edit", "-C", sha]);
-        if (c.code !== 0) {
-          await runGit(cwd, ["cherry-pick", "--quit"]).catch(() => undefined);
-          await runGit(cwd, ["reset", "--hard", "HEAD"]).catch(() => undefined);
-          return { ok: false, conflict: true, dependsOn: await unlandedForeign(cwd, all.length) };
-        }
-        brought++;
+    /**
+     * A branch whose commits are partly "foreign" and NOT on main is never
+     * landed in halves. The land used to cherry-pick the card's commits alone,
+     * and "foreign" only means "reachable from another local branch": on 17/11
+     * (card 76d3e2ff) the other branches were the card's own earlier node
+     * rounds, the pick brought the e2e spec and left out the fix it measured,
+     * and the card closed as landed. Git cannot tell "inherited from another
+     * session" from "another branch was born from mine", so the land refuses
+     * and names the commits it would have dropped; the card goes back to its
+     * agent, which knows which are its own and rebases onto main.
+     */
+    async function partialLandRefused(cwd: string, own: { total: number; mine: number }, missing: string[] | null): Promise<AutoMergeResult> {
+      const shown = (missing ?? []).slice(0, 5);
+      const lines: string[] = [];
+      for (const sha of shown) {
+        const r = await runGit(cwd, ["log", "-1", "--format=%h %s", sha]);
+        lines.push(r.code === 0 && r.stdout.trim() ? r.stdout.trim() : sha.slice(0, 9));
       }
-      // Zero portati = era già tutto su main. È una consegna riuscita, non un
-      // fallimento da rimandare all'agente.
-      if (brought === 0) return { ok: true, conflict: false };
-      return { ok: true, conflict: false };
+      const more = missing && missing.length > shown.length ? ` e altri ${missing.length - shown.length}` : "";
+      const which = missing === null
+        ? "git non ha saputo dire se siano già su main"
+        : `${missing.length} non sono su '${defaultBranch}': ${lines.join(" · ")}${more}`;
+      return {
+        status: "skipped", code: "foreign-commits",
+        reason:
+          `'${branch}' porta ${own.total - own.mine} commit su ${own.total} raggiungibili anche da altri rami, e ${which}. ` +
+          "Atterrare solo gli altri lascerebbe fuori quel lavoro, che può essere della card stessa: non atterro a metà. " +
+          `Se sono tuoi, rifai la base del ramo su '${defaultBranch}'; se non lo sono, toglili dal ramo.`,
+      };
     }
 
     return chain(repoPath, async (): Promise<AutoMergeResult> => {
@@ -1514,12 +1432,11 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         //     `ahead === 0`, ed è già uscito sopra come `nothing`.
         //   · `0 < mine < total` — si sa, ed è misto: `foreign-commits`.
         //
-        // E quando si SA e il ramo è misto, non ci si ferma: si atterrano SOLO
-        // i suoi (`onlyOwn` → `pickOwnCommits`). Rifiutarsi e basta teneva main
-        // pulito lasciando il lavoro in un limbo — misurato: 12 consegne
-        // accettate vivevano solo sul loro branch, fra cui uno scorporo da 800
-        // righe e una rimozione da 21.775.
-        /** Quando il branch porta anche commit non suoi: si prendono solo i suoi. */
+        // A mixed branch is merged whole when its foreign commits are already on
+        // main by content, and refused otherwise (`partialLandRefused`). Landing
+        // the card's commits alone was tried and lost the card's own fix on
+        // 17/11: "foreign" only means "reachable from another branch".
+        /** Set when the branch also carries commits reachable from other branches. */
         let onlyOwn: { total: number; mine: number; others: string[] } | null = null;
         let ownRefs: string[] = [];
         try { ownRefs = deps.ownBranches?.(taskId) ?? []; } catch { ownRefs = []; }
@@ -1569,11 +1486,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             };
           }
           if (Number.isFinite(total) && total > mine) {
-            // Si sa QUALI sono i suoi (`mine > 0`): il ramo è misto ma leggibile.
-            // Qui main si fermava con `foreign-commits`, che è una diagnosi
-            // giusta e una conseguenza sbagliata — il lavoro della card resta
-            // sul branch finché qualcuno non lo cherry-picka a mano, e nessuno
-            // lo fa. Si portano i suoi e basta.
+            // Mixed by ancestry: whether it is mixed by CONTENT is asked on a
+            // clean main checkout, right before the merge (`foreignNotOnMain`).
             onlyOwn = { total, mine, others };
             if (delivery?.noRealign) {
               return {
@@ -1634,16 +1548,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           }
           const diverged = await syncLandingBase(repoPath);
           if (diverged) return diverged;
-          // Mixed by ancestry is not mixed by content: see `foreignAlreadyOnMain`.
-          if (onlyOwn && await foreignAlreadyOnMain(repoPath, onlyOwn)) onlyOwn = null;
+          // Mixed by ancestry is not mixed by content: see `foreignNotOnMain`.
           if (onlyOwn) {
-            const picked = await pickOwnCommits(repoPath, onlyOwn);
-            if (picked.ok) return finishMerged(repoPath, /*live*/ true, cur);
-            if (picked.conflict) return conflictOrDependency(picked.missingBase, picked.dependsOn);
-            return {
-              status: "skipped", code: "unisolable",
-              reason: `non sono riuscito a isolare i ${onlyOwn.mine} commit di questa card su '${branch}'`,
-            };
+            const missing = await foreignNotOnMain(repoPath, onlyOwn);
+            if (missing === null || missing.length > 0) return partialLandRefused(repoPath, onlyOwn, missing);
           }
           const stopped = await lookBeforeMerge(repoPath);
           if (stopped) return stopped;
@@ -1658,10 +1566,9 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // throwaway worktree pinned to main: the shared `main` ref advances, the dev
         // branch is untouched, nobody's branch has to move. The landing is on main
         // but NOT running yet (the live server serves `cur`) → landedNotLive.
-        const wtPath = join(tmpdir(), "topics-land", createHash("sha1").update(repoPath).digest("hex").slice(0, 16));
+        const wtPath = join(scratchDir("land"), scratchId(repoPath));
         // Clear any leftover from a previous crashed land before re-adding.
-        await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
-        await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+        await discardWorktree(runGit, repoPath, wtPath);
         const add = await runGit(repoPath, ["worktree", "add", wtPath, defaultBranch]);
         if (add.code !== 0) {
           return { status: "skipped", code: "worktree-add-failed", reason: `impossibile creare il worktree di land su '${defaultBranch}': ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}` };
@@ -1669,28 +1576,18 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         try {
           const diverged = await syncLandingBase(wtPath);
           if (diverged) return diverged;
-          if (onlyOwn && await foreignAlreadyOnMain(wtPath, onlyOwn)) onlyOwn = null;
           if (onlyOwn) {
-            const picked = await pickOwnCommits(wtPath, onlyOwn);
-            if (picked.ok) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
-            if (!picked.conflict) {
-              return {
-              status: "skipped", code: "unisolable",
-              reason: `non sono riuscito a isolare i ${onlyOwn.mine} commit di questa card su '${branch}'`,
-            };
-            }
-            return conflictOrDependency(picked.missingBase, picked.dependsOn);
-          } else {
+            const missing = await foreignNotOnMain(wtPath, onlyOwn);
+            if (missing === null || missing.length > 0) return await partialLandRefused(wtPath, onlyOwn, missing);
+          }
           const stopped = await lookBeforeMerge(wtPath);
           if (stopped) return stopped;
           const merge = await runGit(wtPath, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
           if (merge.code === 0) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
           await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
-          }
           return { status: "conflict", branch };
         } finally {
-          await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
-          await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+          await discardWorktree(runGit, repoPath, wtPath);
         }
       } catch (e) {
         log(`[automerge] tryMerge failed for ${taskId}`, e);

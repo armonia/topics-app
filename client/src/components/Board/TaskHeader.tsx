@@ -1,7 +1,7 @@
-import { AlertTriangle, ArrowUpRight, ChevronRight, X, Bot, Check, ChevronDown, Copy, Globe, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Plus, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Trash2, ArrowUpRight, ChevronRight, X, Bot, Check, ChevronDown, Copy, Globe, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Plus, RotateCcw, ShieldCheck } from 'lucide-react';
 import { Spinner } from '../Shared/Spinner';
 import { type TaskSessionState, canOpenTaskSession, shouldExplainMissingSession } from '../../lib/taskSession';
-import { type BoardTask, type TaskStatus, type BoardProjectRef, STATUS_LABEL, TASK_STATUSES } from '../../lib/board';
+import { type BoardTask, type TaskStatus, type BoardProjectRef, STATUS_GLYPH_PX, STATUS_LABEL, TASK_STATUSES } from '../../lib/board';
 import { autoGrow } from './format';
 import { type TaskBrowserGroupLayout } from './useTaskBrowserGroupLayout';
 import { Menu } from '../Shared/Menu';
@@ -13,8 +13,9 @@ import { STATUS_CHIP } from '@/lib/statusVisual';
 import { MorphText } from '../Shared/MorphText';
 import { useToast } from '../Shared/Toast';
 import { channelChip } from './channelChip';
-import { creatorChip } from './createdByLabel';
-import { CreatorChipView } from './CreatorChipView';
+import { OriginChipView } from './OriginChipView';
+import { ownerChip } from './ownerChip';
+import { useOwnerName } from '../../hooks/useOwnerName';
 import { ChannelChipView } from './ChannelChipView';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { showsStoppedChip } from './stoppedChip';
@@ -57,9 +58,10 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
   tr: (key: string, vars?: Record<string, string | number>) => string;
 }) {
   const toast = useToast();
+  const personName = useOwnerName();
   const channel = task ? channelChip(task, tr) : null;
-  // Jarvis as the agent: the same avatar the card shows, beside the channel chip.
-  const creator = task ? creatorChip(task, tr) : null;
+  // Whose work it is: the same chip the card shows, beside the channel chip.
+  const owner = task ? ownerChip(task, tr, personName) : null;
   return (
       <div className="border-b border-app-border px-3 py-3">
         {task?.parentTaskId && onOpenTask && (
@@ -92,8 +94,8 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
             </button>
             {reopened && (
               <details data-testid="task-reopened-notice" className="group relative shrink-0 text-mini text-app-text-muted">
-                <summary className="cursor-pointer list-none rounded px-1.5 py-0.5 hover:bg-white/5 hover:text-app-text">
-                  ↩︎ {tr('board.task.reopened')}
+                <summary className="cursor-pointer list-none rounded px-1.5 py-0.5 hover:bg-black/5 dark:hover:bg-white/5 hover:text-app-text">
+                  <span className="inline-flex items-center gap-1"><RotateCcw size={STATUS_GLYPH_PX} className="shrink-0" aria-hidden />{tr('board.task.reopened')}</span>
                 </summary>
                 <p className="absolute right-0 top-full z-20 mt-1 w-64 rounded border border-app-border bg-elevated p-2 text-app-text shadow-lg">{reopened.detail}</p>
               </details>
@@ -110,11 +112,11 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
             ) : null}
           </div>
         )}
-        {/* Jarvis (the agent) and the channel he follows this work in (Discord,
-            WhatsApp), two separate chips on a line of its own so the project name above never gives up width for it. */}
-        {(channel || creator?.jarvis) && (
+        {/* Whose work it is and the channel it came from (Discord, WhatsApp),
+            two chips on a line of their own so the project name above never gives up width for them. */}
+        {owner && (
           <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
-            {creator?.jarvis && <CreatorChipView chip={creator} notify={toast.error} />}
+            <OriginChipView chip={owner} notify={toast.error} />
             {channel && <ChannelChipView chip={channel} notify={toast.error} full />}
           </div>
         )}
@@ -133,7 +135,7 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
             onCreate={doCreateProject}
             busy={projBusy}
             listLabel={tr('board.task.moveProjectTo')}
-            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-mini leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
+            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-mini leading-snug text-amber-800/90 dark:text-amber-300/90">{moveBlocked}</p> : undefined}
           />
           <div className={POPOVER_DIVIDER} />
           <button
@@ -151,13 +153,13 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
             onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
             onBlur={saveTitle}
             onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
-            className="-mx-1.5 block max-h-24 w-[calc(100%+0.75rem)] resize-none overflow-y-auto rounded bg-white/5 px-1.5 py-1 text-body-lg leading-5 text-app-text outline-none"
+            className="-mx-1.5 block max-h-24 w-[calc(100%+0.75rem)] resize-none overflow-y-auto rounded bg-black/5 dark:bg-white/5 px-1.5 py-1 text-body-lg leading-5 text-app-text outline-none"
           />
         ) : (
           <p
             onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
             title={tr('board.task.editTitleTitle')}
-            className="-mx-1.5 line-clamp-2 cursor-text break-words rounded px-1.5 py-1 text-body-lg leading-5 text-app-text hover:bg-white/5"
+            className="-mx-1.5 line-clamp-2 cursor-text break-words rounded px-1.5 py-1 text-body-lg leading-5 text-app-text hover:bg-black/5 dark:hover:bg-white/5"
           >{task ? <MorphText text={task.text} /> : initialTitle != null ? <MorphText text={initialTitle} /> : null}</p>
         )}
         {/* THE WAIT IS IDENTITY, NOT METADATA. It used to sit in the meta row,
@@ -176,11 +178,11 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
                   onClick={() => openBlockerMenu(blockerChipRef.current)}
                   data-testid="task-blocked-by-chip"
                   title={tr('task.blocked.hint', { what: blockedChip.title })}
-                  className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-mini text-amber-300 hover:bg-amber-500/25"
+                  className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-mini text-amber-800 dark:text-amber-300 hover:bg-amber-500/25"
                 >
                   <Lock className="h-3 w-3 shrink-0" />
                   <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
+                  <ChevronDown className="h-3 w-3 shrink-0 text-amber-800/70 dark:text-amber-300/70" />
                 </button>
               </div>
             )}
@@ -248,7 +250,7 @@ export function TaskTabsBar({ browser, deliveryOpen, detailsOpen, detailsScrollR
             setWorkspaceOpen(false);
             stickRef.current = false;
           }}
-          className="flex items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-muted hover:bg-white/5 hover:text-app-text coarse:min-h-11">
+          className="flex items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-muted hover:bg-black/5 dark:hover:bg-white/5 hover:text-app-text coarse:min-h-11">
           {detailsOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           {tr('board.task.detailsLabel')}
         </button>
@@ -266,7 +268,7 @@ export function TaskTabsBar({ browser, deliveryOpen, detailsOpen, detailsScrollR
         </button>
         <button type="button" data-testid="task-workspace-toggle" data-open={workspaceOpen ? '1' : '0'} aria-expanded={workspaceOpen}
           onClick={toggleWorkspaceOpen}
-          className="ml-auto flex min-w-0 items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-muted hover:bg-white/5 hover:text-app-text coarse:min-h-11">
+          className="ml-auto flex min-w-0 items-center gap-1 rounded px-2 py-1 text-compact leading-4 text-app-text-muted hover:bg-black/5 dark:hover:bg-white/5 hover:text-app-text coarse:min-h-11">
           <span className="truncate">{tr('board.task.workspaceLabel')}</span>
           {hasWorkspacePanes && <span>{workspacePaneCount}</span>}
         </button>
@@ -275,7 +277,7 @@ export function TaskTabsBar({ browser, deliveryOpen, detailsOpen, detailsScrollR
           // 24 with the mouse (`tap-expand`), a real 44 box under a finger: a
           // projected 44 around the 22px box covered the right 7px of the
           // workspace button beside it, and a tap there opened a new tab.
-          className="tap-expand shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center"><Plus className="h-3.5 w-3.5" /></button>
+          className="tap-expand shrink-0 rounded p-1 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center"><Plus className="h-3.5 w-3.5" /></button>
       </div>
   );
 }
@@ -321,16 +323,17 @@ export function TaskTopBar({ blockerChipRef, busy, changeStatus, chipStatus, cop
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
         <button
           ref={statusBtnRef}
-          onClick={() => task && setStatusMenuOpen(true)}
+          onClick={() => task && !task.archived && setStatusMenuOpen(true)}
+          disabled={!!task?.archived}
           data-testid="task-status-chip"
           title={tr('board.task.changeStatusTitle')}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-compact leading-4 text-app-text-heading hover:bg-white/10 coarse:min-h-11"
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-compact leading-4 text-app-text-heading hover:bg-black/5 dark:hover:bg-white/10 coarse:min-h-11"
         >
           {/* A failed first read must not keep saying «Loading…»: the spinner is
               a promise, and here nothing is coming. */}
-          {chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className={`h-3.5 w-3.5 ${DANGER_TEXT}`} /> : <Spinner size="sm" tone="current" />}
-          {chipStatus ? STATUS_LABEL[chipStatus] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
-          <ChevronDown className="h-3 w-3 text-app-text-faint" />
+          {task?.archived ? <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> : chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className={`h-3.5 w-3.5 ${DANGER_TEXT}`} /> : <Spinner size="sm" tone="current" />}
+          {task?.archived ? tr('board.task.archivedChip') : chipStatus ? STATUS_LABEL[chipStatus] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
+          {!task?.archived && <ChevronDown className="h-3 w-3 text-app-text-faint" />}
         </button>
         {/* Sharing sits next to the STATUS, not inside a menu: it is a
             property of the card just like the status, and hiding it in a
@@ -362,7 +365,7 @@ export function TaskTopBar({ blockerChipRef, busy, changeStatus, chipStatus, cop
               onClick={() => setOptionsMenuOpen((o) => !o)}
               data-testid="task-options-menu"
               title={tr('board.task.optionsTitle')}
-              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 coarse:p-3.5"
+              className="rounded p-1.5 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 coarse:p-3.5"
             ><MoreHorizontal className="h-4 w-4" /></button>
           )}
           {task && (
@@ -465,7 +468,7 @@ export function TaskTopBar({ blockerChipRef, busy, changeStatus, chipStatus, cop
               data-testid="task-open-session-tab"
               title={tr('board.task.openSessionTitle')}
               aria-label={tr('board.task.openSession')}
-              className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 coarse:p-3.5"
+              className="rounded p-1.5 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 coarse:p-3.5"
             ><MessageSquare className="h-4 w-4" /></button>
           )}
           {shouldExplainMissingSession(sessionState) && (
@@ -483,9 +486,9 @@ export function TaskTopBar({ blockerChipRef, busy, changeStatus, chipStatus, cop
             data-testid="task-detail-wide-toggle"
             aria-pressed={wide}
             title={wide ? tr('task.drawer.narrow') : tr('task.drawer.widen')}
-            className="hidden rounded p-1.5 text-app-text-secondary hover:bg-white/10 lg:block"
+            className="hidden rounded p-1.5 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 lg:block"
           >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
-          <button aria-label={tr('board.task.closeDetail')} onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 coarse:p-3.5"><X className="h-4 w-4" /></button>
+          <button aria-label={tr('board.task.closeDetail')} onClick={onClose} className="rounded p-1.5 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 coarse:p-3.5"><X className="h-4 w-4" /></button>
         </div>
 </>
   );

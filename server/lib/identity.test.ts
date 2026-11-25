@@ -10,13 +10,14 @@
  * No cookie is nobody and stays confined; a cookie matching no device opens
  * nothing.
  *
- * @covers GUEST-03
+ * @covers GUEST-03, ORG-01, ORG-02, ORG-05
  */
 import { describe, expect, it, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveIdentity, resolveDelegatedCredential, confinamentoDerivato } from "./identity";
+import { resolveIdentity, resolveDelegatedCredential } from "./identity";
+import { resolvePrincipals } from "./principals";
 import { hashToken, buildSessionCookie } from "./device-auth";
 import { TASKS_DDL } from "../db/test-schema";
 
@@ -49,7 +50,7 @@ describe("identità · il percorso locale non tocca il database", () => {
   it("locale = la macchina, senza cookie e senza query", () => {
     const db = db084();
     const io = resolveIdentity(db, null, true);
-    expect(io).toEqual({ locale: true, device: null, principals: [], confined: false, personId: null, rev: 0, screen: false });
+    expect(io).toEqual({ locale: true, device: null, principals: [], confined: false, personId: null, rev: 0, screen: false, node: false });
   });
 
   it("e vale anche se un cookie c'è: sul locale non lo si legge nemmeno", () => {
@@ -164,7 +165,7 @@ describe("identità · il confinamento derivato, che un giorno comanderà", () =
     db.query("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('p1','Io',1,'local',1,1)").run();
     db.query("INSERT INTO installation_owners (person_id, added_at, is_default) VALUES ('p1',1,0)").run();
     aggiungi(db, { id: "d1", token: "t1", role: "owner", personId: "p1" });
-    expect(confinamentoDerivato(db, "d1")).toBe(false);
+    expect(resolvePrincipals(db, "d1").confined).toBe(false);
   });
 
   it("e quando NON lo è: un collega resta ospite anche se è nella tua organizzazione", () => {
@@ -173,6 +174,6 @@ describe("identità · il confinamento derivato, che un giorno comanderà", () =
     db.query("INSERT INTO orgs (id, name, created_at, origin, rev, updated_at) VALUES ('o1','Team',1,'local',1,1)").run();
     db.query("INSERT INTO org_members (org_id, person_id, role, joined_at, rev, updated_at) VALUES ('o1','c1','member',1,1,1)").run();
     aggiungi(db, { id: "d9", token: "t9", role: "guest", personId: "c1" });
-    expect(confinamentoDerivato(db, "d9")).toBe(true);
+    expect(resolvePrincipals(db, "d9").confined).toBe(true);
   });
 });

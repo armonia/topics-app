@@ -9,7 +9,7 @@
 import { test, expect, beforeEach } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { createTasksRouter } from "./tasks";
-import { deliveryNotesInFlight } from "../services/tasks";
+import { deliveryNotesInFlight } from "../services/tasks/shared";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 
 let db: Database;

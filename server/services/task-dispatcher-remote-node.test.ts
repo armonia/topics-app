@@ -29,7 +29,7 @@
  * @covers GUEST-17
  */
 import { UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,10 +39,19 @@ import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./t
 import { createNodeBranchPlanter } from "./node-branch-plant";
 import { createDeliveryCapture, type DeliveryCapture, type DeliveryRef } from "./task-delivery-capture";
 import type { TaskFile } from "../../shared/task-labels";
-import type { NodeRunReport } from "./node-client";
+import { NodeError, type NodeRunReport } from "./node-client";
 
 import { wakeBreaker } from "./wake-breaker";
+import { hangBreaker } from "./task-dispatcher-remote-node";
 import { PID, TASK, MACHINE, BASE_URL, report, delegatedPolicy, harness, flush, poll, dispatch } from "./task-dispatcher-remote-node-test-support";
+
+// Both breakers are shared singletons across every test in this file: a burial
+// in one `it` must never leave the next one looking at a node the test itself
+// never touched.
+afterEach(() => {
+  wakeBreaker.success(MACHINE);
+  hangBreaker.success(MACHINE);
+});
 
 describe("la card parte sul nodo, non qui", () => {
   it("nessun worktree, nessun discorso, nessun turno: solo la corsa sul nodo", async () => {
@@ -142,6 +151,36 @@ describe("la card parte sul nodo, non qui", () => {
     const t = h.task();
     expect(t.status).toBe("todo");
     expect(t.machineId ?? null).toBeNull();
+  });
+
+  it("il cloud non raggiunge il repository: la card torna in coda subito, senza attesa, e dice la causa vera", async () => {
+    const words = "L'app GitHub di Claude non ha accesso al repository o/r: il cloud non può clonarlo.";
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error(words), { reason: "cloud_repo" })) });
+    h.seed();
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.status).toBe("todo");
+    expect(t.machineId ?? null).toBeNull();
+    expect(t.dispatchDeferredUntil).toBeNull();
+    expect(t.dispatchError).not.toBe("node_unreachable");
+    const said = h.svc.get(TASK)!.comments.map((c: { content: string }) => c.content).join("\n");
+    expect(said).toContain("non ha accesso al repository o/r");
+    expect(said).not.toContain("non risponde");
+    console.log("TESTO SULLA CARD:", said.split("\n").find((l: string) => l.includes("accesso al repository")));
+  });
+
+  it("account rifiutato dal cloud: stessa cosa, la card esce dal cloud senza attese", async () => {
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error("l'API del cloud rifiuta l'account (403 su /v1/environment_providers)"), { reason: "cloud_account" })) });
+    h.seed();
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.status).toBe("todo");
+    expect(t.machineId ?? null).toBeNull();
+    expect(t.dispatchDeferredUntil).toBeNull();
   });
 
   it("nodo muto due volte: la card resta in coda, il tetto dei rimandi dell'agente non la ferma", async () => {
@@ -396,6 +435,54 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     wakeBreaker.success(MACHINE);
   });
 
+  it("breaker open: the hook does not run and the card waits until the breaker closes", async () => {
+    // 12-14/11: the note said "no more cards until 01:32" and the card came back 5 minutes later, 542 times.
+    wakeBreaker.success(MACHINE);
+    wakeBreaker.failure(MACHINE);
+    wakeBreaker.failure(MACHINE);
+    const until = wakeBreaker.openUntil(MACHINE)!;
+    try {
+      const hook = hookFake({ ok: true });
+      const h = harness({ hooks: hook.runner });
+      h.seed();
+      await dispatch(h);
+      expect(hook.seen).toHaveLength(0);
+      expect(h.calls).toEqual([]);
+      const t = h.task();
+      expect(t.status).toBe("todo");
+      expect(Date.parse(t.dispatchDeferredUntil!)).toBeGreaterThanOrEqual(until - 60_000);
+    } finally { wakeBreaker.success(MACHINE); }
+  });
+
+  it("breaker already open, card the overflow put there: it leaves the node at once, no hook and no deferral (21/11)", async () => {
+    for (const breaker of [wakeBreaker, hangBreaker]) {
+      breaker.failure(MACHINE);
+      breaker.failure(MACHINE);
+      const hook = hookFake({ ok: true });
+      const h = harness({ hooks: hook.runner });
+      h.seed();
+      h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), TASK]);
+      await dispatch(h);
+      expect(hook.seen).toHaveLength(0);
+      expect(h.task()).toMatchObject({ status: "todo", machineId: null, dispatchDeferredUntil: null });
+      breaker.success(MACHINE);
+    }
+  });
+
+  it("the veto that opens the breaker defers the card until it closes, not the fixed 5 minutes", async () => {
+    wakeBreaker.success(MACHINE);
+    wakeBreaker.failure(MACHINE);
+    try {
+      const hook = hookFake({ ok: false, reason: "il nodo non si accende" });
+      const h = harness({ hooks: hook.runner });
+      h.seed();
+      await dispatch(h);
+      expect(hook.seen).toHaveLength(1);
+      expect(wakeBreaker.isOpen(MACHINE)).toBe(true);
+      expect(Date.parse(h.task().dispatchDeferredUntil!) - Date.now()).toBeGreaterThan(10 * 60_000);
+    } finally { wakeBreaker.success(MACHINE); }
+  });
+
   it("l'hook gira prima di ogni chiamata al nodo, anche la cancellazione della corsa vecchia", async () => {
     // A PC that sleeps cannot answer the cancel either: the hook that wakes it
     // has to come first, then the cancel of the buried run, then the new run.
@@ -418,6 +505,38 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     buried = true;
 
     expect(trace).toEqual(["hook", "create", "hook", "cancel:run-1", "create"]);
+  });
+
+  it("la corsa vecchia che il nodo non ha più (404) non è un errore da scrivere; un rifiuto vero sì", async () => {
+    // 25/11: every re-dispatch of a buried run logged a NodeError stack for a run the node had already dropped.
+    for (const [failure, logged] of [
+      [new NodeError("not_found", "cancel run answered 404: run not found", 404), false],
+      [new Error("offline"), true],
+    ] as const) {
+      // The dead polls of the previous round open the node's breakers, as in beforeEach.
+      wakeBreaker.success(MACHINE);
+      hangBreaker.success(MACHINE);
+      const logs: string[] = [];
+      const cancelled: string[] = [];
+      let runs = 0;
+      let buried = false;
+      const h = harness({
+        createRun: async () => { runs += 1; return { runId: `run-${runs}` }; },
+        cancelRun: async (runId) => { cancelled.push(runId); throw failure; },
+        readRun: (runId) =>
+          runId === "run-1" && !buried
+            ? Promise.reject(Object.assign(new Error("giu"), { reason: "unreachable" }))
+            : Promise.resolve(report()),
+      }, { log: (msg) => { logs.push(msg); } });
+      h.seed();
+      await dispatch(h);
+      await poll(h, NODE_DEAD_POLLS);
+      buried = true;
+
+      expect(cancelled).toEqual(["run-1"]);
+      expect(runs).toBe(2);
+      expect(logs.some((m) => m.includes("non si è cancellata"))).toBe(logged);
+    }
   });
 
   it("hooks.json con uno script che esce non zero: il motivo sullo stderr arriva sulla card", async () => {
@@ -784,6 +903,32 @@ describe("un nodo è alive finché i suoi POLL rispondono", () => {
     expect(h.calls.slice(callsBefore).filter((c) => c === "read:run-1")).toEqual([]);
     expect(h.task().deliveryBranch).toBeNull();
   });
+
+  it("due corse sepolte di fila aprono la breccia: la terza non parte sullo stesso nodo muto (21/11)", async () => {
+    // The node accepts every run (the hook and `createRun` both answer) but
+    // never answers a single poll: the exact shape measured on the Windows
+    // PC, port open, healthz silent. Without a breaker on this signal the
+    // dispatcher buried and relaunched the same hung node forever.
+    const h = harness({ readRun: () => Promise.reject(Object.assign(new Error("giù"), { reason: "unreachable" })) });
+    h.seed();
+    await dispatch(h);
+
+    // First burial: the freed card still gets one more try (run 2).
+    await poll(h, NODE_DEAD_POLLS);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
+    expect(hangBreaker.isOpen(MACHINE)).toBe(false);
+
+    // Second burial in a row, same node, zero successful poll in between:
+    // the breach opens, and run 3 does not start.
+    await poll(h, NODE_DEAD_POLLS);
+    expect(hangBreaker.isOpen(MACHINE)).toBe(true);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
+    expect(h.task().status).toBe("todo");
+
+    // A tick later, still within the open window: still no third run.
+    await poll(h, 1);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
+  });
 });
 
 describe("lo specchio: stato, commenti e il ramo che torna", () => {
@@ -922,6 +1067,41 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     expect(t.humanAsk).toBeUndefined();
     // The slot is released: the run is over.
     expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("a node delivery emits task-deliver once, and a hook that throws does not block the review", async () => {
+    for (const throws of [false, true]) {
+      const seen: { event: string; payload: LifecycleHookPayload }[] = [];
+      const hooks: LifecycleHookRunner = {
+        run: async (event, payload) => {
+          seen.push({ event, payload });
+          if (event === "task-deliver" && throws) throw new Error("hook broke");
+          return { ok: true };
+        },
+      };
+      const h = harness({
+        hooks,
+        bundle: new Uint8Array([1, 2, 3, 4]),
+        readRun: () =>
+          Promise.resolve(report({
+            status: "review",
+            dispatchState: "delivered",
+            deliveryBranch: "topics/corsa-remota",
+            deliveryCommit: "deadbeefdeadbeef",
+            baseSha: "abcdef0123456789",
+          })),
+      });
+      h.seed();
+      await dispatch(h);
+      await poll(h);
+      await flush(10);
+
+      expect(h.task().status).toBe("review");
+      const delivers = seen.filter((c) => c.event === "task-deliver");
+      expect(delivers).toHaveLength(1);
+      expect(delivers[0].payload.task_id).toBe(TASK);
+      expect(delivers[0].payload.node_run).toBe(true);
+    }
   });
 
   it("il ramo che non si pianta arriva comunque in review, col motivo scritto", async () => {
@@ -1288,6 +1468,16 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(t.machineId).toBeNull();
     expect(measured).toEqual([]);
     expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(true);
+  });
+
+  it("seconda corsa vuota di fila (salto di un altro nodo ancora attivo): resta qui 6 ore, non va su un terzo nodo (21/11)", async () => {
+    const { h } = plantedHarness({ commit: null, files: [] });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflowed_at = ?, overflow_skip_machine = 'altro', overflow_skip_until = ? WHERE id = ?", [new Date().toISOString(), new Date(Date.now() + 3_600_000).toISOString(), TASK]);
+    await dispatch(h);
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await poll(h);
+    expect([h.task().status, h.task().stayLocal, h.comments().some((c) => c.content.startsWith("Anche la corsa su"))]).toEqual(["todo", true, true]);
   });
 
   it("zero commit propri perche' l'agente ha chiesto una scelta: non e' mancanza di strumenti, va in review e non resta qui", async () => {

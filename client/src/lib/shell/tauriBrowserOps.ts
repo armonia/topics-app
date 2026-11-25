@@ -238,6 +238,15 @@ export async function executeNativeBrowserOp(
     switch (tool) {
       case 'browser_open': {
         const url = absolutizeMediaRef(typeof a.url === 'string' ? a.url : 'about:blank');
+        // Stamp the CURRENT document before leaving it: a second opening on the
+        // same origin would otherwise find the old page already past 'loading'
+        // and report it as the new one. The new document has no stamp, so a
+        // missing/different stamp means "this is not the page we left".
+        // Best-effort: a pane that cannot run script yet falls back to the
+        // origin-only wait.
+        const stamp = `open-${Date.now()}-${Math.random()}`;
+        const stamped = await invoke('browser_eval_js', { id, js: `window.__topicsVerifyMark = ${JSON.stringify(stamp)}` })
+          .then(() => true, () => false);
         await invoke('browser_navigate', { id, url });
         // Page navigated → any cached refs are stale.
         clearNativeSnapshotCache(id);
@@ -260,7 +269,7 @@ export async function executeNativeBrowserOp(
         // the caller (open_browser_pane) repeated that to the agent. Reporting
         // `location.href` is what turns a silent white pane into a visible
         // failure — nothing else on this seam can see it.
-        const { ready, href } = await waitForPaneLoad(id, invoke, originOf(url), NAV_SETTLE_MS);
+        const { ready, href } = await waitForPaneLoad(id, invoke, originOf(url), NAV_SETTLE_MS, stamped ? stamp : undefined);
         return { result: { ok: true, url: href || url, requested: url, ready } };
       }
       case 'browser_observe': {
@@ -658,22 +667,3 @@ function coerceExtractFields(a: Record<string, unknown>): Record<string, unknown
   }
   return {};
 }
-
-/** The ops executeNativeBrowserOp actually runs (vs. routing to the streaming hint). */
-export const NATIVE_SUPPORTED_OPS: ReadonlySet<string> = new Set([
-  'browser_open',
-  'browser_observe',
-  'browser_act',
-  'browser_extract',
-  'browser_eval',
-  'browser_get_text',
-  'browser_console',
-  'browser_screenshot',
-  'browser_verify',
-  'browser_upload',
-  'browser_status',
-  // Login-state legs (the server-side halves live in server/browser-native-state.ts).
-  'browser_save_state',
-  'browser_load_state',
-  'browser_import_chrome',
-]);

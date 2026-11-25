@@ -10,7 +10,7 @@ import { isAgentWorking, type TaskStatus } from "../../shared/board";
 import { buildProjectNames, loadRegisteredProjects } from "./project-display-name";
 import { unregisteredProjectName } from "../../shared/project-name";
 import { sortProjectGroups } from "../../shared/project-order";
-import { STAGE_AI_REVIEW, awaitsHuman } from "../../shared/workflow";
+import { awaitsHuman } from "../../shared/workflow";
 import { isGroupingParent } from "../../shared/grouping-parent";
 import { waitOnPerson } from "../../shared/waits-on-person";
 import { findDuplicateGroups } from "../../shared/task-similarity";
@@ -36,7 +36,7 @@ interface TaskRow {
   updated_at: string; created_at: string; parent_task_id?: string | null;
   description?: string | null; stage?: string | null; human_ask?: string | null;
   dispatch_state?: string | null; dispatch_error?: string | null; dispatch_attempts?: number | null;
-  in_progress_at?: string | null; delivered_by?: string | null; landing_state?: string | null;
+  in_progress_at?: string | null; delivered_by?: string | null; delivered_reason?: string | null; landing_state?: string | null;
 }
 
 interface CommentRow { task_id: string; content: string; kind: string | null; author: string | null; message_id: string | null; quiet: number | null }
@@ -57,8 +57,8 @@ export function needOf(
 
 /**
  * The header state of a group of cards, with the Kanban's rules. «At work»
- * means an agent is on the card now (`isAgentWorking`), or the reviewer agent
- * in AI review: status in_progress alone is not work. Then what waits for a
+ * means an agent is on the card now (`isAgentWorking`): status in_progress
+ * alone is not work. Then what waits for a
  * person's approval (`awaitsHuman`), then what is left to do, and «stale»
  * only when every open card has been idle past STALE_DAYS. Grouping parents
  * are not work and stay out.
@@ -68,7 +68,7 @@ export function activityOf(
 ): PlanActivity {
   const cards = all.filter((c) => !c.grouping);
   const open = cards.filter((c) => c.status !== "done");
-  const working = open.filter((c) => isAgentWorking(c.dispatchState) || (c.status === "review" && c.stage === STAGE_AI_REVIEW)).length;
+  const working = open.filter((c) => isAgentWorking(c.dispatchState)).length;
   const review = open.filter((c) => awaitsHuman(c)).length;
   if (working > 0) return { state: "working", count: working };
   if (review > 0) return { state: "review", count: review };
@@ -139,7 +139,7 @@ export function buildPlan(
     `SELECT id, project_id, text, status, assigned_topic_id, origin_topic_id, delivery_branch,
             delivery_commit, checks_state, updated_at, created_at, parent_task_id,
             description, stage, human_ask, dispatch_state, dispatch_error, dispatch_attempts,
-            in_progress_at, delivered_by, landing_state
+            in_progress_at, delivered_by, delivered_reason, landing_state
        FROM tasks WHERE archived = 0 ${where}`,
   ).all(...params) as TaskRow[];
   // Threads of OPEN cards only: a closed card asks nothing, and the full
@@ -237,7 +237,9 @@ export function buildPlan(
   for (const t of tasks) byProject.set(t.project_id, [...(byProject.get(t.project_id) ?? []), t]);
   for (const list of byProject.values()) {
     const open = list.filter((t) => t.status !== "done");
-    for (const g of findDuplicateGroups(open.map((t) => ({ id: t.id, text: t.text, createdAt: t.created_at })))) {
+    for (const g of findDuplicateGroups(
+      open.map((t) => ({ id: t.id, text: t.text, description: t.description, createdAt: t.created_at })),
+    )) {
       for (const d of g.duplicates) dupOf.set(d.id, g.survivor.id);
       dupOf.set(g.survivor.id, g.survivor.id);
     }

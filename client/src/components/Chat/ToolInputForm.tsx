@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePaneRoom } from '../../hooks/usePaneRoom';
 import { useT } from '../../hooks/useT';
 import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
 import { readRecommendation } from './questionAnswers';
-import { HelpCircle, Send, Loader2, ChevronRight, ArrowRight } from 'lucide-react';
+import { HelpCircle, Send, ChevronRight, ArrowRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
 import { isPlanApprovalSchema, PLAN_EDIT_KEY } from '../../../../shared/plan-decision';
 import { Select } from '../Shared/Select';
+import { OptionImage, QuestionImages } from './AskImages';
+import { Spinner } from '../Shared/Spinner';
 
 /** Extract a human-readable message from a rejected submit. `onSubmit`
  *  rejects with `{ status, message }` on HTTP errors, but a thrown Error or
@@ -225,6 +228,9 @@ function QuestionsForm({
     });
   }
 
+  const formRef = useRef<HTMLFormElement>(null);
+  const room = usePaneRoom(formRef);
+
   const answered = (q: AskUserQuestionItem) => {
     const cur = selections[q.question] || [];
     if (cur.length === 0) return false;
@@ -244,6 +250,8 @@ function QuestionsForm({
 
   return (
     <form
+      ref={formRef}
+      style={room !== null ? { maxHeight: room } : undefined}
       onSubmit={(e) => {
         e.preventDefault();
         if (submitting) return;
@@ -266,10 +274,13 @@ function QuestionsForm({
           submittedAt: '',
         });
       }}
-      className="space-y-3 bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
+      // A column with a cap: header and buttons stay put, the questions scroll
+      // in the middle. The cap is the pane's room (`usePaneRoom`); outside a
+      // pane, the fallback one.
+      className="flex flex-col gap-3 max-h-[min(32rem,80dvh)] min-w-0 max-w-full bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
       data-testid={`tool-input-form-${toolCallId}`}
     >
-      <div className="flex items-center gap-1.5 text-mini font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+      <div className="flex shrink-0 items-center gap-1.5 text-mini font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
         <HelpCircle size={12} />
         <span>{tr('tool.agentWaits')}</span>
         {stepped && (
@@ -278,6 +289,7 @@ function QuestionsForm({
           </span>
         )}
       </div>
+      <div data-testid="ask-form-body" className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain -mx-1 px-1">
       {/* The plan, above the two choices: read it, correct it, approve it.
           Correcting is NOT answering: the decision stays the two buttons, and
           Enter in here breaks the line instead of approving. */}
@@ -347,6 +359,7 @@ function QuestionsForm({
               </div>
             )}
           </legend>
+          {q.images && q.images.length > 0 && <QuestionImages images={q.images} />}
           <div className="space-y-0.5">
             {(() => {
               // Il consiglio è UNO: la prima opzione marcata vince, le altre
@@ -385,6 +398,7 @@ function QuestionsForm({
                   {opt.description && (
                     <div className="text-compact leading-snug text-app-text-muted">{opt.description}</div>
                   )}
+                  {opt.image && <OptionImage image={opt.image} label={rec.label} />}
                 </div>
               </label>
                 );
@@ -433,10 +447,11 @@ function QuestionsForm({
         </fieldset>
         );
       })}
+      </div>
       {error && (
-        <div className="text-compact text-red-500 bg-red-500/5 rounded px-2 py-1">{error}</div>
+        <div className="shrink-0 text-compact text-red-500 bg-red-500/5 rounded px-2 py-1">{error}</div>
       )}
-      <div className="flex justify-end items-center gap-2">
+      <div className="flex shrink-0 justify-end items-center gap-2">
         {stepped && step > 0 && (
           <button
             type="button"
@@ -454,7 +469,7 @@ function QuestionsForm({
           data-testid={isLast ? 'ask-submit' : 'ask-step-next'}
           className="flex items-center gap-1.5 px-3.5 py-1.5 text-prose font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:text-app-text-muted disabled:cursor-not-allowed transition-colors"
         >
-          {submitting ? <Loader2 size={13} className="animate-spin" /> : isLast ? <Send size={13} /> : <ChevronRight size={13} />}
+          {submitting ? <Spinner size={11} box={13} tone="current" /> : isLast ? <Send size={13} /> : <ChevronRight size={13} />}
           {submitting ? tr('ask.sending') : isLast ? tr('ask.send') : tr('ask.next')}
         </button>
       </div>
@@ -508,7 +523,7 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
         {error && <div className="text-compact text-red-500">{error}</div>}
         <div className="flex justify-end">
           <button type="submit" disabled={submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-prose font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
-            {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+            {submitting ? <Spinner size={11} box={13} tone="current" /> : <Send size={13} />}
             {submitting ? tr('ask.sending') : tr('ask.send')}
           </button>
         </div>
@@ -588,7 +603,7 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
       {error && <div className="text-compact text-red-500">{error}</div>}
       <div className="flex justify-end">
         <button type="submit" disabled={!allRequiredFilled || submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-prose font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
-          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+          {submitting ? <Spinner size={11} box={13} tone="current" /> : <Send size={13} />}
           {submitting ? tr('ask.sending') : tr('ask.send')}
         </button>
       </div>
@@ -673,7 +688,7 @@ function RawForm({
       {error && <div className="text-compact text-red-500">{error}</div>}
       <div className="flex justify-end">
         <button type="submit" disabled={submitting || !text.trim()} className="flex items-center gap-1.5 px-3.5 py-1.5 text-prose font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
-          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+          {submitting ? <Spinner size={11} box={13} tone="current" /> : <Send size={13} />}
           {submitting ? tr('ask.sending') : tr('ask.send')}
         </button>
       </div>

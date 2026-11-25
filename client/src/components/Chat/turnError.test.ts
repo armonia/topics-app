@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered, interruptedTurnOf, liveInterruptionBlock, isRedoneAnswer, TURN_CAUSE_KEY } from './turnError';
+import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered, interruptedTurnOf, liveInterruptionBlock, isRedoneAnswer, TURN_CAUSE_KEY, turnCauseKey } from './turnError';
 import { lastConversationMessage } from './machineRow';
 import { STOP_CAUSES } from '../../../../shared/ws-outbound';
 import type { ContentBlock, TurnEndCause } from '../../types';
@@ -303,5 +303,24 @@ describe('isRedoneAnswer: the resent turn, not the row it was resent from', () =
   test('no trace at all', () => {
     expect(isRedoneAnswer([testo('risposta')])).toBe(false);
     expect(isRedoneAnswer(null)).toBe(false);
+  });
+});
+
+describe('turnCauseKey: a spent credit is named as such, not as a rate limit', () => {
+  const credit = 'API 400: {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}';
+
+  test('rate-limit carrying the credit words gets the credit sentence, in both catalogues', () => {
+    const key = turnCauseKey({ cause: 'rate-limit', text: credit });
+    expect(key).toBe('chat.turnInterrupted.creditExhausted');
+    expect((it as Record<string, string>)[key]).toContain('credito');
+    expect((en as Record<string, string>)[key]).toContain('credit');
+  });
+
+  test('a plain rate limit keeps its own sentence', () => {
+    expect(turnCauseKey({ cause: 'rate-limit', text: 'API 429: rate_limit_error' })).toBe(TURN_CAUSE_KEY['rate-limit']);
+  });
+
+  test('the credit words under another cause do not rename it', () => {
+    expect(turnCauseKey({ cause: 'provider-error', text: credit })).toBe(TURN_CAUSE_KEY['provider-error']);
   });
 });

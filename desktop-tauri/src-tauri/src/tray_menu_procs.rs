@@ -118,6 +118,13 @@ fn level_word(l: &str) -> &'static str {
 
 /// One row of the table: name, CPU, GPU, network, memory; the submenu has the
 /// «use · owner · since» line, how it comes back, the trust flags and the close gesture.
+/// The name a row shows: a dev server's «Server di sviluppo · » is the icon and the second line already, so it goes
+/// and the port and the project, which tell two of them apart, fit the column whole.
+fn row_name(u: &Value) -> &str {
+    let name = s(u, "name");
+    if s(u, "type") == "devserver" { name.strip_prefix("Server di sviluppo · ").unwrap_or(name) } else { name }
+}
+
 fn unit_row(u: &Value, cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
     let mut kids: Vec<Node> = Vec::new();
     let detail = unit_detail(u);
@@ -146,7 +153,7 @@ fn unit_row(u: &Value, cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
     let under = format!("{} · {}", type_words(s(u, "type")), if detail.is_empty() { "uso non noto".to_string() } else { detail });
     let c = cpu_of(u, cpu);
     let worst = flags_of(u, trust).iter().map(|f| s(f, "level")).fold("", |w, l| if l == "grave" || (l == "attenzione" && w != "grave") { l } else { w });
-    let cells = vec![crate::tray_menu::cell(s(u, "name")), cpu_text(c), gpu_text(u), net_text(u), mem_text(n(u, "memMB")), second_line(under)];
+    let cells = vec![crate::tray_menu::cell(row_name(u)), cpu_text(c), gpu_text(u), net_text(u), mem_text(n(u, "memMB")), second_line(under)];
     // a unit that can be closed is the one the row's gesture is for: its name in semibold, as in the original
     let make = if closable(u) { bold_row } else { row };
     with_icon(unit_icon(u, worst), make(Table::Procs, cells, kids))
@@ -268,7 +275,7 @@ fn rankings(real: &[&Value], cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
     let net: Vec<&Value> = real.iter().copied().filter(|u| netsum(u) >= 1024.0).collect();
     block("PIÙ RETE ADESSO", sorted_by(&net, netsum).into_iter().take(5).collect());
     let total: f64 = cpu.values().sum();
-    with_icon("sf:chart.bar", sub(format!("Classifiche per CPU, GPU, rete e memoria · CPU totale {} · 100% = un core intero", cpu_text(total)), kids))
+    with_icon("sf:chart.bar", sub(format!("Classifiche · CPU totale {} · 100% = un core intero", cpu_text(total)), kids))
 }
 
 /// A command line as the second line of a row: the program's own name (not its
@@ -296,14 +303,16 @@ fn remote_head(label: &str) -> Node {
 /// and cannot close one from here, so the row has neither a column nor a gesture for them.
 fn remote_row(p: &RemoteProc) -> Node {
     let cmd = short_cmd(&p.cmd);
-    let second = if cmd.is_empty() { "processo".to_string() } else { format!("processo · {cmd}") };
+    // a second line that only repeats «processo» under every row is noise: it is there for a command line
+    let second = (!cmd.is_empty()).then(|| format!("processo · {cmd}"));
     let long: String = p.cmd.chars().take(120).collect();
     let kids = vec![
         note(if long.trim().is_empty() { "processo".to_string() } else { format!("processo · {}", long.trim()) }),
         note(format!("memoria {}", mem_text(p.mem_mb))),
         note(format!("CPU {}", cpu_text(p.cpu_pct))),
     ];
-    let cells = vec![crate::tray_menu::cell(&p.name), cpu_text(p.cpu_pct), mem_text(p.mem_mb), second_line(second)];
+    let mut cells = vec![crate::tray_menu::cell(&p.name), cpu_text(p.cpu_pct), mem_text(p.mem_mb)];
+    cells.extend(second.map(second_line));
     with_icon("sf:gearshape", row(Table::RemoteProcs, cells, kids))
 }
 
@@ -336,7 +345,8 @@ pub fn remote_procs_table(detail: Option<&MachineDetail>) -> Vec<Node> {
     let procs: &[RemoteProc] = detail.map_or(&[], |d| &d.procs[..]);
     let total = detail.and_then(|d| d.procs_total);
     if procs.is_empty() && total.is_none() {
-        return vec![note("Nessun processo letto adesso")];
+        // a row that only says nothing was read is no help: the submenu simply has no processes then
+        return Vec::new();
     }
     let mut ranked: Vec<&RemoteProc> = procs.iter().collect();
     ranked.sort_by(|a, b| remote_weight(b).partial_cmp(&remote_weight(a)).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.name.cmp(&b.name)));
@@ -366,7 +376,7 @@ fn remote_rankings(ranked: &[&RemoteProc]) -> Node {
     by_mem.sort_by(|a, b| b.mem_mb.partial_cmp(&a.mem_mb).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.name.cmp(&b.name)));
     kids.extend(by_mem.iter().take(5).map(|p| remote_row(p)));
     let total: f64 = ranked.iter().map(|p| p.cpu_pct).sum();
-    with_icon("sf:chart.bar", sub(format!("Classifiche per CPU e memoria · CPU totale {} · 100% = un core intero", cpu_text(total)), kids))
+    with_icon("sf:chart.bar", sub(format!("Classifiche · CPU totale {} · 100% = un core intero", cpu_text(total)), kids))
 }
 
 #[cfg(test)]

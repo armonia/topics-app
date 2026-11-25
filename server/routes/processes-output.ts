@@ -9,7 +9,7 @@ import { stdoutTargetOf } from "../lib/command-redirect";
 import { noteRunAlive } from "../lib/command-runs";
 import { getPersistDir, logPathOf } from "./processes-persist";
 import { notifyScriptOutput } from "./processes-snapshot";
-import { type CommandMeta, MAX_LOG_FILE_BYTES, MAX_OUTPUT_BYTES, MAX_RECENT, type ScriptProcess, isPersonRun, recentScripts, runningScripts, _broadcastCtx, tailTimer, setTailTimer } from "./processes-state";
+import { type CommandMeta, MAX_LOG_FILE_BYTES, MAX_OUTPUT_BYTES, MAX_RECENT, type ScriptProcess, isJobRun, isPersonRun, recentScripts, runningScripts, _broadcastCtx, tailTimer, setTailTimer } from "./processes-state";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,7 +41,7 @@ export function addToRecent(sp: ScriptProcess) {
 
 /**
  * The oldest rows past MAX_RECENT go, but not one that still owes its topic a
- * wake (`scripts.json` persists only these rows, so a pruned owed row lost its
+ * wake, nor a scheduled job's run before the engine has taken its end (its history row closes from it) (`scripts.json` persists only these rows, so a pruned owed row lost its
  * wake at the next reload; scripts and every agent's shells end here too, and
  * ten endings go by fast), nor a person's run before the router has a
  * database to close its `command_runs` row in: more than ten found dead at one
@@ -51,7 +51,7 @@ export function addToRecent(sp: ScriptProcess) {
 export function trimRecent(): void {
   for (let i = recentScripts.length - 1; recentScripts.length > MAX_RECENT && i >= 0; i--) {
     const sp = recentScripts[i]!;
-    if (!sp.cmd?.wake && !(isPersonRun(sp) && !_broadcastCtx)) recentScripts.splice(i, 1);
+    if (!sp.cmd?.wake && !(isPersonRun(sp) && !_broadcastCtx) && !(isJobRun(sp) && !sp.jobSettled)) recentScripts.splice(i, 1);
   }
 }
 

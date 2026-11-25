@@ -43,13 +43,14 @@ export interface StatusCount {
  */
 export function boardTabCounts(
   tasks: readonly BoardTask[] | null | undefined,
-  projectId?: string | null,
+  /** One board, or several (a parent plus the projects merged into it). */
+  projectId?: string | readonly string[] | null,
 ): StatusCount[] {
   const out: StatusCount[] = [];
   for (const status of SUMMARY_STATUSES) {
     let n = 0;
     for (const t of tasks ?? []) {
-      if (projectId && t.projectId !== projectId) continue;
+      if (projectId && !(typeof projectId === 'string' ? t.projectId === projectId : projectId.includes(t.projectId))) continue;
       if (status === 'review') n += reviewWaitingOf(t);
       else if (t.status === status) n++;
     }
@@ -60,7 +61,7 @@ export function boardTabCounts(
 
 /**
  * What one feed card adds to «review»: itself when it waits on a person
- * (`awaitsHuman`, AI review left out), plus its steps that do
+ * (`awaitsHuman`, the CI column left out), plus its steps that do
  * (`subtaskReviewCount`, from the server). The feed holds roots only, and a
  * step in review under a parent in backlog was in the Plan's count and in no
  * column's: the Kanban said 3 where the Plan said 8.

@@ -261,7 +261,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
       // five-tool profile cannot call any of these.
       pushBrowserInstructionBlock(systemBlocks);
       pushProjectMarkersBlock(systemBlocks);
-      pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx, isEnabled);
+      pushTopicSwitchDirectoryBlock(systemBlocks, topic, isEnabled);
       // La lingua viaggia come blocco di contesto: codex, openai e gli agenti
       // ACP non hanno un `--append-system-prompt` in cui infilare la
       // direttiva. Questa è l'unica via che li raggiunge, ed è anche l'unica
@@ -672,21 +672,21 @@ function pushProjectMarkersBlock(blocks: SystemBlock[]): void {
 function pushTopicSwitchDirectoryBlock(
   blocks: SystemBlock[],
   topic: Topic,
-  ctx: AppContext,
   isEnabled: (id: string) => boolean,
 ): void {
+  // The id keeps its old name: topics that switched the block off store it in `disabledContextSources`.
   const id = "synthetic:topic-switch-directory";
-  const directory = buildTopicDirectory(ctx, topic.id);
-  const content = topicSwitchContent(topic, directory);
+  const content = topicSwitchContent(topic);
   blocks.push({
     id,
-    label: "Topic switch directory",
+    label: "Topic switching",
     category: "synthetic",
     content,
     tokens: estimateTokens(content),
-    // Spegnibile come gli altri blocchi. L'elenco cambia a ogni chat creata o rinominata e sta prima della
-    // cronologia: dove è sempre acceso rompe la cache di tutta la cronologia a ogni turno. Il 03/11, sulle chat
-    // dei canali che lo avevano spento, ha fatto riscrivere 10,6 milioni di token, metà dai keepalive.
+    // It used to carry the directory of every live topic: 33.5k characters on 23/11/2026, changed by every
+    // topic created or renamed (~755 a day), so it broke the cache of the history behind it almost every turn
+    // (on 03/11 the channel chats that still had it rewrote 10.6M tokens). Now it only changes when the
+    // current topic is renamed; `switch_topic` resolves names itself.
     enabled: isEnabled(id),
     countInBudget: true,
     editable: false,
@@ -1083,21 +1083,6 @@ function buildWarnings(
   return warnings;
 }
 
-function buildTopicDirectory(ctx: AppContext, currentTopicId: string): string {
-  // The live half only, on its index: every topic built and then skipped was
-  // 1,848 archived rows of 1,870 per turn on 2026-09-30 (2.35-2.44 ms against
-  // 0.05-0.06). The `archived` check below stays for a store that ignores the
-  // filter. Gate: assemble.test.ts "topic switch directory".
-  const data = ctx.loadTopics({ archived: false });
-  const lines: string[] = [];
-  for (const t of Object.values(data.topics)) {
-    if (t.id === currentTopicId || t.archived) continue;
-    const project = t.projectPath ? ` (project: ${t.projectPath.split("/").pop()})` : "";
-    lines.push(`- [id:${t.id}] ${t.name}${project}`);
-  }
-  return lines.join("\n");
-}
-
 // ────────────────────────────────────────────────────────────────────────────
 // Synthetic block contents — copied verbatim from `streamEditResponse`.
 // Centralised here so `adaptEnvelope` and tests reference the same strings.
@@ -1107,11 +1092,11 @@ export function browserInstructionContent(): string {
   // All control of the embedded browser pane is via the topics-app tool
   // `open_browser_pane` (claude-code/codex over MCP; claude/openai over the SDK
   // browser-tool passthrough). The legacy {{BROWSER:url}} marker was removed.
-  return `When you need to open a URL or file in the user's embedded browser panel, use the \`open_browser_pane\` tool with the absolute URL. Examples:
-- After creating an HTML file: open_browser_pane({ url: "file:///path/to/file.html" })
+  return `To show the user something (a page, an image, a PDF, a preview), open it with the \`open_browser_pane\` tool. What you open is left in your message as a picture or file, whatever device the person reads on and whether or not the panel is open: the panel is an extra, not the place where it lives. Examples:
+- A local file: open_browser_pane({ url: "/path/to/file.png" }) with the plain path. A file outside the served folders must first be copied under ~/.topics/media.
 - After starting a dev server: open_browser_pane({ url: "http://localhost:3000" })
 - To show a webpage: open_browser_pane({ url: "https://example.com" })
-The tool returns the final URL + page title after navigation. Do not mention the tool to the user.`;
+The tool returns the final URL + page title after navigation. Do not tell the person to look at the panel: point at the preview in your message.`;
 }
 
 export function projectMarkersContent(): string {
@@ -1123,14 +1108,14 @@ export function projectMarkersContent(): string {
 Call \`open_project\` whenever the user, in ANY phrasing or language, asks to open, switch to, move into, or nest this session under a project, OR says this session belongs to / should live under a project — not only the literal word "open". Examples: "open project Pix" / "aprimi il progetto Pix" / "metti questa sessione nel progetto Pix" → open_project({ ref: "Pix" }). Also call it when you begin focused work inside a specific project. If the user references "this project" WITHOUT naming it and you cannot infer the name/path, ask which project rather than guessing. Do NOT call it for casual mentions, comparisons, single-file references, or test/debug chatter. Never mention the tool to the user.`;
 }
 
-export function topicSwitchContent(topic: Topic, directory: string): string {
+export function topicSwitchContent(topic: Topic): string {
   const currentTopicInfo = `You are currently in topic: "${topic.name}"${topic.projectPath ? ` (project: ${topic.projectPath.split("/").pop()})` : ""}.\n\n`;
   // Topic control is via the topics-app tools `switch_topic` / `new_topic`.
-  // The legacy {{TOPIC_SWITCH/TOPIC_NEW}} markers were removed.
-  const directorySection = directory
-    ? `Here are the available topics:\n${directory}\n\nIf the user's message CLEARLY belongs to a different existing topic (not just a casual reference), use the \`switch_topic\` tool: switch_topic({ topic_id: "..." }) with the target topic's id.\n`
-    : "";
-  return `${currentTopicInfo}You have access to multiple conversation topics. ${directorySection}If the user wants to talk about a NEW subject that does NOT match any existing topic, use the \`new_topic\` tool: new_topic({ title: "Topic Name" }) instead (a short, descriptive 2-4 word name).\nRules:\n- Only switch/create when the user EXPLICITLY asks to change topic or starts a clearly unrelated conversation\n- NEVER switch/create for tool usage requests, test messages, debugging, or follow-up questions\n- Never switch for casual mentions, comparisons, or single-message requests\n- Prefer switch_topic to an existing topic when one fits; use new_topic only when none matches\n- Never mention the tool to the user\n- When in doubt, stay in the current topic`;
+  // The legacy {{TOPIC_SWITCH/TOPIC_NEW}} markers were removed. No directory of
+  // the other topics here: `switch_topic` takes a name and looks it up
+  // (`resolveSwitchTarget` in server/lib/session-control-core.ts says why).
+  const switchSection = `If the user's message CLEARLY belongs to a different existing topic (not just a casual reference), use the \`switch_topic\` tool: switch_topic({ topic_id: "<the topic's name or id>" }). Topics finds it by name; if several match it answers with their ids.\n`;
+  return `${currentTopicInfo}You have access to multiple conversation topics. ${switchSection}If the user wants to talk about a NEW subject that does NOT match any existing topic, use the \`new_topic\` tool: new_topic({ title: "Topic Name" }) instead (a short, descriptive 2-4 word name).\nRules:\n- Only switch/create when the user EXPLICITLY asks to change topic or starts a clearly unrelated conversation\n- NEVER switch/create for tool usage requests, test messages, debugging, or follow-up questions\n- Never switch for casual mentions, comparisons, or single-message requests\n- Prefer switch_topic to an existing topic when one fits; use new_topic only when none matches\n- Never mention the tool to the user\n- When in doubt, stay in the current topic`;
 }
 
 export function planModeContent(): string {

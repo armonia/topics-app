@@ -10,7 +10,7 @@
  * @covers KANBAN-75
  */
 import { describe, it, expect } from "bun:test";
-import { GATES_CI_CHECK, E2E_CI_CHECK, type ReviewCheck } from "../../shared/board";
+import { GATES_CI_CHECK, E2E_CI_CHECK, UNIT_CI_CHECK, type ReviewCheck } from "../../shared/board";
 import { cardWeightOf, createCardPrices, type CardPriceBoard, type CardPriceTask } from "./dispatch-card-price";
 import { CLI_AGENT_PEAK_GB, NATIVE_NO_LOCAL_CHECK_RESERVATION_GB } from "./dispatch-capacity";
 
@@ -26,8 +26,16 @@ describe("cardWeightOf: la classe di una card la decide la sua board", () => {
     expect(cardWeightOf({ dispatchUseWorktree: false, reviewChecks: [GATES_CI_CHECK, E2E_CI_CHECK] })).toBe("light");
   });
 
-  it("una worktree consegna un ramo passando dai cancelli del repo: standard", () => {
+  it("una worktree senza check dichiarati consegna un ramo passando dai cancelli del repo: standard", () => {
     expect(cardWeightOf({ dispatchUseWorktree: true, reviewChecks: [] })).toBe("standard");
+  });
+
+  it("una worktree i cui check girano tutti sulla CI di GitHub è leggera: i cancelli pesanti non girano qui", () => {
+    expect(cardWeightOf({ dispatchUseWorktree: true, reviewChecks: [UNIT_CI_CHECK, GATES_CI_CHECK, E2E_CI_CHECK] })).toBe("light");
+    // The same board with one local command in the list runs it here again.
+    expect(cardWeightOf({ dispatchUseWorktree: true, reviewChecks: [GATES_CI_CHECK, LOCAL_CHECK] })).toBe("standard");
+    // A heavy card pays the list wherever its checks run.
+    expect(cardWeightOf({ dispatchUseWorktree: true, reviewChecks: [GATES_CI_CHECK] }, "heavy")).toBe("standard");
   });
 
   it("un check locale gira su questa macchina: standard, anche in place", () => {
@@ -70,6 +78,13 @@ describe("priceFor: quanto pesa una card in più", () => {
     expect(p.priceFor("quiet")).toBe(NATIVE_NO_LOCAL_CHECK_RESERVATION_GB);
     // An empty list of check peaks reads as the floor of the price list.
     expect(p.priceFor("repo")).toBe(4);
+  });
+
+  it("a worktree board with only CI evidence rows pays the agent, not the 4 GB list", () => {
+    const boards = { ci: { dispatchUseWorktree: true, reviewChecks: [UNIT_CI_CHECK, GATES_CI_CHECK, E2E_CI_CHECK] } };
+    expect(prices({ boards }).priceFor("ci")).toBe(NATIVE_NO_LOCAL_CHECK_RESERVATION_GB);
+    expect(prices({ boards, cli: true }).priceFor("ci")).toBe(CLI_AGENT_PEAK_GB);
+    expect(prices({ boards }).priceFor("ci", "heavy")).toBe(4);
   });
 
   it("il listino vale per le board standard e lo muovono i picchi misurati", () => {

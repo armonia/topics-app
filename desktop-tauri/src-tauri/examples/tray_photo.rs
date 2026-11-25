@@ -5,6 +5,23 @@
 #[path = "../src/tray_quota.rs"]
 #[allow(dead_code)]
 mod tray_quota;
+// tray_quota draws through these: the example must carry them as the library does.
+#[path = "../src/tray_agents.rs"]
+#[allow(dead_code)]
+mod tray_agents;
+#[path = "../src/tray_dials.rs"]
+#[allow(dead_code)]
+mod tray_dials;
+#[path = "../src/tray_loader_frames.rs"]
+#[allow(dead_code)]
+mod tray_loader_frames;
+#[path = "../src/tray_loader_player.rs"]
+#[allow(dead_code)]
+mod tray_loader_player;
+#[cfg(target_os = "macos")]
+#[path = "../src/tray_coretext.rs"]
+#[allow(dead_code)]
+mod tray_coretext;
 
 use tauri::image::Image;
 use tauri::Manager;
@@ -19,7 +36,7 @@ fn main() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let cols = tray_quota::fetch_columns(&tray_quota::hub_base());
-            let strip = tray_quota::render_strip(cols.as_deref());
+            let strip = tray_quota::render_strip(cols.as_deref(), &Default::default());
             let icon = Image::new_owned(strip.rgba, strip.width, strip.height);
             let tray = TrayIconBuilder::new().icon(icon).icon_as_template(false).build(app)?;
             app.manage(tray);

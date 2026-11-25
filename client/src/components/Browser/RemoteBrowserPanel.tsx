@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { Loader2, AlertTriangle, RotateCw, Boxes } from 'lucide-react';
+import { AlertTriangle, RotateCw, Boxes } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
@@ -47,6 +47,7 @@ import { useBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { arrowEnabled } from './streamNavHistory';
 import { clearNativePaneMemoryNotice, useNativePaneMemoryNotice } from '../../state/nativePaneMemory';
 import { useBackToSpawner, useNativeBrowserFinder, useReportBrowserActivity, useSharedBrowserFinder, useUrlPending } from './browserPanelHooks';
+import { Spinner } from '../Shared/Spinner';
 
 // T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
 // only load when a pane actually switches to DOM mode (default video path is free).
@@ -1179,7 +1180,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           <Suspense
             fallback={
               <div className="absolute inset-0 z-[5] flex items-center justify-center bg-app-bg">
-                <Loader2 size={24} className="text-app-spinner animate-spin" />
+                <Spinner size={20} box={24} />
               </div>
             }
           >
@@ -1271,7 +1272,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           // state, because only it knows whether the replayer has actually painted.
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" />
+              <Spinner size={24} box={28} className="mx-auto mb-2" />
               <p className="text-compact text-app-text-muted">{tr('browser.shared.starting')}</p>
             </div>
           </div>
@@ -1280,7 +1281,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         {/* Loading overlay during navigation (over the live video). */}
         {browser.loading && browser.webrtcActive && (
           <div className="absolute inset-0 bg-black/10 flex items-center justify-center pointer-events-none z-[2]">
-            <Loader2 size={20} className="text-white/80 animate-spin" />
+            <Spinner size={16} box={20} tone="current" className="text-white/80" />
           </div>
         )}
 

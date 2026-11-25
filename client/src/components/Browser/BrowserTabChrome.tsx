@@ -31,18 +31,18 @@
  * and the dots stay away until there is something behind them.
  */
 import { useCallback } from 'react';
-import { RotateCw, MoreVertical, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2, Bot, Gauge, CirclePause, Hand } from 'lucide-react';
+import { RotateCw, MoreVertical, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Bot, Gauge, CirclePause, Hand } from 'lucide-react';
 import { browserCornerMark, browserTabKind, type BrowserTabKind } from './browserTabKind';
 import { BrowserFavicon } from './BrowserFavicon';
 import {
   useBrowserPaneChrome, type BrowserPaneChrome,
 } from '../../state/browserPaneChrome';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
-import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { useActiveLocale, useT } from '../../hooks/useT';
 import { machineMemoryMb } from '../../lib/shell/heavyPanes';
 import { pageSharePct } from './pausedUsage';
 import { pctPlaceholders } from '../../lib/machineBusy';
+import { Spinner } from '../Shared/Spinner';
 
 const CPU_CORES = Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 1) || 1);
 
@@ -105,7 +105,7 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
           aria-label={t('browser.tab.reload')}
           data-testid="browser-tab-reload"
         >
-          <RotateCw size={14} className={chrome?.loading ? 'animate-spin' : ''} />
+          {chrome?.loading ? <Spinner size="sm" box={14} tone="current" /> : <RotateCw size={14} />}
         </button>
       )}
     </span>
@@ -182,7 +182,6 @@ function KindMark({ chrome, kind }: { chrome: BrowserPaneChrome; kind: BrowserTa
   const Glyph =
     kind === 'agent' ? Bot
     : kind === 'disconnected' ? WifiOff
-    : kind === 'connecting' ? Loader2
     : kind === 'degraded' ? WifiLow
     : kind === 'heavy-paused' ? CirclePause
     : kind === 'heavy' ? Gauge
@@ -223,9 +222,11 @@ function KindMark({ chrome, kind }: { chrome: BrowserPaneChrome; kind: BrowserTa
     : kind === 'connecting' || kind === 'degraded' || kind === 'heavy' ? WARNING_TEXT
     : 'text-app-text-faint';
 
-  const glyph = (
-    <Glyph size={8} className={kind === 'connecting' && !prefersReducedMotion() ? 'animate-spin' : ''} />
-  );
+  // Connecting is a wait like any other: the square loader, which keeps its own
+  // still frame under reduced motion.
+  const glyph = kind === 'connecting'
+    ? <Spinner size={8} tone="current" />
+    : <Glyph size={8} />;
 
   return (
     <span

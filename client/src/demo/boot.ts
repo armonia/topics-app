@@ -24,6 +24,8 @@ function pickScenario(): LandingScenario {
   return make();
 }
 
+// Tells lib/shell/nestedPane.ts this iframe is the demo, not a mirror of a live app.
+(window as unknown as { __topicsDemo?: boolean }).__topicsDemo = true;
 const scenario = pickScenario();
 seedLocalStorage(scenario.seed);
 dressDarkWindow();

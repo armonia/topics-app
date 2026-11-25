@@ -1,20 +1,17 @@
 /**
- * Routes: `/api/nodes/runs`, the INGRESS of a card mirrored from another
- * machine (KANBAN-76). This code runs ON THE NODE: the origin board POSTs a
- * card here, polls its state and comments, pulls the delivery branch back as
- * a git bundle, and deletes the run when it buries it (KANBAN-77).
+ * Routes: `/api/nodes/runs`, the INGRESS of a card mirrored from another machine (KANBAN-76).
+ * This code runs ON THE NODE: the origin board POSTs a card here, polls its state and comments,
+ * pulls the delivery branch back as a git bundle, and deletes the run when it buries it (KANBAN-77).
  *
  * The mirror is an ordinary local task: same service, same dispatcher, same
  * board. What this router adds is the mapping between the two machines:
- *   - the PROJECT is resolved by git origin, never by id or path. The board's
- *     project id is a hash of a path that does not exist here, so a lookup by
- *     id would always miss and a lookup by path would create phantom projects.
+ *   - the PROJECT is resolved by git origin, never by id or path. The board's project id is a hash
+ *     of a path that does not exist here, so a lookup by id would always miss and a lookup by path would create phantom projects.
  *   - the RUN id is the node-local task id, and the origin task id is kept as
  *     the task's idempotency key, so a retried POST finds its own card.
  *
- * Legacy mirrored runs remain owner-only. Delegated runs use a separate,
- * capability-bound credential minted by the execution computer after its
- * installation owner approves the checkout and policy.
+ * Legacy mirrored runs remain owner-only. Delegated runs use a separate, capability-bound
+ * credential minted by the execution computer after its installation owner approves the checkout and policy.
  */
 import type { AppContext, RouteHandler } from "../types";
 import type { ProvidersSnapshot } from "../../shared/types";
@@ -30,12 +27,14 @@ import { hashToken, mintSessionToken, buildSessionCookie } from "../lib/device-a
 import { availableTaskModels } from "../../shared/task-coding-models";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { isLoopbackAddress } from "../lib/auth-gate";
+import { guardNodesCall } from "../lib/primary-role";
 import { isLocalTransport } from "../lib/tunnel";
 import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { projectIdForPath } from "../../shared/board";
 import { canonicalProjectIdentity, projectPathOfAnyId } from "../lib/project-identity";
 import { stripCtrlOrNull } from "../lib/strip-ctrl";
+import { isNodeDevice, mayDriveNodeRuns, ownsNodeRun, recordNodeRunCaller } from "../lib/node-scope";
 
 const RUN_KEY_PREFIX = "node-run:";
 
@@ -298,11 +297,31 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     const origin = await runGit(path, ["remote", "get-url", "origin"]);
     return origin.code === 0 && normalizeRemoteUrl(origin.stdout) === binding.repositoryKey ? got : null;
   }
+  /**
+   * A node credential drives runs only as the primary, and only its own: the
+   * gate lets every node credential reach these routes, so the line between the
+   * channel and any other server that paired this one is drawn here. A run id
+   * this board does not know falls through to the route's 404, which is what
+   * the heartbeat probe reads.
+   */
+  function refuseForeignNodeRun(pathname: string, deviceId: string | null): Response | null {
+    if (!deviceId || !pathname.startsWith("/api/nodes/runs") || !isNodeDevice(db, deviceId)) return null;
+    const refuse = (reason: string) => json({ error: reason, code: "node_run_scope" }, 403);
+    if (!mayDriveNodeRuns(db, deviceId)) return refuse("only the primary holding this node's channel drives its runs");
+    const runId = matchRoute(pathname, "/api/nodes/runs/:id/bundle")?.id ?? matchRoute(pathname, "/api/nodes/runs/:id")?.id;
+    if (!runId || !db.query("SELECT 1 FROM tasks WHERE id = ?").get(runId)) return null;
+    return ownsNodeRun(db, runId, deviceId, RUN_KEY_PREFIX) ? null : refuse("not a run this credential created");
+  }
+
   return async function nodesRouter(req, url, pathname, method) {
     if (!pathname.startsWith("/api/nodes/")) return null;
 
-    const confined = pathname.startsWith("/api/nodes/delegated-runs");
     const identity = ctx.requestIdentity?.(req) ?? null;
+    const stale = guardNodesCall(req, identity);
+    if (stale) return stale;
+    const refused = refuseForeignNodeRun(pathname, identity?.deviceId ?? null);
+    if (refused) return refused;
+    const confined = pathname.startsWith("/api/nodes/delegated-runs");
     if (pathname === "/api/nodes/delegated-requests" && method === "POST") {
       const body = await readJSON(req) as Record<string, unknown> | null;
       const purpose = body?.purpose === "catalog" ? "catalog" : body?.purpose === "authorization" ? "authorization" : null;
@@ -614,6 +633,11 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       const prior = db.query("SELECT id, project_id, archived, status, dispatch_state FROM tasks WHERE claude_task_id = ?").get(key) as
         | { id: string; project_id: string; archived: number; status: string; dispatch_state: string | null }
         | null;
+      // The same origin card from another server's credential is not its run to resend.
+      const nodeCaller = identity?.deviceId && isNodeDevice(db, identity.deviceId) ? identity.deviceId : null;
+      if (prior && nodeCaller && !ownsNodeRun(db, prior.id, nodeCaller, RUN_KEY_PREFIX)) {
+        return json({ error: "not a run this credential created", code: "node_run_scope" }, 403);
+      }
       if (prior && prior.archived === 0) {
         // A finished copy is a resend: archive it, or its old delivery replays (13/11).
         const idle = prior.dispatch_state !== "working" && prior.dispatch_state !== "starting";
@@ -659,6 +683,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           model: typeof body.model === "string" ? body.model : null,
           idempotencyKey: key,
         });
+        if (nodeCaller) recordNodeRunCaller(db, task.id, nodeCaller);
         svc.addComment({
           taskId: task.id,
           author: "system",
@@ -747,6 +772,11 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           runId: task.id, status: task.status, dispatchState: task.dispatchState, dispatchError: task.dispatchError,
           comments, deliveryBranch: branch, deliveryCommit: commit, baseSha: facts.baseSha,
           commitCount: facts.commitCount, stat: statOf(task), reason,
+          // The board's DELETE archives the card and LEAVES ITS STATUS ALONE: an archived run
+          // still answers `in_progress`, so without this bit the caller cannot tell a run that
+          // is still going from one nobody will ever move again.
+          archived: task.archived,
+          usage: { tokens: task.agentTokens ?? 0, cacheReadTokens: task.agentCacheReadTokens ?? 0, costCents: task.agentCostCents ?? 0 },
         });
       }
       if (method === "DELETE") {
@@ -783,6 +813,9 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           dispatchError: task.dispatchError, comments, deliveryBranch: branch,
           deliveryCommit: commit, baseSha: facts.baseSha,
           commitCount: facts.commitCount, stat: statOf(task), reason,
+          // Same bit as the paired GET above: archived does not show up in the status.
+          archived: task.archived,
+          usage: { tokens: task.agentTokens ?? 0, cacheReadTokens: task.agentCacheReadTokens ?? 0, costCents: task.agentCostCents ?? 0 },
         });
       }
       if (method === "DELETE") {

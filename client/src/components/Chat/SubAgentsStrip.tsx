@@ -1,6 +1,5 @@
 import { memo, useState, type MouseEvent } from 'react';
-import { AlarmClock, ExternalLink, Server, Square, SquareTerminal, X } from 'lucide-react';
-import { StatusIcon } from '../Board/atoms';
+import { AlarmClock, Clock, ExternalLink, Server, Square, SquareTerminal, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { scriptsApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
@@ -15,6 +14,12 @@ import { WorkMeter } from '../Board/WorkMeter';
 import { DisclosureBody } from './DisclosureBody';
 import { ProcessTail } from './LiveShellTail';
 import { useDisclosureToggle } from './transcriptDisclosure';
+import { SparkLoader } from '../Layout/StreamingIndicator';
+import { loaderActivityForAction } from '../Layout/loaderState';
+import { useTerminalAction, useTopicAction } from '../../state/agentActionHooks';
+import { shownChildState, useAgentsAtWork } from '../../state/childWork';
+import { useTerminalBackgroundTasks, useTopicBackgroundTasks } from '../../state/signals';
+import { useSubagentResultIds } from './subagentResult';
 
 /**
  * WHAT WORKS NOW FOR THIS CHAT, one row each, at the end of the transcript (chat-live-work):
@@ -84,9 +89,20 @@ const SIDE_BUTTON = 'flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5
 
 function AgentRow({ row }: { row: LiveAgentRow }) {
   const tr = useT();
-  const { id, name, state } = row;
+  const { id, name } = row;
+  // A native child's id is its chat, a CLI child's its terminal: the loader plays what it is doing.
+  const chatAction = useTopicAction(row.runtime === 'topics' ? id : undefined);
+  const terminalAction = useTerminalAction(row.runtime === 'cli' ? id : undefined);
+  // A child that closed its turn while agents or a command of its own still
+  // run is at work, with the number of agents: the same answer as its own tab
+  // and its sidebar row (`shownChildState`). Nothing running: the clock.
+  const agents = useAgentsAtWork(row.runtime === 'topics' ? id : undefined);
+  const chatTasks = useTopicBackgroundTasks(row.runtime === 'topics' ? id : undefined);
+  const terminalTasks = useTerminalBackgroundTasks(row.runtime === 'cli' ? id : undefined);
+  const state = shownChildState(row.state, agents, row.runtime === 'topics' ? chatTasks : terminalTasks);
   const title = state === 'working' ? tr('subagent.busy', { name })
     : state === 'waiting' ? tr('subagent.waiting', { name })
+    : state === 'awaiting' ? tr('subagent.awaiting', { name })
     : tr('subagent.ended', { name });
   const open = (e: MouseEvent) => {
     e.stopPropagation();
@@ -97,18 +113,26 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
       window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }));
     }
   };
-  const preview = state === 'ended' ? row.preview || tr('livework.finished') : row.preview;
+  // A child waiting on its own work says so: its last line is the report it
+  // already gave. At work only through its agents, it says how many.
+  const preview = state === 'ended' ? row.preview || tr('livework.finished')
+    : state === 'awaiting' ? tr('livework.awaiting')
+    : row.state === 'awaiting' && agents > 0 ? tr(agents === 1 ? 'topic.waitLine.agentsOne' : 'topic.waitLine.agentsMany', { n: agents })
+    : row.preview;
   return (
-    <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-runtime={row.runtime} className="flex min-w-0 items-center">
+    <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-agents={agents || undefined} data-runtime={row.runtime} className="flex min-w-0 items-center">
       <button type="button" onClick={open} title={title} aria-label={title} className={ROW}>
         {state === 'working'
-          ? <StatusIcon status="in_progress" live className="h-3 w-3 flex-shrink-0" />
+          ? <SparkLoader size={12} activity={loaderActivityForAction(chatAction ?? terminalAction) ?? 'think'} className="flex-shrink-0" />
           : state === 'waiting'
             ? <STATUS_ICON.wait size={11} aria-hidden="true" className={`${STATUS_INK.wait} flex-shrink-0`} />
-            : <STATUS_ICON.ok size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />}
+            // Not the amber «your turn» mark: nobody has to act, its own work will wake it.
+            : state === 'awaiting'
+              ? <Clock size={11} aria-hidden="true" className="flex-shrink-0 text-app-text-muted" />
+              : <STATUS_ICON.ok size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />}
         <span className={`max-w-[40%] flex-shrink-0 truncate ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}>{name}</span>
         {preview && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate text-app-text-tertiary">{preview}</span>}
-        {state !== 'ended' && <WorkMeter startedAt={row.startedAt} estimateMs={row.estimateMs} weight={row.weight} className="ml-auto" />}
+        {state !== 'ended' && <WorkMeter startedAt={row.startedAt} estimateMs={row.estimateMs} estimateHistoryMs={row.estimateHistoryMs} weight={row.weight} className="ml-auto" />}
       </button>
       {state === 'ended' && (
         <button
@@ -210,9 +234,11 @@ function withEnded(rows: readonly LiveWorkRow[], gone: LiveCommandRow): readonly
   return at < 0 ? [...rows, gone] : [...rows.slice(0, at), gone, ...rows.slice(at)];
 }
 
-export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId }: { topicId: string }) {
+export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId, sessionKey }: { topicId: string; sessionKey?: string }) {
   const dismissed = useDismissedSubAgents();
-  const live = visibleRows(useLiveWork(topicId), dismissed);
+  // An ended child whose result card is already in the chat is told there, once, with how it really ended.
+  const told = useSubagentResultIds(sessionKey);
+  const live = visibleRows(useLiveWork(topicId), dismissed).filter((r) => !(r.kind === 'agent' && r.state === 'ended' && told.has(r.id)));
   const disclose = useDisclosureToggle();
   // The command whose log is open: ended with its log open, it keeps its row until the log closes.
   const [open, setOpen] = useState<LiveCommandRow | null>(null);

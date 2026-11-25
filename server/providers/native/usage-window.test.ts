@@ -4,8 +4,8 @@
  * @covers RESUME-04
  */
 import { describe, expect, test, beforeEach } from "bun:test";
-import { parseUsage, holdFromUsage, saturationHold, fetchUsage, releaseHoldIfFreed, observePlanUsage, EXHAUSTED_AT } from "./usage-window";
-import { providerHold, clearProviderHold, planUsage, clearPlanUsage, holdForApiDown } from "../../lib/provider-hold";
+import { parseUsage, holdFromUsage, saturationHold, fetchUsage, releaseHoldIfFreed, releaseHoldIfEngineFree, resetEngineLift, ENGINE_LIFT_TRUST_MS, observePlanUsage, EXHAUSTED_AT } from "./usage-window";
+import { providerHold, clearProviderHold, planUsage, clearPlanUsage, holdForApiDown, setProviderHold } from "../../lib/provider-hold";
 
 const NOW = Date.parse("2026-09-04T15:00:00Z");
 const RESET_5H = "2026-09-04T20:49:59.852026+00:00";
@@ -143,3 +143,83 @@ describe("observePlanUsage", () => {
     expect(planUsage(NOW)?.sevenDay?.utilization).toBe(measured.seven_day.utilization);
   });
 });
+
+describe("releaseHoldIfEngineFree", () => {
+  beforeEach(() => { clearProviderHold(); resetEngineLift(); });
+  const spentWeek = { untilMs: NOW + 4 * 86_400_000, window: "seven_day" as const, reason: "finestra settimanale del piano esaurita" };
+
+  test("a spent account is no wall while the engine has a free one: the hold goes", async () => {
+    setProviderHold(spentWeek, NOW);
+    expect(await releaseHoldIfEngineFree(async () => true, NOW)).toBe(true);
+    expect(providerHold(NOW)).toBeNull();
+  });
+
+  test("every account spent: the hold stays", async () => {
+    setProviderHold(spentWeek, NOW);
+    expect(await releaseHoldIfEngineFree(async () => false, NOW)).toBe(false);
+    expect(providerHold(NOW)?.window).toBe("seven_day");
+  });
+
+  test("no engine, or an engine that cannot be read, decides nothing", async () => {
+    setProviderHold(spentWeek, NOW);
+    expect(await releaseHoldIfEngineFree(async () => null, NOW)).toBe(false);
+    expect(providerHold(NOW)?.window).toBe("seven_day");
+  });
+
+  test("an API outage hold is not the engine's to lift", async () => {
+    holdForApiDown(NOW);
+    expect(await releaseHoldIfEngineFree(async () => true, NOW)).toBe(false);
+    expect(providerHold(NOW)?.window).toBe("api-down");
+  });
+
+  test("a hold set while the engine was being read is newer than its answer: it stays", async () => {
+    setProviderHold(spentWeek, NOW);
+    const lifted = await releaseHoldIfEngineFree(async () => {
+      // A real 429 meanwhile: the old hold is replaced by a new one.
+      clearProviderHold();
+      setProviderHold({ ...spentWeek, untilMs: spentWeek.untilMs + 1 }, NOW + 1);
+      return true;
+    }, NOW);
+    expect(lifted).toBe(false);
+    expect(providerHold(NOW + 2)?.untilMs).toBe(spentWeek.untilMs + 1);
+  });
+
+  test("after a lift, the CLI reading the same spent account does not set the wall again", async () => {
+    setProviderHold(spentWeek, NOW);
+    await releaseHoldIfEngineFree(async () => true, NOW);
+    const sameWall = { five_hour: null, seven_day: { utilization: 100, resets_at: new Date(spentWeek.untilMs).toISOString() } };
+    observePlanUsage(parseUsage(sameWall), NOW + 1_000);
+    expect(providerHold(NOW + 1_000)).toBeNull();
+    // Once the trust is over, the reading counts again.
+    observePlanUsage(parseUsage(sameWall), NOW + ENGINE_LIFT_TRUST_MS + 1);
+    expect(providerHold(NOW + ENGINE_LIFT_TRUST_MS + 1)?.window).toBe("seven_day");
+  });
+
+  test("a real 429 is not stopped by the lift", async () => {
+    setProviderHold(spentWeek, NOW);
+    await releaseHoldIfEngineFree(async () => true, NOW);
+    const spent = (async () => new Response(JSON.stringify({ five_hour: null, seven_day: { utilization: 100, resets_at: new Date(spentWeek.untilMs).toISOString() } }))) as unknown as typeof fetch;
+    expect(await saturationHold("tok", NOW + 1_000, spent)).toBe(spentWeek.untilMs);
+    expect(providerHold(NOW + 1_000)?.window).toBe("seven_day");
+  });
+
+  test("after a lift, a different wall (another window) is set at once", async () => {
+    setProviderHold(spentWeek, NOW);
+    await releaseHoldIfEngineFree(async () => true, NOW);
+    const fiveHourSpent = { five_hour: { utilization: 100, resets_at: new Date(NOW + 2 * 3_600_000).toISOString() }, seven_day: null };
+    observePlanUsage(parseUsage(fiveHourSpent), NOW + 1_000);
+    expect(providerHold(NOW + 1_000)?.window).toBe("five_hour");
+  });
+
+  test("after a lift, the same wall goes up again once the engine has no free account left", async () => {
+    let free = true;
+    setProviderHold(spentWeek, NOW);
+    await releaseHoldIfEngineFree(async () => free, NOW);
+    free = false;
+    const sameWall = { five_hour: null, seven_day: { utilization: 100, resets_at: new Date(spentWeek.untilMs).toISOString() } };
+    observePlanUsage(parseUsage(sameWall), NOW + 1_000);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(providerHold(NOW + 1_000)?.window).toBe("seven_day");
+  });
+});
+

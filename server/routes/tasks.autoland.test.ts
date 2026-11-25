@@ -36,8 +36,6 @@ interface Knobs {
   onQueued?: (taskId: string) => void;
   /** Runs inside `tryMerge`, before the last look (the fetch and the chain happen here): the world moves here too. */
   inTryMerge?: (taskId: string) => void;
-  /** The board runs the `armonia` workflow (it has the AI review column): a column opens no door for server code. */
-  armonia?: boolean;
 }
 
 let sweep: (() => Promise<number>) | null = null;
@@ -92,10 +90,6 @@ describe("a delivery that needs no one lands itself", () => {
     db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(task.id);
     await call(router, "POST", `/api/sessions/s1/tasks/${task.id}/comments`, { content: "fatto, guarda scripts/" });
     svc.updateBoardSettings(task.projectId, { dispatchAutoMerge: k.autoMerge ?? true, reviewChecks: [{ name: "ok", cmd: "true" }] });
-    if (k.armonia) {
-      db.run("CREATE TABLE IF NOT EXISTS board_workflows (scope TEXT PRIMARY KEY, preset TEXT NOT NULL, updated_at TEXT NOT NULL)");
-      db.run("INSERT INTO board_workflows (scope, preset, updated_at) VALUES (?, 'armonia', '2026-11-09T10:00:00.000Z')", [task.projectId]);
-    }
     const door = how.global ? `/api/orchestrator-sessions/${encodeURIComponent(GLOBAL_KEY)}/tasks/${task.id}` : `/api/sessions/s1/tasks/${task.id}`;
     const resp = (await call(router, "PATCH", door, { status: "review", summary: "riordinati", legMs: 10_000, ...patch }))!;
     // The land is queued behind the response: let the queue drain.
@@ -285,14 +279,9 @@ describe("a delivery that needs no one lands itself", () => {
       db.run("INSERT OR REPLACE INTO topics (id, name, session_key, model) VALUES (?, ?, ?, ?)", [id, id, `topic:${id}`, model]);
     }
 
-    test.each([
-      ["a board with an AI review column, the card in it", { ...server, armonia: true }, true],
-      ["a board with an AI review column, the card elsewhere", { ...server, armonia: true }, false],
-      ["a board without the column", server, true],
-    ])("%s: the approval of another model family on this sha leaves it in review", async (_name, knobs, inColumn) => {
+    test("the approval of another model family on this sha leaves it in review", async () => {
       reviewer("rev1", "claude-opus-4-7");
-      const d = await deliver(knobs);
-      if (inColumn) db.prepare("UPDATE tasks SET stage = 'ai_review' WHERE id = ?").run(d.id);
+      const d = await deliver(server);
       svc.addComment({ taskId: d.id, author: "agent:rev1", content: `AI-REVIEW approved ${FULL}\nLetto il diff: solo helper di git.` });
       // The door itself signs with whatever session the URL names: the line can be written by anyone.
       await call(d.router, "POST", "/api/sessions/s1/tasks/" + d.id + "/comments", { content: `AI-REVIEW approved ${FULL}\nok` });

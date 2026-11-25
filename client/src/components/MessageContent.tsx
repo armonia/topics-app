@@ -20,7 +20,7 @@ import { TurnWorkRow } from './Chat/TurnWorkRow';
 import { useDisclosureToggle } from './Chat/transcriptDisclosure';
 import { DisclosureBody } from './Chat/DisclosureBody';
 import { foldFinishedTurn, noteWatchedLive, wasWatchedLive } from './Chat/turnFold';
-import { coalesceBrowserOpens, type BrowserMarker } from './Chat/browserOpens';
+import { coalesceBrowserOpens, markerMedia, type BrowserMarker } from './Chat/browserOpens';
 import { viewOf, type ViewOpen } from './Chat/viewOpens';
 import { ViewBlock } from './Views/ViewBlock';
 import { BrowserOpenMarker } from './Chat/BrowserOpenMarker';
@@ -906,13 +906,17 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // Qui in cima perché un hook non può stare dopo un `return` condizionale.
   // Ritorna un array vuoto quando non c'è la timeline: il ramo legacy sotto non
   // lo guarda.
-  const { groups: blockGroups, mediaFromBlocks } = useMemo(() => {
+  const { groups: blockGroups, mediaFromBlocks, shownInMarkers } = useMemo(() => {
     const out: BlockGroup[] = [];
     const found: string[] = [];
-    if (!blocks) return { groups: out, mediaFromBlocks: found };
+    const shownInMarkers = new Set<string>();
+    if (!blocks) return { groups: out, mediaFromBlocks: found, shownInMarkers };
     // A page the agent opened is lifted out of its tool run (CHAT-BROWSER-01):
     // one marker per context, where the first opening was.
     const browserOpens = coalesceBrowserOpens(blocks.flatMap((b) => (b.kind === 'tool' ? [b.toolCall] : [])));
+    for (const marker of browserOpens.values()) {
+      if (marker) for (const p of markerMedia(marker)) shownInMarkers.add(p);
+    }
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
       // Il blocco `error` non è una tratta della cronologia: è il verdetto, e
@@ -928,6 +932,8 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       // what happened inside the turn, and the one that draws them is
       // `MessageBubble` (one compact system line instead of a bubble).
       if (b.kind === 'goal-nudge' || b.kind === 'goal-stop') continue;
+      // Nor the mark of a turn a `turn-end` hook asked for: same reason.
+      if (b.kind === 'hook-nudge') continue;
       // Nor the line about the background work: `MessageBubble` draws it.
       if (b.kind === 'background-notice') continue;
       // Nor the dispatcher's envelope mark: like those two it says WHY this row
@@ -964,11 +970,15 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
         let seq = 0;
         for (const part of splitBlockMedia(text)) {
           if (part.kind === 'text') out.push({ kind: 'text', idx: i, text: part.text });
-          else { out.push({ kind: 'media', idx: i, path: part.path, seq: seq++ }); found.push(part.path); }
+          else {
+            found.push(part.path);
+            // Already drawn inside the opening's marker: once is enough.
+            if (!shownInMarkers.has(part.path)) out.push({ kind: 'media', idx: i, path: part.path, seq: seq++ });
+          }
         }
       }
     }
-    return { groups: out, mediaFromBlocks: found };
+    return { groups: out, mediaFromBlocks: found, shownInMarkers };
   }, [blocks]);
 
   // AFTER the groups, because it subtracts from them: `mediaFromBlocks` is
@@ -979,14 +989,14 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     // this every inline image would be painted a second time down here. What
     // stays is the legacy path: a message with no timeline, where `content` is
     // all there is.
-    const paths = extractedMediaPaths.filter((p) => !mediaFromBlocks.includes(p));
+    const paths = extractedMediaPaths.filter((p) => !mediaFromBlocks.includes(p) && !shownInMarkers.has(p));
     if (media) {
       for (const p of media) {
-        if (!paths.includes(p)) paths.push(p);
+        if (!paths.includes(p) && !shownInMarkers.has(p)) paths.push(p);
       }
     }
     return paths;
-  }, [extractedMediaPaths, mediaFromBlocks, media]);
+  }, [extractedMediaPaths, mediaFromBlocks, media, shownInMarkers]);
 
   // A finished turn shows its answer and folds the work before it into one row
   // (`Chat/turnFold.ts` for the rule and for what never folds). Inside a board
@@ -1208,7 +1218,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               // è la forma di gran lunga più comune — quei 6px sono vuoto
               // aggiunto sotto ogni riga di azione, e basta.
               <div className={`space-y-0 ${cleanText ? 'mb-1.5' : ''}`}>
-                {thinking && <ReasoningRow content={thinking} partial={partial} messageId={messageId} />}
+                {/* Live only while nothing came after it: once prose or a tool shows
+                    up the thinking is over and the row folds. */}
+                {thinking && <ReasoningRow content={thinking} partial={partial && !cleanText && legacyTools.length === 0} messageId={messageId} />}
                 <GroupedToolRows tools={legacyTools} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} />
               </div>
             )}

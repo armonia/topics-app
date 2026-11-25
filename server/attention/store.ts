@@ -197,6 +197,8 @@ interface Entry {
    * says it again with an id of the new process; it is the same wait.
    */
   carriedHolds?: Partial<Record<AttentionHold["kind"], string>>;
+  /** The words of the wait carried across the restart: what tells it from a different question asked after it. */
+  carriedText?: string | null;
   /** Causes that are the current epoch's too: the wait open at the restart, and what its end left. */
   sameEpochCauses?: Set<string>;
   /**
@@ -237,7 +239,7 @@ let loadedFrom: Database | "memory" | null = null;
 /** The person's sockets and what each has in front, for the epoch born seen. */
 const focus = new Map<string, { subject: string | null; awake: boolean }>();
 
-/** Tests only: forget everything; `keepRows` keeps the in-memory table, as a restart would. */
+/** @internal Tests only: forget everything; `keepRows` keeps the in-memory table, as a restart would. */
 export function resetAttentionStore(opts: { keepRows?: boolean } = {}): void {
   for (const e of entries.values()) if (e.graceTimer) clearTimeout(e.graceTimer);
   entries.clear();
@@ -321,12 +323,12 @@ function ensureLoaded(): void {
  * `hold:<kind>:<id>` and its state still says it. A wait already answered
  * (the row moved on) carries nothing, so a new question is a new epoch.
  */
-function carriedOf(row: SavedRow): Pick<Entry, "carriedHolds" | "sameEpochCauses"> {
+function carriedOf(row: SavedRow): Pick<Entry, "carriedHolds" | "carriedText" | "sameEpochCauses"> {
   const cause = row.epochCause;
   if (!cause || row.state !== "needs-you" || !row.reason || !cause.startsWith(`hold:${row.reason}:`)) return {};
   const id = cause.slice(`hold:${row.reason}:`.length);
   if (!id) return {};
-  return { carriedHolds: { [row.reason as AttentionHold["kind"]]: id }, sameEpochCauses: new Set([cause]) };
+  return { carriedHolds: { [row.reason as AttentionHold["kind"]]: id }, carriedText: row.detail, sameEpochCauses: new Set([cause]) };
 }
 
 function persist(row: SavedRow): void {
@@ -933,7 +935,12 @@ export function openHold(subject: string, source: string, hold: { kind: Attentio
   const prev = e.live.holds[source];
   // The first wait of this kind after a restart, while the one open at the
   // stop is still carried: the surviving bridge saying it again (ATTN-07).
-  const carried = !prev ? e.carriedHolds?.[hold.kind] : undefined;
+  // Only when it IS the same wait: a different question asked after the
+  // restart is a new epoch and must notify. Both texts are needed to tell
+  // them apart; a wait saved without its words is taken as the same.
+  const savedText = e.carriedText;
+  const sameWords = !hold.text || !savedText || hold.text === savedText;
+  const carried = !prev && sameWords ? e.carriedHolds?.[hold.kind] : undefined;
   if (carried) delete e.carriedHolds![hold.kind];
   const id = carried ?? hold.id;
   e.live.holds = { ...e.live.holds, [source]: { kind: hold.kind, id, text: hold.text ?? null, since: prev?.id === id ? prev.since : hold.since ?? nowIso() } };
@@ -997,14 +1004,6 @@ export function setClosed(subject: string, flags: { archived?: boolean; deleted?
   }
   return recompose(subject, { live: true });
 }
-
-/** The topic of a board agent (rule 2): its card is the subject. */
-export function setDispatched(subject: string, dispatched: boolean): AttentionSnapshot {
-  const e = entryOf(subject);
-  e.live.dispatched = dispatched;
-  return recompose(subject, { live: true });
-}
-
 export type ProcessEndCause = "session-end" | "pty-exit" | "cli-exit" | "reaper" | "lifetime-cap" | "crash" | "swap-kill" | "restart";
 
 /**
@@ -1014,9 +1013,11 @@ export type ProcessEndCause = "session-end" | "pty-exit" | "cli-exit" | "reaper"
  * reaper lights nothing). A restart keeps it only while the registry still
  * owes its wake (review 2 of notifications-redesign, B3).
  */
-function survivorsOfProcessEnd(background: AttentionTaskMap, end: { cause: ProcessEndCause; commandsOwed?: boolean }): AttentionTaskMap {
+function survivorsOfProcessEnd(background: AttentionTaskMap, end: { cause: ProcessEndCause; commandsOwed?: boolean; subagentsOwed?: boolean }): AttentionTaskMap {
   const survivors: AttentionTaskMap = {};
   if (end.cause !== "restart" || end.commandsOwed) for (const [id, t] of Object.entries(background)) if (t.kind === "command") survivors[id] = t;
+  // The sub-agents of a chat are chats of their own (BGVIS-10): the chat's CLI dying does not end them.
+  if (end.cause !== "restart" || end.subagentsOwed) if (background.subagent) survivors.subagent = background.subagent;
   return survivors;
 }
 
@@ -1027,7 +1028,8 @@ function survivorsOfProcessEnd(background: AttentionTaskMap, end: { cause: Proce
  */
 function lostWithProcess(background: AttentionTaskMap, survivors: AttentionTaskMap, end: { cause: ProcessEndCause }): number {
   const lost: AttentionTaskMap = {};
-  for (const [id, t] of Object.entries(background)) if (!(id in survivors) && !(end.cause === "restart" && t.kind === "wake")) lost[id] = t;
+  // A saved sub-agent task that no child backs any more ended while the server was down: nothing died with a process.
+  for (const [id, t] of Object.entries(background)) if (!(id in survivors) && !(end.cause === "restart" && (t.kind === "wake" || id === "subagent"))) lost[id] = t;
   return countingTaskCount(lost);
 }
 
@@ -1051,6 +1053,8 @@ export function processEnded(
     turnClosedByRoute?: boolean;
     /** A restart: the Topics commands still owe their wake (re-adopted by the process registry). */
     commandsOwed?: boolean;
+    /** A restart: a `spawn_agent` child of the chat still runs or owes its result (`subagentWakeState`). */
+    subagentsOwed?: boolean;
   },
 ): AttentionSnapshot {
   const e = entryOf(subject);
@@ -1206,6 +1210,8 @@ export interface AttentionBootReader {
   liveProcess?: (subject: string) => boolean;
   /** A chat's Topics `run_command` still owes it a wake: alive in the process registry, whatever its CLI. */
   commandOwed?: (subject: string) => boolean;
+  /** A chat's `spawn_agent` child still runs or owes a result: alive in `subagents`, whatever the chat's CLI. */
+  subagentOwed?: (subject: string) => boolean;
   /** The plan panel this subject was waiting on when the server stopped is still unanswered on its row. */
   planWaiting?: (subject: string, toolCallId: string) => boolean;
   /** Cards in review or parked, read from `tasks`. */
@@ -1279,7 +1285,7 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
   for (const [subject, e] of [...entries]) {
     const alive = reader.liveProcess ? reader.liveProcess(subject) : true;
     if (!alive) {
-      const end = { cause: "restart" as const, commandsOwed: reader.commandOwed?.(subject) === true };
+      const end = { cause: "restart" as const, commandsOwed: reader.commandOwed?.(subject) === true, subagentsOwed: reader.subagentOwed?.(subject) === true };
       const survivors = survivorsOfProcessEnd(e.row.background, end);
       if (lostWithProcess(e.row.background, survivors, end) > 0) {
         processEnded(subject, end);

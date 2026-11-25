@@ -12,7 +12,7 @@ import { rememberSlashNames } from '../../state/knownSlashNames';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import { useServerTurnAsked, useTopicBackgroundTasks, useTopicLoading } from '../../state/signals';
 import { composerStopsTasks } from '../../state/backgroundWork';
-import { turnLooksUnanswered, interruptedTurnOf, TURN_CAUSE_KEY } from './turnError';
+import { turnLooksUnanswered, interruptedTurnOf, turnCauseKey } from './turnError';
 import { useServerResume } from '../../hooks/useServerResume';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
 import { ImageThumbnail } from '../MediaBlocks';
@@ -58,6 +58,7 @@ const ComposerToolsRow = lazy(async () => {
   return { default: Row };
 });
 import { HOME_ANCHOR_ATTR, HOME_ANCHOR_FOCUSED_ATTR, openHome } from '../../lib/openHome';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 
 // Lazily loaded — the inspector pulls in the memory and context hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -1333,7 +1334,7 @@ export function ChatInput({
             <div className="text-mini text-amber-600 dark:text-amber-500 truncate">
               {serverResume
                 ? tr('chat.turnInterrupted.resuming.detail')
-                : interruptedTurn && tr(TURN_CAUSE_KEY[interruptedTurn.cause])}
+                : interruptedTurn && tr(turnCauseKey(interruptedTurn))}
             </div>
           </div>
           {/* NO RETRY WHILE A RESUME IS RUNNING. The button resends the same
@@ -1450,11 +1451,7 @@ export function ChatInput({
           data-testid="others-typing-indicator"
           className={`mx-2 absolute bottom-0 left-0 right-0 mb-1 px-3 flex items-center gap-2 pointer-events-none`}
         >
-          <div className="flex gap-1 flex-shrink-0">
-            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-          </div>
+          <SparkLoader size={12} activity="write" className="flex-shrink-0" />
           <div className="text-mini text-app-text-secondary italic min-w-0 truncate">{othersTypingText || 'typing...'}</div>
         </div>
       )}

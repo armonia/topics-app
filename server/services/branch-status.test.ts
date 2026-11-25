@@ -10,8 +10,9 @@ import {
   countCommitsAhead,
   filterUniqueSourceFiles,
   worktreeDiffStat,
+  branchContentWasOnMain,
 } from "./branch-status";
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
@@ -83,6 +84,23 @@ describe("branchStatusFromRepo", () => {
     writeFileSync(join(repo, "package.json"), '{"version":"9.9.9"}\n');
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "bump");
 
+    // noise-only, the only copy: a lockfile and an asset under a nested public/
+    git(repo, "checkout", "-q", "-b", "lockonly", base);
+    writeFileSync(join(repo, "bun.lock"), "relocked by the agent\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "relock");
+    git(repo, "checkout", "-q", "-b", "assetonly", base);
+    mkdirSync(join(repo, "site", "public"), { recursive: true });
+    writeFileSync(join(repo, "site", "public", "hero.svg"), "<svg/>\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "hero");
+
+    // noise-only, squash-landed: main carries the same lockfile byte for byte
+    git(repo, "checkout", "-q", "-b", "lockonmain", base);
+    writeFileSync(join(repo, "Cargo.lock"), "landed relock\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "relock landed");
+    git(repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "Cargo.lock"), "landed relock\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "squash of relock landed");
+
     // ancestor: points at main's tip
     git(repo, "checkout", "-q", "-b", "ancestor", "main");
 
@@ -103,8 +121,18 @@ describe("branchStatusFromRepo", () => {
   test("genuine unlanded work → unmerged (kept, not reaped)", async () => {
     expect(await branchStatusFromRepo(repo, "unlanded")).toBe("unmerged");
   });
-  test("noise-only diff (version bump) → merged", async () => {
-    expect(await branchStatusFromRepo(repo, "noiseonly")).toBe("merged");
+  // Noise is ignored next to source changes; ALONE it is the branch's whole work.
+  // Judged "merged", the GC reaped such a branch and `branch -D` left its commit
+  // on no ref at all (a relock, an asset under site/public/).
+  test("noise-only diff whose content is not on main (version bump) → unmerged", async () => {
+    expect(await branchStatusFromRepo(repo, "noiseonly")).toBe("unmerged");
+  });
+  test("a lockfile or a nested public/ asset as the only change, not on main → unmerged", async () => {
+    expect(await branchStatusFromRepo(repo, "lockonly")).toBe("unmerged");
+    expect(await branchStatusFromRepo(repo, "assetonly")).toBe("unmerged");
+  });
+  test("noise-only diff already on main byte for byte (squash-landed relock) → merged", async () => {
+    expect(await branchStatusFromRepo(repo, "lockonmain")).toBe("merged");
   });
   test("missing branch → gone", async () => {
     expect(await branchStatusFromRepo(repo, "does-not-exist")).toBe("gone");
@@ -448,5 +476,51 @@ describe("commitIsAncestor", () => {
     expect(await commitIsAncestor(repo, "0".repeat(40), "main")).toBeNull();
     expect(await commitIsAncestor(repo, suMain, "ramo-che-non-esiste")).toBeNull();
     expect(await commitIsAncestor(join(tmpdir(), "anc-non-esiste-affatto"), suMain, "main")).toBeNull();
+  });
+});
+
+describe("branchContentWasOnMain: branch that already took its work back from main", () => {
+  let repo: string;
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "wasonmain-"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    writeFileSync(join(repo, "a.txt"), "base\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "base");
+    // The card branch changes a.txt…
+    git(repo, "checkout", "-q", "-b", "topics/card");
+    writeFileSync(join(repo, "a.txt"), "lavoro\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "lavoro della card");
+    // …main receives it with a SQUASH (same content, another commit)…
+    git(repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "a.txt"), "lavoro\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "squash della card (#1)");
+    // …the land brings main into the branch: the branch tree becomes main's…
+    git(repo, "checkout", "-q", "topics/card");
+    git(repo, "merge", "-q", "--no-edit", "main");
+    // …and main moves on elsewhere: its tip is no longer the branch's.
+    git(repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "b.txt"), "altro\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "altro lavoro");
+  });
+
+  afterAll(() => { rmSync(repo, { recursive: true, force: true }); });
+
+  test("no difference from the fork: the work is already in main", async () => {
+    expect(await branchContentWasOnMain(repo, "topics/card", "main")).toBe(true);
+  });
+
+  test("a branch that still carries something of its own does NOT pass", async () => {
+    git(repo, "checkout", "-q", "topics/card");
+    writeFileSync(join(repo, "c.txt"), "ancora mio\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "lavoro non su main");
+    git(repo, "checkout", "-q", "main");
+    expect(await branchContentWasOnMain(repo, "topics/card", "main")).toBe(false);
+  });
+
+  test("git that cannot answer (missing branch) is not \"already on main\"", async () => {
+    expect(await branchContentWasOnMain(repo, "topics/non-esiste", "main")).toBe(false);
   });
 });

@@ -25,6 +25,10 @@ import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { mintModelToken, revokeModelToken } from "../services/model-proxy";
 import { stripCtrl } from "../lib/strip-ctrl";
 import { createMachinesOverviewRoute } from "./machines-overview";
+import { createMachineSecurityRoute } from "./machine-security";
+import { createMachineHealthRoute } from "./machine-health";
+import { MACHINES_HEALTH_FILE, sharedToolingDir } from "../boot/machine-health";
+import { join } from "node:path";
 
 const NAME_MAX = 200;
 
@@ -150,10 +154,16 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
   };
 
   const overviewRoute = createMachinesOverviewRoute(ctx);
+  const securityRoute = createMachineSecurityRoute(ctx.APP_DATA_DIR);
+  const healthRoute = createMachineHealthRoute(join(sharedToolingDir(), MACHINES_HEALTH_FILE));
 
   return async function machinesRouter(req, _url, pathname, method) {
     const overviewAnswer = await overviewRoute(req, _url, pathname, method);
     if (overviewAnswer) return overviewAnswer;
+    const securityAnswer = await securityRoute(req, _url, pathname, method);
+    if (securityAnswer) return securityAnswer;
+    const healthAnswer = await healthRoute(req, _url, pathname, method);
+    if (healthAnswer) return healthAnswer;
     if (pathname === "/api/machines/delegated-requests" && method === "POST") {
       const owner = installationOwner(req);
       if (!owner) return json({ error: "installation owner required", code: "owner_required" }, 403);

@@ -283,12 +283,12 @@ function releaseHold(key: string, token: string): void {
   if (holds.get(key)?.token === token) holds.delete(key);
 }
 
-/** Tests only: the holds are process memory, like the registry next door. */
+/** @internal Tests only: the holds are process memory, like the registry next door. */
 export function _resetOutboundHolds(): void {
   holds.clear();
 }
 
-/** Tests only: the size of that memory, so "it empties" can be an assertion. */
+/** @internal Tests only: the size of that memory, so "it empties" can be an assertion. */
 export function _outboundHoldCount(): number {
   return holds.size;
 }

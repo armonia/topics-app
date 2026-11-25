@@ -11,7 +11,7 @@
  * @covers KANBAN-77
  */
 import { describe, it, expect } from "bun:test";
-import { TASK, report, harness, poll, dispatch, flush } from "./task-dispatcher-remote-node-test-support";
+import { TASK, MACHINE, report, harness, poll, dispatch, flush } from "./task-dispatcher-remote-node-test-support";
 
 describe("lo slot remoto non resta zombie", () => {
   it("il nodo riporta la corsa parcheggiata (backlog + blocked): la card si parcheggia col motivo del nodo, lo slot si libera", async () => {
@@ -33,6 +33,57 @@ describe("lo slot remoto non resta zombie", () => {
     expect(t.dispatchState).toBe("blocked");
     expect(t.dispatchError ?? "").toContain("runtime claude-code non disponibile per sonnet");
     expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("la stessa card ci torna SOLO se la ci aveva pinnata l'overflow: pinnata a mano resta sul nodo", async () => {
+    const h = harness({
+      readRun: () => Promise.resolve(report({
+        status: "backlog",
+        dispatchState: "blocked",
+        reason: "runtime claude-code non disponibile per sonnet",
+      })),
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h);
+    expect(h.task().machineId).toBe(MACHINE);
+  });
+
+  it("il nodo ha parcheggiato una card che l'OVERFLOW ci aveva messa: il pin si libera, un requeue non torna sullo stesso nodo rotto", async () => {
+    const h = harness({
+      readRun: () => Promise.resolve(report({
+        status: "backlog",
+        dispatchState: "blocked",
+        reason: "runtime claude-code non disponibile per sonnet",
+      })),
+    });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date(h.nowMs()).toISOString(), TASK]);
+    await dispatch(h);
+    await poll(h);
+
+    const t = h.task();
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("blocked");
+    expect(t.machineId).toBeNull();
+  });
+
+  it("a node with no agent for the model: the card leaves it unparked, no attempt spent, and each refusal adds a skipped node", async () => {
+    const h = harness({
+      readRun: () => Promise.resolve(report({
+        status: "backlog",
+        dispatchState: "failed",
+        reason: 'No coding agent is available for model "claude-sonnet-5-5".',
+      })),
+    });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflow_skip_machine = ?, overflow_skip_until = ? WHERE id = ?", ["other-node", "2999-01-01T00:00:00.000Z", TASK]);
+    await dispatch(h);
+    await poll(h);
+
+    const t = h.task();
+    expect(t.machineId ?? null).toBeNull();
+    expect(t.overflowSkipMachines).toEqual(["other-node", MACHINE]);
   });
 
   it("PATCH umano a todo su una card con slot remoto ancora aperto: la corsa si cancella, lo slot si libera e la card riparte con una corsa nuova", async () => {
@@ -57,7 +108,7 @@ describe("lo slot remoto non resta zombie", () => {
     expect(h.dispatcher.busyIds()).toContain(TASK);
   });
 
-  it("restart with an open run whose chip the poll copied from the node (needs_input): requeued, old run cancelled", async () => {
+  it("restart with an open run whose chip the poll copied from the node (needs_input): reattached, nothing cancelled or recreated", async () => {
     const h = harness();
     h.seed();
     await dispatch(h);
@@ -69,10 +120,12 @@ describe("lo slot remoto non resta zombie", () => {
     await h2.dispatcher.reconcile({ reason: "boot" });
     await flush();
 
-    // The reconcile's own tick takes the requeued card straight out again.
+    // The run is still open on the node: the reconcile reattaches it instead of
+    // queueing over it, so the tick right after finds the card already busy.
     await dispatch(h2);
     const order = h2.calls.filter((c) => c === "create" || c.startsWith("cancel"));
-    expect(order).toEqual(["cancel:run-1", "create"]);
+    expect(order).toEqual([]);
+    expect(h.task().status).toBe("in_progress");
   });
 
   it("a done card dragged back to In Progress by hand, with no open run, is not relaunched after a restart", async () => {
@@ -86,5 +139,35 @@ describe("lo slot remoto non resta zombie", () => {
 
     expect(h2.calls.filter((c) => c === "create" || c.startsWith("cancel"))).toEqual([]);
     expect(h.task().status).toBe("in_progress");
+  });
+
+  it("a card the SERVER cut before its run existed (no open run, interrupted_at after entering in progress) goes back to the queue and launches", async () => {
+    const h = harness();
+    h.seed();
+    h.db.run(
+      "UPDATE tasks SET status = 'in_progress', dispatch_state = NULL, in_progress_at = '2026-11-17T04:36:29.591Z', interrupted_at = '2026-11-17T04:37:06.055Z', interrupted_by = 'SIGTERM' WHERE id = ?",
+      [TASK],
+    );
+    const h2 = harness({}, { svc: h.svc });
+    await h2.dispatcher.reconcile({ reason: "boot" });
+    await flush();
+    await dispatch(h2);
+
+    expect(h2.calls.filter((c) => c === "create")).toHaveLength(1);
+  });
+
+  it("a stale interrupted_at from BEFORE the last entry in progress does not count: the hand-dragged card stays put", async () => {
+    const h = harness();
+    h.seed();
+    h.db.run(
+      "UPDATE tasks SET status = 'in_progress', dispatch_state = 'working', in_progress_at = '2026-11-18T10:00:00.000Z', interrupted_at = '2026-11-17T04:37:06.055Z' WHERE id = ?",
+      [TASK],
+    );
+    const h2 = harness({}, { svc: h.svc });
+    await h2.dispatcher.reconcile({ reason: "boot" });
+    await flush();
+    await dispatch(h2);
+
+    expect(h2.calls.filter((c) => c === "create" || c.startsWith("cancel"))).toEqual([]);
   });
 });

@@ -5,9 +5,9 @@
  * guardava due chat ferme e mute. Il difetto stava NEL PASSAGGIO fra loro:
  *
  *   · `spiegaTurnoTroncato` scrive il verdetto sulla riga tagliata;
- *   · `chatDaRiprendere` decide chi riprendere GUARDANDO quel verdetto.
+ *   · `resumeVerdict` decide chi riprendere GUARDANDO quel verdetto.
  *
- * Se il primo non scrive — o scrive in un posto che il secondo non legge — la
+ * Se il primo non scrive - o scrive in un posto che il secondo non legge - la
  * catena si spezza senza che nessun test se ne accorga: entrambi restano verdi
  * e la chat resta ferma. È esattamente com'è andata il 20/08, e questo file
  * esiste per rendere quella combinazione impossibile.
@@ -17,7 +17,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { spiegaTurnoTroncato } from "./turno-troncato";
-import { chatDaRiprendere, MAX_RESUME_ATTEMPTS } from "./ripresa-boot";
+import { resumeVerdict, MAX_RESUME_ATTEMPTS } from "./ripresa-boot";
 import type { ContentBlock } from "../types";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
 
@@ -44,29 +44,29 @@ describe("dal turno tagliato alla ripresa, senza buchi in mezzo", () => {
 
     // 2. La ripresa, che gira dopo, riconosce quel verdetto e lo riprende.
     const b = blocchi(db, "a1");
-    expect(chatDaRiprendere(
+    expect(resumeVerdict(
       { sessionKey: "topic:x", ruolo: "assistant", blocks: b, timestampMs: Date.now(), attempts: 0 },
       Date.now(),
-    )).toBe(true);
+    ) === "resend").toBe(true);
   });
 
   test("senza la spiegazione la ripresa NON scatta: è il buco del 20/08", () => {
     // Stesso turno, ma nessuno l'ha spiegato. La ripresa non ha appigli e la
-    // chat resta ferma per sempre — che è ciò che l'utente ha visto.
+    // chat resta ferma per sempre - che è ciò che l'utente ha visto.
     const b: ContentBlock[] = [{ kind: "text", text: "sto misurando" }, tool()];
-    expect(chatDaRiprendere(
+    expect(resumeVerdict(
       { sessionKey: "topic:x", ruolo: "assistant", blocks: b, timestampMs: Date.now(), attempts: 0 },
       Date.now(),
-    )).toBe(false);
+    ) === "resend").toBe(false);
   });
 
   test("un turno finito bene non viene né spiegato né ripreso", () => {
     const db = dbWithTruncatedTurn([tool(), { kind: "text", text: "fatto, ecco il risultato" }]);
     expect(spiegaTurnoTroncato(db as never, "topic:x")).toBe(false);
-    expect(chatDaRiprendere(
+    expect(resumeVerdict(
       { sessionKey: "topic:x", ruolo: "assistant", blocks: blocchi(db, "a1"), timestampMs: Date.now(), attempts: 0 },
       Date.now(),
-    )).toBe(false);
+    ) === "resend").toBe(false);
   });
 
   test("i boot di fila non riprendono lo stesso turno all'infinito", () => {
@@ -79,10 +79,10 @@ describe("dal turno tagliato alla ripresa, senza buchi in mezzo", () => {
     // resume on its own, topic:0299ac2d), and the count must survive the
     // resend being a NEW row (topic:6b9605e5, resent five times in forty
     // minutes because every link started from zero).
-    const valuta = (attempts: number) => chatDaRiprendere(
+    const valuta = (attempts: number) => resumeVerdict(
       { sessionKey: "topic:x", ruolo: "assistant", blocks: blocchi(db, "a1"), timestampMs: Date.now(), attempts },
       Date.now(),
-    );
+    ) === "resend";
     expect(valuta(1)).toBe(true);
     // What this case has always protected: the loop stays impossible.
     expect(valuta(MAX_RESUME_ATTEMPTS)).toBe(false);

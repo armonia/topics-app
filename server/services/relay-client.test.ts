@@ -5,7 +5,7 @@
  * servisse più di quella, il fatto che i link girino nelle chat smetterebbe di
  * essere accettabile.
  *
- * @covers GUEST-08
+ * @covers GUEST-08, RELAY-04
  */
 import { describe, expect, it } from "bun:test";
 import { createHostProofSync, creaRelayClient, type LinkCondivisione } from "./relay-client";

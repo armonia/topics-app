@@ -9,14 +9,14 @@ import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, use
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, Trash2 } from 'lucide-react';
 import { useSectionOpen } from './sectionAccordion';
 import { Spinner } from '../Shared/Spinner';
 import { getMediaUrl } from '../../lib/api';
 import { uploadAttachment, MAX_ATTACHMENTS, type StagedAttachment } from '../../lib/attachments';
 import { isSupersededPreviewNote } from '../../../../shared/preview-retirement';
 import { isResolvedParkedQuestion } from '../../../../shared/parked-question';
-import { pendingQuestionComment } from '../../../../shared/board';
+import { canSendToAgent as canSendToAgentTask, pendingQuestionComment } from '../../../../shared/board';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
 import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
 import { copyText } from '../../lib/clipboard';
@@ -28,11 +28,11 @@ import { nodesOf, useMachines } from '../../state/machinesStore';
 import { writeCursor, restoreCursor } from '../../lib/composerCursor';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
-import { boardApi, isAgentWorking, isThreadSpeech, parseQuestionBlock, isProjectlessId, boardDrafts, blockedByChip, subtaskWorkChip, reopenedChip, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef } from '../../lib/board';
-import { collectTaskMediaPaths, hasConversationMedia } from './taskMedia';
+import { boardApi, isUnfinishedReview, isAgentWorking, isThreadSpeech, parseQuestionBlock, isProjectlessId, boardDrafts, blockedByChip, subtaskWorkChip, reopenedChip, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef } from '../../lib/board';
+import { collectTaskMediaPaths } from './taskMedia';
 import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
-import { drawerSurfaceLabels, taskActionWord } from './taskActionWords';
+import { drawerSurfaceLabels, reviewDecisionButtons, taskActionWord } from './taskActionWords';
 import { manualStatusTarget } from '../../lib/boardOrder';
 import { diffFocusPath } from './constants';
 import { autoGrow, taskCopyText } from './format';
@@ -42,6 +42,8 @@ import type { ChatMessage } from '../../types';
 import { holdTopic } from '../../state/topicSubscriptions';
 import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
 import { deliveryNotesToFold } from './taskDeliveryNotes';
+import { AskBox } from './AskBox';
+import { stripMarkdown } from '../../lib/stripMarkdown';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { addBoardProject, projectNameFromId, useBoardProjects, UNKNOWN_PROJECT_NAME } from '../../lib/boardProjectsStore';
 import { GroupLayout } from '../Layout/GroupLayout';
@@ -128,6 +130,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   // cambiano con lo stato della card e devono restare uguali a quelle che il
   // de-duplicatore delle risposte rapide sottrae.
   const landWord = taskActionWord('land', tr);
+  const restoreWord = taskActionWord('restore', tr);
   // Le tab del task, lette QUI e non dalla `browser` più in basso: il manifesto
   // serve a callback definiti molto prima di quel hook.
   const taskTabsState = useTaskBrowserTabs(taskId);
@@ -455,7 +458,15 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     () => (task ? comments.filter((c) => !isSupersededPreviewNote(c, task)) : comments),
     [comments, task],
   );
-  const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
+  const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId && !task.archived;
+  // The composer's own label needs the narrower `canSendToAgentTask`: a landed
+  // card is still `isAgentReview`, but `/comments` keeps any message on it a note.
+  const canSendToAgent = !!task && canSendToAgentTask(task);
+  // On a card the agent never finished the message restarts the agent exactly
+  // like the send-back button, so it borrows that button's word.
+  const sendToAgentWord = task && isUnfinishedReview(task)
+    ? reviewDecisionButtons(task, tr).sendBack.label
+    : tr('board.task.sendToAgent');
   // The empty composer can still resume without a new instruction.
   // Le parole dei tre bottoni di decisione stanno in `ReviewDecisionRow`, che le
   // chiede a `reviewDecisionButtons`: cambiano tutte con lo stato della card (i
@@ -603,6 +614,16 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   // seguita, perché è la sola cosa che distingue «sta per succedere» da «è
   // successo» — e senza quella distinzione una raffica di land sembra riuscita
   // mentre non lo è.
+  // ARCHIVED, NOT APPROVED: `archive()` never touches `status`, so the banner
+  // and this restore are what tell the truth on a drawer already open.
+  const doRestore = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await boardApi.restore(projectId, taskId); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
+
   const doLand = async () => {
     if (busy) return;
     setBusy(true);
@@ -1114,8 +1135,8 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
    * The fourth case is the one that was missing: the agent asked and is waiting.
    * Then the box is not a steer, it is the answer the turn restarts from.
    */
-  const steerable = !!task && (task.status === 'in_progress' || agentBusy);
-  const composerPlaceholder = isAgentReview
+  const steerable = !!task && !task.archived && (task.status === 'in_progress' || agentBusy);
+  const composerPlaceholder = canSendToAgent
     ? tr('board.task.replyPlaceholder')
     : steerable
       ? (pending ? tr('board.task.answerPlaceholder') : tr('board.task.steerPlaceholder'))
@@ -1177,10 +1198,6 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     setWorkspaceOpen(true);
     return true;
   }, []);
-  const previewInThread = useMemo(() => hasConversationMedia(task?.previewImage,
-    [...timeline.flatMap((item) => item.source === 'comment' ? [item.comment] : []), ...(pinnedDeliveryId && deliveryWord ? [deliveryWord] : [])],
-    timeline.flatMap((item) => item.source === 'session' ? [item.msg] : []),
-  ), [task?.previewImage, timeline, pinnedDeliveryId, deliveryWord]);
   const foldedDeliveryNotes = useMemo(() => deliveryNotesToFold(
     timeline.flatMap((item) => item.source === 'comment' ? [item.comment] : []),
   ), [timeline]);
@@ -1262,7 +1279,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
       // shrink-0) so the columns viewport shrinks beside it and the board stays
       // scrollable; wide just grows the review surface (72%/64rem caps keep a
       // strip of board visible).
-      className={`pane-frost flex flex-col border-app-border ${swiping ? '' : 'transition-transform duration-base'} absolute inset-0 z-40 w-full pb-[var(--mobile-band-own-h,0px)] lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
+      className={`pane-frost pane-sheet flex flex-col border-app-border ${swiping ? '' : 'transition-transform duration-base'} absolute inset-0 z-40 w-full pb-[var(--mobile-band-own-h,0px)] lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
         wide ? 'lg:w-[min(64rem,72%)] lg:shadow-2xl' : 'lg:w-96 lg:max-w-[75%]'
       }`}
     >
@@ -1276,6 +1293,17 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           togglePlanFirst={togglePlanFirst} toggleReuseContext={toggleReuseContext} toggleWide={toggleWide} tr={tr} wide={wide}
           workspaceManifest={workspaceManifest} />
       </div>
+      {task?.archived && (
+        <div data-testid="task-archived-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-app-border bg-app-hover px-3 py-1.5 text-mini text-app-text-secondary">
+          <span className="min-w-0"><Trash2 className="w-4 h-4 inline-block align-[-2px]" aria-hidden="true" /> {tr('board.task.archivedBanner')}</span>
+          <button
+            data-testid="task-archived-restore"
+            disabled={busy} onClick={doRestore}
+            title={restoreWord.title}
+            className="flex shrink-0 items-center gap-1 rounded border border-app-border bg-app-surface px-2 py-0.5 font-medium hover:bg-app-hover disabled:opacity-50"
+          ><ArchiveRestore className="h-3 w-3" /> {restoreWord.label}</button>
+        </div>
+      )}
       <DeliveryBanners busy={busy} deploying={deploying} doDeploy={doDeploy} doLand={doLand} landWord={landWord} landingBanda={landingBanda}
         notice={notice} setNotice={setNotice} task={task} tr={tr} />
       {/* The conversation owns the single reading scroll. Workspace panes keep
@@ -1294,7 +1322,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           <button
             data-testid="task-load-retry"
             onClick={() => { void load(); }}
-            className="rounded-md border border-app-border px-3 py-1.5 text-compact leading-4 text-app-text-heading hover:bg-white/10"
+            className="rounded-md border border-app-border px-3 py-1.5 text-compact leading-4 text-app-text-heading hover:bg-black/5 dark:hover:bg-white/10"
           >
             {tr('board.task.loadRetry')}
           </button>
@@ -1336,11 +1364,34 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             <ThreadRows agentBusy={agentBusy} answerOption={answerOption} busy={busy} children={children} commentReceipt={commentReceipt}
               composerHeight={composerHeight} deliveryWord={deliveryWord} detailsOpen={detailsOpen} foldedDeliveryNotes={foldedDeliveryNotes}
               lastClientHeightRef={lastClientHeightRef} lastHeightRef={lastHeightRef} lastThreadComment={lastThreadComment} lastTopRef={lastTopRef}
-              openTaskPane={openTaskPane} ownerName={ownerName} pending={pending} previewInThread={previewInThread} replyOptions={replyOptions}
+              openTaskPane={openTaskPane} ownerName={ownerName} mediaPaths={mediaPaths} pending={pending} replyOptions={replyOptions}
               sending={sending} sessionKey={sessionKey} sessionRuns={sessionRuns} stickRef={stickRef} task={task} threadContentRef={threadContentRef}
               threadScrollRef={threadScrollRef} timeline={timeline} tr={tr} uploading={uploading}
               details={
                 <>
+                  {task.status === 'review' && (
+                    <div className="-mx-3 -mt-3 mb-3 px-3 pt-3">
+                      <AskBox
+                        question={pending ? stripMarkdown(pending.question) : (task.humanAsk ?? null)}
+                        options={pending ? replyOptions : []}
+                        busy={sending || busy || uploading}
+                        onAnswer={(opt) => void answerOption(opt)}
+                      />
+                      {/* The same two exits on every card in Review, whatever the question. */}
+                      <div data-testid="task-review-bar" className="mt-1.5 flex flex-wrap gap-1.5">
+                        <button type="button" disabled={busy || sending} data-testid="task-resend-note"
+                          onClick={() => commentRef.current?.focus()}
+                          className="rounded border border-app-border px-2.5 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10 disabled:opacity-50 coarse:min-h-11">
+                          {tr('board.task.resendWithNote')}
+                        </button>
+                        <button type="button" disabled={busy || sending} data-testid="task-close-undone"
+                          onClick={() => { setBusy(true); boardApi.archive(projectId, taskId).then(() => { setError(null); void load(); onChanged(); }).catch(showError).finally(() => setBusy(false)); }}
+                          className="rounded border border-app-border px-2.5 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10 disabled:opacity-50 coarse:min-h-11">
+                          {tr('board.task.closeUndone')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <TaskDetailsPanel addSubtask={addSubtask} addingSub={addingSub} boardDispatchModel={boardDispatchModel} busy={busy}
                     cancelKey={cancelKey} changeModel={changeModel} changeNode={changeNode} changePriority={changePriority}
                     changeTopicsRouting={changeTopicsRouting} children={children} descDraft={descDraft} descOpen={descOpen} detailsOpen={detailsOpen}
@@ -1370,7 +1421,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           )}
           <TaskComposer agentBusy={agentBusy} attachments={attachments} busy={busy} commentCursorKey={commentCursorKey} commentRef={commentRef}
             composerAreaRef={composerAreaRef} composerPlaceholder={composerPlaceholder} composerSendTitle={composerSendTitle} draft={draft}
-            error={error} fileDragOver={fileDragOver} fileInputRef={fileInputRef} isAgentReview={isAgentReview} isMobile={isMobile} load={load}
+            error={error} fileDragOver={fileDragOver} fileInputRef={fileInputRef} canSendToAgent={canSendToAgent} sendToAgentWord={sendToAgentWord} isAgentReview={isAgentReview} isMobile={isMobile} load={load}
             loadFailedMessage={loadFailedMessage} onOpenTopic={onOpenTopic} saveCommentCursor={saveCommentCursor} send={send} sending={sending}
             sessionState={sessionState} sessionTopic={sessionTopic} setAttachments={setAttachments} setDraft={setDraft} setError={setError}
             setFileDragOver={setFileDragOver} shownEffort={shownEffort} stopAgent={stopAgent} task={task} taskId={taskId} tr={tr} twoCol={twoCol}
@@ -1397,7 +1448,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 <p className="text-compact leading-4 text-app-text-muted">{tr('board.task.noWorkspaceTabs')}</p>
                 <button
                   onClick={() => { setWorkspaceOpen(true); browser.addBrowserTab(); }}
-                  className="rounded bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+                  className="rounded bg-black/5 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-black/10 dark:hover:bg-white/20"
                 >{tr('board.task.openTab')}</button>
               </div>
             )}

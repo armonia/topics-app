@@ -16,7 +16,7 @@ pub enum Node {
     Sep,
     Sub { label: String, children: Vec<Node> },
     /// A graphic row: a PNG drawn by `tray_menu_views`, `w` x `h` points. `children` open on hover.
-    Card { key: String, png: Vec<u8>, w: f32, h: f32, children: Vec<Node> },
+    Card { key: String, png: Vec<u8>, w: f32, h: f32, hover: Vec<crate::tray_hover::HoverZone>, children: Vec<Node> },
     /// A table row: one cell per column, aligned by the tab stops of its `table`. `children` open on hover.
     Row { id: String, cells: Vec<String>, header: bool, table: Table, look: Look, children: Vec<Node> },
     /// Puts a system icon (`sf:<symbol name>`) or an app's own icon (`app:<bundle path>`) before any other row.
@@ -82,6 +82,9 @@ pub struct Look {
     /// The first cell in semibold: a project with agents at work, a verdict line.
     pub bold: bool,
     pub priority: Priority,
+    /// Leaves the place of the priority arrow empty before the name, so the names of a table whose other rows
+    /// wear an arrow all start on the same x.
+    pub arrow_slot: bool,
 }
 
 /// A data row of a table, without a look of its own.
@@ -148,6 +151,16 @@ pub struct Snapshot {
     pub backup: Option<String>,
     /// The service has answered with a backup state at least once on this machine: only then the backup row exists.
     pub backup_set: bool,
+    /// Memory sync state (`/api/memory-sync`): same scheme as the backup, the last good answer kept on disk.
+    pub memory_sync: Option<String>,
+    /// The service has answered a valid memory-sync state at least once on this machine: only then the card exists.
+    pub memory_sync_set: bool,
+    /// The node pool's own state file (`node-pool/state.json`): which servers really exist, which is draining.
+    pub pool: Option<String>,
+    /// `machines-health.json`: the security checks, 24 hour history and cards today of every machine.
+    pub health: Option<String>,
+    /// `harness-sync.json`: the memories and rules copied to each machine, and how late.
+    pub harness_sync: Option<String>,
     /// `/api/machines`: the history, timeline and spend the machine submenus draw.
     pub machines: Option<String>,
     /// `/api/mac/trust`: which running things are suspect.
@@ -158,6 +171,19 @@ pub struct Snapshot {
 
 impl Snapshot {
     pub fn fetch(base: &str, backup_cache: Option<&std::path::Path>) -> Self {
+        Self::fetch_with(base, backup_cache, None)
+    }
+
+    /// `fetch` plus the cache of the memory-sync state, so its card survives the service going down.
+    pub fn fetch_with(base: &str, backup_cache: Option<&std::path::Path>, memory_cache: Option<&std::path::Path>) -> Self {
+        let live_memory = http_get(base, "/api/memory-sync").filter(|b| crate::tray_menu_views::memory_sync_valid(b));
+        if let (Some(b), Some(p)) = (&live_memory, memory_cache) {
+            if let Some(dir) = p.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(p, b);
+        }
+        let memory_sync = live_memory.or_else(|| memory_cache.and_then(|p| std::fs::read_to_string(p).ok()).filter(|b| crate::tray_menu_views::memory_sync_valid(b)));
         let live_backup = http_get(base, "/api/backup-mac").filter(|b| serde_json::from_str::<Value>(b).map_or(false, |v| v.is_object()));
         if let (Some(b), Some(p)) = (&live_backup, backup_cache) {
             if let Some(dir) = p.parent() {
@@ -182,6 +208,11 @@ impl Snapshot {
             cpu: cpu_by_pid(),
             backup_set: backup.is_some(),
             backup,
+            memory_sync_set: memory_sync.is_some(),
+            memory_sync,
+            pool: crate::tray_nodes::pool_state_path().and_then(|p| std::fs::read_to_string(p).ok()),
+            health: crate::tray_node_health::health_path().and_then(|p| std::fs::read_to_string(p).ok()),
+            harness_sync: crate::tray_node_health::sync_path().and_then(|p| std::fs::read_to_string(p).ok()),
         }
     }
     pub fn service_up(&self) -> bool {
@@ -253,6 +284,14 @@ pub fn backup_cache_path() -> Option<std::path::PathBuf> {
         return Some(p.into());
     }
     Some(std::path::Path::new(&std::env::var_os("HOME")?).join(".topics/tray-backup-cache.json"))
+}
+
+/// Where the last memory-sync state the service gave is kept; overridable for tests.
+pub fn memory_sync_cache_path() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("TOPICS_MEMORY_SYNC_CACHE") {
+        return Some(p.into());
+    }
+    Some(std::path::Path::new(&std::env::var_os("HOME")?).join(".topics/tray-memory-sync-cache.json"))
 }
 
 fn day_word(now: i64, at: i64) -> String {
@@ -484,22 +523,20 @@ pub(crate) fn extras_nodes(overview: &Option<String>, prefs: Prefs) -> Vec<Node>
     if prefs.cloud_bonus {
         if let Some(credits) = v.get("credits").and_then(Value::as_object) {
             let mut kids = Vec::new();
-            for (who, c) in credits {
-                if c.get("nobonus").and_then(Value::as_bool) == Some(true) {
-                    continue;
-                }
-                if let (Some(left), Some(lim)) = (c.get("remaining").and_then(Value::as_f64), c.get("limit").and_then(Value::as_f64)) {
+            // a reading the service marks as old is not a figure to show
+            for (who, c) in credits.iter().filter(|(_, c)| c.get("stale").and_then(Value::as_bool) != Some(true)) {
+                if let (Some(left), Some(lim), false) = (c.get("remaining").and_then(Value::as_f64), c.get("limit").and_then(Value::as_f64), c.get("nobonus").and_then(Value::as_bool) == Some(true)) {
                     if lim > 0.0 {
                         let renews = Some(s(c, "renewsAt")).filter(|t| !t.is_empty()).map(|t| format!(" · scade {t}")).unwrap_or_default();
                         kids.push(note(format!("Bonus {who} · {:.0} su {:.0} rimasti{renews}", left, lim)));
                     }
                 }
                 for m in c.get("models").and_then(Value::as_array).into_iter().flatten() {
-                    kids.push(note(format!("{who} · {} {}%", s(m, "name"), n(m, "pct") as i64)));
+                    kids.push(note(format!("{who} · {} {}% della sua quota", s(m, "name"), n(m, "pct") as i64)));
                 }
             }
             if !kids.is_empty() {
-                out.push(sub("Credito AI e bonus cloud", kids));
+                out.push(sub("Quote per modello", kids));
             }
         }
     }
@@ -676,15 +713,13 @@ pub(crate) fn automation_nodes(body: &Option<String>, now_secs: i64, offset: i64
         with_icon("sf:clock.arrow.circlepath", item("open:automations", format!("Automazioni · {} ti aspettano · {} rotte", n(&v, "needsYou") as i64, n(&v, "broken") as i64))),
     ];
     if let Some(c) = v.get("calendar") {
-        let next = c.get("next").filter(|x| !s(x, "title").is_empty()).map(|x| {
-            let title = s(x, "title");
-            let title = if title.chars().count() > 36 { format!("{}…", title.chars().take(35).collect::<String>()) } else { title.to_string() };
-            match x.get("at").and_then(Value::as_i64) {
-                Some(at) => format!("{} {title}", when_text(at, now_secs, offset)),
-                None => title,
-            }
-        });
-        out.push(with_icon("sf:calendar", item("open:calendar", format!("In calendario · {}{}", n(c, "count") as i64, next.map(|t| format!(" · {t}")).unwrap_or_default()))));
+        let next = c.get("next").filter(|x| !s(x, "title").is_empty());
+        let when = next.and_then(|x| x.get("at").and_then(Value::as_i64)).map(|at| format!(" · {}", when_text(at, now_secs, offset)));
+        // the count and the time on the row, the next event's title whole on the small line under it: a title is
+        // free text, and on the row it ran past the menu or was cut
+        let mut cells = vec![format!("In calendario · {}{}", n(c, "count") as i64, when.unwrap_or_default())];
+        cells.extend(next.map(|x| second_line(s(x, "title"))));
+        out.push(with_icon("sf:calendar", Node::Row { id: "open:calendar".into(), cells, header: false, table: Table::Plain, look: Look::default(), children: Vec::new() }));
     }
     out
 }

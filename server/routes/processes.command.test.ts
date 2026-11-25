@@ -16,7 +16,8 @@ import { join } from "path";
 const STATE = mkdtempSync(join(tmpdir(), "topics-cmd-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
-const { createProcessesRouter, listOwnedScripts, logPathOf, stopCardCommandProcesses } = await import("./processes");
+const { createProcessesRouter, listOwnedScripts, stopCardCommandProcesses } = await import("./processes");
+const { logPathOf } = await import("./processes-persist");
 const {
   COMMAND_GROUP_CONFIRM_MS, COMMAND_GROUP_TERM_GRACE_MS, commandProcessGroup, processGroupAlive,
 } = await import("../lib/command-process-groups");

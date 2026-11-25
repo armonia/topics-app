@@ -131,16 +131,17 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
   const ledgerWindow = days === null ? "" : " AND u.timestamp >= strftime('%s', date('now', ? || ' days')) * 1000";
   const ledgerRows = db
     .prepare(
-      `SELECT tp.project_path AS project_path,
+      `SELECT COALESCE(NULLIF(u.project_path, ''), tp.project_path) AS project_path,
               SUM(MAX(0, COALESCE(u.input_tokens, 0) - COALESCE(u.cache_read_tokens, 0))
                   + COALESCE(u.output_tokens, 0)
                   + ${CACHE_READ_WEIGHT} * COALESCE(u.cache_read_tokens, 0)) AS cost_tokens,
               SUM(COALESCE(u.cost_usd, 0)) AS cost_usd,
               SUM(CASE WHEN u.cost_usd IS NULL THEN 1 ELSE 0 END) AS uncounted
          FROM usage_records u
-         JOIN topics tp ON tp.id = u.topic_id
-        WHERE tp.project_path IS NOT NULL AND tp.project_path <> ''${ledgerWindow}
-        GROUP BY tp.project_path`,
+         LEFT JOIN topics tp ON tp.id = u.topic_id
+        WHERE COALESCE(NULLIF(u.project_path, ''), tp.project_path) IS NOT NULL
+          AND COALESCE(NULLIF(u.project_path, ''), tp.project_path) <> ''${ledgerWindow}
+        GROUP BY COALESCE(NULLIF(u.project_path, ''), tp.project_path)`,
     )
     .all(...arg) as { project_path: string; cost_tokens: number | null; cost_usd: number | null; uncounted: number | null }[];
 
@@ -263,7 +264,7 @@ function sideCallUsage(db: Database, days: number | null): SideCallUsage {
               SUM(u.cost_usd) AS cost_usd, SUM(u.total_tokens) AS tokens
          FROM usage_records u
          LEFT JOIN topics tp ON tp.id = u.topic_id
-        WHERE (tp.project_path IS NULL OR tp.project_path = '')${window}
+        WHERE (u.project_path IS NULL OR u.project_path = '') AND (tp.project_path IS NULL OR tp.project_path = '')${window}
         GROUP BY COALESCE(u.purpose, 'other')
         ORDER BY SUM(COALESCE(u.cost_usd, 0)) DESC, COUNT(*) DESC, COALESCE(u.purpose, 'other')`,
     )

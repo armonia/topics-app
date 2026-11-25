@@ -1,25 +1,18 @@
 /**
- * THE APP DATA ROOT IS RESOLVED ONCE, AND A FRESH MACHINE NEVER SEES THE OLD NAME.
+ * THE APP DATA ROOT IS THE TOPICS HOME, UNLESS A VARIABLE PINS ANOTHER ONE.
  *
- * Until card 211605ee the root was the legacy one (`LEGACY_DATA_DIR_NAME`
- * under the home) whenever no variable said otherwise, in four copies of the
- * same expression. The desktop shell exports TOPICS_HOME/TOPICS_DATA_DIR/
- * DATA_DIR and not APP_DATA_DIR, so an installed Topics created `media/` and
- * `workspace/` there in the home of somebody who never ran the product under
- * its previous name.
- *
- * The three branches below are the whole rule. The fourth test is the one that
- * keeps it honest: resolving is a calculation, not a boot step, so it must
- * create nothing — an implementation that mkdir'd the root to check it would
- * make every caller (a CLI probe, a route, a test helper) plant the folder it
- * was only asking about.
+ * Until change `agents-in-topics-home` a folder under the product's older name
+ * won whenever it existed, so a machine that had one kept a second home for the
+ * app, shared with the always-on agents. Two branches are left, and the tests
+ * below are the whole rule. The fourth keeps it honest: resolving is a
+ * calculation, not a boot step, so it must create nothing.
  *
  * @covers RUNTIME-19
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { appDataRoots, LEGACY_DATA_DIR_NAME, resolveAppDataDir } from "./data-dir";
+import { appDataRoots, resolveAppDataDir } from "./data-dir";
 import { testTmpDir } from "../../tests/integration/helpers";
 
 /** A home that exists on disk but holds nothing. */
@@ -32,22 +25,16 @@ function emptyHome(name: string): string {
 describe("resolveAppDataDir", () => {
   test("an explicit variable wins over everything", () => {
     const home = emptyHome("explicit");
-    mkdirSync(join(home, LEGACY_DATA_DIR_NAME), { recursive: true });
     expect(resolveAppDataDir({ env: { APP_DATA_DIR: "/pinned/root" }, home })).toBe("/pinned/root");
   });
 
-  test("a home that already has the legacy root keeps using it", () => {
-    const home = emptyHome("legacy");
-    mkdirSync(join(home, LEGACY_DATA_DIR_NAME), { recursive: true });
-    expect(resolveAppDataDir({ env: {}, home })).toBe(join(home, LEGACY_DATA_DIR_NAME));
-  });
-
-  test("a home without the legacy root gets the root under ~/.topics", () => {
+  test("without one it is ~/.topics, whatever other folder the home already holds", () => {
     const home = emptyHome("fresh");
+    mkdirSync(join(home, ".old-root", "media"), { recursive: true });
     expect(resolveAppDataDir({ env: {}, home })).toBe(join(home, ".topics"));
   });
 
-  test("TOPICS_HOME moves the fresh root with it", () => {
+  test("TOPICS_HOME moves it with the rest of the Topics home", () => {
     const home = emptyHome("isolated");
     expect(resolveAppDataDir({ env: { TOPICS_HOME: "/iso/home" }, home })).toBe("/iso/home");
   });
@@ -61,17 +48,9 @@ describe("resolveAppDataDir", () => {
     expect(readdirSync(home)).toEqual([]);
   });
 
-  test("both roots stay readable, whichever one is live", () => {
+  test("the allowlist roots are the live one and the Topics home, once each", () => {
     const home = emptyHome("roots");
-    const fresh = appDataRoots({ env: {}, home });
-    expect(fresh).toContain(join(home, LEGACY_DATA_DIR_NAME));
-    expect(fresh).toContain(join(home, ".topics"));
-
-    mkdirSync(join(home, LEGACY_DATA_DIR_NAME), { recursive: true });
-    const legacy = appDataRoots({ env: {}, home });
-    expect(legacy[0]).toBe(join(home, LEGACY_DATA_DIR_NAME));
-    expect(legacy).toContain(join(home, ".topics"));
-    // No duplicates: the live root is one of the two, not a third entry.
-    expect(new Set(legacy).size).toBe(legacy.length);
+    expect(appDataRoots({ env: {}, home })).toEqual([join(home, ".topics")]);
+    expect(appDataRoots({ env: { APP_DATA_DIR: "/pinned" }, home })).toEqual(["/pinned", join(home, ".topics")]);
   });
 });

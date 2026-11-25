@@ -44,9 +44,7 @@ export const PARKED_IN_SERIES_SQL = `SELECT id, project_id FROM tasks
  * before the cutoff, read by `sweepUnownedBacklog` on every reconcile (10 s).
  * Binds: cutoff. "Nobody" = no assignee, no agent topic, no blocker, no dispatch
  * chip (a parked card has its own announce); a person's own parking
- * (`created_by = 'human'`) is not unowned, unless it sits in TRIAGE (`stage`,
- * migration 20261030225403): there it is waiting for the triage pass, which is
- * the coordinator's job, whoever opened it. The `unowned_alerted_at` clause is the
+ * (`created_by = 'human'`) is not unowned. The `unowned_alerted_at` clause is the
  * dedupe: fire again only if the card was touched after the last alert.
  *
  * The first three terms are the predicate of idx_tasks_backlog_unowned
@@ -62,7 +60,7 @@ export const UNOWNED_BACKLOG_SQL = `SELECT id, project_id FROM tasks
               AND assigned_topic_id IS NULL
               AND blocked_by_task_id IS NULL
               AND dispatch_state IS NULL
-              AND ((created_by IS NOT NULL AND created_by <> 'human') OR stage = 'triage')
+              AND created_by IS NOT NULL AND created_by <> 'human'
               AND (unowned_alerted_at IS NULL OR unowned_alerted_at < updated_at)
             ORDER BY updated_at`;
 
@@ -74,6 +72,27 @@ export const CHECKS_RUNNING_SQL = "SELECT id FROM tasks WHERE checks_state = 'ru
  * Built from `ACTIVE_DISPATCH_STATES` so it cannot drift from it.
  */
 export const CHILD_AGENT_COMING = ACTIVE_DISPATCH_STATES.map((s) => `'${s}'`).join(", ");
+
+/**
+ * A CONTAINER parent: made in backlog to group cards, never worked by an agent
+ * (no attempt, never started, nothing a turn delivered). The question of the
+ * parked-children rake is NOT a delivery of a turn: a parent the rake asked once
+ * (`delivered_reason = 'parked_children'`, chip `needs_input`) and that a person
+ * put back in backlog is still a container. Without this the question itself
+ * stripped the parent of its container status, and the rake asked again 20 s
+ * after the answer (cards 5904a1cf and ca2134e0, 25/11). Alias `p` is the parent.
+ *
+ * `delivered_reason` is COALESCEd on purpose: a parent delivered by an agent has
+ * `delivered_by` set and `delivered_reason` NULL, and `NULL = 'parked_children'`
+ * is NULL, which turns the whole NOT(...) in the candidates query into NULL and
+ * silently drops that parent from the sweep (the first version did exactly this).
+ * `shared/grouping-parent.ts` is the same predicate in code; its test runs both.
+ */
+export const CONTAINER_PARENT_SQL = `p.status = 'backlog' AND p.dispatch_attempts = 0
+                       AND p.in_progress_at IS NULL
+                       AND (p.delivered_by IS NULL OR COALESCE(p.delivered_reason, '') = 'parked_children')
+                       AND (p.dispatch_state IS NULL
+                            OR (p.dispatch_state = 'needs_input' AND COALESCE(p.delivered_reason, '') = 'parked_children'))`;
 
 /**
  * Parents that look stuck behind open children, read by `sweepParkedChildren`
@@ -94,9 +113,7 @@ export const PARKED_CHILDREN_CANDIDATES_SQL = `SELECT p.id, p.project_id FROM ta
             WHERE p.archived = 0
               AND p.status IN ('backlog', 'todo')
               AND NOT (p.status = 'todo' AND p.dispatch_attempts = 0)
-              AND NOT (p.status = 'backlog' AND p.dispatch_attempts = 0
-                       AND p.in_progress_at IS NULL AND p.delivered_by IS NULL
-                       AND p.dispatch_state IS NULL)
+              AND NOT (${CONTAINER_PARENT_SQL})
               AND COALESCE(p.dispatch_state, '') NOT IN (${CHILD_AGENT_COMING})
               AND COALESCE(p.dispatch_deferred_until, '') <= ?
               AND EXISTS (SELECT 1 FROM tasks c

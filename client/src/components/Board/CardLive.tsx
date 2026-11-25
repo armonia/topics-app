@@ -1,8 +1,11 @@
+import { Timer } from 'lucide-react';
+import { STATUS_GLYPH_PX } from '../../lib/board';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
-import { fmtLive, fmtModel, fmtTok, liveToolLabel } from './format';
-import type { LiveTool, LiveUsage, RetryWait } from './constants';
-import { StatusIcon } from './atoms';
+import { fmtLive, fmtModel, fmtTok } from './format';
+import type { LiveUsage, RetryWait } from './constants';
+import { TaskActionLoader } from '../Layout/StreamingIndicator';
+import type { LoaderActivity } from '../Layout/squareLoader';
 import { startVisibleInterval } from '../../state/documentVisibility';
 
 // ── The live chips of a working card ──────────────────────────────────────
@@ -57,35 +60,6 @@ export function RetryWaitChip({ retry, disabled, onRetryNow }: { retry: RetryWai
 }
 
 /**
- * "Bash · bun run test:unit · 3m": the running tool and for how long, ticking.
- *
- * WHILE THE COMMAND IS FROZEN THE CLOCK STOPS, and so does the interval. A
- * stopwatch running over a process Topics has SIGSTOPped tells the person the
- * command is making progress, which is the opposite of what happened; and a
- * one-second repaint under a canvas that just painted itself is the kind of
- * cost the freeze exists to avoid. The line says `congelato` instead.
- */
-export function LiveToolLine({ tool, frozen = false }: { tool: LiveTool; frozen?: boolean }) {
-  const tr = useT();
-  const [, force] = useState(0);
-  useEffect(() => {
-    if (frozen) return;
-    return startVisibleInterval(() => force((n) => n + 1), 1000);
-  }, [frozen]);
-  // eslint-disable-next-line react-hooks/purity -- live tool line: re-renders every 1s (interval above) and reads the clock each render on purpose
-  const since = fmtLive(Math.max(0, Date.now() - tool.since));
-  const label = liveToolLabel(tool);
-  const text = frozen ? `${label} · ${tr('swapFreeze.frozenShort')}` : `${label} · ${since}`;
-  return (
-    <p
-      data-testid="card-live-tool"
-      className="mt-1 truncate text-compact leading-4 md:text-mini tabular-nums text-app-text-muted"
-      title={frozen ? tr('swapFreeze.frozenShort') : tr('board.card.liveToolTitle', { tool: label, since })}
-    >{text}</p>
-  );
-}
-
-/**
  * Live effort chip shown while a turn runs: model · execution-time · tokens,
  * ticking every second. The time is EXECUTION-ONLY: `baseMs` is the agent_ms
  * accumulated over PRIOR turns and we add only (now − turnStartedAt) for the
@@ -93,7 +67,8 @@ export function LiveToolLine({ tool, frozen = false }: { tool: LiveTool; frozen?
  * anchors turnStartedAt at the actual turn start). Falls back to the static
  * agent_ms/agent_tokens chip the instant the turn ends.
  */
-export function LiveEffortChip({ usage, label, trailing }: { usage: LiveUsage; label?: string; trailing?: ReactNode }) {
+/** `taskId`: the card whose agent is at work, so the loader plays what it is doing; `activity` overrides it (previews). */
+export function LiveEffortChip({ usage, label, trailing, taskId, activity }: { usage: LiveUsage; label?: string; trailing?: ReactNode; taskId?: string; activity?: LoaderActivity }) {
   const tr = useT();
   const locale = useLocale();
   const [, force] = useState(0);
@@ -120,11 +95,11 @@ export function LiveEffortChip({ usage, label, trailing }: { usage: LiveUsage; l
       className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
     >
       <span className="flex min-w-0 items-center gap-1.5 break-words">
-        <StatusIcon status="in_progress" live className="h-3 w-3 shrink-0" />
+        <TaskActionLoader taskId={taskId} activity={activity} size={12} className="shrink-0" />
         <span className="min-w-0 break-words">{label ?? fmtModel(usage.model)}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-        <span>⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
+        <span className="inline-flex items-center gap-1"><Timer size={STATUS_GLYPH_PX} className="shrink-0" aria-hidden />{fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
         {trailing}
       </span>
     </div>

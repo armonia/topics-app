@@ -6,6 +6,7 @@ import { existsSync, mkdirSync } from "fs";
 import { countAttachedTerminalSessions } from "../routes/terminal";
 import { createAgentWorktree, worktreeReadyMs } from "../services/worktree-for-agent";
 import { createTaskDispatcher } from "../services/task-dispatcher";
+import { dispatcherLogLine } from "../services/task-dispatcher-support";
 import { budgetSample, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { createDispatchResourceBlockFromInputs } from "../services/dispatch-memory-inputs";
 import { fleetLoadSync, fleetSessionCoreUnits } from "../lib/fleet-usage";
@@ -14,7 +15,8 @@ import { machineCores } from "../lib/machine-cores";
 import { worktreeRealDirt } from "../services/task-automerge";
 import { branchStatusFromRepo, worktreeDiffStat } from "../services/branch-status";
 import { createDetachedTopic } from "../lib/session-control-core";
-import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
+import { buildProjectCandidates, canonicalProjectFor, resolveProjectPath } from "../services/project-path-resolver";
+import { worktreeRootDir } from "../services/worktree-manager";
 import { getDefaultProviderName, tryGetProvider, resolveTurnAlive } from "../providers";
 import { readNativeUsage } from "../providers/native-usage-registry";
 import { automaticDispatchHooks } from "../services/task-auto-model";
@@ -27,16 +29,26 @@ import { totalmem as osTotalmem } from "node:os";
 import { readDelegatedNodeToken } from "../services/node-client";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "../lib/delegated-agent-start";
 import { isCloudBaseUrl, resolveGithubSlug } from "../providers/claude-cloud/node";
-import { bundleBranch, ensureBranchOnOrigin } from "../services/branch-on-origin";
+import { bundleBranchForNode, ensureBranchOnOrigin } from "../services/branch-on-origin";
 import { repoIdentity } from "../lib/git-identity";
 import { githubOriginFrom, overflowMachinesFrom } from "../services/dispatch-overflow";
+import { NODE_BREAKERS_FILE, persistNodeBreakers } from "../services/wake-breaker";
 import { TURN_ERROR_PREFIX } from "../../shared/board";
 import type { AfterHeadlessTurns } from "./scope";
 import { late } from "./late";
+import { isThisServerPrimary } from "../lib/primary-role";
+import { sessionHasOpenQuestion } from "../lib/question-outlives-asker";
+import { decodeCol } from "../../shared/message-blob";
+
+/** Project id -> GitHub owner/repo, filled by the overflow's origin lookup: the cloud's per-repository refusals are read through it. */
+const projectSlugs = new Map<string, string>();
 
 export function bootDispatcher(scope: AfterHeadlessTurns) {
-  const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc } = scope;
+  const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, scheduleEngine, tickScheduledCards, announceTick, taskAttemptStore, turniInVolo, worktreeGc } = scope;
+  // Before the first tick: a node whose breaker was open stays out after the restart every land of server/ causes.
+  persistNodeBreakers(join(ctx.STATE_DIR, NODE_BREAKERS_FILE));
   const taskDispatcher = createTaskDispatcher({
+    isActive: isThisServerPrimary,
     stopCardProcesses: stopCardCommandProcesses,
     captureDelivery: (taskId) => late.capturaConsegna ? late.capturaConsegna(taskId) : Promise.resolve(false),
     measureDelivery: (taskId) => late.misuraConsegnaNodo ? late.misuraConsegnaNodo(taskId) : Promise.resolve(),
@@ -63,7 +75,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy like the `await import` of the same module at boot: static, it would move the snapshot manager (and the provider registry it imports) up the boot's module order
       snapshot: () => (require("../providers/snapshot-manager") as typeof import("../providers/snapshot-manager")).getSnapshotManager().getSnapshot(),
       getProvider: tryGetProvider,
-      log: (message) => console.log(`[dispatcher] ${message}`),
+      log: (message) => console.log(dispatcherLogLine(message)),
     }),
     setTopicRouting: (id, topicsRouting) => {
       const topic = ctx.getTopicById(id);
@@ -145,7 +157,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     externalSessionsAt: (path) =>
       externalSessions.activeAt(path).map((s) => ({ cwd: s.cwd, branch: s.branch })),
     resolveProject: (projectId) => {
-      const c = resolveProjectPath(
+      const found = resolveProjectPath(
         projectId,
         buildProjectCandidates({
           projectStore: ctx.projectStore,
@@ -153,7 +165,17 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
           extraPaths: dispatchExtraPaths,
         }),
       );
-      if (!c) return null;
+      if (!found) return null;
+      // A worktree is never a project: a card keyed by a worktree folder (or by
+      // an alias of the repo) dispatches on the project that owns the repository,
+      // so the auto-registration below cannot mint a board out of a checkout.
+      const owner = canonicalProjectFor(found.path, ctx.projectStore.list(), {
+        worktreeOwner: (abs) => ctx.worktreeStore.getByAbsPath(abs)?.projectId ?? null,
+        worktreeRoot: worktreeRootDir(),
+      });
+      const c = owner && owner.id !== found.projectStoreId
+        ? { path: owner.path, projectStoreId: owner.id }
+        : found;
       // Worktrees require a ProjectStore row. Ad-hoc projects (path-only
       // candidates) that are git repos get registered on demand, so the default
       // "isola in un worktree" board setting actually works for them instead of
@@ -170,7 +192,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
             // Slug is UNIQUE; a same-named project at another path gets a suffix.
             if (ctx.projectStore.getBySlug(slug)) slug = `${slug}-${Date.now().toString(36)}`.slice(0, 64);
             storeId = ctx.projectStore.create({ name, slug, path: c.path }).id;
-            console.log(`[dispatcher] auto-registered project "${name}" (${c.path}) for worktree dispatch`);
+            console.log(dispatcherLogLine(`auto-registered project "${name}" (${c.path}) for worktree dispatch`));
           }
         } catch (err) {
           console.error(`[dispatcher] project auto-register failed for ${c.path}`, err);
@@ -220,7 +242,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     // non da una terza implementazione: qui si archiviava e basta, e ogni task
     // dispacciato lasciava dietro un badge di non letti su una conversazione non
     // più apribile e un id fantasma in `ui_state` che risuscitava al reload.
-    archiveTopic: retirementConsequences.archiveTopic,
+    archiveTopic: (topicId) => retirementConsequences.archiveTopic(topicId, "task-release"),
     // Il pavimento sulle risorse, misurato sul volume che ospita davvero le
     // worktree. Serve da quando il tetto sugli agenti si può togliere: senza,
     // «nessun limite» vuol dire che la coda si ferma a disco pieno, cioè quando
@@ -297,11 +319,12 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       }
     },
     runTurn: runHeadlessTurn,
+    hasOpenQuestion: (sessionKey) => sessionHasOpenQuestion(ctx, sessionKey, decodeCol),
     // ai-bridge restart recovery: the provider answers whether a turn survived in
     // the broker (returns false when the flag is off / provider lacks it), and
     // runHeadlessReattach drives the adopted turn. Both are safe no-ops off-broker.
     hasLiveSession: async (sessionKey) => (await liveTurnOwner(sessionKey)) !== null,
-    reattach: async (sessionKey, opts) => runHeadlessReattach(sessionKey, opts, (await liveTurnOwner(sessionKey)) ?? "claude-code"),
+    reattach: async (sessionKey, opts) => runHeadlessReattach(sessionKey, opts, (await liveTurnOwner(sessionKey)) ?? "claude-code", { dispatched: true }),
     // Liveness net: is the agent CHILD of this session still there? Same probe the
     // stream watchdog uses to tell a thinking-but-mute turn from a dead one (it
     // covers direct AND broker mode — the daemon's `exit` frame flips pp.alive).
@@ -366,7 +389,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       // from this machine's checkout (`branch-on-origin.ts`).
       ensureBranchOnOrigin: ({ projectId, branch }) => ensureBranchOnOrigin(projectPathForNode(projectId), branch),
       // A node that cannot reach origin gets the same branch as a bundle with the run.
-      bundleBranch: ({ projectId, branch }) => bundleBranch(projectPathForNode(projectId), branch),
+      bundleBranch: ({ projectId, branch }) => bundleBranchForNode(projectPathForNode(projectId), branch),
       // The `node-run` hook starts in the project's checkout on this machine,
       // the same path the planter reads the origin from and plants into.
       projectPathOf: projectPathForNode,
@@ -375,7 +398,16 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     // memory floor can go. The cloud has no heartbeat: it is there while its
     // login is; a paired node only while its heartbeat says online.
     // Cloud Claude clones only from GitHub: the overflow asks before choosing it.
-    githubOriginOf: async (projectId) => githubOriginFrom(await nodeBranchPlanter.originUrlOf(projectId), resolveGithubSlug),
+    githubOriginOf: async (projectId) => {
+      const origin = await nodeBranchPlanter.originUrlOf(projectId);
+      const slug = origin ? await Promise.resolve(resolveGithubSlug(origin)).catch(() => null) : null;
+      if (slug) projectSlugs.set(projectId, slug); else projectSlugs.delete(projectId);
+      return githubOriginFrom(origin, resolveGithubSlug);
+    },
+    cloudRefusesProject: (projectId) => {
+      const slug = projectSlugs.get(projectId);
+      return !!slug && cloudNode.repoRefused(slug);
+    },
     // The cloud row is online only while the account has an active cloud
     // environment (the heartbeat asks, `tickHeartbeat`); a node asleep is still a
     // choice when a `node-run` hook is there to wake it.
@@ -468,7 +500,9 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
   });
   late.taskDispatcher = taskDispatcher;
 
-  const scheduledCardsTimer = setInterval(tickScheduledCards, 15_000);
+  const scheduledCardsTimer = scheduleEngine.start(isThisServerPrimary, announceTick);
+  // A command that was running when the server stopped is read again now, not 15 s from now (R12).
+  if (isThisServerPrimary()) tickScheduledCards();
 
   return { scheduledCardsTimer, taskDispatcher };
 }

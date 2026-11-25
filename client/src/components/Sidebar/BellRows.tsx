@@ -12,18 +12,19 @@
  * finger the text wraps and the buttons go under it. The texts are the hub's own sentences; the names of
  * files and the hub's ids never reach the screen.
  */
-import { useState, type ReactNode } from 'react';
+import { useState, type ComponentType, type ReactNode } from 'react';
 import {
-  ArrowLeftRight, ArrowUpCircle, Bot, Check, ChevronRight, CircleDashed, CircleX, Clock, Clock3, Cpu, CreditCard, Eye, Gauge, History, KeyRound, Layers, LoaderCircle, Megaphone,
+  ArrowLeftRight, ArrowUpCircle, Bot, Check, ChevronRight, CircleDashed, CircleX, Clock, Clock3, Cpu, CreditCard, Eye, Gauge, History, KeyRound, Layers, Megaphone,
   MessageCircle, MonitorOff, PieChart, RotateCw, Scale, ServerCrash, Settings2, SkipForward, User, UserCog, Workflow, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
 import PROXY_EVENTS_IT from '../../lib/i18n-proxy-events-it';
 import PROXY_EVENTS_EN from '../../lib/i18n-proxy-events-en';
-import { proxyText, type ProxyEvent, type ProxyFamily, type ProxyTone } from '../../lib/proxyEvents';
+import { accountNotes, proxyText, type ProxyEvent, type ProxyFamily, type ProxyTone } from '../../lib/proxyEvents';
 import { useMobile } from '../../hooks/useMobile';
-import { useBellActions } from '../../hooks/useBellHub';
+import { useBellActions } from '../../hooks/useBellPanel';
+import { useProxyActivity } from '../../state/proxyActivity';
 import { bellTimeLabel, type BellEntry } from '../../lib/bellGroups';
 import { jarvisHref, type DiaryEntry, type WaitingKind } from '../../lib/hubSystem';
 import { openHubPlace } from '../../lib/hubPlaces';
@@ -31,6 +32,7 @@ import { openAutomation } from '../../state/automationTarget';
 import { openTaskInApp } from '../../lib/openTaskLink';
 import { WARNING_TEXT, DANGER_TEXT, SUCCESS_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
+import { Spinner } from '../Shared/Spinner';
 
 addCatalogue('it', PROXY_EVENTS_IT);
 addCatalogue('en', PROXY_EVENTS_EN);
@@ -87,8 +89,16 @@ function dueLabel(due: number, now: number, tr: ReturnType<typeof useT>): string
  * the text with a mouse, under it with a finger. With `onOpen` the text is a
  * button that opens the subject, otherwise it only takes the focus.
  */
+/** What a row draws on its left: a lucide icon, or the loader for a line still running. */
+type RowIcon = ComponentType<{ size?: number; className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>;
+
+/** A line still running: the square loader in the footprint of the row icon (2px margin per side). */
+function RunningGlyph({ size = 15, className = '' }: { size?: number; className?: string }) {
+  return <Spinner size={size - 4} box={size} tone="current" activity="tool" className={className} />;
+}
+
 export function RowShell({ icon: Icon, tint, first, title, second, at, clock, actions, aside, onOpen, attrs, full, iconLabel }: {
-  icon: LucideIcon;
+  icon: RowIcon;
   tint: string;
   first: boolean;
   title: ReactNode;
@@ -185,6 +195,8 @@ export function HubRow({ entry, first, onNavigate, onShowAccounts, jarvis }: {
   const now = useSharedNow();
   const button = useBellButton();
   const { closeWaiting, fix, renew } = useBellActions();
+  // An account row says how it happened from the proxy's profiles (one shared read).
+  const proxyLog = useProxyActivity(entry.source === 'account');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -264,6 +276,39 @@ export function HubRow({ entry, first, onNavigate, onShowAccounts, jarvis }: {
                 {tr('bell.done')}
               </button>
             </>
+          )}
+        />
+      );
+    }
+    case 'automation': {
+      // The same automation the Automations row counts among «da sistemare»:
+      // the hub's reason on the second line, «Open» lands on its card there.
+      const a = entry.automation;
+      return (
+        <RowShell
+          attrs={{ ...attrs, 'data-gate': a.gate ? 'true' : undefined }}
+          icon={Workflow}
+          tint={WARNING_TEXT}
+          first={first}
+          title={a.title}
+          at={a.since}
+          full={joined([a.title, a.reason])}
+          second={(
+            <>
+              <span className={`flex-shrink-0 px-[5px] rounded-xs font-semibold text-mini leading-4 bg-amber-500/15 ${WARNING_TEXT}`}>{tr(a.gate ? 'bell.kind.gate' : 'bell.kind.automation')}</span>
+              {a.reason && <span className="truncate" data-testid="bell-why">{a.reason}</span>}
+            </>
+          )}
+          actions={(
+            <button
+              type="button"
+              onClick={() => { onNavigate?.(); openAutomation(a.key); }}
+              className={button.primary}
+              data-testid="bell-open"
+              data-target="automation"
+            >
+              {tr('bell.open')}
+            </button>
           )}
         />
       );
@@ -360,7 +405,7 @@ export function HubRow({ entry, first, onNavigate, onShowAccounts, jarvis }: {
           ? tr('bell.account.cap')
           : tr(e.kind === 'token' ? 'bell.account.token' : 'bell.account.limit', { account: e.account ?? tr('bell.account.all') });
       // How it happened (automatic for a 429, the minutes, the proxy's error), then how often.
-      const note = (e.notes ?? []).map((n) => proxyText(n, tr)).join(', ');
+      const note = (proxyLog ? accountNotes(e.latest, proxyLog.profiles) : []).map((n) => proxyText(n, tr)).join(', ');
       const times = e.count > 1 ? tr('bell.account.times', { n: e.count }) : tr('bell.account.once');
       // An expired token is renewed from the row, as the proxy's dashboard does.
       const profile = e.kind === 'token' ? e.profile : null;
@@ -405,10 +450,10 @@ const DIARY_ICON: Record<DiaryEntry['kind'], LucideIcon> = { auto: Workflow, app
 const DIARY_OUTCOMES = new Set(['ok', 'error', 'undelivered', 'skipped', 'running', 'queued']);
 
 /** The state of a line, as an icon the eye reads and a word for the hover and screen readers. */
-const DIARY_STATUS: Record<string, { icon: LucideIcon; tint: string; spin?: boolean }> = {
+const DIARY_STATUS: Record<string, { icon: RowIcon; tint: string }> = {
   error: { icon: CircleX, tint: DANGER_TEXT },
   undelivered: { icon: CircleX, tint: DANGER_TEXT },
-  running: { icon: LoaderCircle, tint: 'text-primary', spin: true },
+  running: { icon: RunningGlyph, tint: 'text-primary' },
   queued: { icon: Clock3, tint: 'text-app-text-tertiary' },
   skipped: { icon: SkipForward, tint: 'text-app-text-muted' },
 };
@@ -438,7 +483,7 @@ export function DiaryRow({ entry, onNavigate }: { entry: DiaryEntry; onNavigate?
     <RowShell
       attrs={{ 'data-testid': 'bell-diary-row', 'data-kind': entry.kind, 'data-outcome': entry.outcome ?? undefined }}
       icon={Icon}
-      tint={`${status?.tint ?? 'text-app-text-tertiary'}${status?.spin ? ' [&_svg]:animate-spin' : ''}`}
+      tint={status?.tint ?? 'text-app-text-tertiary'}
       iconLabel={word ?? undefined}
       first={false}
       title={entry.title}

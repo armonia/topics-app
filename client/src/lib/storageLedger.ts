@@ -161,6 +161,7 @@ export function measureStorageUsage(): { usedBytes: number; limitBytes: number }
   }
 }
 
+/** @internal Test seam: uninstalls the Storage patch so one test's ledger does not leak into the next. */
 export function resetStorageLedgerForTests(): void {
   if (typeof Storage !== 'undefined' && installed && originalSetItem) {
     Storage.prototype.setItem = originalSetItem;

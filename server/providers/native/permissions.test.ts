@@ -146,6 +146,23 @@ describe("RT-07: la cartella del turno e i file che ha creato", () => {
     expect(decide("bash", { command: "rm -rf /home/x/project" }, "auto-apply", scope).allow).toBe(false);
   });
 
+  test("rm di /tmp con redirezioni, `--` e $TMPDIR passa ancora", () => {
+    for (const command of [
+      "rm -rf /tmp/x 2>/dev/null",
+      "rm -f /tmp/x > /dev/null",
+      "rm -rf -- /tmp/x/",
+      "rm -rf $TMPDIR/scratch",
+    ]) expect(decide("bash", { command }, "auto-apply").allow).toBe(true);
+    expect(decide("bash", { command: "rm -rf /home/x 2>/dev/null" }, "auto-apply").allow).toBe(false);
+    expect(decide("bash", { command: "rm -rf /tmp/x /home/x 2>/dev/null" }, "auto-apply").allow).toBe(false);
+  });
+
+  test("rm di '$TMPDIR/x' tra apici singoli resta bloccato: e' un percorso letterale", () => {
+    const scope = { cwd: "/home/user" };
+    expect(decide("bash", { command: "rm -rf '$TMPDIR/x'" }, "auto-apply", scope).allow).toBe(false);
+    expect(decide("bash", { command: 'rm -rf "$TMPDIR/x"' }, "auto-apply", scope).allow).toBe(true);
+  });
+
   test("rm su un file creato dal turno passa, su uno che non ha creato no", () => {
     const scope = { createdPaths: new Set(["/home/x/project/scratch.tmp"]) };
     expect(decide("bash", { command: "rm -f /home/x/project/scratch.tmp" }, "auto-apply", scope).allow).toBe(true);
@@ -155,6 +172,21 @@ describe("RT-07: la cartella del turno e i file che ha creato", () => {
   test("senza scope si comporta come prima (generico /tmp, resto bloccato)", () => {
     expect(decide("bash", { command: "rm -rf /tmp/anything" }, "auto-apply").allow).toBe(true);
     expect(decide("bash", { command: "rm -rf /home/x/project" }, "auto-apply").allow).toBe(false);
+  });
+
+  // A turn working from its own temp folder cleans up with relative names,
+  // not the absolute path: the block observed on 17/11 was exactly this.
+  test("rm con target relativo, risolto sul cwd della chiamata bash", () => {
+    const scope = { tempDir: "/tmp/topics-turn-xyz", cwd: "/tmp/topics-turn-xyz" };
+    expect(decide("bash", { command: "rm -rf scratch", cwd: "/tmp/topics-turn-xyz" }, "auto-apply", scope).allow).toBe(true);
+    expect(decide("bash", { command: "rm -f output.log", cwd: "/tmp/topics-turn-xyz" }, "auto-apply", scope).allow).toBe(true);
+    // Same relative name, but a cwd outside the turn's perimeter: still blocked.
+    expect(decide("bash", { command: "rm -rf scratch" }, "auto-apply", { tempDir: "/tmp/topics-turn-xyz", cwd: "/home/x/project" }).allow).toBe(false);
+  });
+
+  test("senza cwd nello scope, il target relativo resta bloccato come prima", () => {
+    const scope = { tempDir: "/tmp/topics-turn-xyz" };
+    expect(decide("bash", { command: "rm -rf scratch" }, "auto-apply", scope).allow).toBe(false);
   });
 
   test("`pathsCreatedBy` legge mkdir e git worktree add, risolti sul cwd", () => {

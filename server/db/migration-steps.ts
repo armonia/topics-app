@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { decodeCol } from "../../shared/message-blob";
+import { restrictMachineLikeDevices } from "../lib/node-scope";
 
 /**
  * Code that runs INSIDE the transaction of a SQL migration, right after its SQL.
@@ -21,6 +22,9 @@ export const MIGRATION_STEPS: Record<string, (db: Database) => void> = {
   "20261026220625-reprice-tool-costs-truncate.sql": (db) => {
     const changed = truncateToolCostsToTotal(db);
     if (changed > 0) console.log(`[DB] tool costs brought back under the message total on ${changed} message(s)`);
+  },
+  "20261119214119-node-devices-by-traces.sql": (db) => {
+    for (const device of restrictMachineLikeDevices(db)) console.log(`[DB] device ${device.id} ("${device.name}") narrowed to a node credential`);
   },
 };
 

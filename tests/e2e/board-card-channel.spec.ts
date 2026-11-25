@@ -148,8 +148,8 @@ test.describe("Canale sulla card", () => {
     await expect(chip).toBeVisible();
     await expect(chip).toHaveAttribute("data-channel-kind", "discord");
     await expect(chip).not.toContainText("Jarvis");
-    await expect(card.getByTestId("card-created-by")).toHaveAttribute("data-created-by-jarvis", "true");
-    await expect(card.getByTestId("card-created-by")).toContainText("Jarvis");
+    await expect(card.getByTestId("card-origin")).toHaveAttribute("data-owner", "agent:jarvis");
+    await expect(card.getByTestId("card-origin")).toContainText("Jarvis");
     await expect(chip).toContainText("#Video Zeno: musica e voce da rifare");
     await expect(chip.locator("svg[aria-label='Discord']")).toBeVisible();
     await expect(page.locator(`[data-task-card="${whatsappCard}"]`).getByTestId("card-channel")).toHaveAttribute("data-channel-kind", "whatsapp");
@@ -173,7 +173,7 @@ test.describe("Canale sulla card", () => {
         const card = page.locator(`[data-task-card="${discordCard}"]`);
         await card.scrollIntoViewIfNeeded();
         await expect(card.getByTestId("card-channel")).toBeVisible();
-        await expect(card.getByTestId("card-created-by")).toBeVisible();
+        await expect(card.getByTestId("card-origin")).toBeVisible();
         await page.screenshot({ path: `${SHOTS}/card-${width}-${theme}.png` });
         await card.screenshot({ path: `${SHOTS}/card-solo-${width}-${theme}.png` });
 
@@ -182,27 +182,26 @@ test.describe("Canale sulla card", () => {
         const drawer = page.getByTestId("task-detail-drawer");
         await expect(drawer).toBeVisible({ timeout: 10000 });
         await expect(drawer.getByTestId("card-channel")).toBeVisible();
-        await expect(drawer.getByTestId("card-created-by")).toContainText("Jarvis");
+        await expect(drawer.getByTestId("card-origin")).toContainText("Jarvis");
         await page.screenshot({ path: `${SHOTS}/drawer-${width}-${theme}.png` });
       });
     }
   }
 
   for (const theme of ["dark", "light"] as const) {
-    test(`card compatta (vista Piano): il chip resta, 1440px ${theme}`, async ({ page }) => {
+    test(`card compatta (vista «Chi la segue»): il chip resta, 1440px ${theme}`, async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "KANBAN-05" });
       await page.emulateMedia({ colorScheme: theme });
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto("/");
       await openProjectBoard(page);
-      // Only the Plan view (all projects, last stop of the slider) draws the board's compact card.
+      // Only the cards view (all projects) draws the board's compact card.
       await page.getByText("Tutti i progetti", { exact: true }).click();
-      await page.getByTestId("board-detail-slider").focus();
-      await page.keyboard.press("End");
-      await expect(page.getByTestId("plan-view")).toBeVisible({ timeout: 15000 });
+      await page.getByTestId("board-view-plan").click();
+      await expect(page.getByTestId("board-cards-grid").first()).toBeVisible({ timeout: 15000 });
       const card = page.locator(`[data-task-card="${discordCard}"][data-density="compact"]`);
       await expect(card.getByTestId("card-channel")).toBeVisible();
-      await expect(card.getByTestId("card-created-by")).toContainText("Jarvis");
+      await expect(card.getByTestId("card-origin")).toContainText("Jarvis");
       await page.screenshot({ path: `${SHOTS}/compatta-1440-${theme}.png` });
     });
   }

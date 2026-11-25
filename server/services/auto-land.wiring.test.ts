@@ -20,7 +20,7 @@ test("server.ts hands the auto-lander the server's whole turn count", () => {
   // The restart gate's own predicate (cards and lands in flight, broker turns, parked questions)...
   expect(body).toContain("whatIsStillWorking(");
   // ...and the streams and busy agent terminals the first version counted.
-  expect(body).toContain("activeStreams.size");
+  expect(body).toContain("activeStreams.values()");
   expect(body).toContain("countBusyAgentTerminals()");
 });
 

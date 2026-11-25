@@ -92,15 +92,23 @@ export function createDaemonControl(scope: Pick<AfterHttp, "BOOT_COMMIT" | "atte
         // `chatsHolding`). A GET that changed their state would close the
         // dispatcher door or restart the server for someone who only wanted to
         // look: the test holds that still.
-        const { busy: holding, cards, unadoptable } = await whatIsStillWorking();
+        const { busy: holding, cards, unadoptable, working, waitingOnPerson } = await whatIsStillWorking();
         return new Response(JSON.stringify({
-          idle: holding === null,
+          // Is anything WORKING? A chat blocked on a question nobody has answered
+          // is alive and holds the restart for its chat minute (so `holding` names
+          // it), but it is not a turn in flight: nothing computes while a person
+          // thinks, and the question has no clock (RGATE-12). Reading `holding`
+          // as "idle" kept a Mac awake for ten hours under one open panel.
+          idle: !working,
           inFlight: taskDispatcher.busyCount(),
-          // `null` = nothing is holding. Same sentence the gate puts in the log.
+          // `null` = nothing is holding. Same sentence the gate puts in the log,
+          // parked questions included.
           holding,
           // Whoever does not come back after a restart: the same sum the gate
           // passes to `quiescenceVerdict` as `unrecoverable`.
           unrecoverable: cards + unadoptable,
+          // The chats waiting for a person (question or permission on screen).
+          waitingOnPerson,
           alreadyWaiting: attesaQuiescenza.inProgress() !== null,
         }), { status: 200, headers: { "content-type": "application/json" } });
       }
@@ -150,6 +158,16 @@ export function createDaemonControl(scope: Pick<AfterHttp, "BOOT_COMMIT" | "atte
         // Run the worktree GC sweep on demand (the periodic one runs every 30m).
         // Reaps only what's provably safe; lands a closed task's clean unmerged
         // commits first. Returns the summary.
+        //
+        // `?dryRun=1` is the same pass, read-only: for every folder and row of the
+        // worktree root it says the class, the action the contract would take and
+        // the weight on disk (`weigh=0` skips the weighing). Nothing is written.
+        if (url.searchParams.get("dryRun") === "1") {
+          const plan = await worktreeGc.planWorktreeGc({ weigh: url.searchParams.get("weigh") !== "0" });
+          return new Response(JSON.stringify({ ok: plan !== null, dryRun: true, plan }), {
+            status: plan ? 200 : 500, headers: { "content-type": "application/json" },
+          });
+        }
         const summary = await worktreeGc.runWorktreeGc();
         return new Response(JSON.stringify({ ok: true, summary }), {
           status: 200, headers: { "content-type": "application/json" },

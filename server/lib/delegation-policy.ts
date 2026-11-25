@@ -31,8 +31,13 @@ export const DELEGATION_NUDGE = { everyInlineCalls: 25, minContextTokens: 120_00
 
 export interface DelegationState { inline: number; next: number }
 
-/** Calls that do work in the caller's context: shell, reads, searches, process output. */
-export const INLINE_WORK_TOOL = /^(Bash|Read|Grep|Glob|bash|read_file|grep|glob|(mcp__topics__)?(run_command|read_process_output))$/;
+/**
+ * Calls that do work in the caller's context: shell, reads, searches, process output.
+ * Waiting on CI and driving the browser count too: measured on 16/11/2026, the heaviest
+ * chat spent its tool calls on `wait_for_process` and `browser_eval` and the nudge never
+ * saw them, so it never came.
+ */
+export const INLINE_WORK_TOOL = /^(Bash|Read|Grep|Glob|bash|read_file|grep|glob|(mcp__topics__)?(run_command|read_process_output|wait_for_process|browser_eval))$/;
 
 /** Calls that hand work to another session. */
 export const DELEGATION_TOOL = /^((mcp__topics__)?spawn_agent|Agent|Task)$/;
@@ -41,7 +46,7 @@ export const DELEGATION_TOOL = /^((mcp__topics__)?spawn_agent|Agent|Task)$/;
 export function delegationPolicy(): string {
   return [
     'DELEGATE THE WORK, KEEP THE DECISIONS. Your whole context is re-read on every tool call, so a command that prints a lot costs far more here than in a fresh session.',
-    'Hand to a sub-agent with `mcp__topics__spawn_agent`: exploring or mapping code (more than ~5 reads or searches), reading logs, CI output or test failures, running and triaging a suite, trying a route, any research.',
+    'Hand to a sub-agent with `mcp__topics__spawn_agent`: exploring or mapping code (more than ~5 reads or searches), reading logs, CI output or test failures, running and triaging a suite, waiting on and steering CI, driving and checking the browser, trying a route, any research.',
     'Independent pieces go out together, 2-4 at once, with isolation:"worktree" when two could write the same files.',
     'Keep here: the decision, edits that need the whole picture, one-off commands.',
     'Mechanical work (find, list, extract) goes to a cheaper profile when agent_type lists one (scout, delegate).',
@@ -55,7 +60,7 @@ export function delegationPolicy(): string {
 export function delegationNudgeText(inlineCalls: number, contextK: number): string {
   return `Topics: ${inlineCalls} tool calls in a row in this context (now ~${contextK}k tokens) without a sub-agent. `
     + 'If what follows is more exploring, reading or running, hand it to `mcp__topics__spawn_agent` with a self-contained mandate and ask for paths, line ranges and exit codes back. '
-    + 'If it is the last step of an edit, carry on.';
+    + 'Waiting on CI and driving the browser are work too, not a last step: hand them over as well. Carry on here only for the one edit that needs the whole picture.';
 }
 
 /**

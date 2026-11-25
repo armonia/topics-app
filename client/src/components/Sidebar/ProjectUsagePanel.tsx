@@ -26,6 +26,7 @@ import { FolderGit2 } from 'lucide-react';
 import { useLocale, useT } from '@/hooks/useT';
 import { useProjectUsage, type ProjectUsageRow, type UsageRange } from '@/hooks/useProjectUsage';
 import { sideCallsLine } from './sideCallsLine';
+import { ProjectQuotaTable } from './ProjectQuotaTable';
 
 /** The windows offered, in the order a person narrows: today, the week, the
  *  month, everything. `all` is where the panel opens, because "what has this
@@ -66,6 +67,8 @@ export function ProjectUsagePanel({ range, onRange }: {
 
   return (
     <div data-testid="project-usage-panel" className="min-w-0 p-2 text-mini">
+      {/* The share of the weekly quota comes first: it is what a limit is set against. */}
+      <ProjectQuotaTable />
       {/* THE WINDOW, as four buttons and not a dropdown: there are four of them,
           they are two characters each, and a dropdown would hide the current
           answer behind a gesture on a panel whose whole point is the number. */}

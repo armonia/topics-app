@@ -29,10 +29,11 @@ import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { Topic, ClaudeSessionPhase, ClaudeSessionState, AttentionTier, PhaseTier } from '../types';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
-import { mergeBackgroundWork, type TopicBackgroundWork } from './backgroundWork';
+import { mergeBackgroundWork, waitingOnOf, type TopicBackgroundWork, type WaitingOn } from './backgroundWork';
 import { SEEN_DWELL_MS as SHARED_SEEN_DWELL_MS, type AttentionTask } from '../../../shared/attention';
 import { attentionOf, useAttentionRows, useAttentionStore, useTerminalAttention, useTopicAttention, type AttentionRows } from './attention';
 import { projectAttention, projectWorkingCount } from './attentionRollups';
+import { classifyToolAction, type AgentAction } from '../../../shared/agent-action';
 
 /** Phases that mean "Claude STOPPED and is waiting for YOU" — the subset of
  *  NOTABLE that warrants a blue "awaiting feedback" tab/row highlight.
@@ -95,16 +96,6 @@ export function attentionTierForPhase(phase: ClaudeSessionPhase): PhaseTier | nu
  * non cada mai.
  */
 export const SEEN_DWELL_MS = SHARED_SEEN_DWELL_MS;
-
-/**
- * Politica pura: una tab è "vista" solo se è stata davanti per almeno `dwellMs`
- * CONTINUI. `focusedSince` è l'istante in cui è diventata davanti-e-sveglia, o
- * `null` se in questo momento non lo è (blur, finestra addormentata, altra tab).
- */
-export function isSeen(focusedSince: number | null, now: number, dwellMs = SEEN_DWELL_MS): boolean {
-  if (focusedSince === null) return false;
-  return now - focusedSince >= dwellMs;
-}
 
 /**
  * Il fill di attenzione da applicare a una superficie, in UN posto.
@@ -249,6 +240,8 @@ export interface SessionActivitySignal {
   working: boolean;
   /** The tool Claude is currently running (from lastTool), when working. */
   tool?: string;
+  /** What the session is doing, for the loader's movement (`actionForPhase`). Always set by `deriveSessionActivity`. */
+  action?: AgentAction;
   /** The pending approval kind (plan/edit/bash/other), when tier === 'input'. */
   approvalKind?: string;
   /** Timestamp the current phase/tool started — for the elapsed counter. */
@@ -433,7 +426,7 @@ function sessionActivityEqual(a: Map<string, SessionActivitySignal>, b: Map<stri
     const vb = b.get(k);
     if (!vb) return false;
     if (va.phase !== vb.phase || va.tier !== vb.tier || va.working !== vb.working
-      || va.tool !== vb.tool || va.approvalKind !== vb.approvalKind || va.since !== vb.since) return false;
+      || va.action !== vb.action || va.tool !== vb.tool || va.approvalKind !== vb.approvalKind || va.since !== vb.since) return false;
   }
   return true;
 }
@@ -561,6 +554,21 @@ export function derivePhaseTerminals(
 }
 
 /**
+ * The action of a Claude Code session from its hook phase: a session parked on
+ * the person waits, an errored one is an error, a tool running is what that
+ * tool does, an armed Monitor is a command running, and anything else
+ * (`running` between tools, `starting`) is `think`. Only `tool-running` reads
+ * the tool: in `running` the last tool has already returned.
+ */
+export function actionForPhase(phase: ClaudeSessionPhase, toolName: string | undefined): AgentAction {
+  if (phase === 'error') return 'error';
+  if (AWAITING_FEEDBACK_PHASES.has(phase)) return 'wait';
+  if (phase === 'tool-running') return toolName ? classifyToolAction(toolName) : 'tool';
+  if (phase === 'watching') return toolName ? classifyToolAction(toolName) : 'run';
+  return 'think';
+}
+
+/**
  * Build the "what is each session doing" map, keyed by SUBJECT id (topicId for
  * chats, terminalSessionId for claude-code terminals). Only sessions that are
  * WORKING or AWAITING produce an entry — an idle/dormant session shows nothing,
@@ -583,6 +591,7 @@ export function deriveSessionActivity(
       tier,
       working,
       tool: working ? st.lastTool?.name : undefined,
+      action: actionForPhase(st.phase, working ? st.lastTool?.name : undefined),
       approvalKind: tier === 'input' ? st.pendingApproval?.kind : undefined,
       // Prefer the running tool's start (freshest) when working, else the phase
       // change — so the elapsed counter tracks the current action.
@@ -649,7 +658,7 @@ export function deriveSessionLastActivity(
   return out;
 }
 
-function terminalBelongsToProject(cwd: string, projectPath: string): boolean {
+export function terminalBelongsToProject(cwd: string, projectPath: string): boolean {
   return cwd === projectPath || cwd.startsWith(projectPath + '/');
 }
 
@@ -804,6 +813,22 @@ export function useTopicBackgroundTasks(topicId: string | undefined): readonly A
   return useAttentionStore((s) => (topicId ? s.rows.get(`topic:${topicId}`)?.background : undefined)) ?? NO_TASKS;
 }
 
+/**
+ * What a chat with NO turn open is waiting on, or null: a turn open (loading,
+ * or parked on a question, which the amber glyph says) is not a wait on work.
+ * The tab and the sidebar row read it to say «waiting for a sub-agent / a
+ * process» instead of drawing the ring of a chat that is writing (BGVIS-10).
+ * A string or null, so a poll that changes nothing re-renders nobody.
+ */
+export function useTopicWaitingOn(topicId: string | undefined): WaitingOn | null {
+  const loading = useTopicLoading(topicId);
+  const waiting = useAttentionStore((s) => {
+    const row = topicId ? s.rows.get(`topic:${topicId}`) : undefined;
+    return row?.state === 'working' ? waitingOnOf(row.background) : null;
+  });
+  return loading ? null : waiting;
+}
+
 export function useTerminalBackgroundTasks(sessionId: string | undefined): readonly AttentionTask[] {
   return useAttentionStore((s) => (sessionId ? s.rows.get(`terminal:${sessionId}`)?.background : undefined)) ?? NO_TASKS;
 }
@@ -918,16 +943,6 @@ export function visibleTopicSignalIds(
   return out;
 }
 
-/** The count is the list's length: one gate, one place. A consumer that needs
- *  the number reads this, one that needs the rows reads `visibleTopicSignalIds`,
- *  and the two cannot disagree. */
-export function visibleTopicSignalCount(
-  ids: ReadonlySet<string>,
-  topics: Record<string, Topic>,
-): number {
-  return visibleTopicSignalIds(ids, topics).length;
-}
-
 /** One agent that is doing something right now, with the words to name it:
  *  a terminal by its name, a chat by its title. `kind` says which id space the
  *  id belongs to. */
@@ -1021,9 +1036,13 @@ export function activeAgentRowsFrom(
     if (loading) working.push(row);
     place(`terminal:${t.id}`, row, loading);
   }
-  // Chat sessions (distinct id space from terminals: no overlap).
+  // Chat sessions (distinct id space from terminals: no overlap). A turn open
+  // and parked on the person is waiting, not working: it is counted once, in
+  // `awaitingInput` (before, a question on screen was «1 at work» and «1
+  // waiting for you» at once).
   const streamingTopics = new Set<string>([...sig.liveStream, ...sig.hydratedStream]);
   for (const id of visibleTopicSignalIds(streamingTopics, topics)) {
+    if (attentionOf(sig.attention, `topic:${id}`).tier === 'needs-you') continue;
     working.push({ id, kind: 'topic', label: topics[id].name });
   }
   const chatSubjects: string[] = [];

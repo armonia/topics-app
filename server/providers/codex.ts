@@ -13,7 +13,7 @@
  *     enhancement; the one-shot path keeps the protocol surface small.
  */
 
-import { childExited } from "./child-exit";
+import { KILL_GRACE_MS, abortTurn, stopAllChildren, isChildAlive, spawnCollected, waitForPreviousTurn, type SendTicket } from "./exec-turn";
 import { spawn, type ChildProcess } from "child_process";
 import { createInterface } from "readline";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "fs";
@@ -33,8 +33,9 @@ import type {
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { detectUserInputRequest } from "./ask-user-detector";
+import { isSpawnedChildSession } from "../lib/subagent-tool-policy";
 import { isHumanHold } from "../lib/human-hold";
-import { armProviderTurnTimeout, PROVIDER_TURN_TIMEOUT_MS } from "../lib/turn-deadline";
+import { armProviderTurnTimeout } from "../lib/turn-deadline";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveAppDataDir } from "../lib/data-dir";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
@@ -49,6 +50,7 @@ import { codexRolloutExists, readSubagentFileChanges } from "../lib/codex-sessio
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { demoteAgentCli } from "./agent-cli-priority";
+import { sharedEgressProxyEnv } from "../lib/egress-proxy";
 import { contextTokensFromUsage } from "../usage/usage-update";
 import {
   isEligibleGlobalOrchestratorSession,
@@ -76,8 +78,6 @@ export function codexTopicsMcpProfile(
 
 // ============ Constants ============
 
-export const KILL_GRACE_MS = 3_000;
-
 const ENV_ALLOWLIST = new Set([
   "PATH", "HOME", "TERM", "LANG", "LC_ALL", "LC_CTYPE",
   "NODE_ENV", "TZ", "USER", "SHELL", "TMPDIR",
@@ -92,7 +92,9 @@ function buildSafeEnv(): Record<string, string> {
   for (const key of ENV_ALLOWLIST) {
     if (process.env[key]) env[key] = process.env[key]!;
   }
-  return env;
+  // HTTPS through the local Happy Eyeballs proxy: one dead address of
+  // chatgpt.com must not stall the turn on "Reconnecting..." (see egress-proxy).
+  return { ...env, ...sharedEgressProxyEnv() };
 }
 
 /** Coerce an unknown to a finite non-negative number, or undefined. */
@@ -403,8 +405,8 @@ export class CodexProvider implements AIProvider {
   private config: CodexProviderConfig;
   private started = false;
   private activeChildren = new Map<string, ChildProcess>();
-  /** The send waiting for this session's previous `codex exec` to exit (`previousTurnGone`), so a Stop reaches it. */
-  private waitingSends = new Map<string, { cancelled: boolean; wake?: () => void }>();
+  /** The send waiting for this session's previous `codex exec` to exit (`waitForPreviousTurn`), so a Stop reaches it. */
+  private waitingSends = new Map<string, SendTicket>();
   /**
    * Per-session bookkeeping that survives between event lines and the close
    * handler. Cleared in `child.on("close")`.
@@ -421,20 +423,15 @@ export class CodexProvider implements AIProvider {
 
   start(): void {
     this.started = true;
+    sharedEgressProxyEnv(); // listen now, so the first turn already goes through it
     console.log("[codex] Provider started");
   }
 
   stop(): Promise<void> {
     this.started = false;
-    const exits: Promise<void>[] = [];
-    for (const [, child] of this.activeChildren) {
-      try { child.kill("SIGTERM"); } catch { /* best-effort: the child may already have exited */ }
-      setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* best-effort: the child may already have exited */ } }, KILL_GRACE_MS);
-      exits.push(childExited(child, KILL_GRACE_MS + 500));
-    }
-    this.activeChildren.clear();
+    const exited = stopAllChildren(this.activeChildren);
     console.log("[codex] Provider stopped");
-    return Promise.all(exits).then(() => undefined);
+    return exited;
   }
 
   /**
@@ -444,8 +441,7 @@ export class CodexProvider implements AIProvider {
    * ownership/liveness contract.
    */
   isTurnProcessAlive(sessionKey: string): boolean {
-    const child = this.activeChildren.get(sessionKey);
-    return !!child && child.exitCode === null && child.signalCode === null;
+    return isChildAlive(this.activeChildren.get(sessionKey));
   }
 
   /**
@@ -471,13 +467,7 @@ export class CodexProvider implements AIProvider {
     // right after ("send now") started a second `codex exec resume` on the
     // same thread, the two writing the same rollout. The send waits here for
     // the previous child's exit; stopped meanwhile, it writes nothing.
-    if (this.activeChildren.has(sessionKey)) {
-      const ticket: { cancelled: boolean; wake?: () => void } = { cancelled: false };
-      this.waitingSends.set(sessionKey, ticket);
-      try { await this.previousTurnGone(sessionKey, ticket); }
-      finally { if (this.waitingSends.get(sessionKey) === ticket) this.waitingSends.delete(sessionKey); }
-      if (ticket.cancelled) return { runId: undefined, notSent: true };
-    }
+    if (await waitForPreviousTurn(this.activeChildren, this.waitingSends, sessionKey)) return { runId: undefined, notSent: true };
     // The HTTP chat entry point rejects this state too, but do it at the
     // provider boundary as well: a raw registry role that has become bound or
     // switched provider must never fall through to a normal Codex bridge,
@@ -934,7 +924,14 @@ export class CodexProvider implements AIProvider {
           // detector's verdict, which the Claude and native runtimes already
           // call. Without it a Codex question blocked the turn with no control
           // anywhere (the native runtime's defect of 28/08, one provider later).
-          const askSchema = detectUserInputRequest({ name, input: args });
+          //
+          // A spawn_agent child's chat is hidden from whoever spawned it
+          // (SUBAGENT-23); `permission.ts` already refuses the `/ask-user`
+          // rendezvous for the same reason, but that refusal runs AFTER this
+          // detector fires, so the box still sat on screen in a topic nobody
+          // watches (the Claude CLI's own fix for the same gap). Drop it here
+          // too, for the third runtime that broadcasts it.
+          const askSchema = isSpawnedChildSession(sessionKey) ? null : detectUserInputRequest({ name, input: args });
           if (askSchema) handler.onUserInputRequired?.(id, name, askSchema);
         } else if (t === "item.updated") {
           handler.onToolActivity?.(id);
@@ -1007,7 +1004,13 @@ export class CodexProvider implements AIProvider {
 
         if (t === "item.started") {
           state?.runningTools.set(id, { toolCallId: id, partial: "" });
-          handler.onToolStart(id, name, this.coerceArgs(item.arguments ?? item.input));
+          const args = this.coerceArgs(item.arguments ?? item.input);
+          // The call is NAMED after its command (`pwd`, `make`), so the name
+          // alone cannot say it is a shell command. The command rides as
+          // `args.command` too, and `isCommandCall` reads the pair on both
+          // sides of the wire (the server's `stream:action`, the tool row).
+          const isBareCommand = typeof item.name !== "string" && typeof item.command === "string" && item.command.trim() !== "";
+          handler.onToolStart(id, name, isBareCommand ? { ...(args ?? {}), command: item.command as string } : args);
         } else if (t === "item.updated") {
           // Partial command output. Codex emits `aggregated_output` (full
           // accumulated text so far) on each delta — track and forward via
@@ -1203,37 +1206,17 @@ export class CodexProvider implements AIProvider {
       return await new Promise<CompletionResult>((resolve, reject) => {
         // The installed CLI may be a Node wrapper around a native child.
         // Own a group so a deadline closes both and their inherited pipes.
-        const ownedGroup = process.platform !== "win32";
-        const child = spawn(bin, args, {
-          detached: ownedGroup,
-          cwd: workspace,
-          stdio: ["pipe", "pipe", "pipe"],
-          env: buildSafeEnv(),
-        });
-
-        let stdout = "";
-        let stderr = "";
-        child.stdout!.on("data", (d: Buffer) => { stdout += d.toString(); });
-        child.stderr!.on("data", (d: Buffer) => { stderr += d.toString(); });
-
-        let timedOut = false;
-        const timer = setTimeout(() => {
-          timedOut = true;
-          try {
-            if (ownedGroup && child.pid) process.kill(-child.pid, "SIGKILL");
-            else child.kill("SIGKILL");
-          } catch { /* The process may already have closed. */ }
-        }, Math.min(PROVIDER_TURN_TIMEOUT_MS, Math.max(1, options?.timeoutMs ?? PROVIDER_TURN_TIMEOUT_MS)));
+        const { child, out, timer } = spawnCollected(bin, args, workspace, buildSafeEnv(), options?.timeoutMs);
 
         child.on("close", (code) => {
           clearTimeout(timer);
-          if (timedOut) { reject(new Error("Codex completion timed out")); return; }
+          if (out.timedOut) { reject(new Error("Codex completion timed out")); return; }
           if (code !== 0) {
-            if (stderr) console.warn(`[codex] complete exit ${code}: ${stderr.slice(0, 500)}`);
+            if (out.stderr) console.warn(`[codex] complete exit ${code}: ${out.stderr.slice(0, 500)}`);
             resolve({ content: `Error: Codex exited with code ${code}`, error: `exit ${code}` });
             return;
           }
-          resolve(parseCodexOneShotJsonl(stdout));
+          resolve(parseCodexOneShotJsonl(out.stdout));
         });
 
         child.on("error", (err) => { clearTimeout(timer); reject(err); });
@@ -1268,32 +1251,11 @@ export class CodexProvider implements AIProvider {
     return codexForkPoint(getDatabase(), sessionKey);
   }
 
-  /** Resolves when no `codex exec` of this session is alive (a resume fallback spawned on close counts), or the send is stopped. */
-  private async previousTurnGone(sessionKey: string, ticket: { cancelled: boolean; wake?: () => void }): Promise<void> {
-    for (;;) {
-      const child = this.activeChildren.get(sessionKey);
-      if (!child || ticket.cancelled) return;
-      await new Promise<void>((resolve) => { ticket.wake = resolve; child.once("close", () => resolve()); });
-    }
-  }
-
   async abort(sessionKey: string): Promise<void> {
-    // A send waiting for the previous child to exit is the turn being stopped:
-    // it never spawns. Its caller closes the stream.
-    const waiting = this.waitingSends.get(sessionKey);
-    if (waiting) { waiting.cancelled = true; waiting.wake?.(); }
-    const child = this.activeChildren.get(sessionKey);
-    if (!child) return;
-    const state = this.sessionState.get(sessionKey);
-    if (state) state.aborted = true;
-    try { child.kill("SIGINT"); } catch { /* best-effort: the child may already have exited */ }
-    setTimeout(() => {
-      // Still alive after the grace window? Force-kill so the close handler
-      // runs and the user isn't stuck with a phantom stream.
-      if (this.activeChildren.get(sessionKey) === child) {
-        try { child.kill("SIGKILL"); } catch { /* best-effort: the child may already have exited */ }
-      }
-    }, KILL_GRACE_MS);
+    abortTurn(this.activeChildren, this.waitingSends, sessionKey, () => {
+      const state = this.sessionState.get(sessionKey);
+      if (state) state.aborted = true;
+    });
   }
 
   /**

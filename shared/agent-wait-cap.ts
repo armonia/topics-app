@@ -1,17 +1,17 @@
 /**
- * THE CAP ON AN AGENT'S WAITS: on the second one the card stops and asks.
+ * THE WINDOW OF AN AGENT'S REPEATED WAITS: it grows, the card never leaves todo.
  *
- * `WAIT_STREAK_CAP` brakes the MACHINE's waits (a silent node puts the card
- * back every five minutes without opening a turn): those cost no tokens, and
- * six in a row are half an hour. A wait the agent declares with
- * `wait_for_condition` costs a whole turn instead: every time the window
- * expires a turn starts, reads the card, the thread and the repo again to find
- * the condition still missing, and declares it again. The estimate on the
- * turns spent on such waits (capire-token, T6) is -28% tokens with the cap on
- * the second declaration.
- *
- * One: the first wait goes through (a CI running, a service coming back), a
- * second one for the same reason means the condition is not arriving by
- * itself, and the question goes to a person instead of another paid turn.
+ * A wait the agent declares with `wait_for_condition` costs a whole turn every
+ * time the window expires (the turn re-reads the card, the thread and the repo
+ * to find the condition still missing). The old answer was to park the card in
+ * backlog on the second declaration, which turned scheduled work into an idea
+ * nobody would pick up again. The answer now is a longer window on each repeat
+ * for the same reason: 15 min, 1 h, 6 h, 24 h, then 24 h again.
  */
-export const AGENT_WAIT_STREAK_CAP = 1;
+export const AGENT_WAIT_WINDOW_MINUTES: readonly number[] = [15, 60, 360, 1440];
+
+/** The window for the Nth consecutive wait (1-based) on the same reason. */
+export function agentWaitWindowMinutes(streak: number): number {
+  const i = Math.min(Math.max(streak, 1), AGENT_WAIT_WINDOW_MINUTES.length) - 1;
+  return AGENT_WAIT_WINDOW_MINUTES[i]!;
+}

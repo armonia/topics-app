@@ -3,7 +3,6 @@ import type { Actor, UpdateBoardSettingsPatch } from "./tasks";
 import type { RepoProbe } from "./deliveryReportChecks";
 import { type CheckRun } from "./review-checks";
 import { type LandingAuditCandidate } from "./landing-candidates";
-import { type WorkflowPresetId } from "../../shared/workflow";
 import type { ParkedChildrenDecision } from "../../shared/board";
 import { type LabelSource, type TaskFile } from "../../shared/task-labels";
 import { type Neighbour } from "../../shared/task-similarity";
@@ -39,6 +38,11 @@ export interface ServiceOpts {
   listRepoRoots?: () => string[];
   /** Visible project directories, used as a fallback by older hosts. */
   listProjectDirs?: () => string[];
+  /**
+   * The branch checked out in a worktree root when it has commits ahead of main
+   * (`null` otherwise). Lets a card that declares a wait keep its work as `prior_branch`.
+   */
+  branchAheadOf?: (root: string) => string | null;
   /** How a root becomes a probe (tests pass a fake). */
   probeFor?: (root: string) => RepoProbe;
   /**
@@ -99,8 +103,8 @@ export interface TaskService {
    */
   /**
    * `asCoordinator`: the caller is the global coordinator (registry-gated by
-   * the route). It may close a card in AI review in its opener's place: most
-   * machine cards come from the board API or a schedule, with no chat to do it.
+   * the route). It may write the question for the person on a card it did not
+   * open (the card of a schedule or the board API has no chat to do it).
    */
   update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null; messageId?: string | null; origin?: TaskActionOrigin; asCoordinator?: boolean }): Task;
   /**
@@ -369,6 +373,8 @@ export interface TaskService {
   sweepWaitedOut(args?: { eligible?: (projectId: string) => boolean; busy?: (taskId: string) => boolean }): Task[];
   /** Cards parked `waited_out` by a MACHINE wait (node down, PC asleep), put back in todo after a doubling delay, up to `MACHINE_RETRY_CAP` times. */
   sweepMachineWaitedOut(args?: { eligible?: (projectId: string) => boolean }): Task[];
+  /** Cards parked only because their board could not be mapped to a project directory, put back in todo once `resolvable(projectId)` says it maps again. */
+  sweepUnresolvedProjectParked(args: { resolvable: (projectId: string) => boolean }): Task[];
   /**
    * Cards that sat in backlog past `UNOWNED_BACKLOG_MS` with nobody on them
    * (`UNOWNED_BACKLOG_SQL`). Each one is returned ONCE per round: the sweep
@@ -379,23 +385,6 @@ export interface TaskService {
    * board's dispatch switch says.
    */
   sweepUnownedBacklog(): Task[];
-  /**
-   * Cards left in AI review past `AI_REVIEW_REMIND_MS` since their last touch:
-   * the coordinator is reminded of each (`services/ai-review-notice.ts`), once
-   * per touch, with the same dedupe as `sweepUnownedBacklog`
-   * (`ai_review_reminded_at`, `updated_at` left alone); one that reached
-   * nobody is sent again (`stampStaleAiReview`). Returns the cards reminded.
-   */
-  sweepStaleAiReview(): Task[];
-  /**
-   * Write a board's workflow preset (`'*'` = the global default; `null`
-   * removes the row) and put back in the default column of their status the
-   * cards whose stage the board's NEW workflow does not have. Without that a
-   * card left in AI review by the old preset stayed in Review on `default`
-   * while the tray and «Ti aspetta» kept leaving it out (`awaitsHuman`).
-   * Returns the cards it moved.
-   */
-  applyBoardWorkflow(args: { scope: string; preset: WorkflowPresetId | null }): Task[];
   /**
    * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
    * in `todo`; `archive` li archivia; `promote` toglie loro il padre e li mette
@@ -570,6 +559,8 @@ export interface TaskService {
    * A card waiting for a silent node is in Todo, so it counts.
    */
   countOnMachine(machineId: string): number;
+  /** Cards already running on the machine (in progress), not counting `exceptTaskId`. */
+  countRunningOnMachine(machineId: string, exceptTaskId?: string): number;
   /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
    *
@@ -891,4 +882,6 @@ export interface TaskService {
    * decorative, so whoever draws the figure can say how much of it is missing.
    */
   agentSpend(): { cents24h: number; centsTotal: number; unpricedCostTokens24h: number; unpricedCostTokensTotal: number };
+  /** When the rolling 24h spend falls back under `capCents` if nothing new is spent (epoch ms); `null` = already under, or unreadable. */
+  agentSpendClearsAt(capCents: number): number | null;
 }

@@ -55,7 +55,11 @@ async function createTask(request: any, body: Record<string, unknown>): Promise<
 }
 
 async function patchAsHuman(request: any, taskId: string, data: Record<string, unknown>): Promise<void> {
-  const res = await request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${taskId}`, { data });
+  const res = await request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${taskId}`, {
+    data,
+    // A person reopening a card closed by its owner says so on purpose (the UI click does the same).
+    headers: { "X-Topics-Confirm-Reopen": "1" },
+  });
   expect(res.ok()).toBe(true);
 }
 

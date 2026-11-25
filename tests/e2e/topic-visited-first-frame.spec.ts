@@ -146,7 +146,7 @@ interface FrameReport {
 async function armFirstFrameMeter(page: Page, paneKey: string, needle: string, tailFrames = TAIL_FRAMES): Promise<void> {
   await page.addInitScript(
     ({ key, text, tail }) => {
-      const SPIN = '[data-testid="chat-skeleton"], .animate-spin';
+      const SPIN = '[data-testid="chat-skeleton"], [data-spinner]';
       const shown = (el: Element): boolean => {
         for (let n: Element | null = el; n; n = n.parentElement) {
           if (n.getAttribute("data-pane-visible") === "0") return false;
@@ -292,7 +292,7 @@ test.describe("Una topic gia' visitata si apre gia' pronta", () => {
 
     // 1) The visit: the chat is read to its last message, and its tail is
     //    written to the device.
-    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
     await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), topic.id);
     await page.goto("/");
     await page.getByTestId(`pane-tab-${topic.id}`).click();
@@ -339,7 +339,7 @@ test.describe("Una topic gia' visitata si apre gia' pronta", () => {
     const last = heavyText(HEAVY_SEEDED);
     const lastRow = page.locator(`[data-pane-shell="${heavy.id}"] [data-testid="chat-message"]`).filter({ hasText: last });
 
-    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
     await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), heavy.id);
     await page.goto("/");
     await page.getByTestId(`pane-tab-${heavy.id}`).click();
@@ -399,7 +399,7 @@ test.describe("Una topic gia' visitata si apre gia' pronta", () => {
       }
       await resetPaneStore(request, [away.id, other.id]);
       const shell = page.locator(`[data-pane-shell="${away.id}"]`);
-      await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+      await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
       await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), away.id);
       await page.goto("/");
       await page.getByTestId(`pane-tab-${away.id}`).click();
@@ -443,7 +443,7 @@ test.describe("Una topic gia' visitata si apre gia' pronta", () => {
       }
       await resetPaneStore(request, [away.id, other.id]);
       const shell = page.locator(`[data-pane-shell="${away.id}"]`);
-      await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+      await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
       await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), away.id);
       await page.goto("/");
       await page.getByTestId(`pane-tab-${away.id}`).click();
@@ -503,7 +503,7 @@ test.describe("Una topic gia' visitata si apre gia' pronta", () => {
       const img = reply.getByTestId("media-image");
 
       // 1) The visit: read to the bottom, picture loaded, tail on the device.
-      await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+      await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
       await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), visited.id);
       await page.goto("/");
       await page.getByTestId(`pane-tab-${visited.id}`).click();
@@ -622,7 +622,7 @@ test.describe("Una topic gia' visitata si apre gia' pronta", () => {
     const rowOf = (n: number) => shell.locator('[data-testid="chat-message"]').filter({ hasText: rowText(n) });
     const ws = await interceptWebSocket(page);
 
-    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
     await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), topic.id);
     await page.goto("/");
     await page.getByTestId(`pane-tab-${topic.id}`).click();

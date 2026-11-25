@@ -243,12 +243,6 @@ export function serializeReviewChecks(checks: ReviewCheck[]): string | null {
   return clean.length ? JSON.stringify(clean) : null;
 }
 
-/** Le ultime `TAIL_LINES` righe non vuote in coda, che è dove sta l'errore. */
-export function tailOf(text: string, lines = TAIL_LINES): string {
-  const rows = text.replace(/\s+$/, "").split("\n");
-  return rows.slice(Math.max(0, rows.length - lines)).join("\n");
-}
-
 /**
  * A bun test run ends with a wall of `(pass)` and `(skip)` lines, and the tail
  * is a fixed number of lines: on a suite with dozens of skips the wall is the
@@ -898,13 +892,32 @@ function ciRedWhy(row: CheckRun): string {
   return row.cmd.trim() === UNIT_CI_CHECK.cmd ? "test unit rossi sulla CI della PR" : "e2e rossi sulla CI della PR";
 }
 
+/**
+ * The row a red verdict is named after: the first REAL red, else the first row
+ * that is not green.
+ *
+ * It was the first row that is not green, and the CI rows put that one first
+ * when the round stops at a red: `unit-ci` comes before `e2e-ci` and is closed
+ * NOT MEASURED with "the round stopped at the first red (e2e-ci)". The card
+ * then went back to its agent saying «NON MISURATI ... Non e' un rosso del
+ * codice» with the log of the row that measured nothing, while the red that
+ * sent it back was two lines below without its log (348dc136 on 18/11/2026,
+ * 98867792 on 17/11/2026).
+ */
+function headlineFailure(runs: CheckRun[]): CheckRun | undefined {
+  return runs.find((r) => !r.ok && !r.notMeasured && !r.timedOut) ?? runs.find((r) => !r.ok);
+}
+
 export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string | null }): string {
   if (!runs.length) return "Checks pre-review: nessun comando dichiarato.";
-  const failed = runs.find((r) => !r.ok);
+  const failed = headlineFailure(runs);
   const where = opts?.commit ? ` su \`${opts.commit.slice(0, 8)}\`` : "";
   // The run time is the command's own; the queue for a gate slot is named
   // apart, so a slow verdict points at the machine and not at the code.
   const line = (r: CheckRun) => {
+    // SKIPPED is not a measured pass: a time next to it would claim a run
+    // that never happened (`ciSkipped`, no commit of its own beyond main).
+    if (r.skipped) return `⤳ \`${r.name}\` (saltato: nessun commit proprio)`;
     const queued = r.queuedMs ?? 0;
     const run = fmtMs(Math.max(0, r.ms - queued));
     const parts = [run];
@@ -965,9 +978,14 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
  * formatChecksComment so it can act on the failure.
  */
 export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: string | null }): string {
-  const failed = runs.find((run) => !run.ok);
+  const failed = headlineFailure(runs);
   const where = opts?.commit ? ` su \`${opts.commit.slice(0, 8)}\`` : "";
-  if (!failed) return `Checks pre-review verdi${where}.`;
+  if (!failed) {
+    const skipped = runs.filter((r) => r.skipped).map((r) => r.name);
+    return skipped.length
+      ? `Checks pre-review verdi${where} (saltati: ${skipped.join(", ")}, nessun commit proprio).`
+      : `Checks pre-review verdi${where}.`;
+  }
   const position = runs.indexOf(failed) + 1;
   const check = failed.name !== failed.cmd && failed.name.length <= 64 ? `\`${failed.name}\`` : `check ${position}`;
   const ci = isCiEvidenceCheck(failed);
@@ -986,12 +1004,32 @@ export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: st
  */
 export const FAST_GATES_CHECK: ReviewCheck = { name: "gates:fast", cmd: "bun run gates:fast" };
 
-/** Does this checkout declare the `gates:fast` script? Other projects do not. */
-export function hasFastGates(cwd: string): boolean {
+/** Does this checkout declare the package.json script `name`? Other projects do not. */
+export function hasScript(cwd: string, name: string): boolean {
   try {
     const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8")) as { scripts?: Record<string, string> };
-    return typeof pkg.scripts?.["gates:fast"] === "string";
+    return typeof pkg.scripts?.[name] === "string";
   } catch {
     return false;
   }
+}
+
+/** Does this checkout declare the `gates:fast` script? Other projects do not. */
+export function hasFastGates(cwd: string): boolean {
+  return hasScript(cwd, "gates:fast");
+}
+
+/**
+ * The unit tests of the files a delivery touched, run on the machine that runs
+ * the pre-review (CI runs on Linux only: a test written on another OS and never
+ * run, or a path limit of this OS, shows up here and nowhere else). The server
+ * never names a test or a selector: the project declares the script, which
+ * picks the tests from its own diff, and a project without it is measured as
+ * before. Never the whole suite: that stays with the CI.
+ */
+export const TOUCHED_TESTS_CHECK: ReviewCheck = { name: "test:touched:review", cmd: "bun run test:touched:review" };
+
+/** Does this checkout declare the touched-tests script? */
+export function hasTouchedTests(cwd: string): boolean {
+  return hasScript(cwd, TOUCHED_TESTS_CHECK.name);
 }

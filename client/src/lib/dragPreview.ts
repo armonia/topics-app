@@ -61,22 +61,6 @@ export interface DragPreviewSpec {
  *  chi legge il DOM: uno solo, e non ce n'è mai più di uno alla volta. */
 export const DRAG_PREVIEW_ATTR = 'data-drag-preview';
 
-/**
- * L'attributo con cui un BERSAGLIO si dichiara mentre il puntatore ci passa
- * sopra. Metà della segnalazione era l'anteprima, l'altra metà è questa: senza
- * il segno di dove cadrà, il drop resta un tentativo.
- *
- * Il valore dice che tipo di atterraggio è, perché non sono la stessa cosa:
- *  · `into`   il rilascio entra DENTRO il bersaglio (un gruppo, una colonna);
- *  · `before` / `after` si inserisce accanto (riordino posizionale);
- *  · `split`  taglia il bersaglio in due (i bordi di una griglia).
- *
- * Il disegno sta in `index.css` in UNA regola sola, così una superficie nuova
- * si dichiara aggiungendo un attributo e non ricopiando uno stile.
- */
-export const DROP_ACTIVE_ATTR = 'data-drop-active';
-export type DropIntent = 'into' | 'before' | 'after' | 'split';
-
 /** Il punto di presa, in coordinate della scheda. Vicino all'angolo alto a
  *  sinistra: la scheda pende dal cursore come un foglio tenuto per l'angolo, e
  *  non copre quello che sta sotto al puntatore (cioè il bersaglio). */
@@ -85,6 +69,13 @@ const GRAB_Y = 20;
 
 let nodo: HTMLElement | null = null;
 let agganciato = false;
+// The title of the card in flight, for the drop footprint to name what lands.
+let titleInFlight: string | null = null;
+
+/** The name of what is being dragged, or null with no card in flight. */
+export function draggedTitle(): string | null {
+  return titleInFlight;
+}
 
 function costruisci(spec: DragPreviewSpec): HTMLElement {
   const card = document.createElement('div');
@@ -190,6 +181,7 @@ export function startDragPreview(
 ): void {
   endDragPreview();
   aggancia();
+  titleInFlight = spec.title;
   const card = costruisci(spec);
   document.body.appendChild(card);
   nodo = card;
@@ -199,35 +191,11 @@ export function startDragPreview(
   e.dataTransfer?.setDragImage(card, GRAB_X, GRAB_Y);
 }
 
-/**
- * La stessa anteprima per il gesto col dito, dove il drag HTML5 non esiste
- * (iOS non emette nessuno dei suoi eventi: vedi `useTouchDrag`). Qui non c'è
- * nessun fantasma di sistema, quindi questo nodo è l'UNICA anteprima.
- */
-export function startTouchDragPreview(spec: DragPreviewSpec, x: number, y: number): void {
-  endDragPreview();
-  aggancia();
-  const card = costruisci(spec);
-  document.body.appendChild(card);
-  nodo = card;
-  posiziona(x, y);
-}
-
-/** Il dito si muove. */
-export function moveDragPreview(x: number, y: number): void {
-  posiziona(x, y);
-}
-
 /** Spegne l'anteprima. Idempotente: le porte di spegnimento sono tante e
  *  scattano anche tutte insieme. */
 export function endDragPreview(): void {
+  titleInFlight = null;
   if (!nodo) return;
   nodo.remove();
   nodo = null;
-}
-
-/** C'è un'anteprima accesa? Serve ai test e a chi deve decidere se il gesto è
- *  ancora vivo senza guardare il DOM. */
-export function dragPreviewActive(): boolean {
-  return nodo !== null;
 }

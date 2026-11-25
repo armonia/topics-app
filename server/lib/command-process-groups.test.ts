@@ -226,12 +226,18 @@ test("a card script's leader outlives a TERM during the drain while a peer lives
 // one Stop in seventy on a loaded Mac). Here the peer ignores TERM, so the
 // drain keeps scanning under a TERM every millisecond; once the peer is gone
 // the leader has to finish the drain on its own and write 0.
+//
+// The peer only writes its pid once the command that forked it is gone,
+// reaped by the leader (the same wait used above): the command itself has no
+// TERM protection, and a raw TERM to the whole group landing while it is
+// still alive kills it with 143, the code the leader then has nowhere else
+// to read for "rc" (one run in ten on a loaded Linux runner, 19/11).
 test("a TERM to the whole group during the drain never wedges the leader", async () => {
   const processId = crypto.randomUUID();
   const exitPath = join(instanceA, `${processId}.exit`);
   const childPath = join(instanceA, `${processId}.child`);
-  const peer = `trap "" TERM; echo "$$" > ${childPath}; exec sleep 90`;
-  const argv = commandArgv(`/bin/sh -c '${peer}' >/dev/null 2>&1 & exit 0`, exitPath, commandProcessGroupStopPath(processId));
+  const peer = `while kill -0 "$1" 2>/dev/null; do sleep 0.01; done; trap "" TERM; echo "$$" > ${childPath}; exec sleep 90`;
+  const argv = commandArgv(`/bin/sh -c '${peer}' _ "$$" >/dev/null 2>&1 & exit 0`, exitPath, commandProcessGroupStopPath(processId));
   if (!argv) throw new Error("POSIX command shell is unavailable");
   const proc = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore", detached: true });
   live.push({ proc, pgid: proc.pid });

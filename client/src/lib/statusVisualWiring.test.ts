@@ -148,8 +148,8 @@ describe('statusVisual wiring', () => {
     const working = entry(objectOf(pane, 'TEXT'), /\bworking:\s*/);
     expect(working, 'AgentsPane TEXT.working').toContain('STATUS_INK.working');
     expect(working).not.toMatch(GREEN);
-    // An agent at work wears the card family's glyph: the spinning half pie, sky.
-    expect(pane).toContain(`if (state === 'working') return <StatusIcon status="in_progress" live`);
+    // An agent at work wears the square loader, the one status icon of Topics.
+    expect(pane).toContain(`if (state === 'working') return <SparkLoader size={10} activity={loaderActivityForAction(action) ?? 'think'}`);
     const groupCount = elementAround(pane, "tr('agents.working', { n: g.working })");
     expect(groupCount).toContain('STATUS_INK.working');
     expect(groupCount).toContain('<AgentStateGlyph state="working" />');
@@ -165,9 +165,11 @@ describe('statusVisual wiring', () => {
 
     const tree = read('Sidebar/TopicTree.tsx');
     expect(objectOf(tree, 'STATE_SECTIONS')).toMatch(/key: 'working', icon: STATUS_ICON\.working\b/);
-    const dot = elementAround(tree, "aria-label={tr('sidebar.subagents.working')}");
-    expect(dot).toContain('STATUS_DOT.working');
-    expect(dot).not.toMatch(GREEN);
+    // The sub-agents' header row and its dot are gone (25/11): the parent row's
+    // chevron carries the working ink now.
+    const toggle = read('Sidebar/SubagentsToggle.tsx');
+    expect(toggle).toMatch(/state\.agents > 0 && STATUS_INK\.working/);
+    expect(toggle).not.toMatch(GREEN);
 
     expect(entry(objectOf(read('Board/constants.ts'), 'DISPATCH_CHIP'), /\bworking:\s*/)).toContain('STATUS_CHIP.working');
   });

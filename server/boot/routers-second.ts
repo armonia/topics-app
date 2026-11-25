@@ -12,10 +12,17 @@ import { createNotificationsRouter } from "../routes/notifications";
 import { createUiStateRouter } from "../routes/ui-state";
 import { createProvidersRouter } from "../routes/providers";
 import { createAppSettingsRouter } from "../routes/app-settings";
+import { createReasoningTranslationRouter } from "../routes/reasoning-translation";
 import { createCalendarRouter } from "../routes/calendar";
+import { createTopicsCheckRouter } from "../routes/topics-check";
 import { createHeavySlotRouter } from "../routes/heavy-slot";
+import { createScheduledJobsRouter } from "../routes/scheduled-jobs";
 import { createAgentChannelsRouter } from "../routes/agent-channels";
 import { createAgentConfigRouter } from "../routes/agent-config";
+import { createAgentPermissionsRouter } from "../routes/agent-permissions";
+import { createAgentsRouter } from "../routes/agents";
+import { createMemoryStoresRouter } from "../routes/memory-stores";
+import { createSystemHealthRouter } from "../routes/system-health";
 import { createProfileRouter } from "../routes/profile";
 import { createPublicProfileHandler } from "../routes/public-profile";
 import { createClaudeHooksRouter } from "../routes/claude-hooks";
@@ -24,15 +31,21 @@ import { createTabsRouter } from "../routes/tabs";
 import { createViewsRouter } from "../routes/views";
 import { createProjectsRouter } from "../routes/projects";
 import { createWorktreesRouter } from "../routes/worktrees";
+import { createRegistrationDoor } from "./worktree-register-wiring";
+import { createRelocateService } from "./worktree-relocate-wiring";
+import { toPlanPayload } from "../services/worktree-plan-payload";
 import { createMachinesRouter } from "../routes/machines";
 import { createNodesRouter } from "../routes/nodes";
+import { createNodeWorktreesRouter } from "../routes/nodes-worktrees";
+import { createMachineWorktreesRouter } from "../routes/machine-worktrees";
+import { createWorktreeReportDeps } from "./worktree-node-wiring";
 import { createDelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 import { internalRequest, STOP_CAUSE_HEADER } from "../lib/abort-cause";
 import type { AfterTasksRouter } from "./scope";
 import { late } from "./late";
 
 export function bootRoutersSecond(scope: AfterTasksRouter) {
-  const { browserService, claudeSessionTracker, ctx, nodeClient, retirementConsequences, taskDispatcher, tasksRouter, tickScheduledCards, worktreeGc, worktreeOfTask } = scope;
+  const { browserService, claudeSessionTracker, ctx, nodeClient, retirementConsequences, scheduleEngine, scheduledJobs, taskDispatcher, tasksRouter, tickScheduledCards, worktreeGc, worktreeOfTask } = scope;
   const pushRouter = createPushRouter(ctx);
 
   // La CRONOLOGIA delle notifiche: leggerla, scriverci (il banner del client
@@ -69,17 +82,40 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   const appSettingsRouter = createAppSettingsRouter(ctx);
 
+  // The reasoning text in the chat language, for a row the person opens.
+  const reasoningTranslationRouter = createReasoningTranslationRouter(ctx);
+
   // L'agenda del calendario configurato, e la prova di un indirizzo prima di salvarlo.
   const calendarRouter = createCalendarRouter(ctx);
+  const topicsCheckRouter = createTopicsCheckRouter(ctx);
 
   // The machine-wide queue for heavy commands, asked by every harness on this Mac.
   const heavySlotRouter = createHeavySlotRouter(ctx);
+
+  // The scheduled jobs: create, change, run now, history (R25).
+  const scheduledJobsRouter = createScheduledJobsRouter(ctx, scheduledJobs, {
+    pauseStarts: () => scheduleEngine.pauseStarts(), resumeStarts: () => scheduleEngine.resumeStarts(),
+    isPaused: () => scheduleEngine.isPaused(), inFlight: () => scheduleEngine.inFlight(),
+  });
 
   // The titles of the agents' Discord and WhatsApp chats, read from jarvis-channels.
   const agentChannelsRouter = createAgentChannelsRouter(ctx);
 
   // Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
   const agentConfigRouter = createAgentConfigRouter(ctx);
+
+  // What the channel engine applies for each agent (policy, owners, trusted,
+  // senders/denied) and its own log of stopped turns (AGENTS-NAV-01).
+  const agentPermissionsRouter = createAgentPermissionsRouter(ctx);
+
+  // The agents registry: who exists, and creating a new one.
+  const agentsRouter = createAgentsRouter(ctx);
+
+  // Memory stores (T6): every agent's own memory folder plus project memories found, read/searched/edited from one place.
+  const memoryStoresRouter = createMemoryStoresRouter(ctx);
+
+  // System health (T7): every problem of the agents system in one list.
+  const systemHealthRouter = createSystemHealthRouter(ctx);
 
   const profileRouter = createProfileRouter(ctx);
 
@@ -98,7 +134,7 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
     reapClaudeSessions: (t) => claudeSessionTracker.reapOnce(t),
     advanceScheduledCards: (value) => {
       late.scheduledCardTestNow = value;
-      return value ? tickScheduledCards() : { created: [], skipped: [] };
+      return value ? tickScheduledCards() : { created: [], skipped: [], started: [] };
     },
   });
 
@@ -160,6 +196,12 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
     // `worktreeGc` è costruito più sotto (dopo `taskAutoMerge`): questa closure
     // quindi la closure è valida anche se il router nasce prima.
     runGc: () => worktreeGc.runWorktreeGc(),
+    planGc: async ({ weigh }) => {
+      const plan = await worktreeGc.planWorktreeGc({ weigh });
+      return plan ? toPlanPayload(plan, (id) => ctx.projectStore.get(id)?.name ?? null) : null;
+    },
+    relocate: createRelocateService(ctx, worktreeGc),
+    registration: createRegistrationDoor(ctx),
   });
 
   // The ingress of a card mirrored from another machine (KANBAN-76). The DELETE
@@ -179,6 +221,12 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
     log: (message, error) => console.error(`[delegated-revoke] ${message}`, error),
   });
 
+  // The worktrees of every machine (worktree-standard T12): in the route table right before
+  // `machinesRouter` and `nodesRouter`, whose `/api/machines/:id` would claim the same paths.
+  const worktreeReports = createWorktreeReportDeps(ctx, { worktreeGc, nodeClient });
+  const machineWorktreesRouter = createMachineWorktreesRouter(ctx, worktreeReports.machine);
+  const nodeWorktreesRouter = createNodeWorktreesRouter(ctx, worktreeReports.node);
+
   const machinesRouter = createMachinesRouter(ctx, { revocations: delegatedRevocations });
 
   const nodesRouter = createNodesRouter(ctx, {
@@ -197,5 +245,5 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
-  return { agentChannelsRouter, agentConfigRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, tabsRouter, uiStateRouter, viewsRouter, worktreesRouter };
+  return { agentChannelsRouter, agentConfigRouter, agentPermissionsRouter, agentsRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machineWorktreesRouter, machinesRouter, memoryStoresRouter, scheduledJobsRouter, systemHealthRouter, nodeWorktreesRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, topicsCheckRouter, uiStateRouter, viewsRouter, worktreesRouter };
 }

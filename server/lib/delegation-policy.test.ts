@@ -93,7 +93,7 @@ describe("CLI hook", () => {
   test("the CLI matcher lets through exactly the tools the counter reads", () => {
     const matcher = new RegExp(`^(${DELEGATION_HOOK_MATCHER})$`);
     const cliNames = ["Bash", "Read", "Grep", "Glob", "Agent", "Task", "Edit", "Write", "TodoWrite", "WebFetch",
-      "mcp__topics__run_command", "mcp__topics__read_process_output", "mcp__topics__spawn_agent", "mcp__topics__update_goal_steps"];
+      "mcp__topics__run_command", "mcp__topics__read_process_output", "mcp__topics__wait_for_process", "mcp__topics__browser_eval", "mcp__topics__spawn_agent", "mcp__topics__update_goal_steps"];
     for (const name of cliNames) {
       const counted = INLINE_WORK_TOOL.test(name) || DELEGATION_TOOL.test(name);
       expect([name, matcher.test(name)]).toEqual([name, counted]);

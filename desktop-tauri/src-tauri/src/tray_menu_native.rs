@@ -18,6 +18,8 @@ struct CardImage {
     png: Vec<u8>,
     w: f64,
     h: f64,
+    /// The charts of the card that answer to the mouse; a card with none is a plain image view.
+    hover: Vec<crate::tray_hover::HoverZone>,
 }
 
 struct TableRow {
@@ -46,8 +48,8 @@ pub fn reset() {
 }
 
 /// The marker title of a card item; its image is applied by `decorate`.
-pub fn register_card(key: &str, png: &[u8], w: f32, h: f32) -> String {
-    CARDS.lock().unwrap().get_or_insert_with(HashMap::new).insert(key.into(), CardImage { png: png.to_vec(), w: w as f64, h: h as f64 });
+pub fn register_card(key: &str, png: &[u8], w: f32, h: f32, hover: &[crate::tray_hover::HoverZone]) -> String {
+    CARDS.lock().unwrap().get_or_insert_with(HashMap::new).insert(key.into(), CardImage { png: png.to_vec(), w: w as f64, h: h as f64, hover: hover.to_vec() });
     format!("{CARD_MARK}{key}")
 }
 
@@ -211,12 +213,13 @@ unsafe fn icon_image(spec: &str) -> id {
     }
     if let Some(name) = spec.strip_prefix("png:") {
         // a project's own picture, read by the poller; 15×15 and in its own colours, as the original draws it
-        let Some(png) = crate::tray_menu::project_icon_png(name) else { return nil };
+        // a picture that cannot be read leaves the row with the folder, never with no icon at all
+        let Some(png) = crate::tray_menu::project_icon_png(name) else { return icon_image("sf:folder") };
         let data: id = msg_send![class!(NSData), dataWithBytes: png.as_ptr() as *const std::ffi::c_void, length: png.len()];
         let img: id = msg_send![class!(NSImage), alloc];
         let img: id = msg_send![img, initWithData: data];
         if img == nil {
-            return nil;
+            return icon_image("sf:folder");
         }
         let _: () = msg_send![img, setSize: NSSize::new(PROJECT_ICON_PT, PROJECT_ICON_PT)];
         let _: () = msg_send![img, setTemplate: false];
@@ -280,11 +283,18 @@ unsafe fn set_card_view(mi: id, c: &CardImage) {
     }
     let _: () = msg_send![image, setSize: NSSize::new(c.w, c.h)];
     let _: () = msg_send![image, setTemplate: false];
-    let view: id = msg_send![class!(NSImageView), alloc];
-    let view: id = msg_send![view, initWithFrame: NSRect::new(crate::mac::NSPoint::new(0.0, 0.0), NSSize::new(c.w, c.h))];
-    let _: () = msg_send![view, setImage: image];
-    // The image is exactly the view's size: no scaling, no resampling blur.
-    let _: () = msg_send![view, setImageScaling: 2usize];
+    let frame = NSRect::new(crate::mac::NSPoint::new(0.0, 0.0), NSSize::new(c.w, c.h));
+    // a card with charts is a view that follows the mouse and draws the line and the label over its image
+    let view: id = if c.hover.is_empty() {
+        let view: id = msg_send![class!(NSImageView), alloc];
+        let view: id = msg_send![view, initWithFrame: frame];
+        let _: () = msg_send![view, setImage: image];
+        // The image is exactly the view's size: no scaling, no resampling blur.
+        let _: () = msg_send![view, setImageScaling: 2usize];
+        view
+    } else {
+        crate::tray_menu_hover_view::new_view(frame, image, c.hover.clone())
+    };
     let _: () = msg_send![mi, setView: view];
     let _: () = msg_send![view, release];
     let _: () = msg_send![image, release];
@@ -309,6 +319,20 @@ unsafe fn inline_symbol(spec: &str) -> Option<id> {
     let _: () = msg_send![att, setBounds: NSRect::new(crate::mac::NSPoint::new(0.0, -2.0), NSSize::new(13.0, 12.0))];
     let piece: id = msg_send![class!(NSAttributedString), attributedStringWithAttachment: att];
     let _: () = msg_send![att, release];
+    Some(piece)
+}
+
+/// An empty piece as wide and tall as an inline symbol (13×12): the place an arrow would take.
+unsafe fn blank_slot() -> Option<id> {
+    // an attachment with no image has no width: a transparent image of the arrow's size is what holds the place
+    let blank: id = msg_send![class!(NSImage), alloc];
+    let blank: id = msg_send![blank, initWithSize: NSSize::new(13.0, 12.0)];
+    let att: id = msg_send![class!(NSTextAttachment), new];
+    let _: () = msg_send![att, setImage: blank];
+    let _: () = msg_send![att, setBounds: NSRect::new(crate::mac::NSPoint::new(0.0, -2.0), NSSize::new(13.0, 12.0))];
+    let piece: id = msg_send![class!(NSAttributedString), attributedStringWithAttachment: att];
+    let _: () = msg_send![att, release];
+    let _: () = msg_send![blank, release];
     Some(piece)
 }
 
@@ -368,7 +392,14 @@ unsafe fn row_title(r: &TableRow) -> id {
                 Priority::Low => Some("sf:arrow.down|teal"),
                 Priority::Normal => None,
             };
-            if let Some(glyph) = arrow.and_then(|spec| inline_symbol(spec)) {
+            // the place of an arrow the other rows of the table wear: a blank attachment of its size
+            let arrow = arrow.or(if r.look.arrow_slot { Some("blank") } else { None });
+            let glyph = match arrow {
+                Some("blank") => blank_slot(),
+                Some(spec) => inline_symbol(spec),
+                None => None,
+            };
+            if let Some(glyph) = glyph {
                 let _: () = msg_send![out, appendAttributedString: glyph];
                 let gap: id = msg_send![class!(NSAttributedString), alloc];
                 let gap: id = msg_send![gap, initWithString: ns(" "), attributes: attrs(font, color, para)];
@@ -392,7 +423,7 @@ unsafe fn row_title(r: &TableRow) -> id {
             }
         }
         let piece: id = msg_send![class!(NSAttributedString), alloc];
-        let piece: id = msg_send![piece, initWithString: ns(&if i == 0 { clip(&text, 34) } else { text }), attributes: attrs(font, color, para)];
+        let piece: id = msg_send![piece, initWithString: ns(&if i == 0 && !r.tabs.is_empty() { clip(&text, 34) } else { text }), attributes: attrs(font, color, para)];
         let _: () = msg_send![out, appendAttributedString: piece];
         let _: () = msg_send![piece, release];
     }
@@ -414,8 +445,21 @@ fn state_glyph(cell: &str) -> Option<(&'static str, &str)> {
     cell.strip_prefix("☾ ").map(|rest| ("sf:moon", rest))
 }
 
+/// A name that is too long loses its middle, never its end when the end is a port («Next.js :3181»): the
+/// port is what tells two dev servers apart.
 fn clip(s: &str, max: usize) -> String {
-    if s.chars().count() <= max { s.to_string() } else { format!("{}…", s.chars().take(max - 1).collect::<String>().trim_end()) }
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let tail = s.rsplit_once(' ').map(|(_, t)| t).filter(|t| t.starts_with(':') && t.chars().count() <= 6);
+    match tail {
+        Some(t) => {
+            let head = &s[..s.len() - t.len()];
+            let room = max.saturating_sub(t.chars().count() + 2);
+            format!("{}… {t}", head.chars().take(room).collect::<String>().trim_end())
+        }
+        None => format!("{}…", s.chars().take(max - 1).collect::<String>().trim_end()),
+    }
 }
 
 /// A system symbol as a coverage mask, drawn large enough to be scaled down cleanly.

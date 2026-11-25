@@ -2,9 +2,9 @@
  * task-dispatcher-tick.ts: the dispatch pass over one board.
  */
 import { UNASSIGNED_PROJECT_ID, type Task } from "./tasks";
-import { MAX_FANOUT } from "../../shared/board";
+import { MAX_FANOUT, UNRESOLVED_PROJECT_PARK_REASON } from "../../shared/board";
 import { publishDispatchBlock } from "./dispatch-block-signal";
-import { HEAVY_HOLD_MAX_MS, holdKey, CHIP_QUEUED, CHIP_FAILED, CHIP_BLOCKED, describeIntruders } from "./task-dispatcher-support";
+import { isMirrorCard, HEAVY_HOLD_MAX_MS, holdKey, CHIP_QUEUED, CHIP_FAILED, CHIP_BLOCKED, describeIntruders } from "./task-dispatcher-support";
 import { isNodeChildRun } from "./node-child-run";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
@@ -12,6 +12,8 @@ export function createTick(ctx: DispatcherCtx) {
   const { capHeldNoted, clock, deps, evaluateNight, externallyHeldNoted, floorBlockSent, floorHeldNoted, graceTimers, heavyHeldNoted, heavyHoldSince, inFlight, log, memoryHeldCards, noCheckExemptions, planHeldNoted, shared } = ctx.core;
 
   async function tick(projectId: string): Promise<void> {
+    // The one gate for a non-primary server: grace timers, blocker events and the
+    // manual start all end up here, so no caller can claim a card around it.
     try { await dispatchTick(projectId); }
     finally { ctx.queue.notifyMemoryQueue(); }
   }
@@ -85,7 +87,12 @@ export function createTick(ctx: DispatcherCtx) {
     let todos: Task[];
     // rootsOnly: a STEP dragged/created in todo must never be claimed as an
     // independent task (it's the checklist of a parent, worked by ITS agent).
-    try { todos = deps.svc.list({ scope: "project", projectId, status: "todo", rootsOnly: true }); }
+    // A secondary server assigns nothing of its own board, but still runs the mirror cards its primary sends.
+    const listTodos = () => {
+      const all = deps.svc.list({ scope: "project", projectId, status: "todo", rootsOnly: true });
+      return deps.isActive?.() === false ? all.filter(isMirrorCard) : all;
+    };
+    try { todos = listTodos(); }
     catch (err) { log(`list todo failed for ${projectId}`, err); return null; }
     // Self-heal DEAD bindings: a todo task still linked to a topic that no longer
     // exists (its agent tab was reaped after a prior run — done→todo re-queue is
@@ -109,7 +116,7 @@ export function createTick(ctx: DispatcherCtx) {
         } catch (err) { log(`heal dead binding failed for ${t.id}`, err); }
       }
       if (healed) {
-        try { todos = deps.svc.list({ scope: "project", projectId, status: "todo", rootsOnly: true }); }
+        try { todos = listTodos(); }
         catch (err) { log(`re-list after heal failed for ${projectId}`, err); return null; }
       }
     }
@@ -212,9 +219,7 @@ export function createTick(ctx: DispatcherCtx) {
             taskId: t.id,
             requeue: false,
             parkState: CHIP_BLOCKED,
-            reason:
-              "Auto-dispatch fermato: non riesco a risalire alla directory del progetto per questa board. " +
-              "Apri il progetto in una tab (o registralo) e riporta il task in Todo.",
+            reason: UNRESOLVED_PROJECT_PARK_REASON,
           }, { announce: !announced });
           announced = true;
         } catch { /* task may have moved */ }

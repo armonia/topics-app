@@ -11,17 +11,10 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import {
-  EMPTY_MEMORY,
-  MAX_ENDED_SUB_AGENTS,
-  dismissInMemory,
-  recordSubAgentDepartures,
-  subAgentRowsFor,
-  type EndedSubAgent,
-  type SubAgentMemory,
+  EMPTY_MEMORY, MAX_ENDED_SUB_AGENTS, dismissInMemory, recordSubAgentDepartures, type SubAgentMemory,
 } from "./endedSubAgents";
 
 const CHAT = "topic:chat-1";
-const OTHER = "topic:chat-2";
 
 const child = (id: string, over: Partial<{ parentSessionKey: string | null; busy: boolean; name: string }> = {}) => ({
   id,
@@ -73,15 +66,6 @@ describe("a dismissal", () => {
   test("takes the ended row away", () => {
     const memory = recordSubAgentDepartures([child("a"), child("b")], [], EMPTY_MEMORY, 1);
     expect(dismissInMemory(memory, "a").ended.map((e) => e.id)).toEqual(["b"]);
-  });
-
-  test("THE OCCURRENCE: closing a LIVE sub-agent's tab, then the roster without it, leaves no ended row", () => {
-    // The tab's X dismisses while the sub-agent still runs; the server then
-    // retires the session and the next roster no longer lists it. Before the
-    // fix that roster recorded it as ended: the closed tab came back as a row.
-    const closed = dismissInMemory(EMPTY_MEMORY, "a");
-    const after = recordSubAgentDepartures([child("a")], [], closed, 5);
-    expect(subAgentRowsFor(CHAT, [], after.ended)).toEqual([]);
   });
 
   test("a roster that still lists the closed sub-agent (the retire is in flight) keeps the dismissal", () => {
@@ -167,44 +151,5 @@ describe("two windows of one browser", () => {
       if (notified === before) throw new Error("no re-render after the storage event");
     `);
     expect(out.rows).toEqual([]);
-  });
-});
-
-describe("subAgentRowsFor", () => {
-  test("a live child's state comes from its transcript phase, not from PTY bytes (SUBAGENT-16)", () => {
-    const rows = subAgentRowsFor(CHAT, [
-      { ...child("w", { busy: false }), subAgentPhase: "waiting-prompt" as const },
-      { ...child("b", { busy: false }), subAgentPhase: "working" as const },
-      { ...child("f", { busy: true }), subAgentPhase: "finished" as const },
-    ], []);
-    expect(rows.map((r) => [r.id, r.state])).toEqual([["w", "waiting"], ["b", "busy"], ["f", "idle"]]);
-  });
-
-  test("live children of this chat, with their busy state; other chats' children excluded", () => {
-    const rows = subAgentRowsFor(CHAT, [child("a", { busy: true }), child("b"), child("x", { parentSessionKey: OTHER })], []);
-    expect(rows).toEqual([
-      { id: "a", name: "agent a", state: "busy" },
-      { id: "b", name: "agent b", state: "idle" },
-    ]);
-  });
-
-  test("THE OCCURRENCE: the only sub-agent ends, and the chat still lists it, as ended", () => {
-    const before = [child("a")];
-    const { ended } = recordSubAgentDepartures(before, [], EMPTY_MEMORY, 5);
-    // Before the fix the strip computed its rows from the live roster alone:
-    // empty, so the strip returned null and the sub-agent vanished.
-    expect(subAgentRowsFor(CHAT, [], ended)).toEqual([{ id: "a", name: "agent a", state: "ended" }]);
-    // And it belongs to its own chat only.
-    expect(subAgentRowsFor(OTHER, [], ended)).toEqual([]);
-  });
-
-  test("a live row wins over a stale ended entry for the same id", () => {
-    const ended: EndedSubAgent[] = [{ id: "a", name: "agent a", parentSessionKey: CHAT, endedAt: 1 }];
-    expect(subAgentRowsFor(CHAT, [child("a", { busy: true })], ended)).toEqual([{ id: "a", name: "agent a", state: "busy" }]);
-  });
-
-  test("live first, ended after", () => {
-    const ended: EndedSubAgent[] = [{ id: "old", name: "old one", parentSessionKey: CHAT, endedAt: 1 }];
-    expect(subAgentRowsFor(CHAT, [child("new")], ended).map((r) => `${r.id}:${r.state}`)).toEqual(["new:idle", "old:ended"]);
   });
 });

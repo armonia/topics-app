@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Loader2, AlertCircle } from 'lucide-react';
+import { X, AlertCircle } from 'lucide-react';
 import type { CreateTopicRequest, TopicTemplate, Topic, Project, Worktree, WSMessage } from '../../types';
 import { TopicIcon, DEFAULT_TOPIC_ICON } from '@/lib/topicIcons';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
@@ -8,6 +8,7 @@ import { useExitGhost } from '../../lib/exitGhost';
 import { projectsApi, worktreesApi } from '../../lib/api';
 import { useWorktrees } from '../../hooks/useWorktrees';
 import { Select } from '../Shared/Select';
+import { Spinner } from '../Shared/Spinner';
 
 const TEMPLATES: TopicTemplate[] = [
   {
@@ -486,7 +487,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
             disabled={(!name.trim() && !selectedTemplate) || submitting}
             className="inline-flex items-center gap-2 px-4 py-2 text-prose bg-primary text-white rounded-lg hover:bg-primary-hover disabled:bg-app-disabled disabled:text-app-text-muted transition-colors"
           >
-            {submitting && <Loader2 size={13} className="animate-spin" />}
+            {submitting && <Spinner size={11} box={13} tone="current" />}
             {submitting && wtMode === 'create-new' ? 'Setting up worktree…' : 'Create Topic'}
           </button>
         </div>

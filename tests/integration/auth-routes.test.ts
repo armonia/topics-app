@@ -20,7 +20,7 @@
  * tutto, e soprattutto che `/api/auth/shared` parta dalle CONCESSIONI. Su
  * quest'ultimo c'è una cicatrice: la prima versione metteva `/api/topics` in
  * allowlist e rispondeva 200 con tutte le chat.
-  * @covers PAIRING-04 @covers ORG-INST-02
+  * @covers PAIRING-04 @covers ORG-INST-02 @covers AUTH-02 @covers AUTH-03 @covers ORG-04
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

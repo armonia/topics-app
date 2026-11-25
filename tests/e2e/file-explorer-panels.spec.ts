@@ -311,7 +311,7 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     await stopBtn.click();
 
     // The stop spinner should appear briefly
-    const stopSpinner = scriptRunner.locator('.animate-spin');
+    const stopSpinner = scriptRunner.locator('[data-spinner]');
     await expect(stopSpinner).toBeVisible({ timeout: 3000 });
 
     // After polling resolves (stop API called + refresh shows stopped state),

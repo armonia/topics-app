@@ -59,7 +59,7 @@ import { crashedTurnNotice, shortErrorDetail } from "./crashedTurnNotice";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { planModeFor } from "../lib/autonomy-mode";
 import { turnEnded, turnStarted } from "../attention/store";
-import { withCommandTask } from "../attention/background-tasks";
+import { withCommandTask, withSubagentTask } from "../attention/background-tasks";
 import { classifyTurnEnd } from "../push-triggers";
 import { runningTaskOwnsTopic } from "../lib/wake-adoption";
 import { sessionAttentionBackground } from "../providers/background-probes";
@@ -77,6 +77,7 @@ import {
   noteSteerFailed, noteSteerMessage, offerSteer, setSteerSink, steerState, type SteerItem, type SteerMeta,
 } from "../lib/turn-steer";
 import { onTurnEnded } from "../lib/turn-ended";
+import { authorForSender, parseSender, senderAllowed } from "../lib/person-identities";
 
 /**
  * The keys of the messages already taken, to recognise a resend: the fast
@@ -323,8 +324,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     let b: { tasks: AttentionTaskMap; count: number; kinds: string[] } | null = null;
     try { b = own ? own.call(provider, sessionKey) : sessionAttentionBackground(sessionKey); } catch { b = null; }
     const command = commandWakeState(sessionKey, ownWake);
-    if (command === "none") return b;
-    return withCommandTask(b?.tasks ?? {}, command, new Date().toISOString());
+    const subagent = subagentWakeState(sessionKey);
+    if (command === "none" && subagent === "none") return b;
+    const at = new Date().toISOString();
+    return withSubagentTask(withCommandTask(b?.tasks ?? {}, command, at).tasks, subagent, at);
   };
 
   // Deps for the SDK-passthrough control tools (open/create-project, switch/new-
@@ -358,9 +361,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * carried here instead.
    */
   const replayAuthors = new WeakMap<Request, SteerMeta["author"]>();
+  /** The author a trusted caller declared with `sender` (a channel message), resolved once per request. */
+  const senderAuthors = new WeakMap<Request, SteerMeta["author"]>();
   const authorFor = (req: Request) => replayAuthors.has(req)
     ? replayAuthors.get(req) ?? undefined
-    : autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null);
+    : senderAuthors.get(req) ?? autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null);
   /** A steered message still waiting for the turn, by its idempotency slot: a resend under the same key gets the same answer, not a second copy. */
   const pendingSteerBySlot = new Map<string, string>();
 
@@ -589,6 +594,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const body = await readJSON(req);
       turn.body = body;
       if (!body) return json({ error: "body required" }, 400);
+      // The real sender of a channel turn: only whoever administers the machine may declare it.
+      const sender = parseSender(body.sender);
+      if (sender && senderAllowed(ctx.requestIdentity?.(req) ?? null)) {
+        try { senderAuthors.set(req, authorForSender(ctx.db as never, sender)); }
+        catch (err) { console.warn(`[chat] sender not resolved: ${err instanceof Error ? err.message : String(err)}`); }
+      }
       const sessionKey = body.sessionKey;
       turn.sessionKey = sessionKey;
       /**
@@ -823,8 +834,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       turn.isWoken = isWoken;
       const adottaTurnoVivo = isReattach || isWoken;
       turn.adottaTurnoVivo = adottaTurnoVivo;
-      // Typed by a person, not produced by the machine (goal nudge, dispatch, wake, resume).
-      const sentByPerson = !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !body.subagentResults && !resumeAttempt;
+      // Typed by a person, not produced by the machine (goal nudge, turn-end hook, dispatch, wake, resume).
+      const sentByPerson = !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.hookNudge && !body.processExit && !body.subagentResults && !body.cardOutcome && !resumeAttempt;
       turn.sentByPerson = sentByPerson;
 
       if (!messages || !Array.isArray(messages) || (messages.length === 0 && !adottaTurnoVivo)) {

@@ -8,7 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import { normalizePromptSnippet, transcriptHasPrompt } from "../lib/claude-subagent-transcript";
 import { composerHoldsPrompt } from "../lib/subagent-seed";
-import { seedPromptFingerprintForSession, seedPromptForSession } from "./terminal";
+import { seedPromptFingerprintForSession, seedPromptForSession } from "./terminal-children";
 
 // Ctrl+Z, built without a literal control byte in source.
 const SUSPEND = String.fromCharCode(26);

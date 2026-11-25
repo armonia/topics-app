@@ -9,9 +9,11 @@ import { describe, expect, test } from 'bun:test';
 import { HUB_LIVE_TOPICS } from '../../server/lib/hub-live';
 import {
   validateOutbound,
-  isRegisteredOutboundType,
-  REGISTERED_OUTBOUND_TYPES,
+  OUTBOUND_FRAME_CLASSES,
 } from '../../shared/ws-outbound';
+
+// The frame classes are a Record over every registered type, so their keys are the registry.
+const REGISTERED_OUTBOUND_TYPES = Object.keys(OUTBOUND_FRAME_CLASSES).sort();
 
 // ----- Registered types: round-trip valid payloads --------------------------
 
@@ -22,6 +24,7 @@ describe('validateOutbound — valid registered messages', () => {
     { type: 'dashboard:updated' },
     { type: 'memory:pressure', pressure: true },
     { type: 'stream:end', sessionKey: 'sk-1', messageId: 'm-1' },
+    { type: 'stream:action', sessionKey: 'sk-1', topicId: 'topic-1', action: 'run' },
     { type: 'typing', topicId: 'topic-1', clientId: 'ws-1', text: 'hello' },
     { type: 'typing', topicId: 'topic-1', clientId: 'ws-1', text: '' },
     { type: 'drag:start', topicId: 'topic-1', sourceWindowId: 'win-1' },
@@ -62,6 +65,11 @@ describe('validateOutbound — malformed registered messages', () => {
     const r = validateOutbound({ type: 'stream:end', messageId: 'm-1' });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('sessionKey');
+  });
+
+  test('rejects stream:action with a word outside the vocabulary', () => {
+    const r = validateOutbound({ type: 'stream:action', sessionKey: 'sk-1', topicId: 't', action: 'dance' });
+    expect(r.ok).toBe(false);
   });
 
   test('rejects typing missing clientId', () => {
@@ -202,6 +210,7 @@ describe('outbound registry contract', () => {
       'browser:close-pane',
       'browser:focus-pane',
       'browser:force-open',
+      'browser:login-request',
       'browser:navigate',
       'browser:open-near-pane',
       'browser:open-task-tab',
@@ -242,6 +251,7 @@ describe('outbound registry contract', () => {
       'scripts:output',
       'scripts:updated',
       'session:state',
+      'stream:action',
       'stream:alive',
       'stream:catchup',
       'stream:command-answer',
@@ -250,6 +260,7 @@ describe('outbound registry contract', () => {
       'stream:context',
       'stream:end',
       'stream:error',
+      'stream:reasoning_translation',
       'stream:resumed',
       'stream:retry',
       'stream:slow',
@@ -272,7 +283,6 @@ describe('outbound registry contract', () => {
       'stream:tool_user_input_required',
       'stream:usage',
       'swap-freeze:state',
-      'task:ai-review',
       'task:awaiting-human',
       'task:created',
       'task:deleted',
@@ -302,13 +312,6 @@ describe('outbound registry contract', () => {
       'worktree:new',
       'worktree:updated',
     ]);
-  });
-
-  test('isRegisteredOutboundType matches the registry', () => {
-    for (const t of REGISTERED_OUTBOUND_TYPES) {
-      expect(isRegisteredOutboundType(t)).toBe(true);
-    }
-    expect(isRegisteredOutboundType('not-yet-modeled')).toBe(false);
   });
 
   // presence:windows joined the outbound registry in 724284d3 (cross-window
@@ -436,8 +439,18 @@ describe('outbound registry contract', () => {
   // 107 -> 108: `hub:live`, the usage hub's quotas, Mac and services pushed by
   // ONE server-side reader instead of every hub tab polling. Owner-only.
   // Sender `server/lib/hub-live.ts`, listener `client/src/state/hubLive.ts`.
+  // 108 -> 107: `task:ai-review` goes out with the AI review column (the `armonia`
+  // workflow preset was removed, nothing sent it any more).
+  // 107 -> 108: `stream:action`, what a topic's agent is doing now, global and sent
+  // only when it changes. Sender `server/lib/stream-action-feed.ts`, listener
+  // `client/src/state/agentActions.ts`.
+  // 108 -> 109: `stream:reasoning_translation`, a reasoning sentence translated into
+  // the chat language, sent as each sentence closes. Sender
+  // `server/reasoning-translation/turn.ts`, listener `client/src/hooks/chatStreamEvents.ts`.
+  // 109 -> 110: `browser:login-request`, an agent asks for a login tab to be raised
+  // (optionally detached). Sender `server/routes/browser-login-request.ts`.
   test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(108);
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(110);
   });
 });
 

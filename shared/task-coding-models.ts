@@ -31,8 +31,8 @@ export interface TaskExecutionOption {
 /** Discovery is retryable setup, not a failed execution attempt. */
 export class TaskProviderPendingError extends Error {
   readonly code = 'task_provider_pending';
-  constructor(readonly provider: string) {
-    super(`Waiting for ${provider} provider discovery.`);
+  constructor(readonly provider: string, message?: string) {
+    super(message ?? `Waiting for ${provider} provider discovery.`);
     this.name = 'TaskProviderPendingError';
   }
 }
@@ -169,17 +169,6 @@ export function automaticChatTarget(
   return stored === true && model?.startsWith('claude-') ? 'topics' : defaultProvider;
 }
 
-/** Whether the switch ON runs this runtime and model through the engine: the
- * same answer as `topicsRoute` with the preference ON. A null provider means
- * Automatic, routable while the engine is ready. */
-export function topicsRoutingAvailable(
-  provider: string | null,
-  model: string | null | undefined,
-  snapshot?: ProvidersSnapshot | null,
-): boolean {
-  return topicsRoute(true, { provider, model }, snapshot, 'chat').via === 'topics';
-}
-
 /** AICTRL-04 + MSEL-06: a stored value wins. Only a card created before the
  * routing-column migration keeps `claude-code:<model>` as an unset OFF choice;
  * newer cards use the task default. A persisted legacy session has its own OFF
@@ -287,7 +276,17 @@ function directTaskProvider(value: string | null | undefined, snapshot?: Provide
     : ready;
   const provider = compatible.find((entry) => entry.name === snapshot?.defaultProvider)?.name ?? compatible[0]?.name;
   if (provider) return provider;
-  if (selection.model) throw new Error(`No coding agent is available for model "${selection.model}". Choose an available model in Settings.`);
+  if (selection.model) {
+    // A model some engine lists but that is not ready now is retryable: the
+    // card waits in the queue with the reason instead of failing.
+    const known = (snapshot?.providers ?? []).find((entry) => (entry.status === 'loading' || entry.status === 'error') && isTaskCodingProvider(entry)
+      && CLAUDE_CODING_PROVIDERS.includes(entry.name)
+      && (entry.models.includes(selection.model!) || entry.models.includes(nativeModelId(selection.model!))));
+    if (known) {
+      throw new TaskProviderPendingError(known.name, `${known.label ?? known.name} is not ready, so model "${selection.model}" cannot start yet. The card stays queued.`);
+    }
+    throw new Error(`No coding agent is available for model "${selection.model}". Available models: ${availableTaskModels(snapshot).join(', ') || 'none'}. Choose an available model in Settings.`);
+  }
   throw new Error('No coding agent is available. Connect Topics, Claude Code or Codex in Settings before starting the task.');
 }
 

@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Aperta: T1-T5 e T7 sono in main (`server/services/voice-call/`, `tests/voice/scenari.ts`); mancano T6 (il filo `voce.motore = "topics"` sta in jarvis-channels `src/voice/`, fuori da questo repo, non verificabile qui) e T8 (nessun registro né registrazione di una chiamata vera pulita, né l'ok a orecchio del CTO).
+
 # Chiamate vocali in Topics: la voce è di Topics, il canale porta solo l'audio
 
 ## Da decidere

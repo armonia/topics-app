@@ -7,7 +7,7 @@
 import { test, expect, describe } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { blockedByChip, dueDateChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, taskDetailBump, waitingOnThisChip, type BoardTask } from './board';
+import { blockedByChip, dueDateChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, hasDeliveryToMerge, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, taskDetailBump, waitingOnThisChip, type BoardTask } from './board';
 import { deriveQueueReason } from '../../../shared/board';
 import { t } from './i18n';
 
@@ -262,6 +262,41 @@ describe('hasCodeQuestion', () => {
   test('review e done hanno SEMPRE la domanda, anche senza topic', () => {
     expect(hasCodeQuestion(t({ status: 'review' }))).toBe(true);
     expect(hasCodeQuestion(t({ status: 'done' }))).toBe(true);
+  });
+});
+
+/**
+ * `hasDeliveryToMerge` is what both the Land button AND the note next to it
+ * warning that Approve alone does not merge (TaskDetail.tsx) gate on: the
+ * two have to agree, or the note would warn about a branch there is no
+ * button to land, or stay silent on a card whose real code Approve alone
+ * leaves on its branch (card db21df04).
+ */
+describe('hasDeliveryToMerge', () => {
+  const t = (p: Partial<BoardTask>): BoardTask =>
+    ({ assignedTopicId: 'topic-1', deliveryBranch: 'topics/card', deliveryCommit: 'abc123', landingState: null, deliveryFilesChanged: 2, deliveryUncommittedFiles: 0, status: 'review', ...p }) as BoardTask;
+
+  test('ramo consegnato con file cambiati: c\'e\' davvero qualcosa da fondere', () => {
+    expect(hasDeliveryToMerge(t({}))).toBe(true);
+  });
+
+  test('nessun topic o nessun ramo: niente da fondere', () => {
+    expect(hasDeliveryToMerge(t({ assignedTopicId: null }))).toBe(false);
+    expect(hasDeliveryToMerge(t({ deliveryBranch: null }))).toBe(false);
+  });
+
+  test('gia\' atterrato, superato o non pushato: non resta niente fuori da main', () => {
+    for (const landingState of ['landed', 'superseded', 'unpushed'] as const) {
+      expect(hasDeliveryToMerge(t({ landingState }))).toBe(false);
+    }
+  });
+
+  test('modifiche non committate: il merge del server le rifiuterebbe comunque', () => {
+    expect(hasDeliveryToMerge(t({ deliveryUncommittedFiles: 3 }))).toBe(false);
+  });
+
+  test('zero file cambiati (misurato): un ramo analisi non e\' una consegna da fondere', () => {
+    expect(hasDeliveryToMerge(t({ deliveryFilesChanged: 0 }))).toBe(false);
   });
 });
 

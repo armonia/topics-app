@@ -6,8 +6,9 @@
  * (react-refresh/only-export-components).
  */
 
-import { Terminal as TerminalIcon, FileText, FilePen, FilePlus, Search, Globe, ListChecks, Bot, Brain, Sparkles, Wrench, Activity, Timer, ScrollText, Ban, NotebookPen, Wand2, Slash, Braces, Send, Users, LayoutTemplate, LayoutGrid, MessageCircleQuestion, KanbanSquare, type LucideIcon } from 'lucide-react';
+import { Terminal as TerminalIcon, FileText, FilePen, FilePlus, Search, Globe, ListChecks, Bot, Brain, Sparkles, Wrench, Activity, Timer, ScrollText, Ban, NotebookPen, Wand2, Slash, Braces, Send, Users, LayoutTemplate, LayoutGrid, MessageCircleQuestion, KanbanSquare, SquareTerminal, type LucideIcon } from 'lucide-react';
 import type { ToolCallDetail } from '../../types';
+import { workKindOf } from './workKind';
 
 export function iconForDetail(detail: ToolCallDetail): LucideIcon {
   switch (detail.type) {
@@ -38,4 +39,12 @@ export function iconForDetail(detail: ToolCallDetail): LucideIcon {
     case 'view': return LayoutGrid;
     case 'unknown': return Wrench;
   }
+}
+
+/**
+ * The icon of a call's row: a background job has its own, the terminal square the strip of live work
+ * already uses for a command (a process that runs and wakes the chat), the robot stays the sub-agent's, the rest is the detail's.
+ */
+export function iconForCall(name: string, detail: ToolCallDetail): LucideIcon {
+  return workKindOf(name, detail) === 'background' ? SquareTerminal : iconForDetail(detail);
 }

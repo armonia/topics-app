@@ -4,27 +4,40 @@
  * many sessions it holds; sub-agents sit under the session that spawned them.
  * A session opens as from the sidebar. The grouping is `lib/agentSessions`.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Bot, ChevronRight, SquareTerminal, TriangleAlert } from 'lucide-react';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
-import { useLocale, useT } from '../../hooks/useT';
+import { useT } from '../../hooks/useT';
+import { addCatalogue } from '../../lib/i18n';
+import AGENTS_IT from '../../lib/i18n-agents-it';
+import AGENTS_EN from '../../lib/i18n-agents-en';
+import { useAgo } from './useAgo';
 import { useAgentGroups, useChannelTitles } from '../../state/agentGroups';
 import { agentSessionName } from '../../lib/agentSessions';
+import { apiFetch } from '../../lib/shell/net';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
-import { useSharedNow } from '../../state/useSharedNow';
 import type { AgentSession, AgentSessionState, AgentTerminal } from '../../lib/agentSessions';
 import { STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
-import { StatusIcon } from '../Board/atoms';
-import { AgentProfiles } from './AgentProfiles';
+import { AgentOverview } from './AgentOverview';
+import { AgentDetail } from './AgentDetail';
+import type { ConfigureSection } from './configureSections';
+import { readAgentsRoute, writeAgentsRoute, type AgentsRoute } from './agentsNav';
 import { useAgentRegistry } from '../../state/agentRegistry';
+import { SparkLoader } from '../Layout/StreamingIndicator';
+import { loaderActivityForAction } from '../Layout/loaderState';
+import { useTerminalAction, useTopicAction } from '../../state/agentActionHooks';
+import type { AgentAction } from '../../../../shared/agent-action';
 
 type Tr = ReturnType<typeof useT>;
+
+addCatalogue('it', AGENTS_IT);
+addCatalogue('en', AGENTS_EN);
 
 // Working is the sky of in_progress, not green: green is "done", and an agent
 // at work is not done (`lib/statusVisual.ts`).
 /** The state glyph of an agent: the same family as the cards (spinning half pie at work, amber alert when it waits on you). */
-function AgentStateGlyph({ state }: { state: AgentSessionState }) {
-  if (state === 'working') return <StatusIcon status="in_progress" live className="h-2.5 w-2.5 flex-shrink-0" />;
+function AgentStateGlyph({ state, action }: { state: AgentSessionState; action?: AgentAction }) {
+  if (state === 'working') return <SparkLoader size={10} activity={loaderActivityForAction(action) ?? 'think'} className="flex-shrink-0" />;
   if (state === 'waiting') return <STATUS_ICON.wait size={10} aria-hidden="true" className={`flex-shrink-0 ${STATUS_INK.wait}`} />;
   return <span className="h-2 w-2 flex-shrink-0 rounded-full bg-app-border-light" aria-hidden="true" />;
 }
@@ -38,22 +51,8 @@ function openTerminal(id: string, name: string) {
   window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }));
 }
 
-function useAgo() {
-  const locale = useLocale();
-  const now = useSharedNow();
-  return useMemo(() => {
-    const fmt = new Intl.RelativeTimeFormat(locale === 'en' ? 'en-GB' : 'it-IT', { numeric: 'auto' });
-    return (at: number) => {
-      const min = Math.round((at - now) / 60_000);
-      if (Math.abs(min) < 60) return fmt.format(min, 'minute');
-      const h = Math.round(min / 60);
-      if (Math.abs(h) < 24) return fmt.format(h, 'hour');
-      return fmt.format(Math.round(h / 24), 'day');
-    };
-  }, [locale, now]);
-}
-
 function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: number; tr: Tr; ago: (at: number) => string; name: (raw: string, key?: string | null) => string }) {
+  const action = useTopicAction(s.topic.id);
   return (
     <>
       <li>
@@ -66,7 +65,7 @@ function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: numbe
         >
           {s.error
             ? <TriangleAlert size={12} className={`flex-shrink-0 ${DANGER_TEXT}`} aria-hidden="true" />
-            : <AgentStateGlyph state={s.state} />}
+            : <AgentStateGlyph state={s.state} action={action} />}
           <span className="min-w-0 flex-1 truncate text-prose text-app-text">{name(s.topic.name, s.topic.sessionKey)}</span>
           {s.error && <span data-testid="agents-session-error" className={`flex-shrink-0 text-mini ${DANGER_TEXT}`}>{tr('agents.error')}</span>}
           {s.state !== 'idle' && <span className={`flex-shrink-0 text-mini ${TEXT[s.state]}`}>{tr(`agents.state.${s.state}`)}</span>}
@@ -83,6 +82,7 @@ function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: numbe
 /** A sub-agent running in a terminal (the CLI): it opens as a terminal pane. */
 function TerminalRow({ t, depth, tr, ago }: { t: AgentTerminal; depth: number; tr: Tr; ago: (at: number) => string }) {
   const { id, name, type } = t.terminal;
+  const action = useTerminalAction(id);
   return (
     <>
       <li>
@@ -93,7 +93,7 @@ function TerminalRow({ t, depth, tr, ago }: { t: AgentTerminal; depth: number; t
           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-app-hover"
           style={{ paddingLeft: 8 + depth * 18 }}
         >
-          <AgentStateGlyph state={t.state} />
+          <AgentStateGlyph state={t.state} action={action} />
           {type === 'claude-code'
             ? <ClaudeIcon size={12} className="flex-shrink-0 text-app-text-secondary" />
             : <SquareTerminal size={12} className="flex-shrink-0 text-app-text-secondary" aria-hidden="true" />}
@@ -120,15 +120,57 @@ export function AgentsPane() {
   const { reg, load } = useAgentRegistry();
   const cli = tr('agents.cli');
   const name = (raw: string, key?: string | null) => agentSessionName(raw, titles, cli, key);
+
+  const [route, setRoute] = useState<AgentsRoute>(() => readAgentsRoute());
+  useEffect(() => {
+    const onHash = () => setRoute(readAgentsRoute());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const go = (next: AgentsRoute) => { setRoute(next); writeAgentsRoute(next); };
+
+  const [note, setNote] = useState<string | null>(null);
+  const post = async (kind: string, body: object): Promise<boolean> => {
+    const r = await apiFetch(`/api/agent-config/${kind}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const b = await r.json().catch(() => ({}));
+    setNote(r.ok ? tr(`agentConfig.saved.${b.service ?? 'live'}`) : `${tr('agentConfig.error')}: ${b.error ?? r.status}`);
+    load();
+    return r.ok;
+  };
+
+  const allAgents = (reg?.agents ?? []).map((a) => ({ id: a.id, name: a.name }));
+  const openAgent = reg?.agents.find((a) => route.view === 'agent' && a.id === route.agentId);
+
   return (
     <div data-testid="agents-pane" className="h-full overflow-y-auto bg-surface">
       <div className="mx-auto max-w-3xl px-6 py-6">
-        <h1 className="text-title font-semibold text-app-text">{tr('agents.title')}</h1>
-        <p className="mt-1 text-prose text-app-text-secondary">{tr('agents.lede')}</p>
-        {reg && reg.agents.length > 0 && <AgentProfiles reg={reg} reload={load} />}
-        {reg && reg.agents.length > 0 && groups.length > 0 && <h2 className="mt-8 text-body-lg font-semibold text-app-text">{tr('agents.sessionsTitle')}</h2>}
-        {groups.length === 0 && !(reg && reg.agents.length > 0) && <p className="mt-6 text-prose text-app-text-muted">{tr('agents.empty')}</p>}
-        {groups.map((g) => (
+        {route.view === 'agent' && openAgent ? (
+          <AgentDetail
+            agent={openAgent}
+            allAgents={allAgents}
+            issues={reg?.issues ?? []}
+            note={note}
+            post={post}
+            tab={route.tab}
+            section={route.tab === 'configure' ? (route.section as ConfigureSection) : 'identity'}
+            onTab={(t) => go(t === 'activity' ? { view: 'agent', agentId: openAgent.id, tab: 'activity' } : { view: 'agent', agentId: openAgent.id, tab: 'configure', section: 'identity' })}
+            onSection={(s) => go({ view: 'agent', agentId: openAgent.id, tab: 'configure', section: s })}
+            onBack={() => go({ view: 'overview' })}
+          />
+        ) : (
+          <>
+            <h1 className="text-title font-semibold text-app-text">{tr('agents.title')}</h1>
+            <p className="mt-1 text-prose text-app-text-secondary">{tr('agents.lede')}</p>
+            {reg && reg.agents.length > 0 && (
+              <AgentOverview
+                reg={reg}
+                reload={load}
+                onOpenAgent={(id, section) => go(section ? { view: 'agent', agentId: id, tab: 'configure', section } : { view: 'agent', agentId: id, tab: 'activity' })}
+              />
+            )}
+            {reg && reg.agents.length > 0 && groups.length > 0 && <h2 className="mt-8 text-body-lg font-semibold text-app-text">{tr('agents.sessionsTitle')}</h2>}
+            {groups.length === 0 && !(reg && reg.agents.length > 0) && <p className="mt-6 text-prose text-app-text-muted">{tr('agents.empty')}</p>}
+            {groups.map((g) => (
           <section key={g.id} data-testid="agents-group" className="mt-6 rounded-lg border border-app-border-light">
             <header className="flex items-center gap-2 border-b border-app-border-light px-3 py-2">
               <Bot size={16} className="text-app-text-secondary" aria-hidden="true" />
@@ -177,7 +219,9 @@ export function AgentsPane() {
               )}
             </ul>
           </section>
-        ))}
+            ))}
+          </>
+        )}
       </div>
     </div>
   );

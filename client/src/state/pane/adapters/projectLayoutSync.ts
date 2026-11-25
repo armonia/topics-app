@@ -23,6 +23,7 @@ import {
   projectLayoutKey,
 } from '../../../../../shared/project-keys';
 import { apiFetch } from '../../../lib/shell/net';
+import { isNestedInTopicsPane } from '../../../lib/shell/nestedPane';
 
 // Derivazione delle chiavi (hash di projectPath) delegata a
 // shared/project-keys.ts — la stessa funzione djb2 viveva qui, in
@@ -226,6 +227,8 @@ async function putWithRetry(
   keepalive = false,
   baseSeq?: number,
 ): Promise<void> {
+  // Nested in a Topics pane: a read-only mirror, never writes the project layout.
+  if (isNestedInTopicsPane()) return;
   const url =
     baseSeq === undefined
       ? `/api/ui-state/${encodeURIComponent(key)}`
@@ -288,6 +291,8 @@ function flushSync(key: string): void {
 
 function queueSync(key: string, state: unknown): void {
   if (typeof window === 'undefined') return;
+  // Mirror mode: nothing is queued, so no debounce timer and no teardown flush exist.
+  if (isNestedInTopicsPane()) return;
   const value = toSyncValue(state);
   if (!value) return;
   pendingValues.set(key, value);
@@ -324,6 +329,7 @@ function queueSync(key: string, state: unknown): void {
  * closed for its own channel (see hermetic.ts's docstring on the mechanism).
  */
 function beaconValue(key: string, json: string): boolean {
+  if (isNestedInTopicsPane()) return false;
   const base = lastAppliedSeqByKey.get(key) ?? 0;
   try {
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {

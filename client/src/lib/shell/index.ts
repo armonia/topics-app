@@ -30,6 +30,11 @@ declare global {
  *  (v2) / `__TAURI__` (v1 compat); everything else is plain web/PWA. */
 export function detectShell(): ShellKind {
   if (typeof window === 'undefined') return 'web';
+  // A page inside a Topics browser pane is a plain web client: the Tauri shell
+  // injects its IPC globals there too, but the pane is not the app window (its
+  // ACL rejects native commands, and the API base must stay same-origin). The
+  // pane flag is read raw, not via nestedPane.ts, to keep this module a leaf.
+  if ((window as { __topicsConsoleInstalled?: boolean }).__topicsConsoleInstalled === true) return 'web';
   if (window.__TAURI_INTERNALS__ || window.__TAURI__) return 'tauri';
   // Origin fallback (CRITICAL): Tauri injects its IPC globals at document-start,
   // but on the custom protocol that injection can land AFTER this module graph

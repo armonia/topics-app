@@ -517,6 +517,38 @@ Il legame SHALL passare dagli identificativi dei test dichiarati nel codice,
 letti in tutte le forme in cui si scrivono, e l'ordine SHALL mettere davanti le
 spec piu' vicine al cambiamento.
 
+Il cancello SELEZIONA ovunque, ma ESEGUE le spec solo dove un browser e'
+ammesso: nella CI della pull request (job `e2e (1)`, passo «E2E dei file
+toccati», il cui esito la board legge secondo KANBAN-84) o su una macchina che
+non e' un Mac. Su un Mac fuori da GitHub Actions, senza `--list`, SHALL uscire 97
+dopo aver stampato la selezione e PRIMA di costruire il bundle o lanciare
+Playwright: il 15/09/2026, eseguito sul Mac come check della board, ha fatto
+scaricare Chromium in una postazione dove Chromium non deve esserci. `--list`
+SHALL restare identico ovunque, ed e' il modo in cui un agente sul Mac vede quali
+spec tocca il suo diff.
+
+La stessa regola SHALL valere nella configurazione di Playwright, perche' non
+tutte le strade passano da questo script: la barra di una change che dice
+`npx playwright test`, e `qa:gate`, che lancia gli shard. Su un Mac fuori da
+GitHub Actions `playwright test` SHALL rifiutare mentre carica la
+configurazione, prima del server di test e di qualunque browser, con un
+messaggio che rimanda alla CI della pull request; `--list` SHALL restare ammesso
+(lo usano il pianificatore degli shard e `check:test-skips`). `qa:gate` su un Mac
+SHALL saltare l'E2E dicendolo, invece di chiudere la barra rossa.
+
+Il diff SHALL partire dal merge base con il ramo di base. Senza merge base (il
+checkout della pull request è profondo un commit) il cancello SHALL uscire 2 invece di
+contare solo i file non committati: fino al 15/09/2026 il passo della CI stampava
+«1 changed file(s) ... Nothing to run here» su una PR da 32 file e usciva 0, su ogni
+PR. Il passo della CI SHALL portare la storia del base e del commit in prova
+(`git fetch --unshallow`) prima di lanciarlo, e il suo conteggio dei file committati
+SHALL coincidere con quello della PR.
+
+#### Scenario: il checkout superficiale della PR non passa per verde
+- **GIVEN** un clone profondo un commit del merge di una PR con 3 file, e il base scaricato con `--depth=100`
+- **THEN** la lista dei file cambiati SHALL essere assente (uscita 2)
+- **AND** dopo la riga di fetch del passo della CI la lista SHALL avere i 3 file committati
+
 #### Scenario: gli identificativi si leggono ovunque siano dichiarati
 - **GIVEN** un file che dichiara identificativi come attributo, come espressione e come stringa interpolata
 - **THEN** la lettura SHALL trovarli tutti
@@ -524,6 +556,17 @@ spec piu' vicine al cambiamento.
 #### Scenario: la spec che misura il cambiamento viene per prima
 - **GIVEN** una modifica che tocca una funzione con la sua spec dedicata
 - **THEN** quella spec SHALL precedere le spec di altre funzioni
+
+#### Scenario: sul Mac lo script vero elenca e non esegue
+- **GIVEN** un repository con un ramo che modifica una spec, su un Mac, con `GITHUB_ACTIONS` assente
+- **THEN** `check:e2e-touched --list` SHALL uscire 0 stampando la spec
+- **AND** `check:e2e-touched` senza `--list` SHALL uscire 97 senza avviare Playwright
+- **AND** fuori da un Mac, o con `GITHUB_ACTIONS=true`, la guardia NON SHALL rifiutare
+
+#### Scenario: Playwright sul Mac rifiuta prima di lanciare un browser
+- **GIVEN** un Mac con `GITHUB_ACTIONS` assente
+- **THEN** `playwright test <spec>` SHALL uscire non zero con il messaggio che rimanda alla CI della pull request, senza avviare il server di test ne' un browser
+- **AND** `playwright test <spec> --list` SHALL uscire 0 elencando i test
 
 ### Requirement: GATE-12 — La suite unit gira un processo per file, e il verdetto non dipende dal raggruppamento
 
@@ -1041,3 +1084,22 @@ riporta SHALL far fallire il cancello, indicando il file.
 - **GIVEN** il repo pulito
 - **WHEN** un file fuori elenco contiene il nome
 - **THEN** il test fallisce e stampa quel file
+
+### Requirement: GATE-24 — La barra non è verde su file che nessun cancello ha letto
+
+I cancelli di `scripts/qa-gate.sh` enumerano i file con git, quindi un file nuovo
+non ancora aggiunto non lo legge nessuno. La barra SHALL misurare, prima delle
+corsie, i file fuori da git e non ignorati (`scripts/untracked-files.sh`), e
+SHALL riportarli come una riga rossa con l'elenco e la cura (aggiungerli
+all'indice). I file ignorati da `.gitignore` SHALL non contare. Successo tre
+volte (12/09, 15/09, 22/11/2026): barra locale verde, CI di main rossa subito
+dopo il push.
+
+#### Scenario: Un file nuovo non aggiunto
+- **GIVEN** un file sorgente nuovo fuori da git
+- **WHEN** si lancia la barra
+- **THEN** la riga `untracked-files` è rossa e nomina il file
+
+#### Scenario: Dopo averlo aggiunto all'indice
+- **WHEN** il file viene aggiunto all'indice
+- **THEN** la riga torna verde e i cancelli lo leggono

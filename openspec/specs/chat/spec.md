@@ -914,6 +914,12 @@ non pronto SHALL restare il testo piatto attuale.
 - **WHEN** l'utente espande il body
 - **THEN** il contenuto renderizza come testo monospace piatto (comportamento attuale)
 
+#### Scenario: risultato JSON o diff evidenziato
+- **GIVEN** una tool call completata il cui risultato è JSON valido o un diff git
+- **WHEN** l'utente espande il body
+- **THEN** il risultato mostra token evidenziati, con la lingua dedotta dal contenuto
+- **AND** un risultato non riconosciuto, un JSON rotto o un testo oltre la soglia resta testo piatto
+
 ### Requirement: CHAT-CACHE-01 — I provider SDK marcano il prefisso stabile come cacheabile
 
 Il sistema SHALL marcare con un breakpoint di prompt caching le porzioni ripetute del
@@ -5457,6 +5463,15 @@ mostrata come lavoro in corso. Un cron di sessione armato entro lo stesso tetto
 una chat che aspetta solo il suo cron mostrerebbe «sta per riprendere» per due
 ore. Nessuna scrittura: DB, processo e orologi non cambiano.
 
+Una card della board che la chat ha aperto SHALL contare fra i lavori attesi
+(riga e sidebar leggono `isAwaitedCard`, `client/src/lib/taskCardState.ts`) solo
+se qualcuno la sta davvero lavorando: in `todo`, perché il dispatcher la
+prenderà; in `in_progress`, solo con un `dispatchState` scritto. Una card spostata
+in `in_progress` a mano o da un `update_task` di un sottoagente non ha nessun
+agente sopra e nessuna sveglia arriverà (`card-outcome-wake`): contata, la riga
+restava su per ore su una chat che non aveva niente in corso (17/11, chat
+bdace50c, 5 h 03 m).
+
 La chat SHALL mostrare, come ULTIMA RIGA DEL TRASCRITTO, sotto l'ultimo
 messaggio (il `Footer` di Virtuoso in
 `client/src/components/Chat/MessageList.tsx`, prima delle bolle in coda), una
@@ -5879,6 +5894,51 @@ per tutta la vita del server.
 - **AND** la riga della seconda ha `[data-loader-state="working"]` e nessun segno
 - **WHEN** il server esce
 - **THEN** il segno sparisce
+
+### Requirement: BGVIS-10 — Una chat senza turno aperto dice cosa aspetta, e scrive solo quando scrive
+
+La tab e la riga della sidebar di una chat il cui turno è chiuso e che aspetta
+lavoro SHALL dire che aspetta, e cosa: `data-waiting-on` sul glifo vale
+`subagent` (un figlio di `spawn_agent`), `process` (un `run_command` che la
+sveglierà), `job` (un compito della CLI: un Agent, un Bash, un Monitor) o
+`resuming` (un report la sta già svegliando), in quest'ordine. Il movimento è
+quello lento di `wait` e il tooltip dice cosa si aspetta e che la chat è libera.
+Con un turno aperto il glifo è quello di chi scrive (`data-waiting-on` assente);
+a lavoro finito non resta niente, né sulla tab né sulla riga.
+
+I figli di `spawn_agent` sono righe di `subagents` che né lo snapshot della CLI né
+il registro dei processi conoscono: lo stato di attenzione li SHALL avere come UN
+compito `subagent` della mappa (`withSubagentTask`; `wake` quando resta solo un
+risultato da consegnare), riscritto a ogni cambio (un figlio nato, un suo turno
+aperto o chiuso, un risultato aggiunto o consegnato, il suo stato:
+`observeSubagentWaitChanged`) e non solo alla fine del turno del genitore. Il
+compito è nella mappa e non ha una riga sua nel testo: i figli stanno già nella
+striscia sotto la chat, e lo Stop del compositore non gli si applica.
+
+- Un riavvio non li uccide: un figlio ancora in corso o con un risultato dovuto
+  resta nella mappa (`subagentOwed`); uno finito a server spento esce senza il
+  rosso «il processo è finito con N compiti in volo».
+- La cartella di progetto continua a contare la chat come «con lavoro dentro»
+  (ATTN-12): questa clausola riguarda tab e riga.
+- La riga della sidebar SHALL dirlo anche a parole, al posto dell'ultimo
+  messaggio: «Aspetta un sottoagente», «Aspetta un processo», «Aspetta un
+  lavoro in background», «Sta per riprendere» (`topic-waiting-on`, con lo stesso
+  `data-waiting-on` del glifo). Con un turno aperto non c'è.
+- Un figlio finito SHALL essere detto UNA volta: quando la sua card di esito è
+  già nella trascrizione (`subagent-result-card`, che dice come è finito:
+  «fermato prima di finire», «completato»), la striscia sotto la chat NON SHALL
+  avere la sua riga «finito» (`useSubagentResultIds`). Finché la card non c'è la
+  riga resta; un figlio vivo la tiene sempre.
+
+#### Scenario: la tab dice cosa aspetta e si ferma quando tutto è finito
+- **GIVEN** una chat il cui turno ha lasciato un Bash in background, e un figlio
+  di `spawn_agent` vivo
+- **THEN** tab e riga hanno `data-waiting-on="job"`, poi `"subagent"` col figlio
+- **WHEN** un messaggio apre un turno
+- **THEN** il glifo è quello di chi scrive, senza `data-waiting-on`
+- **WHEN** il turno chiude, il lavoro riporta e il figlio è fermato
+- **THEN** né la tab né la riga hanno `data-waiting-on` né `data-loader-state`
+  (`tests/e2e/tab-waiting-on-work.spec.ts`)
 
 ### Requirement: CHAT-NTOOL-04 — Il `bash` nativo manda la coda del suo output mentre gira
 
@@ -6727,3 +6787,224 @@ A call of a card tool (`create_task`, `update_task`, `comment_task`, `get_task`,
 - **GIVEN** a card opened by a chat
 - **WHEN** it is taken to review and the same frame arrives again
 - **THEN** the chat SHALL receive exactly one message
+
+### Requirement: REASONING-TRANSLATE-01 — Il ragionamento si legge nella lingua della chat, e quando non si può tradurre resta l'originale
+
+Il riassunto del ragionamento (la riga «Thinking») arriva dal modello spesso in inglese anche in una chat italiana. Dove la macchina sa tradurre (framework Translation di Apple, sul dispositivo, gratis), il testo SHALL comparire nella lingua della chat, frase per frase mentre scorre, nella finestra della riga che già c'è. La lingua della chat è l'impostazione «lingua di risposta» e, su «auto», la lingua dell'interfaccia. Si traduce solo se la lingua rilevata del blocco è diversa e il blocco è abbastanza lungo da riconoscerla con sicurezza. Ogni frase tradotta SHALL essere salvata, così alla ricarica non si traduce di nuovo. Senza traduttore (non macOS 26, nessun compilatore Swift, lingua non installata, errore) la riga SHALL restare identica a oggi, senza errori visibili. Un controllo «Originale» SHALL dare indietro il testo del modello senza cambiare l'altezza della riga: la fine del turno non sposta niente.
+
+#### Scenario: Ragionamento inglese in una chat italiana
+- **GIVEN** una chat con lingua di risposta italiana e un traduttore disponibile
+- **WHEN** il modello ragiona in inglese
+- **THEN** la riga Thinking SHALL mostrare le frasi in italiano man mano che si chiudono, e a fine turno la riga, la risposta e la riga di dettagli SHALL muoversi di 0 px
+
+#### Scenario: Stessa lingua, testo cortissimo, traduttore assente
+- **GIVEN** un ragionamento già nella lingua della chat, oppure più corto di una frase, oppure nessun traduttore
+- **WHEN** la riga si disegna
+- **THEN** il testo SHALL restare quello del modello e nessun errore SHALL comparire
+
+#### Scenario: Ricarica
+- **GIVEN** un blocco già tradotto
+- **WHEN** la persona riapre la chat e la riga
+- **THEN** le frasi SHALL arrivare dalla cache salvata, senza chiamare di nuovo il traduttore
+
+### Requirement: CHAT-06 — Tempo dalla fine del turno nella riga della sidebar
+La riga di una chat finita SHALL mostrare, dopo l'anteprima, il tempo trascorso ("· 34m ago"), in uno span proprio che non viene troncato insieme all'anteprima.
+
+#### Scenario: Anteprima lunga
+- **GIVEN** una chat finita con un ultimo messaggio molto lungo
+- **WHEN** la riga si disegna a 375 o a 1440 px
+- **THEN** il tempo SHALL restare visibile per intero e l'anteprima SHALL troncarsi prima di lui
+
+
+### Requirement: CCLI-13 - Un lavoro interno non paga il contesto dell'utente
+
+Un one-shot interno (titolo, giudice, scelta del modello) SHALL partire senza i
+CLAUDE.md, lo stile di output e gli hook dell'utente: `--settings` SHALL portare
+`CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`, `outputStyle: "default"` e
+`disableAllHooks: true`, nello stesso blocco delle altre leve (CCLI-07). Le
+sorgenti delle impostazioni SHALL restare `user,project,local`: l'`env`
+dell'utente può instradare la CLI, come fa il proxy degli account.
+
+Una risposta che l'utente legge (modifica di un messaggio, rigenerazione, ripiego
+SSE) SHALL dichiararsi `userFacing` e SHALL tenere quel contesto.
+
+PERCHÉ: la CLI mette in cache solo fino alla fine di un prompt che cambia a ogni
+chiamata, quindi quel contesto veniva riscritto nella cache da 1 h, a prezzo
+doppio, a ogni titolo. Misura del 14/10 (CLI 2.1.299): da 14.879 a 1.722 token di
+prefisso, da $0,0596 a $0,0069 a chiamata.
+
+#### Scenario: titolo di una chat
+- WHEN parte un one-shot interno
+- THEN gli argomenti portano le tre leve, e togliendone una qualsiasi il banco va rosso
+
+#### Scenario: modifica di un messaggio
+- WHEN l'utente modifica un messaggio e la risposta passa dal one-shot
+- THEN il one-shot porta solo `CLAUDE_CODE_DISABLE_AUTO_MEMORY`
+
+### Requirement: CHAT-MEDIA-BOX-01 — Un'immagine di un messaggio occupa il suo spazio prima di caricarsi
+
+Un'immagine disegnata in chat (`MediaImage`: il marcatore `MEDIA:`, un
+`[Attached file: …]`, l'array `media`, un'immagine markdown su un percorso locale)
+SHALL occupare il suo riquadro finale prima che i suoi byte arrivino, così che il
+caricamento non sposti niente sotto gli occhi di chi legge.
+
+Il server SHALL mandare con ogni messaggio che esce verso i client (pagina di
+`/api/history`, frame `message:new` e `message:media`) un campo
+`mediaSizes: { <percorso>: [larghezza, altezza] }` per le immagini PNG, JPEG, GIF e
+WebP di cui legge l'intestazione, con larghezza e altezza scambiate per un JPEG
+ruotato dall'EXIF. Le dimensioni NON SHALL essere salvate nel database: si leggono
+all'uscita, dal file, con una cache per percorso e `mtime`.
+
+Il client SHALL dare all'immagine, fino al suo caricamento, lo stesso riquadro che
+il browser le darà a caricamento avvenuto (`max-w-full max-h-80`, proporzioni
+mantenute, mai ingrandita), e dopo il caricamento SHALL lasciarla dimensionarsi da
+sé come prima.
+
+Senza `mediaSizes` (server che non le manda, file illeggibile, SVG, immagine
+remota) il comportamento SHALL restare quello di prima: l'immagine cresce quando
+arriva. Un client che non conosce il campo lo ignora.
+
+Finché i byte non arrivano, il riquadro SHALL leggersi come il posto di
+un'immagine e non come un buco: una tinta neutra del tema, in chiaro e in scuro,
+senza animazioni. Il sipario della lista (TOPIC-FIRST-01) NON SHALL aspettare
+un'immagine in vista che ha già il suo riquadro, perché il suo arrivo non sposta
+niente; un'immagine senza riquadro resta aspettata come prima.
+
+La bolla di chi invia un'immagine allegata (file scelto, incollato, o primo
+messaggio di una bozza) è disegnata prima che il server abbia la riga: il client
+SHALL metterci le dimensioni lette dal file nel composer, sotto lo stesso percorso
+con cui `MediaImage` le cerca. L'invio NON SHALL aspettare quella lettura più di
+mezzo secondo.
+
+#### Scenario: una risposta con immagine arrivata mentre la persona era via
+- **GIVEN** una chat letta, con la copia locale scritta, e una risposta con
+  un'immagine arrivata sul server dopo
+- **WHEN** la persona ricarica con la prima pagina trattenuta e l'immagine lenta
+- **THEN** la risposta compare in fondo con il riquadro dell'immagine già alto
+  quanto l'immagine, e il CLS del ritorno è ≤ 0,01 (prima 0,034)
+
+#### Scenario: un'immagine che arriva dal vivo
+- **GIVEN** una chat aperta, ferma in fondo
+- **WHEN** arriva dal server un messaggio con un'immagine (`message:new`), oppure le
+  immagini di fine turno (`message:media`), e i byte dell'immagine tardano
+- **THEN** il riquadro dell'immagine è già alto quanto l'immagine, e il CLS è ≤ 0,01
+
+#### Scenario: una topic visitata con un'immagine in vista si scopre senza aspettarne i byte
+- **GIVEN** una topic letta, con la copia locale scritta, la cui ultima risposta
+  ha un'immagine di dimensioni note
+- **WHEN** la persona torna sulla topic dal suo tab e i byte dell'immagine tardano
+  1,5 s
+- **THEN** il sipario si alza prima che i byte arrivino, in un numero di frame
+  lontano dal tetto duro del sipario (prima: al tetto, 74-75 frame, ~1270 ms),
+  l'immagine è già alta quanto sarà, e il CLS è ≤ 0,01
+
+#### Scenario: la bolla di chi allega un'immagine
+- **GIVEN** una chat aperta, ferma in fondo
+- **WHEN** la persona allega un PNG e invia, e i byte dell'immagine tardano
+- **THEN** la bolla compare con il riquadro dell'immagine già alto quanto
+  l'immagine, e il CLS è ≤ 0,01 (prima 0,0488)
+
+#### Scenario: senza dimensioni, come prima
+- **GIVEN** un messaggio con un'immagine il cui file il server non sa leggere
+- **THEN** il messaggio non porta `mediaSizes` e l'immagine si disegna come prima
+
+### Requirement: CHAT-FIND-01 — La chat cerca nella conversazione intera, uscite degli strumenti comprese, sul server
+
+Il cercatore della chat NON SHALL cercare nelle righe montate dalla lista
+virtuale (`MessageList.tsx:2111,2267`), e NON SHALL cercare l'uscita degli
+strumenti nei dati del client. Il client non la riceve: la storia la toglie
+(`server/routes/history.ts:136-143,266`, `shared/lean-tool-call.ts:305,433-436,516`).
+
+SHALL chiedere i risultati alla rotta `POST /api/history-find`
+(`{ sessionKey, query, matchCase }`, in `server/routes/history.ts`). La rotta
+SHALL leggere tutti i messaggi attivi della sessione con le uscite rimesse da
+`message_tool_outputs`, e SHALL rispondere
+`{ total, hits: [{ messageId, part, toolCallId?, offset }], truncated }`, con
+`total` esatto e al più 5.000 posizioni. La rotta NON SHALL essere aperta agli
+ospiti (`server/lib/grants.ts:101`).
+
+In ogni messaggio SHALL cercare: il testo; i ragionamenti; il comando o gli
+argomenti e l'uscita di ogni strumento (dal `detail` validato, o da `result`
+quando `detail` manca). NON SHALL cercare nei comandi lanciati da chi scrive
+(`CommandRunBlock`), che non sono messaggi. La ricerca SHALL essere una
+funzione pura (`shared/chat-find.ts`), la stessa per la rotta e per il client,
+e SHALL dare per ogni risultato `messageId`, la parte (`text`, `thinking`,
+`tool` con `toolCallId`) e la posizione.
+
+Il messaggio in streaming SHALL essere cercato nel client, sul testo ricevuto
+dal vivo; i suoi risultati SHALL sostituire quelli della rotta per lo stesso
+`messageId`. La barra SHALL chiedere alla rotta 250 ms dopo l'ultima lettera,
+annullando la richiesta precedente, e di nuovo a fine turno.
+
+I risultati SHALL essere nell'ordine in cui la conversazione li mostra, dal
+primo messaggio all'ultimo. Il primo passo avanti da fermo SHALL essere il
+primo risultato **sotto** la posizione di lettura, e il primo indietro il primo
+sopra (poi BROWSER-FIND-01 per il ciclo).
+
+Senza maiuscole/minuscole il confronto SHALL ignorare le maiuscole; una parola
+vuota SHALL dare zero risultati. Oltre 5.000 risultati il contatore SHALL dire
+«oltre 5000».
+
+Per un ospite di una chat condivisa la barra SHALL cercare solo nel testo e nei
+ragionamenti che il client ha.
+
+#### Scenario: una parola solo nel primo messaggio di una chat lunga
+- **GIVEN** una chat con più messaggi di quanti ne porti la prima pagina (`HISTORY_FIRST_PAGE`) e la parola «zibaldone» solo nel primo
+- **WHEN** apro la chat e cerco «zibaldone»
+- **THEN** il contatore arriva a «1 di 1» senza che la lista cambi righe sotto gli occhi
+- **AND** con Invio la riga del primo messaggio è in vista
+
+#### Scenario: una parola solo nell'uscita di uno strumento
+- **GIVEN** una risposta con una chiamata a uno strumento chiusa, la cui uscita contiene «ENOENT» e sta in `message_tool_outputs`
+- **WHEN** cerco «ENOENT»
+- **THEN** il contatore dice almeno un risultato
+
+#### Scenario: la funzione pura
+- **WHEN** `chatFind([{ id: 'a', content: 'Uno uno' }], 'uno', { matchCase: false })`
+- **THEN** il risultato ha due voci su `messageId: 'a'`, parte `text`, posizioni 0 e 4
+
+### Requirement: CHAT-FIND-02 — Arrivare su un risultato lo mostra, anche se era chiuso
+
+Andare su un risultato SHALL:
+
+- portare la sua riga al centro della vista, con il salto che già usa la
+  palette (`requestScrollToMessage`, `MessageList.tsx:1384-1460`), che unisce la
+  storia mancante (`'apply'`) solo in questo momento;
+- aprire la sezione dei ragionamenti o dello strumento che lo contiene, se è
+  chiusa, e lasciarla aperta dopo; una riga di strumento SHALL chiedere il suo
+  testo intero con la richiesta che c'è già (`ToolCallRow.tsx:274-283`) prima
+  di evidenziare;
+- espandere il corpo se il risultato è oltre il taglio di `clampBody`
+  (`Chat/clampBody.ts:14`);
+- evidenziare la parola nel testo a schermo con la CSS Custom Highlight API
+  (`CSS.highlights`), il corrente con un colore suo, senza modificare il DOM
+  della riga. Dove la parola non si ritrova nel testo a schermo (markdown che la
+  spezza, uscita disegnata in parte) SHALL evidenziare la riga intera
+  (`chat-msg-jump-highlight`).
+
+Chiudere la barra SHALL togliere ogni evidenziazione e NON SHALL richiudere le
+sezioni aperte.
+
+#### Scenario: la sezione chiusa si apre
+- **GIVEN** il risultato corrente dentro l'uscita di uno strumento chiuso
+- **WHEN** ci arrivo con Invio
+- **THEN** la sezione è aperta e la parola ha l'evidenziazione del corrente
+
+#### Scenario: nessun layout shift dall'evidenziazione
+- **GIVEN** una riga montata con tre risultati
+- **WHEN** la barra li evidenzia
+- **THEN** l'altezza della riga non cambia
+
+### Requirement: CHAT-FIND-03 — Mentre l'agente scrive il conteggio cresce, e non ti sposta
+
+Con la barra aperta su una chat in streaming, il cercatore SHALL ricercare il
+messaggio in corso quando il suo testo cambia, al più ogni 120 ms. I risultati
+nuovi SHALL aggiungersi al totale; l'indice e la posizione del risultato
+corrente NON SHALL cambiare, e la lista NON SHALL scorrere da sola per un
+risultato nuovo.
+
+#### Scenario: un risultato nuovo in coda
+- **GIVEN** la barra su «3 di 5» e un turno in streaming
+- **WHEN** l'agente scrive la parola cercata
+- **THEN** il contatore dice «3 di 6»
+- **AND** la vista non si è spostata

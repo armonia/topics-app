@@ -27,12 +27,26 @@ describe("userRowMarks", () => {
     expect(userRowMarks({ dispatched: true })).toEqual([{ kind: "dispatched-envelope" }]);
   });
 
+  test("a card's outcome waking the chat that sent it is the board's words too", () => {
+    expect(userRowMarks({ cardOutcome: true })).toEqual([{ kind: "dispatched-envelope" }]);
+  });
+
   test("the goal continuation carries its attempt number", () => {
     expect(userRowMarks({ goalNudge: 3 })).toEqual([{ kind: "goal-nudge", attempt: 3 }]);
     // A fractional or bogus value is not a continuation to invent one from.
     expect(userRowMarks({ goalNudge: 2.7 })).toEqual([{ kind: "goal-nudge", attempt: 2 }]);
     expect(userRowMarks({ goalNudge: "2" })).toBeUndefined();
     expect(userRowMarks({ goalNudge: -1 })).toBeUndefined();
+  });
+
+  test("the turn a turn-end hook asked for carries its own mark and attempt (HOOKS-04)", () => {
+    expect(userRowMarks({ hookNudge: 2 })).toEqual([{ kind: "hook-nudge", attempt: 2 }]);
+    expect(userRowMarks({ hookNudge: 1.9 })).toEqual([{ kind: "hook-nudge", attempt: 1 }]);
+    expect(userRowMarks({ hookNudge: 0 })).toBeUndefined();
+    expect(userRowMarks({ hookNudge: "1" })).toBeUndefined();
+    // A resend that repeats it keeps the hook's mark: whether it may is
+    // `repeatedRowMarks`'s call (only a row nobody answered).
+    expect(userRowMarks({ repeats: [{ kind: "hook-nudge", attempt: 1 }] })).toEqual([{ kind: "hook-nudge", attempt: 1 }]);
   });
 
   test("both at once: a dispatched turn the goal loop carried on", () => {
@@ -128,5 +142,41 @@ describe("a sub-agent's results wake the chat in a marked row (SUBAGENT-12)", ()
   test("a malformed entry is dropped, and none at all marks nothing", () => {
     expect(userRowMarks({ subagentResults: [{ ...card, status: "finished" }, { name: "x" }] })).toBeUndefined();
     expect(userRowMarks({ subagentResults: [] })).toBeUndefined();
+  });
+});
+
+describe("a hook's words travel only to a resend of a row nobody answered (review of PR 1623)", () => {
+  const HOOK = JSON.stringify([{ kind: "hook-nudge", attempt: 2 }]);
+  function chat(answer: { content: string; blocks: string | null } | null): Database {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE messages (session_key TEXT, role TEXT, content TEXT, blocks TEXT, sort_order INTEGER)");
+    db.run("INSERT INTO messages VALUES ('s', 'user', 'hello', NULL, 0)");
+    db.run("INSERT INTO messages VALUES ('s', 'assistant', 'puoi chiuderla', NULL, 1)");
+    db.run("INSERT INTO messages VALUES ('s', 'user', 'run the retrospective', ?, 2)", [HOOK]);
+    if (answer) db.run("INSERT INTO messages VALUES ('s', 'assistant', ?, ?, 3)", [answer.content, answer.blocks]);
+    return db;
+  }
+
+  test("A: Retry of a hook turn that failed keeps the mark, so the row is never the person's", () => {
+    const failed = chat({ content: "Network error", blocks: JSON.stringify([{ kind: "error", text: "Network error" }]) });
+    expect(userRowMarks({ repeats: repeatedRowMarks(failed, "s", "run the retrospective") })).toEqual([{ kind: "hook-nudge", attempt: 2 }]);
+    // A turn cut with no answer at all (the boot's resume) too.
+    expect(repeatedRowMarks(chat(null), "s", "run the retrospective")).toEqual([{ kind: "hook-nudge", attempt: 2 }] as never);
+  });
+
+  test("an answer the output cap cut (words + a notice without cause) is an answer", () => {
+    const cut = chat({ content: "half of the retrospective", blocks: JSON.stringify([{ kind: "error", text: "Risposta troncata al limite di output." }]) });
+    expect(userRowMarks({ repeats: repeatedRowMarks(cut, "s", "run the retrospective") })).toBeUndefined();
+    // The notice alone as the row's text (nothing was produced): no answer.
+    const empty = chat({ content: "⚠️ Nessuna risposta: il turno si è chiuso.", blocks: JSON.stringify([{ kind: "error", text: "Nessuna risposta: il turno si è chiuso." }]) });
+    expect(repeatedRowMarks(empty, "s", "run the retrospective")).toEqual([{ kind: "hook-nudge", attempt: 2 }] as never);
+    // Words then a real fault (a cause on the error): still no answer, Retry stays marked.
+    const fault = chat({ content: "half", blocks: JSON.stringify([{ kind: "error", text: "connection reset", cause: "api-unavailable" }]) });
+    expect(repeatedRowMarks(fault, "s", "run the retrospective")).toEqual([{ kind: "hook-nudge", attempt: 2 }] as never);
+  });
+
+  test("defect 3: after an answer, the same words typed by the person are the person's", () => {
+    const answered = chat({ content: "retrospective done", blocks: null });
+    expect(userRowMarks({ repeats: repeatedRowMarks(answered, "s", "run the retrospective") })).toBeUndefined();
   });
 });

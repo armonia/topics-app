@@ -89,12 +89,13 @@ function sorgenti(dir: string, out: string[] = []): string[] {
 }
 
 describe('anello di caricamento', () => {
-  test("nessuno se lo ridisegna a mano fuori da Spinner.tsx", () => {
+  // Every wait is the square loader through Spinner: no ring, no lucide icon turning.
+  test("nothing turns with animate-spin outside Spinner.tsx", () => {
     const colpevoli = sorgenti(CLIENT_SRC)
       .filter((p) => !p.endsWith(join('Shared', 'Spinner.tsx')))
       // The preview layer draws its own progress ring and may not import app components (check:ui-isolation).
       .filter((p) => !p.slice(CLIENT_SRC.length + 1).startsWith('ui' + sep))
-      .filter((p) => /rounded-full[^"'`]*animate-spin|animate-spin[^"'`]*rounded-full/.test(read(p)))
+      .filter((p) => /\banimate-spin\b/.test(read(p)))
       .map((p) => p.slice(CLIENT_SRC.length + 1));
     expect(colpevoli).toEqual([]);
   });

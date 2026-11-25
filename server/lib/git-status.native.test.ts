@@ -86,7 +86,9 @@ test("computeGitStatus uses native status for three repository shapes and retain
 
       setNativeGitStatusTestOverrides({ enabled: true, module: nativeFixture() });
       before = gitSpawnTotal();
-      const actual = await computeGitStatus(resolvedDir, { cause: "cacheMiss" });
+      // `fresh` forces a new generation: the round above is never a candidate to
+      // join, however the dedup cache in git-status-cache.ts happens to be timed.
+      const actual = await computeGitStatus(resolvedDir, { cause: "cacheMiss", fresh: true });
       expect(actual).toEqual(expected);
       expect(gitSpawnTotal() - before).toBe(0);
       expect(nativeGitStatusSnapshot()).toMatchObject({ loaded: true, enabled: true, calls: 1, fallbacks: 0 });
@@ -142,7 +144,9 @@ test("native numstat falls back only for unsupported paths and records the fallb
     };
     setNativeGitStatusTestOverrides({ enabled: true, module: unsupported });
     const before = gitSpawnTotal();
-    const actual = await computeGitStatus(resolvedDir, { cause: "cacheMiss" });
+    // `fresh` forces a new generation: this round must actually run, never join
+    // the disabled round above through the dedup cache in git-status-cache.ts.
+    const actual = await computeGitStatus(resolvedDir, { cause: "cacheMiss", fresh: true });
     expect(actual).toEqual(expected);
     expect(gitSpawnTotal() - before).toBe(2);
     expect(nativeGitStatusSnapshot()).toMatchObject({ numstatCalls: 1, numstatFallbacks: 1 });
@@ -167,7 +171,9 @@ test.skipIf(!nativeModuleBuilt)("the built addon returns the same status as git 
       const expected = await computeGitStatus(path, { cause: "cacheMiss" });
       setNativeGitStatusTestOverrides({ enabled: true, module: native });
       const before = gitSpawnTotal();
-      expect(await computeGitStatus(path, { cause: "cacheMiss" })).toEqual(expected);
+      // `fresh` forces a new generation: this round must actually run, never join
+      // the disabled round above through the dedup cache in git-status-cache.ts.
+      expect(await computeGitStatus(path, { cause: "cacheMiss", fresh: true })).toEqual(expected);
       expect(gitSpawnTotal() - before).toBe(0);
     }
   } finally {

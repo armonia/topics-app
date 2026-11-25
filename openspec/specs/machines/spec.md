@@ -147,3 +147,30 @@ L'adattatore Hetzner SHALL leggere la location di un server da `location` (API a
 #### Scenario: l'API precedente
 - **GIVEN** una risposta con `datacenter.location` (hel1, Helsinki, FI)
 - **THEN** la location SHALL essere «Helsinki, FI» e il prezzo quello del listino hel1
+
+### Requirement: MACHINE-05 — Ogni macchina ha uno stato di sicurezza e una storia delle ultime 24 ore, in un file che la tray legge
+
+Topics SHALL scrivere in modo atomico `~/.topics/machines-health.json` (la cartella degli strumenti accanto alla tray, mai quella dei dati del server) con, per
+ogni macchina della tabella `machines` che è questo computer o un nodo accoppiato:
+l'esito di quattro sonde in SOLA LETTURA (`updates`, `disk`, `access`, `antivirus`,
+ciascuna col suo stato e una frase di al massimo 60 caratteri), 288 campioni di CPU e
+memoria a passo di 300 s, e le carte eseguite oggi ora per ora (24 interi). Lo stato
+della macchina SHALL essere il peggiore dei check (`info` non conta, `unknown` non
+sporca gli altri). Un comando che manca, non ha i permessi o supera i 5 s SHALL dare
+`unknown` con la frase del perché, mai un errore che rompe il giro. Il giro SHALL
+ripetersi ogni 5 minuti per i campioni e ogni 30 per le sonde; una macchina che non
+risponde SHALL tenere l'ultimo esito con la sua ora.
+
+MISURA: `bun test server/lib/machine-security.test.ts server/lib/machine-health.test.ts` verde.
+
+#### Scenario: un aggiornamento di sicurezza offerto da più di 7 giorni
+- **GIVEN** un Mac con un aggiornamento di sistema in attesa, offerto da 8 giorni
+- **THEN** il check `updates` SHALL essere `warn`
+
+#### Scenario: comando mancante
+- **GIVEN** una macchina dove il comando di una sonda non esiste
+- **THEN** il check SHALL essere `unknown` con la frase del perché e le altre sonde SHALL rispondere comunque
+
+#### Scenario: il PC dorme
+- **GIVEN** un nodo che non risponde al giro
+- **THEN** la sua sicurezza SHALL restare l'ultimo esito con il suo `checked_at`, e i suoi campioni SHALL essere `null`

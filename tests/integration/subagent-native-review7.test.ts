@@ -217,10 +217,13 @@ beforeAll(async () => {
   };
 
   const terminal = await import("../../server/routes/terminal");
+  const childrenMod = await import("../../server/routes/terminal-children");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
+  const sharedMod = await import("../../server/routes/terminal-shared");
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(SOCKET_PATH);
-  terminal._setAgentProfilesHome(AGENTS_HOME);
-  terminal._setTerminalTrackerForTests(null);
+  bridgeSocketMod._setPtyBridgeSocketPath(SOCKET_PATH);
+  childrenMod._setAgentProfilesHome(AGENTS_HOME);
+  sharedMod._setTerminalTrackerForTests(null);
   // The parent's wake as server.ts starts it, with its verdict: the module's
   // own, so the abort route's Stop reaches the wakes it queued.
   const { startSubagentWakes } = await import("../../server/services/subagent-wake");
@@ -285,11 +288,13 @@ afterAll(async () => {
   const { _resetSubagentWakes } = await import("../../server/services/subagent-wake");
   _resetSubagentWakes();
   const terminal = await import("../../server/routes/terminal");
+  const childrenMod = await import("../../server/routes/terminal-children");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
   terminal.setSubAgentExitHandler(null);
-  terminal._setAgentProfilesHome(null);
+  childrenMod._setAgentProfilesHome(null);
   process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(null);
+  bridgeSocketMod._setPtyBridgeSocketPath(null);
   const { removeProvider } = await import("../../server/providers");
   try { removeProvider("topics"); } catch { /* already gone */ }
   await bridge?.close();

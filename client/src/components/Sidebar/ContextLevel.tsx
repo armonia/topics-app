@@ -16,7 +16,7 @@
  * System and its own close.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, CloudOff, Loader2, Scale, Sparkles, Stethoscope, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, CloudOff, Scale, Sparkles, Stethoscope, X } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
 import { addCatalogue } from '../../lib/i18n';
@@ -31,6 +31,7 @@ import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles
 import { PALLINO_ATTESA, PALLINO_OK } from './chromeSignals';
 import { Files, SECTION, SECTION_HINT, type Tr } from './ContextFiles';
 import { shortTokens } from '../../lib/formatTokens';
+import { Spinner } from '../Shared/Spinner';
 
 addCatalogue('it', HUB_CONTEXT_IT);
 addCatalogue('en', HUB_CONTEXT_EN);
@@ -60,9 +61,11 @@ function useClock(locale: string) {
 export interface ContextLevelProps {
   /** Closes the menu: the phone's close button leaves it. */
   onNavigate?: () => void;
+  /** Mounted inside the System page: the phone's own header (back, close) is left out. */
+  embedded?: boolean;
 }
 
-export function ContextLevel({ onNavigate }: ContextLevelProps) {
+export function ContextLevel({ onNavigate, embedded = false }: ContextLevelProps) {
   const tr = useT();
   const locale = useLocale();
   const { isMobile } = useMobile();
@@ -128,7 +131,7 @@ export function ContextLevel({ onNavigate }: ContextLevelProps) {
 
   return (
     <div data-testid="context-level" className="flex min-w-0 flex-col">
-      {isMobile ? (
+      {isMobile && !embedded ? (
         <>
           <div className="relative flex h-11 items-center px-1">
             <button type="button" data-testid="context-back" onClick={closeLevel} className="flex h-11 items-center gap-0.5 px-2 text-body-lg text-primary">
@@ -254,7 +257,7 @@ function Contradictions({ view, tr, pad, isMobile, when, running, asking, starti
       {check.error && !running && <p className={`m-0 py-1 text-mini ${DANGER_TEXT}`}>{tr('hubContext.check.lastFailed', { why: check.error })}</p>}
       {running ? (
         <div data-testid="context-check-running" className="flex items-center gap-2 py-1.5 text-compact text-app-text">
-          <Loader2 size={13} className="flex-none animate-spin text-primary" aria-hidden="true" />
+          <Spinner size={11} box={13} activity="tool" />
           <span className="min-w-0 flex-1">{tr('hubContext.check.running')}<span className="block text-mini text-app-text-muted">{tr('hubContext.check.runningHint')}</span></span>
         </div>
       ) : asking ? (
@@ -262,7 +265,7 @@ function Contradictions({ view, tr, pad, isMobile, when, running, asking, starti
           <p className={`m-0 text-app-text ${isMobile ? 'text-body' : 'text-compact'}`}>{tr('hubContext.check.confirm')}</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             <button type="button" data-testid="context-check-start" disabled={starting} onClick={onStart} className={`${button} bg-primary text-white hover:bg-primary/90 disabled:opacity-60`}>
-              {starting ? <Loader2 size={12} className="animate-spin" aria-hidden="true" /> : <Sparkles size={12} aria-hidden="true" />}{tr('hubContext.check.start')}
+              {starting ? <Spinner size="sm" tone="current" /> : <Sparkles size={12} aria-hidden="true" />}{tr('hubContext.check.start')}
             </button>
             <button type="button" data-testid="context-check-cancel" onClick={onCancel} className={`${button} border border-app-border text-app-text-secondary hover:bg-app-hover`}>{tr('hubContext.check.cancel')}</button>
           </div>
@@ -332,7 +335,7 @@ function Doctor({ doctor, tr, pad }: { doctor: DoctorVerdict; tr: Tr; pad: strin
     <div data-testid="context-doctor" data-state={doctor.state} className={`${pad} mt-2 border-t border-app-border pt-2 text-mini text-app-text-secondary`}>
       {doctor.state === 'pending' ? (
         <span className="flex items-center gap-1.5">
-          <Loader2 size={12} className="flex-none animate-spin" aria-hidden="true" />
+          <Spinner size="sm" tone="current" activity="tool" />
           <span className="font-semibold text-app-text">{tr('hubContext.doctor.pending')}</span>
           <span className="truncate text-app-text-muted">{tr('hubContext.doctor.pendingHint')}</span>
         </span>

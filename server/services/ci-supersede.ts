@@ -21,30 +21,76 @@ const isLive = (run: GithubRun): boolean => run.status === "queued" || run.statu
 export async function supersedePreviousDelivery(
   port: GithubPort,
   input: { cwd: string; repo: string; taskId: string; branch: string; sha: string; pr: PullRequestRef; baseBranch: string },
-): Promise<{ closed: number[]; cancelled: number[]; problems: string[] }> {
-  const out = { closed: [] as number[], cancelled: [] as number[], problems: [] as string[] };
+): Promise<SupersedeOutcome> {
   const { cwd, repo, branch, sha, pr, baseBranch } = input;
-  const cancelLive = async (head: string, keep: (run: GithubRun) => boolean) => {
-    const runs = await port.branchRuns(repo, head);
-    if (!runs.ok) { out.problems.push(runs.error); return; }
-    for (const r of runs.value) {
-      if (!isLive(r) || !keep(r)) continue;
-      const done = await port.cancelRun(repo, r.id);
-      if (done.ok) out.cancelled.push(r.id);
-      else out.problems.push(done.error);
-    }
-  };
+  const out = await closeOtherRounds(port, {
+    cwd, repo, taskId: input.taskId, branch, baseBranch, keep: pr.number,
+    comment: `Superseded by #${pr.number}: the card was redelivered on \`${branch}\`.`,
+  });
+  if (branch !== baseBranch) await cancelLive(port, repo, branch, (r) => r.head_sha !== sha, out);
+  return out;
+}
+
+type SupersedeOutcome = { closed: number[]; cancelled: number[]; problems: string[] };
+
+async function cancelLive(port: GithubPort, repo: string, head: string, keep: (run: GithubRun) => boolean, out: SupersedeOutcome): Promise<void> {
+  const runs = await port.branchRuns(repo, head);
+  if (!runs.ok) { out.problems.push(runs.error); return; }
+  for (const r of runs.value) {
+    if (!isLive(r) || !keep(r)) continue;
+    const done = await port.cancelRun(repo, r.id);
+    if (done.ok) out.cancelled.push(r.id);
+    else out.problems.push(done.error);
+  }
+}
+
+/** The card's open pull requests on a head other than `branch` (never `main`, never `keep`): closed with `comment`, their live runs cancelled. */
+async function closeOtherRounds(
+  port: GithubPort,
+  input: { cwd: string; repo: string; taskId: string; branch: string; baseBranch: string; keep?: number; comment: string },
+): Promise<SupersedeOutcome> {
+  const out: SupersedeOutcome = { closed: [], cancelled: [], problems: [] };
+  const { cwd, repo, branch, baseBranch } = input;
   const open = await port.openPullRequests(cwd, repo);
   if (!open.ok) { out.problems.push(open.error); return out; }
   const tag = cardTag(input.taskId);
-  const stale = open.value.filter((p) => p.title.includes(tag) && p.number !== pr.number
+  const stale = open.value.filter((p) => p.title.includes(tag) && p.number !== input.keep
     && p.headRefName !== branch && p.headRefName !== baseBranch);
   for (const old of stale) {
-    const closed = await port.closePullRequest(cwd, repo, old.number, `Superseded by #${pr.number}: the card was redelivered on \`${branch}\`.`);
+    const closed = await port.closePullRequest(cwd, repo, old.number, input.comment);
     if (!closed.ok) { out.problems.push(closed.error); continue; }
     out.closed.push(old.number);
-    await cancelLive(old.headRefName, () => true);
+    await cancelLive(port, repo, old.headRefName, () => true, out);
   }
-  if (branch !== baseBranch) await cancelLive(branch, (r) => r.head_sha !== sha);
   return out;
 }
+
+/**
+ * A NEW ROUND ON A NEW BRANCH ENDS THE PULL REQUESTS OF THE ROUNDS BEFORE IT.
+ *
+ * `supersedePreviousDelivery` fires only once the new round has opened its own
+ * pull request, which is after its local commands are green and its push is
+ * done. A card that came back to its agent and restarted on a new branch
+ * often never gets there - `gates:fast` red, a round cut by a restart, an
+ * agent still working - and the pull request of the previous round stayed
+ * open with its run holding runners: 18 of them closed by hand on 18/11/2026,
+ * each with a card already on another branch. So the round closes them the
+ * moment it starts, from the branch its checkout is on. Same card filter as
+ * above; a checkout on `main` or on no branch touches nothing.
+ */
+export async function supersedeEarlierRounds(
+  port: GithubPort,
+  input: { cwd: string; taskId: string; baseBranch: string },
+): Promise<SupersedeOutcome> {
+  const none: SupersedeOutcome = { closed: [], cancelled: [], problems: [] };
+  const branch = await port.branch(input.cwd);
+  if (!branch.ok) return { ...none, problems: [branch.error] };
+  if (!branch.value || branch.value === input.baseBranch) return none;
+  const repo = await port.repo(input.cwd);
+  if (!repo.ok) return { ...none, problems: [repo.error] };
+  return closeOtherRounds(port, {
+    cwd: input.cwd, repo: repo.value, taskId: input.taskId, branch: branch.value, baseBranch: input.baseBranch,
+    comment: `Superseded: the card started a new round on \`${branch.value}\`, this pull request belonged to an earlier one.`,
+  });
+}
+

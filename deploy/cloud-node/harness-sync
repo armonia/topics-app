@@ -1,0 +1,791 @@
+#!/usr/bin/env python3
+"""harness-sync: porta sui nodi le memorie e le regole degli agenti del Mac (CLAUDE.md, ~/.agents, skill, memorie).
+
+Lo lancia node-pool a ogni giro (staccato: un trasferimento lungo non ferma il giro). Senza il file di
+configurazione `~/.topics/harness-sync.config.json` non fa niente e non rompe niente.
+
+  harness-sync run [--force] [--no-mount] [--targets FILE|-]   un giro: impronta, probe dei nodi, trasferimento, stato
+  harness-sync status                                           stampa ~/.topics/harness-sync.json
+
+Configurazione (fuori dal repo: i percorsi sono di una persona, non del codice):
+  { "paths":         ["~/.claude/CLAUDE.md", "~/.agents", "~/.claude/projects/*/memory"],   in chiaro sul nodo
+    "private_paths": ["~/.claude/jarvis/private"],                  solo dentro la cartella cifrata del nodo
+    "exclude":       ["altro-nome"],                                nomi in più da non portare (opzionale)
+    "pc":            {"ssh": "utente@host", "base_url": "http://127.0.0.1:3393", "state_cmd": "~/bin/pc-state"} }
+
+Dove arriva: ogni percorso sta sul nodo allo stesso posto relativo alla home (~/.agents -> /home/topics/.agents).
+  Nodi Linux (rsync su ssh, incrementale): `paths` in chiaro. `private_paths` dentro un volume gocryptfs
+  (/home/topics/.harness/private) montato dal Mac con la password del Portachiavi (servizio topics-node,
+  account harness-key), che passa SOLO dallo stdin di ssh: mai su un disco del nodo, mai in argv. Il percorso
+  vero sul nodo è un link simbolico verso il volume: chiuso (dopo un riavvio) il link resta appeso e non c'è
+  niente da leggere, finché il giro successivo del Mac non riapre.
+  PC Windows (tar su ssh): `paths` sì; `private_paths` solo se BitLocker protegge il disco di destinazione.
+  Il PC che dorme non si sveglia: si allinea al primo giro in cui è acceso.
+
+Stato (contratto con la tray): ~/.topics/harness-sync.json, scritto in modo atomico.
+Mai portato, qualunque configurazione: settings.json (sul nodo c'è il suo, con le variabili del proxy),
+credenziali, chiavi, cache, node_modules, history.jsonl, backup, cartelle .git.
+"""
+import fcntl, fnmatch, glob, hashlib, json, os, re, secrets, shlex, sqlite3, subprocess, sys, tarfile, time
+
+HOME = os.path.expanduser("~")
+TOPICS = os.path.join(HOME, ".topics")
+CONFIG = os.environ.get("HARNESS_SYNC_CONFIG", os.path.join(TOPICS, "harness-sync.config.json"))
+STATUS = os.environ.get("HARNESS_SYNC_STATUS", os.path.join(TOPICS, "harness-sync.json"))
+INTERNAL = os.environ.get("HARNESS_SYNC_INTERNAL", os.path.join(TOPICS, "harness-sync.internal.json"))
+LOCK = os.environ.get("HARNESS_SYNC_LOCK", os.path.join(TOPICS, "harness-sync.lock"))
+LOG = os.environ.get("HARNESS_SYNC_LOG", os.path.join(TOPICS, "harness-sync.log"))
+MAC_DB = os.environ.get("HARNESS_SYNC_MAC_DB", os.environ.get("NODE_POOL_MAC_DB", os.path.join(HOME, "Projects/topics-app/data/topics.db")))
+KEYCHAIN = ("topics-node", "harness-key")
+
+HISTORY_S = 24 * 3600      # un campione per giro, tenuti 24 ore
+FP_EVERY_S = int(os.environ.get("HARNESS_SYNC_FP_EVERY_S", "300"))   # l'impronta si ricalcola al più ogni 5 minuti
+RETRY_S = int(os.environ.get("HARNESS_SYNC_RETRY_S", "900"))         # un nodo già servito non riceve più di un trasferimento ogni 15 minuti
+
+REMOTE_USER = "topics"
+REMOTE_HOME = "/home/topics"
+REMOTE_VAULT = f"{REMOTE_HOME}/.harness"
+REMOTE_REPOS = f"{REMOTE_HOME}/repos"   # dove node-pool porta i repo delle card (sync_repo)
+REMOTE_ENC = f"{REMOTE_VAULT}/private.enc"
+REMOTE_MNT = f"{REMOTE_VAULT}/private"
+
+# Nomi (non percorsi) mai portati. Valgono per ogni cartella, come un --exclude di rsync.
+EXCLUDE = ("settings.json", "settings.local.json", ".credentials*", "*.pem", "*.key", "id_rsa*", "id_ed25519*",
+           ".env", ".env.*", "node_modules", ".git", ".cache", "cache", "caches", "backups", "__pycache__", ".DS_Store",
+           "history.jsonl", "*.sock", "*.lock", ".venv", "venv")
+
+
+def log(msg):
+    try:
+        os.makedirs(os.path.dirname(LOG), exist_ok=True)
+        with open(LOG, "a") as f:
+            f.write(f"{time.strftime('%F %T')} {msg}\n")
+    except OSError:
+        pass
+
+
+# ── configurazione e percorsi ──────────────────────────────────────────────────
+
+def norm_rel(p):
+    """Percorso della configurazione -> relativo alla home, o None se esce dalla home o è vuoto."""
+    if not isinstance(p, str) or not p.strip():
+        return None
+    p = os.path.expanduser(p.strip())
+    if os.path.isabs(p):
+        if not (p == HOME or p.startswith(HOME + os.sep)):
+            return None
+        p = os.path.relpath(p, HOME)
+    p = os.path.normpath(p)
+    if p in (".", "") or p.startswith(".."):
+        return None
+    return p
+
+
+def load_config(path=None):
+    """None se manca o non è leggibile: la sincronizzazione è spenta."""
+    try:
+        with open(path or CONFIG) as f:
+            c = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(c, dict):
+        return None
+    paths = [r for r in (norm_rel(p) for p in c.get("paths") or []) if r]
+    private = [r for r in (norm_rel(p) for p in c.get("private_paths") or []) if r]
+    # una cartella cifrata non ha glob e nomi che una shell fraintenderebbe (finiscono in uno script sul nodo)
+    private = [r for r in private if re.fullmatch(r"[A-Za-z0-9._@+/-]+", r)]
+    private_set = set(private)
+    paths = [r for r in paths if r not in private_set]   # mai in chiaro ciò che è dichiarato privato
+    if not paths and not private:
+        return None
+    return {"paths": paths, "private_paths": private, "exclude": [e for e in c.get("exclude") or [] if isinstance(e, str)],
+            "pc": c.get("pc") if isinstance(c.get("pc"), dict) else None}
+
+
+def is_excluded(name, extra=()):
+    return any(fnmatch.fnmatchcase(name, pat) for pat in (*EXCLUDE, *extra))
+
+
+def expand(rel, extra=()):
+    """Percorsi veri (relativi alla home) dietro una voce, glob compreso. Una voce con un nome escluso non esiste."""
+    out = []
+    for m in sorted(glob.glob(os.path.join(HOME, rel))):
+        r = os.path.relpath(m, HOME)
+        if not is_excluded(os.path.basename(r), extra) and os.path.lexists(m) and os.path.exists(m):
+            out.append(r)
+    return out
+
+
+def iter_files(rel, extra=()):
+    """File sotto `rel` seguendo i link simbolici (le skill sono link), saltando i nomi esclusi, senza cicli."""
+    top = os.path.join(HOME, rel)
+    if os.path.isfile(top):
+        yield rel, top
+        return
+    seen = set()
+    for root, dirs, files in os.walk(top, followlinks=True):
+        real = os.path.realpath(root)
+        if real in seen:
+            dirs[:] = []
+            continue
+        seen.add(real)
+        dirs[:] = sorted(d for d in dirs if not is_excluded(d, extra))
+        for f in sorted(files):
+            if is_excluded(f, extra):
+                continue
+            ap = os.path.join(root, f)
+            if os.path.exists(ap):
+                yield os.path.relpath(ap, HOME), ap
+
+
+def entry_fp(rels, extra=()):
+    h = hashlib.sha1()
+    n = 0
+    for rel in rels:
+        for r, ap in iter_files(rel, extra):
+            try:
+                st = os.stat(ap)
+            except OSError:
+                continue
+            h.update(f"{r}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
+            n += 1
+    return h.hexdigest()[:12] if n else "empty"
+
+
+# ── memorie dei progetti sotto il nome che il nodo si aspetta ──────────────────
+
+def encode_project_path(p):
+    """Come Claude Code chiama la cartella di un progetto in ~/.claude/projects: ogni carattere non alfanumerico diventa «-»."""
+    return re.sub(r"[^A-Za-z0-9]", "-", p)
+
+
+def transcript_cwd(project_dir):
+    """Cartella di lavoro vera di un progetto del Mac, letta dai suoi transcript (che non si portano mai: si legge e basta).
+    La codifica del nome non si inverte («-» è anche un trattino vero), il `cwd` dentro il transcript sì."""
+    try:
+        names = [n for n in sorted(os.listdir(project_dir)) if n.endswith(".jsonl")][:3]
+    except OSError:
+        return None
+    for n in names:
+        try:
+            with open(os.path.join(project_dir, n), errors="replace") as f:
+                for i, line in enumerate(f):
+                    if i > 60:
+                        break
+                    m = re.search(r'"cwd"\s*:\s*("(?:[^"\\]|\\.)*")', line)
+                    if m:
+                        return json.loads(m.group(1))
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def repo_identity(cwd):
+    """(radice del repo principale, nome dal remote origin) di un checkout, o None. Un worktree risolve al repo principale."""
+    r = _run(["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], timeout=20)
+    common = r.stdout.strip()
+    if r.returncode != 0 or os.path.basename(common) != ".git":
+        return None
+    root = os.path.dirname(common)
+    o = _run(["git", "-C", root, "remote", "get-url", "origin"], timeout=20)
+    url = o.stdout.strip()
+    if o.returncode != 0 or not url:
+        return None
+    name = url.rstrip("/").split("/")[-1]
+    return root, (name[:-4] if name.endswith(".git") else name)
+
+
+def project_aliases(cfg, store, now):
+    """Per ogni progetto del Mac con una memoria, la stessa memoria sotto il nome del suo repo sul nodo.
+    Claude Code legge ~/.claude/projects/<cartella di lavoro codificata>/memory e, da un worktree, quella del repo
+    principale: basta quindi il percorso del repo sul nodo (REMOTE_REPOS/<nome>, il nome viene dall'origin git).
+    La corrispondenza si deriva, non si scrive: cwd dal transcript -> repo principale -> origin."""
+    cache = store.setdefault("repo_cache", {})
+    best = {}
+    for mem in sorted(glob.glob(os.path.join(HOME, ".claude/projects/*/memory"))):
+        rel = os.path.relpath(mem, HOME)
+        if not any(fnmatch.fnmatchcase(rel, e) for e in cfg["paths"]) or not os.path.isdir(mem):
+            continue
+        cwd = transcript_cwd(os.path.dirname(mem))
+        if not cwd or not os.path.isdir(cwd):
+            continue
+        c = cache.get(cwd)
+        if not c or now - c["at"] > 86400:
+            ident = repo_identity(cwd)
+            c = cache[cwd] = {"at": now, "id": list(ident) if ident else None}
+        if not c["id"] or os.path.realpath(c["id"][0]) != os.path.realpath(cwd):
+            continue   # non è un repo, o è un worktree: la sua memoria sul nodo è quella del repo principale
+        name = c["id"][1]
+        mt = os.stat(mem).st_mtime
+        if name not in best or mt > best[name][0]:
+            dest = f".claude/projects/{encode_project_path(f'{REMOTE_REPOS}/{name}')}/memory"
+            best[name] = (mt, {"rel": rel, "dest": dest, "enc": encode_project_path(f"{REMOTE_REPOS}/{name}")})
+    return [v for _, v in sorted(best.values(), key=lambda x: x[1]["enc"])]
+
+
+def compute_units(cfg, aliases=()):
+    """Una unità per voce di configurazione: {nome: {kind, entry, rels, fp}}. kind pub|prv.
+    Gli alias delle memorie sono unità solo per i nodi Linux (`dest`: dove vanno sul nodo)."""
+    extra = cfg["exclude"]
+    units = {}
+    for a in aliases:
+        units[f"pub:alias:{a['enc']}"] = {"kind": "pub", "entry": f"alias:{a['enc']}", "rels": [a["rel"]], "dest": a["dest"],
+                                          "linux_only": True, "fp": entry_fp([a["rel"]], extra)}
+    for kind, entries in (("pub", cfg["paths"]), ("prv", cfg["private_paths"])):
+        for e in entries:
+            rels = expand(e, extra)
+            units[f"{kind}:{e}"] = {"kind": kind, "entry": e, "rels": rels, "fp": entry_fp(rels, extra) if rels else "absent"}
+    return units
+
+
+def rev_of(fps):
+    """Impronta di un insieme di unità {nome: impronta}: la stessa funzione per il Mac e per un nodo."""
+    return hashlib.sha1(json.dumps(sorted(fps.items())).encode()).hexdigest()[:12]
+
+
+# ── file di stato ──────────────────────────────────────────────────────────────
+
+def read_json(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def write_atomic(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, indent=1)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
+def prune_history(samples, now):
+    return [s for s in samples if now - s["at"] <= HISTORY_S]
+
+
+# ── processi esterni (l'unico punto da sostituire nei test) ────────────────────
+
+def _run(argv, input=None, timeout=300, cwd=None):
+    try:
+        return subprocess.run(argv, input=input, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(argv, 124, "", "tempo scaduto")
+    except OSError as e:
+        return subprocess.CompletedProcess(argv, 127, "", str(e))
+
+
+def tail(s, n=160):
+    return " ".join((s or "").split())[-n:]
+
+
+def keychain_password(create=True):
+    """La password del volume cifrato: nel Portachiavi del Mac, generata una volta. Mai in argv: la scrittura
+    passa dallo stdin di `security -i` (un -w nella riga di comando si vedrebbe in `ps`)."""
+    svc, acct = KEYCHAIN
+    r = _run(["security", "find-generic-password", "-s", svc, "-a", acct, "-w"])
+    if r.returncode == 0 and r.stdout.strip():
+        return r.stdout.strip()
+    if not create:
+        return None
+    pw = secrets.token_urlsafe(32)
+    w = _run(["security", "-i"], input=f'add-generic-password -s {svc} -a {acct} -w "{pw}" -U\n')
+    back = _run(["security", "find-generic-password", "-s", svc, "-a", acct, "-w"])
+    if w.returncode != 0 or back.stdout.strip() != pw:
+        return None   # senza la copia nel Portachiavi la password andrebbe persa col volume appena cifrato
+    log("password del volume cifrato creata nel Portachiavi")
+    return pw
+
+
+# ── nodi Linux ─────────────────────────────────────────────────────────────────
+
+# IPQoS=af41: il DSCP di default di ssh (cs1/af21) fa aspettare l'handshake dietro il traffico
+# di massa sull'uplink: 5-7 s contro 1,8 s con af41, 13-72 s contro 1-4 s senza marcatura
+# (misurato a coppie il 17/11), mentre nc e curl restano veloci. Il ssh del nodo è corto e
+# interattivo; i trasferimenti grandi (scp) restano senza marcatura.
+# One shared connection per node, as in node-pool: each rsync or command used to be a new ssh
+# login and a new logind session on the node (card e809a470).
+MUX_DIR = os.path.join(HOME, ".ssh", "cm")
+MUX = ["-o", "ControlMaster=auto", "-o", f"ControlPath={MUX_DIR}/topics-node-%C", "-o", "ControlPersist=10m",
+       "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+
+
+def ssh_opts(t):
+    o = ["-o", "IdentitiesOnly=yes", "-o", "IPQoS=af41", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
+         "-o", "LogLevel=ERROR", *MUX]
+    os.makedirs(MUX_DIR, mode=0o700, exist_ok=True)
+    if t.get("key"):
+        o = ["-i", t["key"], *o]
+    if t.get("known_hosts"):
+        os.makedirs(os.path.dirname(t["known_hosts"]), exist_ok=True)
+        o += ["-o", f"UserKnownHostsFile={t['known_hosts']}"]
+    return o
+
+
+def ssh_argv(t, remote_cmd):
+    return ["ssh", *ssh_opts(t), f"root@{t['ip']}", remote_cmd]
+
+
+def is_mounted_sh():
+    # /proc/mounts e non `mountpoint`: root non può fare stat dentro un mount FUSE che non è suo
+    return f'grep -q " {REMOTE_MNT} fuse.gocryptfs " /proc/mounts'
+
+
+PROBE = f"{is_mounted_sh()} && echo open || echo closed; command -v gocryptfs >/dev/null && echo has-gocryptfs || echo no-gocryptfs; command -v rsync >/dev/null && echo has-rsync || echo no-rsync"
+
+
+def probe_checks(units):
+    """[(nome unità, test sul nodo)]: ciò che risulta consegnato deve esserci ancora. Qualcun altro può aver ripulito
+    la home del nodo (o il nodo essere ripartito da uno snapshot): senza questo controllo il Mac non lo saprebbe mai."""
+    out = []
+    for k, u in units.items():
+        if not u["rels"]:
+            continue
+        if u["kind"] == "prv":
+            out.append((k, f"[ -L {shlex.quote(REMOTE_HOME + '/' + u['entry'])} ]"))   # un link: chiuso il bersaglio non c'è
+        else:
+            out.append((k, f"[ -e {shlex.quote(REMOTE_HOME + '/' + (u.get('dest') or u['rels'][0]))} ]"))
+    return out
+
+
+def probe_cmd(checks):
+    return PROBE + "".join(f"; {t} || echo missing:{i}" for i, (_, t) in enumerate(checks))
+
+
+def mount_script():
+    """Installa gocryptfs se manca, inizializza il volume la prima volta, lo monta. La password arriva dallo
+    stdin dello script (una riga) e passa a gocryptfs da una pipe di shell: `printf` è un builtin, niente argv."""
+    return f"""set -e
+read -r PW
+command -v gocryptfs >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gocryptfs >/dev/null 2>&1 || exit 20
+install -d -m 700 -o {REMOTE_USER} -g {REMOTE_USER} {REMOTE_VAULT} {REMOTE_ENC} {REMOTE_MNT}
+{is_mounted_sh()} && exit 0
+[ -f {REMOTE_ENC}/gocryptfs.conf ] || printf '%s\\n' "$PW" | runuser -u {REMOTE_USER} -- gocryptfs -init -q {REMOTE_ENC} >/dev/null || exit 21
+printf '%s\\n' "$PW" | runuser -u {REMOTE_USER} -- gocryptfs -q {REMOTE_ENC} {REMOTE_MNT} || exit 22
+"""
+
+
+GUARD_PATH = "/usr/local/sbin/harness-private-rsync"
+
+
+def guard_script():
+    """Il rsync del privato passa da qui: se il volume non è montato esce 99 senza scrivere niente. Senza la guardia
+    rsync scriverebbe in chiaro nella cartella vuota che sta sotto il mount."""
+    return f"""#!/bin/sh
+{is_mounted_sh()} || exit 99
+exec runuser -u {REMOTE_USER} -- rsync "$@"
+"""
+
+
+def links_script(rels):
+    """Il percorso vero sul nodo è un link verso il volume: aperto si legge, chiuso è appeso e vuoto."""
+    body = [f"cat > {GUARD_PATH} <<'GUARD_EOF'\n{guard_script()}GUARD_EOF\nchmod 755 {GUARD_PATH}"]
+    for r in rels:
+        q = shlex.quote(r)
+        body.append(
+            f"T={REMOTE_HOME}/{q}; runuser -u {REMOTE_USER} -- mkdir -p \"$(dirname \"$T\")\" {REMOTE_MNT}/$(dirname {q}) 2>/dev/null; "
+            f"if [ -e \"$T\" ] && [ ! -L \"$T\" ]; then mv \"$T\" \"$T.pre-harness-$(date +%Y%m%d)\"; fi; "
+            f"runuser -u {REMOTE_USER} -- ln -sfn {REMOTE_MNT}/{q} \"$T\"")
+    return "set -e\n" + "\n".join(body) + "\n"
+
+
+def _rsync_base(t, private, extra, delete):
+    """Opzioni comuni. Eseguito sul nodo come utente topics. Per il privato il comando remoto è la guardia: rifiuta di
+    partire se il volume non è montato (scriverebbe in chiaro nella cartella vuota che sta sotto il mount)."""
+    chmod = "--chmod=u+rwX,go-rwx" if private else "--chmod=u+rwX,go+rX,go-w"
+    rsh = GUARD_PATH if private else f"runuser -u {REMOTE_USER} -- rsync"   # niente virgolette: openrsync le rimaneggia
+    return ["rsync", "-rLtpz", "--no-owner", "--no-group", chmod, *(["--delete"] if delete else []), "--timeout=120",
+            *[f"--exclude={p}" for p in (*EXCLUDE, *extra)], "-e", shlex.join(["ssh", *ssh_opts(t)]), f"--rsync-path={rsh}"]
+
+
+def rsync_dir_argv(t, src_rel, dest_rel, private, extra):
+    """Una cartella intera: cancella SOLO dentro di sé. Sorgente assoluta senza -R, così nessuna cartella padre finisce
+    nella lista dei file e nessuna viene ripulita."""
+    base = REMOTE_MNT if private else REMOTE_HOME
+    return [*_rsync_base(t, private, extra, True), f"{HOME}/{src_rel}/", f"root@{t['ip']}:{base}/{dest_rel}/"]
+
+
+def rsync_files_argv(t, units, private, extra):
+    """File singoli e glob, col percorso relativo alla home (cwd=HOME). MAI --delete: con -R rsync mette nella lista anche
+    le cartelle padre (.claude, .claude/projects…) e `--delete` ci cancellerebbe tutto ciò che non sta nel giro
+    (12:01 UTC del 17/11: sessioni e transcript del nodo spariti così). Sorgenti relative: openrsync, quello di
+    macOS, non capisce il marcatore `/./`."""
+    base = REMOTE_MNT if private else REMOTE_HOME
+    return [*_rsync_base(t, private, extra, False), "-R", *[r for u in units for r in u["rels"]], f"root@{t['ip']}:{base}/"]
+
+
+def is_dir_unit(u):
+    return (len(u["rels"]) == 1 and bool(u.get("dest") or u["rels"][0] == u["entry"])
+            and os.path.isdir(os.path.join(HOME, u["rels"][0])))
+
+
+def transfer(t, units, private, extra):
+    """Porta le unità sul nodo. (unità arrivate, errore o None): un rsync fallito non è mai «arrivato»."""
+    done, err = [u for u in units if not u["rels"]], None   # voce assente sul Mac: niente da portare
+    have = [u for u in units if u["rels"]]
+    dirs = [u for u in have if is_dir_unit(u)]
+    files = [u for u in have if not is_dir_unit(u)]
+    base = REMOTE_MNT if private else REMOTE_HOME
+    if dirs:
+        parents = sorted({os.path.dirname(f"{base}/{u.get('dest') or u['rels'][0]}") for u in dirs})
+        guard = f"{is_mounted_sh()} && " if private else ""   # privato: mai creare cartelle sotto un mount chiuso
+        m = _run(ssh_argv(t, f"{guard}runuser -u {REMOTE_USER} -- mkdir -p " + " ".join(shlex.quote(x) for x in parents)), timeout=60)
+        if m.returncode != 0:
+            return done, "cartelle di destinazione non create sul nodo: " + tail(m.stderr)
+        for u in dirs:
+            x = _run(rsync_dir_argv(t, u["rels"][0], u.get("dest") or u["rels"][0], private, extra), timeout=1800, cwd=HOME)
+            if x.returncode in (0, 24):   # 24: un file è sparito durante la lettura, non un errore
+                done.append(u)
+            else:
+                err = err or f"rsync di {u['entry']} fallito (exit {x.returncode}): {tail(x.stderr)}"
+    if files:
+        x = _run(rsync_files_argv(t, files, private, extra), timeout=3600, cwd=HOME)
+        if x.returncode in (0, 24):
+            done += files
+        else:
+            err = err or f"rsync fallito (exit {x.returncode}): {tail(x.stderr)}"
+    return done, err
+
+
+def sync_linux(t, units, cfg, store, now, force, mount=True, pw_fn=keychain_password):
+    tid = t["machine_id"]
+    delivered = store["delivered"].setdefault(tid, {})
+    res = {"error": None, "private": "off", "private_reason": None, "reached": False}
+    pub = [u for u in units.values() if u["kind"] == "pub"]
+    prv = [u for u in units.values() if u["kind"] == "prv"]
+    checks = probe_checks(units)
+    r = _run(ssh_argv(t, probe_cmd(checks)), timeout=40)
+    if r.returncode != 0:
+        res["error"] = "nodo non raggiungibile: " + (tail(r.stderr) or f"ssh exit {r.returncode}")
+        if prv:
+            res.update(private="closed", private_reason="nodo non raggiungibile")
+        return res
+    res["reached"] = True
+    seen = r.stdout.split()
+    repaired = False   # il nodo ha perso qualcosa: si rimanda subito, senza aspettare i 15 minuti del giro normale
+    for w in seen:
+        if w.startswith("missing:") and w[8:].isdigit() and int(w[8:]) < len(checks):
+            name = checks[int(w[8:])][0]
+            repaired = True
+            if delivered.pop(name, None) is not None:
+                log(f"{t['name']}: {name} sparito dal nodo, lo riporto")
+            if name.startswith("prv:"):
+                delivered.pop("_links", None)
+    if "no-rsync" in seen:
+        res["error"] = "rsync non installato sul nodo"
+        return res
+    just_mounted = False
+    if prv:
+        if "open" in seen:
+            res["private"] = "open"
+        else:
+            res.update(private="closed", private_reason="cartella cifrata chiusa (si riapre dal Mac al giro successivo)")
+            if mount:
+                pw = pw_fn()
+                if not pw:
+                    res["private_reason"] = "password del privato non leggibile dal Portachiavi"
+                else:
+                    m = _run(ssh_argv(t, f"bash -c {shlex.quote(mount_script())}"), input=pw + "\n", timeout=300)
+                    if m.returncode == 0:
+                        res.update(private="open", private_reason=None)
+                        just_mounted = True
+                        log(f"{t['name']}: cartella cifrata riaperta")
+                    else:
+                        why = {20: "gocryptfs non installabile sul nodo", 21: "volume cifrato non inizializzato", 22: "mount di gocryptfs fallito"}
+                        res["private_reason"] = why.get(m.returncode, "mount fallito: " + tail(m.stderr))
+        if res["private"] == "open":
+            sig = hashlib.sha1(("\n".join(sorted(u["entry"] for u in prv)) + guard_script()).encode()).hexdigest()[:12]
+            if delivered.get("_links") != sig or just_mounted:
+                lk = _run(ssh_argv(t, f"bash -c {shlex.quote(links_script([u['entry'] for u in prv]))}"), timeout=60)
+                if lk.returncode == 0:
+                    delivered["_links"] = sig
+                else:
+                    res["error"] = "link del privato non creati: " + tail(lk.stderr)
+    last = store["attempt"].get(tid, 0)
+    due = force or repaired or not delivered or now - last >= RETRY_S
+    batches = []
+    if due:
+        batches.append((False, [u for u in pub if delivered.get(f"pub:{u['entry']}") != u["fp"]]))
+    if res["private"] == "open" and (due or just_mounted):
+        batches.append((True, [u for u in prv if delivered.get(f"prv:{u['entry']}") != u["fp"]]))
+    arrived = []
+    for private, stale in batches:
+        if not stale:
+            continue
+        store["attempt"][tid] = now
+        done, err = transfer(t, stale, private, cfg["exclude"])
+        for u in done:
+            delivered[f"{u['kind']}:{u['entry']}"] = u["fp"]
+        arrived += [u for u in done if u["rels"]]
+        if err:
+            res["error"] = res["error"] or (("privato: " if private else "") + err)
+    if arrived:
+        # la consegna si misura dal nodo, non dal codice di uscita di rsync: ciò che «è arrivato» deve esserci
+        v = _run(ssh_argv(t, probe_cmd(checks)), timeout=40)
+        gone = {checks[int(w[8:])][0] for w in v.stdout.split() if w.startswith("missing:") and w[8:].isdigit() and int(w[8:]) < len(checks)}
+        for u in arrived:
+            k = f"{u['kind']}:{u['entry']}"
+            if v.returncode != 0 or k in gone:
+                delivered.pop(k, None)
+                res["error"] = res["error"] or f"consegna non verificata sul nodo: {u['entry']}"
+    return res
+
+
+# ── PC Windows ─────────────────────────────────────────────────────────────────
+
+def pc_ssh(t, cmd, input=None, timeout=120):
+    return _run(["ssh", "-o", "IPQoS=af41", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
+                 "-o", "LogLevel=ERROR", t["ssh"], cmd], input=input, timeout=timeout)
+
+
+def bitlocker_state(t):
+    """(cifrato, motivo). Cifrato solo se BitLocker protegge il volume della home del PC: nel dubbio no."""
+    ps = ("$d=$env:USERPROFILE.Substring(0,2); $v=Get-BitLockerVolume -MountPoint $d; "
+          "Write-Output ($d+' '+$v.ProtectionStatus+' '+$v.VolumeStatus)")
+    r = pc_ssh(t, f'powershell -NoProfile -Command "{ps}"', timeout=60)
+    parts = r.stdout.split()
+    if r.returncode != 0 or len(parts) < 3:
+        return False, "BitLocker non verificabile"
+    drive, prot, vol = parts[0], parts[1], parts[2]
+    if prot == "On" and vol == "FullyEncrypted":
+        return True, None
+    return False, f"disco non cifrato (BitLocker spento su {drive})"
+
+
+def tar_to_pc(t, units, extra=()):
+    """Manda i file con un tar in streaming (tar.exe c'è in Windows 10+), i link seguiti, nomi con la barra."""
+    p = subprocess.Popen(["ssh", "-o", "IPQoS=af41", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
+                          "-o", "LogLevel=ERROR", t["ssh"], 'tar -xf - -C "%USERPROFILE%"'],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        with tarfile.open(fileobj=p.stdin, mode="w|", dereference=True) as tf:
+            for u in units:
+                for rel in u["rels"]:
+                    for r, ap in iter_files(rel, extra):
+                        try:
+                            ti = tf.gettarinfo(ap, arcname=r.replace(os.sep, "/"))
+                            ti.uid = ti.gid = 0
+                            ti.uname = ti.gname = ""
+                            with open(ap, "rb") as fh:
+                                tf.addfile(ti, fh)
+                        except OSError:
+                            continue
+        p.stdin.close()
+    except (BrokenPipeError, OSError):
+        pass
+    err = p.stderr.read().decode(errors="replace")
+    return p.wait(), err
+
+
+BITLOCKER_TTL_S = 24 * 3600
+
+
+def sync_windows(t, units, cfg, store, now, force):
+    """Il PC si tocca solo se c'è da trasferire: una sessione ssh con un comando conta come lavoro per
+    wf-autosleep e lo terrebbe sveglio. Senza niente da fare non si contatta (e `at` resta all'ultimo trasferimento)."""
+    tid = t["machine_id"]
+    delivered = store["delivered"].setdefault(tid, {})
+    res = {"error": None, "private": "off", "private_reason": None, "reached": False}
+    pub = [u for u in units.values() if u["kind"] == "pub" and not u.get("linux_only")]
+    prv = [u for u in units.values() if u["kind"] == "prv"]
+    bl = store.setdefault("bitlocker", {}).get(tid)
+    fresh_bl = bool(bl) and now - bl["at"] < BITLOCKER_TTL_S
+    if prv and bl:
+        res.update(private="open" if bl["enc"] else "skipped", private_reason=None if bl["enc"] else bl["why"])
+    elif prv:
+        res.update(private="skipped", private_reason="privato non copiato: ancora da verificare BitLocker (PC spento finora)")
+    last = store["attempt"].get(tid, 0)
+    due = force or not delivered or now - last >= RETRY_S
+    stale = [u for u in pub if delivered.get(f"pub:{u['entry']}") != u["fp"]]
+    stale_prv = [u for u in prv if delivered.get(f"prv:{u['entry']}") != u["fp"]]
+    if not ((stale or stale_prv or (prv and not fresh_bl)) and due):
+        return res
+    if t.get("state_cmd"):
+        s = _run([os.path.expanduser(t["state_cmd"])], timeout=30)
+        try:
+            state = json.loads(s.stdout).get("pc")
+        except ValueError:
+            state = None
+        if state not in ("acceso", "lavora"):
+            res["error"] = "PC spento: si allinea al primo giro in cui è acceso"
+            return res
+    if prv and not fresh_bl:
+        enc, why = bitlocker_state(t)
+        if why != "BitLocker non verificabile":
+            store["bitlocker"][tid] = {"at": now, "enc": enc, "why": f"privato non copiato: {why}" if not enc else None}
+            bl = store["bitlocker"][tid]
+        else:
+            bl = {"enc": False, "why": f"privato non copiato: {why}"}
+        res.update(private="open" if bl["enc"] else "skipped", private_reason=None if bl["enc"] else bl["why"])
+    probe = pc_ssh(t, "echo ok", timeout=30)
+    if probe.returncode != 0:
+        res["error"] = "PC non raggiungibile: " + (tail(probe.stderr) or f"ssh exit {probe.returncode}")
+        return res
+    res["reached"] = True
+    todo = stale + (stale_prv if res["private"] == "open" else [])
+    if not todo:
+        return res
+    store["attempt"][tid] = now
+    have = [u for u in todo if u["rels"]]
+    for u in have:
+        # una cartella intera si rifà da zero (cancella ciò che sul Mac non c'è più); un glob o un file si sovrascrivono
+        if len(u["rels"]) == 1 and u["rels"][0] == u["entry"] and os.path.isdir(os.path.join(HOME, u["entry"])):
+            w = u["entry"].replace("/", "\\")
+            pc_ssh(t, f'if exist "%USERPROFILE%\\{w}" rmdir /s /q "%USERPROFILE%\\{w}"', timeout=120)
+    if have:
+        rc, err = tar_to_pc(t, have, cfg["exclude"])
+        if rc != 0:
+            res["error"] = f"tar sul PC fallito (exit {rc}): {tail(err)}"
+            return res
+    for u in todo:
+        delivered[f"{u['kind']}:{u['entry']}"] = u["fp"]
+    return res
+
+
+# ── un giro ────────────────────────────────────────────────────────────────────
+
+def machine_info(base_url):
+    try:
+        db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
+        try:
+            r = db.execute("select id, name from machines where base_url=?", (base_url,)).fetchone()
+        finally:
+            db.close()
+        return {"machine_id": r[0], "name": r[1]} if r else None
+    except sqlite3.Error:
+        return None
+
+
+def machine_name(machine_id, default):
+    try:
+        db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
+        try:
+            r = db.execute("select name from machines where id=?", (machine_id,)).fetchone()
+        finally:
+            db.close()
+        return (r[0] if r and r[0] else default)
+    except sqlite3.Error:
+        return default
+
+
+def pc_target(cfg):
+    pc = cfg.get("pc")
+    if not pc or not pc.get("ssh") or not pc.get("base_url"):
+        return None
+    info = machine_info(pc["base_url"])
+    if not info:
+        return None
+    return {"machine_id": info["machine_id"], "name": info["name"] or "PC Windows", "kind": "windows", "ssh": pc["ssh"],
+            "state_cmd": pc.get("state_cmd")}
+
+
+def run(cfg, targets, force=False, mount=True, now=None, pw_fn=keychain_password):
+    """Un giro. Ritorna lo stato scritto."""
+    now = now or time.time()
+    store = read_json(INTERNAL, {})
+    for k, v in (("units", {}), ("delivered", {}), ("attempt", {})):
+        store.setdefault(k, v)
+    cfg_sig = hashlib.sha1(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:12]
+    if force or store.get("cfg") != cfg_sig or now - store.get("fp_at", 0) >= FP_EVERY_S or not store.get("units"):
+        units = compute_units(cfg, project_aliases(cfg, store, now))
+        store["units"], store["fp_at"], store["cfg"] = units, now, cfg_sig
+        rev = rev_of({k: u["fp"] for k, u in units.items()})
+        if rev != store.get("rev"):
+            store["rev"], store["rev_since"] = rev, now
+        src_at = now
+    else:
+        units, rev, src_at = store["units"], store["rev"], store["fp_at"]
+    status = read_json(STATUS, {})
+    prev_targets = status.get("targets") if isinstance(status.get("targets"), dict) else {}
+    history = status.get("history") if isinstance(status.get("history"), dict) else {}
+    out_targets = {}
+    pc = pc_target(cfg)
+    all_targets = list(targets) + ([pc] if pc else [])
+    for t in all_targets:
+        tid = t["machine_id"]
+        try:
+            res = (sync_windows(t, units, cfg, store, now, force) if t.get("kind") == "windows"
+                   else sync_linux(t, units, cfg, store, now, force, mount, pw_fn))
+        except Exception as e:   # un nodo rotto non ferma gli altri
+            res = {"error": f"errore imprevisto: {tail(str(e))}", "private": "off", "private_reason": None, "reached": False}
+            log(f"{t.get('name')}: {e!r}")
+        if not units or not any(u["kind"] == "prv" for u in units.values()):
+            res["private"], res["private_reason"] = "off", None
+        delivered = store["delivered"].get(tid, {})
+        skip = res["private"] in ("skipped", "off")
+        win = t.get("kind") == "windows"
+        t_rev = rev_of({k: (u["fp"] if ((u["kind"] == "prv" and skip) or (win and u.get("linux_only"))) else delivered.get(k, ""))
+                        for k, u in units.items()})
+        prev = prev_targets.get(tid) or {}
+        aligned = t_rev == rev
+        out_targets[tid] = {
+            "name": machine_name(tid, t.get("name") or tid), "rev": t_rev,
+            "at": int(now) if (aligned and res["reached"]) else prev.get("at", 0),
+            "error": res["error"], "private": res["private"], "private_reason": res["private_reason"]}
+        if res["error"]:
+            log(f"{out_targets[tid]['name']}: {res['error']}")
+        lag = 0 if aligned else int(max(0, now - store.get("rev_since", now)))
+        history[tid] = prune_history(history.get(tid) or [], now) + [{"at": int(now), "lag_s": lag}]
+    out = {"source": {"rev": rev, "at": int(src_at)}, "targets": out_targets,
+           "history": {k: prune_history(v, now) for k, v in history.items() if k in out_targets}}
+    write_atomic(INTERNAL, store)
+    write_atomic(STATUS, out)
+    return out
+
+
+def raise_fd_limit(want=8192):
+    """openrsync apre un file per ogni cartella sorgente: sotto launchd il limite è 256 e le oltre 600 memorie dei
+    progetti non ci stanno («Too many open files», exit 23, 17/11 14:03). I figli ereditano il nuovo limite."""
+    import resource
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    for target in (want, 4096):
+        if hard != resource.RLIM_INFINITY:
+            target = min(target, hard)
+        if soft >= target:
+            return soft
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+            return target
+        except (ValueError, OSError):
+            continue
+    return soft
+
+
+def main(argv):
+    cmd = argv[0] if argv else "run"
+    if cmd == "status":
+        print(json.dumps(read_json(STATUS, {}), indent=1))
+        return 0
+    if cmd != "run":
+        print(__doc__)
+        return 64
+    cfg = load_config()
+    if not cfg:
+        return 0   # spento: nessun file, nessun danno
+    flags = set(argv[1:])
+    targets = []
+    if "--targets" in argv:
+        src = argv[argv.index("--targets") + 1]
+        try:
+            targets = json.load(sys.stdin if src == "-" else open(src))
+        except (OSError, ValueError):
+            targets = []
+    raise_fd_limit()
+    os.makedirs(TOPICS, exist_ok=True)
+    lk = open(LOCK, "w")
+    try:
+        fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return 0   # un altro giro sta ancora trasferendo
+    out = run(cfg, targets, force="--force" in flags, mount="--no-mount" not in flags)
+    for tid, t in out["targets"].items():
+        print(f"{t['name']}: rev {t['rev']} (sorgente {out['source']['rev']}), privato {t['private']}"
+              + (f", errore: {t['error']}" if t["error"] else ""))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

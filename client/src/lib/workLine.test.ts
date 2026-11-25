@@ -13,9 +13,11 @@ describe('workLine', () => {
     expect(workLine(tr, { elapsedMs: 5 * MIN })).toBe('');
     expect(workLine(tr, { elapsedMs: 5 * MIN, weight: { ...weight, usedTokens: null, windowTokens: null, billableTokens: 0 } })).toBe('');
   });
-  test('countdown only with an estimate, in whole minutes', () => {
-    expect(workLine(tr, { estimateMs: 30 * MIN, elapsedMs: 10 * MIN })).toBe('board.countdown.left{"min":20}');
-    expect(workLine(tr, { estimateMs: 10 * MIN, elapsedMs: 25 * MIN })).toBe('board.countdown.over{"min":15}');
+  test('countdown only with an estimate, re-estimated once the card runs past it', () => {
+    const basis = { departureMs: 30 * MIN, historyMs: [30, 30, 30, 30, 30].map((m) => m * MIN) };
+    expect(workLine(tr, { basis, elapsedMs: 10 * MIN })).toBe('board.countdown.left{"time":"eta.min{\\"n\\":20}"}');
+    expect(workLine(tr, { basis, elapsedMs: 35 * MIN })).toContain('board.countdown.leftRevised');
+    expect(workLine(tr, { basis: null, elapsedMs: 35 * MIN })).toBe('');
   });
   test('context needs the provider measure, tokens only what was spent', () => {
     const line = workLine(tr, { elapsedMs: 0, weight });
@@ -31,8 +33,8 @@ describe('workLine', () => {
 });
 
 describe('runningLine', () => {
-  test('the first to finish and how many are late; nothing when no card has an estimate', () => {
-    expect(runningLine(tr, { count: 3, soonestLeftMs: 7 * MIN, over: 1 })).toBe('board.countdown.left{"min":7} · workLine.late{"n":1}');
-    expect(runningLine(tr, { count: 2, soonestLeftMs: null, over: 0 })).toBe('');
+  test('the first to finish and how many were re-estimated; nothing when no card has an estimate', () => {
+    expect(runningLine(tr, { count: 3, soonestLeftMs: 7 * MIN, revised: 1 })).toBe('board.countdown.left{"time":"eta.min{\\"n\\":7}"} · workLine.revised{"n":1}');
+    expect(runningLine(tr, { count: 2, soonestLeftMs: null, revised: 0 })).toBe('');
   });
 });

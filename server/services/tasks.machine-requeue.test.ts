@@ -10,7 +10,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { TaskService } from "./tasks";
-import { MACHINE_RETRY_CAP } from "./tasks";
+import { MACHINE_RETRY_CAP } from "./tasks/shared";
 import { freshDb, svc, PID } from "./tasks-test-db";
 import { PARKED_WAITED_OUT, WAIT_STREAK_CAP } from "../../shared/board";
 
@@ -22,9 +22,9 @@ describe("rientro automatico delle card fermate dalla macchina", () => {
   const clock = { t: T0 };
   beforeEach(() => { clock.t = T0; db = freshDb(); s = svc(db, clock); });
 
-  function parkBy(source: "machine" | "agent"): string {
+  function parkBy(source: "machine"): string {
     const t = s.create({ projectId: PID, text: "card sul nodo", status: "todo" });
-    const ceiling = source === "machine" ? WAIT_STREAK_CAP : 1;
+    const ceiling = WAIT_STREAK_CAP;
     for (let i = 0; i <= ceiling; i++) {
       s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 });
       s.deferForWait({ taskId: t.id, reason: "il nodo «cloud claude» non risponde", minutes: 1, by: "agent", source });
@@ -46,11 +46,17 @@ describe("rientro automatico delle card fermate dalla macchina", () => {
     expect(s.sweepMachineWaitedOut()).toEqual([]);
   });
 
-  test("attesa di un agente: resta all'umano", () => {
-    const id = parkBy("agent");
-    clock.t += 24 * 60 * MIN;
+  test("an agent's repeated waits never park: the card stays in todo, waiting", () => {
+    const t = s.create({ projectId: PID, text: "card sul nodo", status: "todo" });
+    for (let i = 0; i < WAIT_STREAK_CAP + 3; i++) {
+      s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 });
+      s.deferForWait({ taskId: t.id, reason: "attendo il bonifico", minutes: 1, by: "agent", source: "agent" });
+      clock.t += 24 * 60 * MIN + MIN;
+    }
     expect(s.sweepMachineWaitedOut()).toEqual([]);
-    expect(s.get(id)!.task.status).toBe("backlog");
+    const now = s.get(t.id)!.task;
+    expect(now.status).toBe("todo");
+    expect(now.dispatchState).toBe("waiting");
   });
 
   test("tetto: dopo MACHINE_RETRY_CAP giri resta in backlog", () => {

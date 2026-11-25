@@ -101,6 +101,7 @@ function markRosterReconciled(): void {
  * about what happens INSIDE that window would go green against a roster that
  * had already been promoted — the worst kind of green, since it asserts the old
  * behaviour and passes. Nothing in production calls this.
+ * @internal
  */
 export function _resetRosterReconciled(): void {
   setRosterReconciled(false);

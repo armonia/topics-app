@@ -272,7 +272,12 @@ describe("identity gate — chi risponde sulla porta dev'essere il nostro", () =
     const pm = createPreviewManager(h.deps);
     await pm.prepareForReview("t1");
     expect(h.previewImage).toBeNull();
-    expect(h.reviewNotes.length).toBe(0);
+    // No photo, but the why is written: the boot was attempted and the child
+    // died, and a blind card with no reason was the measured defect.
+    expect(h.reviewNotes.length).toBe(1);
+    expect(h.reviewNotes[0].kind).toBe("service");
+    expect(h.reviewNotes[0].media).toBeUndefined();
+    expect(h.reviewNotes[0].content).toContain("è uscito prima di rispondere");
     expect(h.outputUrl.v).toBeNull();
   });
 

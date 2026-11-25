@@ -28,7 +28,7 @@ const RETIREMENT_NOTE_PATTERNS: RegExp[] = [
   /^⚠️\s*Nessuna anteprima allegata\b/,
 ];
 
-/** Il testo con cui la bonifica marca lo stato sulla card (migration + script). */
+/** @knipignore used by scripts/check-preview-evidence.ts, outside the production graph. Il testo con cui la bonifica marca lo stato sulla card (migration + script). */
 export const DUPLICATE_EVIDENCE_REASON =
   "l'immagine era byte per byte identica a quella di altre card: non era evidenza di questo lavoro";
 

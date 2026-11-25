@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { CheckRun } from "../../shared/board";
 import { measureIntegration, type IntegrationMeasureDeps } from "./integration-measure";
-import { ownChangesBetween } from "../routes/tasks";
+import { ownChangesBetween } from "../routes/tasks-git";
 
 const roots: string[] = [];
 afterAll(() => { for (const r of roots) rmSync(r, { recursive: true, force: true }); });
@@ -75,6 +75,26 @@ describe("measureIntegration", () => {
     // Nothing left behind: no worktree, no local integration branch.
     expect(sh(r.work, "worktree", "list").split("\n")).toHaveLength(1);
     expect(sh(r.work, "branch", "--list", "topics/integrazione-*")).toBe("");
+  });
+
+  test("cards already inside origin/main (landed, main pushed) are measured on an empty commit over main, which a pull request can carry", async () => {
+    const r = repo();
+    // The card landed: its commit is on origin/main already.
+    sh(r.work, "push", "--quiet", "origin", `${r.one}:refs/heads/main`);
+    const base = sh(r.work, "rev-parse", "origin/main");
+    const seen: string[] = [];
+    const out = await measureIntegration(r.work, [{ taskId: "landed", commit: r.one }], CHECKS, deps(() => [ok("unit")], seen));
+    expect(out.verdict).toBe("pass");
+    expect(out.measured).toEqual(["landed"]);
+    // Not main itself (no head for a pull request): one empty commit on top, with main's own tree.
+    expect(out.commit).not.toBe(base);
+    expect(sh(r.work, "rev-parse", `${out.commit}^`)).toBe(base);
+    expect(sh(r.work, "diff", "--stat", base, out.commit!)).toBe("");
+    expect(seen).toEqual([out.commit!]);
+    // The same main gives the same sha: a second measure finds the same CI run.
+    await Bun.sleep(1100);
+    const again = await measureIntegration(r.work, [{ taskId: "landed", commit: r.one }], CHECKS, deps(() => [ok("unit")]));
+    expect(again.commit).toBe(out.commit!);
   });
 
   test("the same base and branches give the same sha: a restart finds the same CI run", async () => {
@@ -148,5 +168,20 @@ describe("measureIntegration", () => {
     expect(out.verdict).toBe("pass");
     const still = await measureIntegration(r.work, [{ taskId: "x", commit: r.one }], CHECKS, { ...deps(() => [ko("unit")]), rerunFailed: async () => true });
     expect(still.verdict).toBe("fail");
+  });
+});
+
+describe("measureIntegration: a push that fails", () => {
+  test("is logged with its step, and the measure comes back unmeasured with the fault set", async () => {
+    const r = repo();
+    sh(r.work, "push", "--quiet", "origin", `${r.one}:refs/heads/main`);
+    const lines: string[] = [];
+    const d = deps(() => [ok("unit")]);
+    d.log = (line) => lines.push(line);
+    d.awaitCi = async ({ checks, onFault }) => { onFault?.("push", "push failed: hook declined"); return checks.map((c) => ({ ...ko(c.name), notMeasured: true })); };
+    const out = await measureIntegration(r.work, [{ taskId: "landed", commit: r.one }], CHECKS, d);
+    expect(out.verdict).toBe("unmeasured");
+    expect(out.fault).toContain("push: push failed: hook declined");
+    expect(lines.join("\n")).toContain("hook declined");
   });
 });

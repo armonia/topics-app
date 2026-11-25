@@ -15,8 +15,8 @@ describe("waitOnPerson", () => {
     expect(waitOnPerson({ status: "review" }, [])).toEqual({ reason: "review" });
   });
 
-  test("ai_review is the reviewer agent's turn, done asks nothing", () => {
-    expect(waitOnPerson({ status: "review", stage: "ai_review" }, [])).toBeNull();
+  test("the CI column is the queue's turn, done asks nothing", () => {
+    expect(waitOnPerson({ status: "review", stage: "ci" }, [])).toBeNull();
     expect(waitOnPerson({ status: "done", description: "aspetta: attilio" }, [question])).toBeNull();
   });
 

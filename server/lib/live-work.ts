@@ -15,7 +15,7 @@ import { LIVE_WORK_ENDED_TTL_MS, type LiveAgentRow, type LiveWorkRow } from "../
 import type { ListenAddress } from "../../shared/background-work";
 
 /** `SubAgentPhase` of `subagent-runtime.ts`; null before the first look. */
-type Phase = "waiting-prompt" | "working" | "finished" | null;
+type Phase = "waiting-prompt" | "working" | "waiting-results" | "finished" | null;
 
 /** A CLI child whose PTY is in the roster. */
 export interface CliChildNow {
@@ -31,6 +31,12 @@ export interface CliChildNow {
 export interface NativeChildNow {
   id: string; name: string; createdAt: string; sessionKey: string | null;
   phase: Phase;
+  /**
+   * Its chat opened a turn its parent never heard of (`lastUnreportedTurn`):
+   * read only when the phase is null, after a restart, to tell a cut turn the
+   * boot may resume from a child that only waits on its own work.
+   */
+  unreportedTurn: boolean;
   preview: string;
 }
 
@@ -88,7 +94,7 @@ export function liveWorkRows(input: LiveWorkInput, now: number, ttlMs = LIVE_WOR
     };
     // Its turn closed and its row is about to be retired: that is its end.
     if (n.phase === "finished") pushEnded(row, new Date(now).toISOString());
-    else agents.push({ ...row, state: n.phase === "waiting-prompt" ? "waiting" : "working" });
+    else agents.push({ ...row, state: nativeLiveState(n) });
   }
   for (const e of input.ended) {
     if (seen.has(e.id)) continue;
@@ -107,6 +113,20 @@ export function liveWorkRows(input: LiveWorkInput, now: number, ttlMs = LIVE_WOR
       preview: c.lastLine, startedAt: c.startedAt, listen: [...c.listen], wakes: c.wakes,
     }));
   return [...agents, ...commands];
+}
+
+/**
+ * A live native child's row state. Only an open turn is `working`. A child
+ * whose turn closed and that waits on its own work (`waiting-results`) is
+ * `awaiting`, and so is one with no phase in memory (a restart) and no turn
+ * its parent never heard of: on 18/11 fourteen such children drew a loader
+ * for hours with nothing of theirs running.
+ */
+export function nativeLiveState(n: Pick<NativeChildNow, "phase" | "unreportedTurn">): LiveAgentRow["state"] {
+  if (n.phase === "waiting-prompt") return "waiting";
+  if (n.phase === "working") return "working";
+  if (n.phase === null && n.unreportedTurn) return "working";
+  return "awaiting";
 }
 
 /**

@@ -11,9 +11,10 @@ import { beat, didascalia } from "./helpers/evidence";
 import { projectRow } from "./helpers/project-row";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ timeout: 180_000 });
 
 const PROJECT_DIR = `e2e-worktree-ready-${Date.now()}`;

@@ -33,10 +33,6 @@ export interface LogBuffer {
   pendingLine: string;
 }
 
-export function emptyLogBuffer(): LogBuffer {
-  return { output: [], outputBytes: 0, droppedLines: 0, pendingLine: "" };
-}
-
 /**
  * Aggiunge testo al buffer, potando ciò che sfora `maxBytes`.
  *

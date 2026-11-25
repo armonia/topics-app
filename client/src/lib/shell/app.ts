@@ -189,7 +189,7 @@ export function requestWebNotificationPermissionFromTap(): Promise<NotificationP
   return asked;
 }
 
-/** Azzera la memoria della richiesta. Solo per i test. */
+/** @internal Azzera la memoria della richiesta. Solo per i test. */
 export function __resetWebNotificationPrimeForTests(): void {
   webPermissionPrimed = null;
 }

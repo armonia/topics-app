@@ -8,27 +8,31 @@
  * context from the provider, no percent; nothing spent, no tokens. With
  * nothing known the line is empty.
  */
-import { sessionWeight, taskCountdown, type RunningSummary } from '../../../shared/task-countdown';
+import { sessionWeight, taskCountdown, type EstimateBasis, type RunningSummary } from '../../../shared/task-countdown';
 import type { WorkWeight } from '../../../shared/live-work';
 import { fmtTok } from '../components/Board/format';
+import { countdownText, etaText } from './etaText';
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
 export interface WorkLineInput {
-  /** Departure estimate, ms; absent or null = none. */
-  estimateMs?: number | null;
+  /** What the estimate is read from; absent or null = none. */
+  basis?: EstimateBasis | null;
   elapsedMs: number;
   stepsDone?: number;
   stepsTotal?: number;
   weight?: WorkWeight | null;
 }
 
-const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000));
+/** A sub-agent row's estimate as the wire carries it: the departure figure and, when sent, the durations behind it. */
+export function childBasis(estimateMs: number | undefined, historyMs: number[] | undefined): EstimateBasis | null {
+  return estimateMs && estimateMs > 0 ? { departureMs: estimateMs, historyMs: historyMs ?? [] } : null;
+}
 
 export function workLine(tr: Translate, i: WorkLineInput): string {
   const parts: string[] = [];
-  const c = taskCountdown({ estimateMs: i.estimateMs ?? null, elapsedMs: i.elapsedMs, stepsDone: i.stepsDone, stepsTotal: i.stepsTotal });
-  if (c) parts.push(c.kind === 'over' ? tr('board.countdown.over', { min: minutes(c.overMs) }) : tr('board.countdown.left', { min: minutes(c.remainingMs) }));
+  const c = taskCountdown({ basis: i.basis ?? null, elapsedMs: i.elapsedMs, stepsDone: i.stepsDone, stepsTotal: i.stepsTotal });
+  if (c) parts.push(countdownText(tr, c));
   if (i.weight) {
     const w = sessionWeight({ ...i.weight });
     if (w.percent != null && w.usedTokens != null) parts.push(tr('workLine.context', { approx: w.estimated ? '≈ ' : '', pct: w.percent, used: fmtTok(w.usedTokens) }));
@@ -37,10 +41,10 @@ export function workLine(tr: Translate, i: WorkLineInput): string {
   return parts.join(' · ');
 }
 
-/** What a count of work in progress says about time: when the first should be done, how many are late. Empty when nothing is known. */
+/** What a count of work in progress says about time: when the first should be done, how many were re-estimated. Empty when nothing is known. */
 export function runningLine(tr: Translate, s: RunningSummary): string {
   const parts: string[] = [];
-  if (s.soonestLeftMs !== null) parts.push(tr('board.countdown.left', { min: minutes(s.soonestLeftMs) }));
-  if (s.over > 0) parts.push(tr('workLine.late', { n: s.over }));
+  if (s.soonestLeftMs !== null) parts.push(tr('board.countdown.left', { time: etaText(tr, s.soonestLeftMs) }));
+  if (s.revised > 0) parts.push(tr('workLine.revised', { n: s.revised }));
   return parts.join(' · ');
 }

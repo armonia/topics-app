@@ -26,7 +26,7 @@ import type { TaskService } from "../services/tasks";
 const CARD_MOVING_METHODS: ReadonlyArray<keyof TaskService> = [
   "create", "update", "reviewDecision", "merge", "archive", "restore", "moveToProject", "claim", "release",
   "deferForWait", "deliverToReviewBySystem", "askParkedChildren", "sweepParkedChildren", "waitedOutIfCapped",
-  "sweepWaitedOut", "resolveParkedChildren", "setDispatchState", "settleLanded", "bindTopic", "applyBoardWorkflow",
+  "sweepWaitedOut", "sweepUnresolvedProjectParked", "resolveParkedChildren", "setDispatchState", "settleLanded", "bindTopic",
 ];
 
 /** The dispatch states of a card parked in backlog that the person must look at (they announce `task:parked`). */
@@ -44,8 +44,8 @@ export function withCardAttention(db: Database, service: TaskService, commentAsk
      SELECT id FROM descendants`;
   const readSql = "SELECT text, project_id, status, dispatch_state, dispatch_error, archived, review_at, updated_at FROM tasks WHERE id = ?";
   // The workflow column (migration 20261030225403), read only where it exists:
-  // a card in AI review waits on whoever opened it, not on a person, so it is
-  // not announced (`awaitsHuman`). A schema without the column has no stages.
+  // a card in the CI column waits on the integration queue, not on a person, so
+  // it is not announced (`awaitsHuman`). A schema without the column has no stages.
   let readSqlCache: string | null = null;
   const cardSql = (): string => {
     if (readSqlCache) return readSqlCache;

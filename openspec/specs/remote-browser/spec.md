@@ -2716,14 +2716,19 @@ la finestra saliva di altrettanto oltre la chat, e in orizzontale usciva dallo s
 
 Una scheda browser SHALL avere una sola superficie di chrome: la sua tab. NON SHALL
 esistere una riga dell'indirizzo separata, un menu a tendina dei comandi, né un
-portale separato per modificare l'indirizzo.
+portale separato per modificare l'indirizzo. Il tasto destro sulla tab NON SHALL
+aprire un menu a tendina: apre lo stesso foglio (`TABSHEET-01`).
 
 Un clic sulla tab attiva, sui suoi tre puntini, oppure ⌘L SHALL aprire il **foglio
-della tab**: un pannello che nasce dalla tab e contiene, in quest'ordine,
-l'indirizzo in un campo già a fuoco e con il testo selezionato, i comandi di
-navigazione, i suggerimenti, e tutti i comandi della scheda disposti in chiaro
-(strumenti, zoom, dispositivo, sessione, dimentica sito, e lo spostamento tra
-finestra e tab).
+della tab** dalla porta dell'indirizzo; il tasto destro, la pressione lunga,
+Shift+F10 e il tasto menu SHALL aprirlo dalla porta dei comandi (`TABSHEET-01`).
+Il foglio nasce dalla tab, che si espande in lui, e contiene, in quest'ordine,
+l'indirizzo (dalla porta dell'indirizzo in un campo già a fuoco e con il testo
+selezionato), i comandi di navigazione, i suggerimenti (solo dalla porta
+dell'indirizzo), e tutti i comandi della scheda raggiungibili senza un altro menu
+a tendina: al primo livello o in un livello del foglio stesso (`TABSHEET-02`,
+`TABSHEET-03`) — strumenti, zoom, dispositivo, sessione, dimentica sito, e lo
+spostamento tra finestra e tab.
 
 Il foglio SHALL vivere nel sottoalbero React della sua tab e SHALL sparire quando
 quella tab sparisce. Il nodo DOM che lo ospita NON è vincolato: il vincolo è la
@@ -2745,18 +2750,31 @@ VITA del pannello, non il suo indirizzo nell'albero.
 > `body` tiene la vita React (muore con la tab) e restituisce al `fixed` la
 > finestra come riferimento.
 
+> Cosa cambia e perché (04/10). La versione precedente chiedeva «tutti i comandi
+> della scheda disposti in chiaro», e lo scenario controllava che console, zoom e
+> dispositivo fossero visibili senza aprire niente. Insieme alle voci del tasto
+> destro, che ora entrano nello stesso foglio, una colonna in chiaro arriva a 39
+> voci. I comandi restano nel foglio, a un livello di distanza; quello che resta
+> vietato è un SECONDO menu a tendina.
+
 Mentre il foglio copre la pagina, la pagina SHALL essere un fermo immagine. Invio
 SHALL navigare e chiudere; Esc e un clic fuori SHALL chiudere senza navigare. Alla
 chiusura la pagina SHALL tornare viva.
 
-La stessa regola SHALL valere per la finestra della topic e per una scheda in stato
-tab.
+La stessa regola SHALL valere per la finestra della topic (`TABSHEET-04`) e per una
+scheda in stato tab.
 
 #### Scenario: un clic sulla tab dà l'indirizzo pronto da riscrivere
 - **GIVEN** una scheda attiva su `https://example.com/a`
 - **WHEN** l'utente fa clic sulla tab
 - **THEN** il foglio è aperto, il campo indirizzo ha il fuoco e tutto il testo è selezionato
-- **AND** console, zoom e dispositivo sono visibili senza aprire un altro menu
+- **AND** console, zoom e dispositivo stanno nei livelli Strumenti e Pagina dello stesso foglio, e aprirli non apre nessun menu a tendina
+
+#### Scenario: il tasto destro apre lo stesso foglio
+- **GIVEN** una scheda su `https://example.com/a`
+- **WHEN** l'utente fa tasto destro sulla tab
+- **THEN** è aperto il foglio della tab con l'indirizzo visibile e senza fuoco
+- **AND** nessun altro pannello di comandi è aperto
 
 #### Scenario: nessuna riga dell'indirizzo, mai
 - **GIVEN** una scheda su una pagina caricata, nei rami nativo, iframe e streaming
@@ -3456,3 +3474,469 @@ The REST screenshot fallback SHALL load the image from `serverHttpBase()` follow
 #### Scenario: snapshot src is absolute
 - **WHEN** the fallback fetches a screenshot
 - **THEN** the image `src` starts with `serverHttpBase()`
+
+### Requirement: BROWSER-STORE-REAP-01 — Level 1 switched off, the reaper removes nothing and asks nothing
+
+When `browserStoreCacheReapEnabled` is `false`, the store reaper SHALL NOT call
+`browser_reap_store_caches` nor `browser_reap_data_stores`, and SHALL NOT request
+`/api/browsers/data-store-keep-list`, whatever `browserStoreReapEnabled` holds.
+
+#### Scenario: level 1 is off
+- **GIVEN** `GET /api/app-settings` answers `browserStoreCacheReapEnabled: false`
+- **WHEN** the reaper runs at the start of the desktop app
+- **THEN** no Tauri command is invoked and the keep list is never requested
+
+#### Scenario: level 2 left on under a level 1 turned off
+- **GIVEN** `browserStoreCacheReapEnabled: false` and `browserStoreReapEnabled: true`
+- **WHEN** the reaper runs
+- **THEN** nothing is invoked and nothing is requested beyond the settings
+
+### Requirement: BROWSER-STORE-REAP-02 — The age threshold is the setting, inside 7..365 days
+
+The threshold handed to the Tauri command (`maxAgeDays`) SHALL be the stored
+`browserStoreReapAfterDays`, the same for both levels. A value outside 7..365
+SHALL be brought to the nearest limit, both by `PUT /api/app-settings` when it
+is saved and by the reaper before it calls Tauri, and SHALL be rounded to a
+whole day (the Tauri commands take an unsigned integer). A value that is not a
+number SHALL be refused with a 400.
+
+#### Scenario: the days follow the setting
+- **GIVEN** `browserStoreReapAfterDays: 90`
+- **WHEN** the reaper runs, at level 1 or at level 2
+- **THEN** Tauri receives `maxAgeDays: 90`
+
+#### Scenario: out of range on save
+- **WHEN** a PUT writes `browserStoreReapAfterDays: 3`, or `1000`
+- **THEN** the stored value is 7, or 365
+
+#### Scenario: a fraction of a day
+- **WHEN** a PUT writes `browserStoreReapAfterDays: 14.4`, or the row holds 30.6
+- **THEN** the stored value is 14, and Tauri receives `maxAgeDays: 31`
+
+### Requirement: BROWSER-STORE-REAP-03 — Never touched means level 1 on, level 2 off, 60 days
+
+With the three columns NULL (the state every database is in right after the
+migration), the reaper SHALL run at level 1 and SHALL hand Tauri
+`maxAgeDays: 60`. Level 2 SHALL be on only for an explicit `true`: NULL, a
+missing field, `false` and any value that is not the boolean `true` SHALL leave
+it off. The reaper SHALL read the setting before it requests the keep list.
+
+#### Scenario: first start after the update
+- **GIVEN** `browserStoreCacheReapEnabled`, `browserStoreReapEnabled` and `browserStoreReapAfterDays` are null
+- **WHEN** the reaper runs
+- **THEN** it requests `/api/app-settings`, then the keep list, then invokes `browser_reap_store_caches` with 60, and never `browser_reap_data_stores`
+
+#### Scenario: a server that does not know the fields
+- **GIVEN** the settings object carries none of the three fields
+- **WHEN** the reaper runs
+- **THEN** it behaves as on first start
+
+### Requirement: BROWSER-STORE-REAP-04 — A setting that did not arrive is not a permission
+
+When `GET /api/app-settings` fails, cannot be reached, or carries no settings
+object, the reaper SHALL remove nothing: no keep list request, no Tauri command.
+A non-2xx answer SHALL count as a failure even when its body carries settings.
+
+#### Scenario: the server answers 500
+- **WHEN** the settings request answers 500
+- **THEN** the reaper returns -1 and nothing else is called
+
+#### Scenario: an error status with settings inside
+- **WHEN** the settings request answers 500 with `browserStoreReapEnabled: true` in its body
+- **THEN** the reaper returns -1 and nothing else is called
+
+### Requirement: BROWSER-STORE-REAP-05 — A read that failed on the server is a failure on the wire
+
+When the server cannot read the settings row (database not open, a busy or
+failing SELECT), `GET /api/app-settings` SHALL answer 503 with no `settings`,
+never 200 with every field null: null means never touched, which the reaper
+reads as level 1 on. `PUT /api/app-settings` SHALL follow the same rule when
+its write lands and the read back fails: 503, because the settings panel draws
+the PUT answer. The server's own resolvers keep their all-null fallback.
+
+#### Scenario: the SELECT is busy
+- **GIVEN** `browserStoreCacheReapEnabled: false` is stored
+- **WHEN** the SELECT of `app_settings` throws `SQLITE_BUSY`
+- **THEN** the GET answers 503 and the reaper removes nothing
+
+#### Scenario: the write lands, the read back fails
+- **GIVEN** `browserStoreReapEnabled: true` and 30 days are stored
+- **WHEN** a PUT writes `browserStoreReapEnabled: false` and the SELECT that follows throws
+- **THEN** the PUT answers 503 with no `settings`, and the disk holds false and 30
+
+### Requirement: BROWSER-STORE-REAP-06 — The switches show what the reaper reads, and save what was pressed
+
+The panel SHALL draw two switches, the second indented under the first. The
+first ("Svuota la cache dei browser chiusi") SHALL be on exactly when level 1
+is on (null or `true`) and pressing it SHALL save only
+`browserStoreCacheReapEnabled`. The second ("Cancella anche accessi e
+cronologia") SHALL be on exactly when `browserStoreReapEnabled` is `true`,
+SHALL be disabled while the first is off (still showing what was chosen), and
+pressing it SHALL save only `browserStoreReapEnabled`. The days field SHALL show
+the resolved days and be disabled while the first is off, and a committed number
+of days SHALL be saved clamped to 7..365 and rounded, and not saved when it
+equals the stored one. Nothing SHALL be drawn before the stored values are
+read. After a save the switches and the field SHALL show the PUT answer, and a
+save that failed SHALL show its error line.
+
+#### Scenario: first start
+- **GIVEN** the three fields are null
+- **WHEN** the rows are drawn
+- **THEN** the first switch is on, the second is off and usable, the field shows 60
+
+#### Scenario: level 1 switched off
+- **GIVEN** `browserStoreCacheReapEnabled: false`, `browserStoreReapAfterDays: 90`
+- **WHEN** the rows are drawn
+- **THEN** the first switch is off, the second and the field are disabled, the field shows 90
+
+#### Scenario: pressing a switch writes that switch alone
+- **WHEN** the first switch is pressed while the second is on
+- **THEN** the PUT body is `{ browserStoreCacheReapEnabled: false }` and nothing else
+
+### Requirement: BROWSER-STORE-REAP-07 — Level 1 empties the cache and never removes a whole store
+
+In `cache` mode the reaper SHALL invoke `browser_reap_store_caches` and only
+that command, in every path: when it succeeds, when it throws (an older shell
+that does not know it), and when the keep list or the setting fail. It SHALL
+NOT fall back to `browser_reap_data_stores` when the new command throws; it
+returns -1. On the Rust side `browser_reap_store_caches` SHALL choose the stores
+with `stale_store_uuids` (orphan AND idle, floor of 7 days) and SHALL empty only
+the types of `CACHE_DATA_TYPE_KEYS`, which SHALL share no key with the identity
+types (cookies, localStorage, sessionStorage, indexedDB, webSql) and SHALL name
+only known keys. Outside macOS it SHALL return 0 and remove nothing.
+
+#### Scenario: an older shell
+- **GIVEN** level 1 and a shell that has no `browser_reap_store_caches`
+- **WHEN** the reaper runs and the invoke fails
+- **THEN** the reaper returns -1 and `browser_reap_data_stores` is never invoked
+
+#### Scenario: the cache list
+- **WHEN** the Rust unit test reads `CACHE_DATA_TYPE_KEYS`
+- **THEN** it is not empty, it contains no identity key, and every key is a known data type key
+
+### Requirement: BROWSER-STORE-REAP-08 — Level 2 removes the whole store, only on an explicit true over level 1
+
+In `all` mode (level 1 on AND `browserStoreReapEnabled === true`) the reaper
+SHALL invoke `browser_reap_data_stores` and only that command. The server SHALL
+store and return both switches, true and false, each independently of the other.
+
+#### Scenario: both on
+- **GIVEN** `browserStoreCacheReapEnabled: true` and `browserStoreReapEnabled: true`
+- **WHEN** the reaper runs
+- **THEN** Tauri receives `browser_reap_data_stores` with the keep list and the days, and `browser_reap_store_caches` is never invoked
+
+#### Scenario: the two columns are independent
+- **WHEN** a PUT writes `browserStoreReapEnabled: true` on a row where level 1 was never touched
+- **THEN** the answer carries `browserStoreReapEnabled: true` and `browserStoreCacheReapEnabled: null`
+
+### Requirement: BROWSER-STORE-REAP-09 — The keep list goes only to a two-level client, and an empty list or an unreadable age removes nothing
+
+`GET /api/browsers/data-store-keep-list` SHALL answer the list only to a request
+that carries `levels=2`, which only the two-level client sends. Without it the
+request SHALL go on to `GET /api/browsers/:id` and get the 404
+`{"error":"Browser context not found"}` that a desktop shell up to 2.3.23 has
+always got: that shell brings its own client, which reads no setting, removes
+whole stores on a 200 and removes nothing on a 404. The reaper SHALL ask with
+`levels=2`. A keep list with no id SHALL remove nothing: the reaper returns -1
+before any Tauri command, and `stale_store_uuids` SHALL pick no store for an
+empty `keep_ids`. A store whose age cannot be read (its folder, the listing of
+its children, or one child) SHALL NOT be picked.
+
+#### Scenario: an old client
+- **WHEN** the keep list is asked without `levels=2` (bare, `levels=1`, `levels=`, `level=2`)
+- **THEN** the answer is 404 `{"error":"Browser context not found"}` and no warning is written
+
+#### Scenario: an empty list
+- **GIVEN** level 1, or level 1 and level 2, on
+- **WHEN** the keep list answers `[]`, or only ids that are empty or not strings
+- **THEN** the reaper returns -1 and no Tauri command is invoked
+
+#### Scenario: the Rust selection
+- **WHEN** `stale_store_uuids` gets an empty keep list, or a store whose children cannot be listed
+- **THEN** it picks no store, at any age
+
+### Requirement: BROWSER-FIND-02 — ⌘F e ⌘G arrivano alla barra anche dall'interno della pagina, e solo sulla pane a fuoco
+
+Con il cursore dentro la pagina di una pane browser nativa, ⌘F, ⌘G e ⇧⌘G
+SHALL arrivare al gestore dell'app (accordi inoltrati dalla shell:
+`app_chord_dispatch_js` su Mac, `chords.rs` su Windows, tabella generata da
+`shared/shortcuts.ts`).
+
+Sul Mac NON SHALL arrivare alla pagina: il monitor NSEvent scarta l'evento
+(`lib.rs:9014`). Su Windows il motore non lo permette: `SetHandled(true)` toglie
+solo l'azione di WebView2, e la pagina riceve comunque il keydown
+(`chords_win.rs:17-24`, `chords.rs:59-62`). Lì una pagina con una sua ricerca su
+Ctrl+F (Google Docs) la apre insieme alla nostra barra, e la spec non promette
+il contrario.
+
+Aperta così, la barra SHALL prendere la tastiera del sistema (FIND-02,
+`releaseNativeFocus`): le lettere scritte dopo ⌘F SHALL finire nel campo della
+barra e non nella pagina.
+
+⌘F SHALL aprire la barra della sola pane a fuoco (FIND-02). Il listener di
+tasti di `TauriBrowserPanelInner` NON SHALL più aprire la barra: oggi la apre
+in ogni pane browser montata, perché non guarda il fuoco.
+
+Il motore SHALL restare quello di BROWSER-FIND-01: `window.find` via
+`browser_exec_js` e il conteggio su `innerText` via `browser_eval_js`
+(`useTauriBrowser.ts:1716-1751`).
+
+#### Scenario: due browser aperti
+- **GIVEN** due pane browser montate, la seconda a fuoco
+- **WHEN** premo ⌘F
+- **THEN** solo la seconda ha la barra aperta
+
+#### Scenario: accordo inoltrato (test Rust)
+- **WHEN** `app_chord_dispatch_js(cmd=true, ctrl=false, shift=false, alt=false, "f", 3)`
+- **THEN** il risultato è `Some(..)` con `key:'f'` e `metaKey:true`
+- **AND** `decide` di `chords.rs` su Ctrl+F è `Forward { swallow: true, .. }`
+
+#### Scenario: le lettere vanno nella barra (a mano, sull'app costruita, Mac e Windows)
+- **GIVEN** una pane browser nativa con il cursore in un campo della pagina
+- **WHEN** premo ⌘F (Ctrl+F su Windows) e scrivo «abc»
+- **THEN** «abc» è nel campo della barra
+- **AND** il campo della pagina non ha ricevuto «abc»
+
+### Requirement: BROWSER-FIND-03 — Su Windows c'è una barra sola, la nostra
+
+Su Windows, con il cursore in una pane browser, Ctrl+F SHALL aprire la nostra
+barra e NON SHALL aprire la barra di ricerca di WebView2 (l'accordo inoltrato è
+`SetHandled(true)`, `chords_win.rs`). Con il cursore nell'interfaccia dell'app,
+Ctrl+F NON SHALL aprire la barra di WebView2 sopra l'interfaccia.
+
+#### Scenario: Ctrl+F nella pagina su Windows (a mano, sull'app costruita)
+- **GIVEN** l'app su Windows con una pane browser su una pagina con testo, cursore nella pagina
+- **WHEN** premo Ctrl+F
+- **THEN** si apre la nostra barra sopra la pane
+- **AND** la barra di WebView2 non compare
+
+### Requirement: BROWSER-FIND-04 — Il browser condiviso si cerca nella copia della pagina; solo l'immagine non si cerca
+
+La pane browser che arriva dal server (`RemoteBrowserPanelStreaming`) SHALL
+registrare un cercatore. Vale sul client web, sul telefono e anche sulla pane
+del Mac quando è fissata su «condivisa» o è in «auto» con un altro dispositivo
+che la guarda (`RemoteBrowserPanel.tsx:211-218,236`).
+
+Nel modo `dom`, che è il default (`hooks/useRemoteBrowser.ts:277-282`), il
+cercatore SHALL cercare nel DOM ricostruito da rrweb nell'iframe dello stesso
+dominio (`DomCoBrowse.tsx`) con `lib/domFind.ts`, senza chiedere niente al
+server. SHALL evidenziare nel registro `CSS.highlights` del documento
+dell'iframe e SHALL rifare la ricerca quando rrweb applica mutazioni, al più
+ogni 120 ms.
+
+Nel modo `video` ⌘F SHALL aprire la barra con il campo disattivo e la frase
+«Qui la pagina è un'immagine: la ricerca non c'è» / «This page is an image
+here: find isn't available». In nessuno dei due modi ⌘F SHALL aprire la
+ricerca nei progetti.
+
+#### Scenario: client web, modo dom
+- **GIVEN** il client web con una pane browser condivisa a fuoco in modo `dom`, su una pagina che contiene «Prezzi» due volte
+- **WHEN** premo ⌘F e cerco «prezzi»
+- **THEN** il contatore dice «0 di 2», e dopo Invio «1 di 2» con la parola evidenziata nella pane
+
+#### Scenario: modo video
+- **GIVEN** una pane browser condivisa in modo `video`
+- **WHEN** premo ⌘F
+- **THEN** la barra è aperta, il campo è disattivo e dice che lì la ricerca non c'è
+
+### Requirement: NATIVEPARK-01 — Il parcheggio di una vista nativa e' un chiavistello, non un messaggio
+
+Quando la pane di una vista nativa riceve un rettangolo NULLO, perche' la sua
+cella e' stata collassata, perche' la sua tab non e' attiva, o perche' un
+trascinamento e' in corso, la vista SHALL essere parcheggiata fuori schermo
+conservando l'ULTIMA misura reale: cosi' la pagina non ricollassa la propria
+impaginazione e resta leggibile e fotografabile da un agente. Nello stesso gesto
+il rettangolo di riserva SHALL essere DIMENTICATO. Il parcheggio e' un
+CHIAVISTELLO che resta chiuso, non un comando inviato una volta.
+
+Finche' il chiavistello e' chiuso, NESSUN percorso che ridisegna i bounds SHALL
+riportare la vista a schermo. Le vie vanno nominate tutte e cinque, perche'
+nessuna di loro passa dal segnaposto della pane e ognuna era una via di ritorno:
+lo scongelamento alla chiusura di un pannello sovrapposto, il cambio di
+dispositivo emulato, il riconcilio della modalita' riletta dal ramo UA della
+pagina, il ridimensionamento responsive, e la stretta di mano di una ricreazione.
+Tutte e cinque SHALL essere no-op sulla geometria. Sono osservabili contando i
+comandi di geometria inviati alla vista, non guardando lo schermo.
+
+Il chiavistello SHALL essere aperto SOLO da un rettangolo POSITIVO misurato sul
+segnaposto della pane, che e' la sola porta che sappia se quella pane un box ce
+l'ha davvero. Nessun'altra scrittura del rettangolo di riserva SHALL poterlo
+aprire: la consegna animata che accompagna lo scivolamento della colonna SHALL
+rifiutare un rettangolo non positivo invece di memorizzarlo. Al primo rettangolo
+vero la vista SHALL tornare esattamente li', e con quella stessa chiamata SHALL
+arrivare la conferma strutturale che una ricreazione avvenuta a chiavistello
+chiuso non ha potuto inviare: un guasto dichiarato mentre la cella era collassata
+NON SHALL sopravvivere al ritorno della cella.
+
+A chiavistello chiuso la vista NON SA piu' dove sta, e la decisione di
+congelamento SHALL prendersi su quel «non lo so», mai sulla geometria che la
+cella aveva PRIMA. Il ramo esiste gia' in `OCCLUSION-01`, che resta com'e':
+senza rettangolo noto e con un pannello aperto si congela. Il congelamento in
+piu' SHALL essere innocuo, perche' la vista e' gia' fuori schermo e il suo
+scongelamento e' a sua volta un no-op. E' il caso opposto a essere il difetto:
+una vista parcheggiata che decidesse sul rettangolo stantio SCONGELEREBBE, ed e'
+esattamente la sequenza che rimetteva la pagina sopra la cornice (pannello aperto
+sopra la pane, congelamento, cella collassata, pannello chiuso, ritorno a schermo
+all'ultimo rettangolo reale).
+
+Visibilita' e geometria SHALL restare due assi distinti: parcheggiare NON spegne,
+spegnere NON sposta. Il risveglio che precede un'operazione guidata da un agente
+tocca la sola visibilita', quindi un'operazione delegata su una pane parcheggiata
+SHALL funzionare, scatto, lettura e azione comprese, con la vista che resta fuori
+schermo. Era il flag di nascondimento a mascherare il difetto, non a impedirlo:
+la vista tornava a schermo lo stesso, ma nascosta non si vedeva. Un'operazione
+dell'agente quel flag lo toglie per poter fotografare, e da li' in avanti ogni
+ridisegno dei bounds era visibile a chi guarda.
+
+> Perche' questo requisito vive qui e non in `layout`: chi decide se una cella ha
+> un box e' la superficie di tiling, chi decide cosa fa la webview nativa con
+> quella risposta e' questa capability. `LAYOUT-38` dichiara che fuori dallo zoom
+> la geometria resta parcheggiata; questo requisito dice che cosa vuol dire, e
+> vale anche dove lo zoom non arriva: una tab di sfondo, una cella nascosta sotto
+> i 768px, il tiling dentro il cassetto di un task. `NATIVEOPS-01` non e'
+> emendato: nessuna mappatura, nessuna forma di errore e nessun contratto di
+> operazione cambia, cambia solo dove sta la vista mentre l'operazione gira.
+
+#### Scenario: lo scongelamento non riporta a schermo una vista parcheggiata
+- **GIVEN** una vista nativa parcheggiata, e un pannello sovrapposto aperto e poi chiuso sopra la sua area
+- **WHEN** scatta lo scongelamento
+- **THEN** nessun comando di geometria SHALL essere inviato alla vista
+- **AND** la vista SHALL restare fuori schermo
+
+#### Scenario: le altre quattro vie di ritorno
+- **GIVEN** una vista nativa parcheggiata
+- **WHEN** si cambia il dispositivo emulato, si ridimensiona in responsive, il ramo UA della pagina viene riconciliato, oppure la vista viene ricreata
+- **THEN** in nessuno dei quattro casi la geometria SHALL cambiare
+
+#### Scenario: la decisione di congelamento non usa la geometria di prima
+- **GIVEN** una vista parcheggiata e un pannello aperto che NON interseca il rettangolo che la sua cella occupava prima
+- **THEN** la decisione SHALL essere «congela», presa senza rettangolo
+- **AND** NON SHALL essere «scongela» deciso sul rettangolo stantio
+
+#### Scenario: un'operazione dell'agente su una pane parcheggiata
+- **GIVEN** una vista parcheggiata e spenta
+- **WHEN** l'agente esegue su quella pane un'operazione delegata
+- **THEN** l'operazione SHALL riuscire
+- **AND** la vista NON SHALL tornare a schermo
+- **AND** a operazione finita SHALL tornare spenta
+
+#### Scenario: il ritorno apre il chiavistello
+- **GIVEN** una vista parcheggiata la cui cella torna ad avere un box
+- **WHEN** il segnaposto misura e spinge il primo rettangolo positivo
+- **THEN** la vista SHALL tornare esattamente su quel rettangolo
+- **AND** un guasto dichiarato da una ricreazione avvenuta a chiavistello chiuso SHALL cadere con quella stessa chiamata
+
+### Requirement: BROWSER-HEAVY-01 - Il consumo di una pane nativa si misura una volta per campione
+
+Il 15/09/2026, con Mail in primo piano, la home di armonia-site su :4600 costava
+16,9% di un core nel suo WebContent, 27,5% nella GPU e 55,3% su tutto Topics. La
+riga per webview di `perf_metrics` doveva dirlo e non poteva: il campione leggeva
+il contatore di CPU di ogni pid, e subito dopo la raccolta per webview lo rileggeva
+sugli stessi pid, misurando i ~100 us fra due syscall (0,0 in 32 campioni su 40, da
+61 a 468% negli altri, sulla stessa pane al 18,6%).
+
+Dentro un campione di `perf_metrics` il contatore di CPU di ogni processo SHALL
+essere letto UNA volta, e ogni consumatore dello stesso campione (totali, split
+renderer/GPU, righe per webview) SHALL usare quel valore. Un processo senza delta
+SHALL risultare non misurato (`null`), mai zero.
+
+Su Windows ogni pane ha il suo ambiente WebView2 (`isolate: true`): la riga della
+pane SHALL essere la somma dei processi del suo ambiente dalla stessa lettura unica,
+con `pid` = processo browser dell'ambiente. Su Linux la lista resta vuota.
+
+#### Scenario: la riga della webview e' il numero del campione
+- **GIVEN** un processo figlio che brucia un core, mappato come webview
+- **WHEN** due campioni lo leggono a 500 ms di distanza
+- **THEN** la `cpu_percent` della sua riga SHALL essere uguale al valore del campione per quel pid, e almeno 20
+
+### Requirement: BROWSER-HEAVY-02 - Una pane pesante si decide sul tempo, non su quante volte si e' guardato
+
+Una pane SHALL essere pesante quando i campioni che contano, tutti ad almeno 8% di
+un core, coprono almeno 10 s dal primo all'ultimo. Un campione SHALL contare solo se
+la pane e' mostrata e non in pausa da almeno 8 s, se la pagina non sta caricando e se
+non ha navigato negli ultimi 10 s. Un campione nullo, che non conta, o fra le due
+soglie SHALL ricominciare la serie senza togliere il verdetto. Il verdetto SHALL
+restare in pausa, SHALL cadere dopo 55 s di campioni vivi sotto il 3% e SHALL
+ripartire da capo su una pagina nuova (origin + path). Un pid riportato da due pane,
+o da una pane e da una finestra, non SHALL essere attribuito a nessuna.
+
+#### Scenario: la cadenza del lettore non sposta il verdetto
+- **GIVEN** la stessa pane al 17% letta ogni 5 s e ogni 2 s con campioni in cache duplicati
+- **THEN** il verdetto SHALL arrivare nello stesso istante
+
+#### Scenario: il guscio vecchio non produce pesanti
+- **GIVEN** la serie della doppia lettura (32 zeri, 7 picchi, mai tre di fila)
+- **THEN** nessuna pane SHALL essere pesante
+
+### Requirement: BROWSER-HEAVY-03 - Una pane pesante resta viva solo col fuoco suo
+
+Risposta del proprietario (3), letta alla lettera il 15/09 17:20: il fuoco e' quello
+della pane. Una pane pesante SHALL restare viva solo se e' la pane a fuoco della sua
+superficie e la sua finestra non e' nota come senza fuoco; un'anteprima pesante di
+fianco alla chat in cui si scrive SHALL andare in pausa, anche nella finestra browser
+del topic, il cui fuoco e' l'ultimo tocco (pointerdown o focus) dentro la finestra
+contro uno fuori. Un agente che la guida, un'operazione in volo, l'inspector aperto
+(su WebView2 letto dall'esistenza di una finestra DevTools dei processi della pane,
+ovunque sia il fuoco) o un elemento a schermo intero la SHALL tenere viva; un'esenzione trovata a
+fine sosta SHALL riarmare la sosta, non annullarla. Il fuoco della
+finestra SHALL arrivare dal guscio con un evento `topics:window-focus` su tutte e tre
+le finestre (principale, pop-out, finestra gruppo); finche' nessuno risponde vale
+come a fuoco. Fra la perdita del fuoco e la pausa SHALL passare una sosta di 2 s, e un
+ritorno dentro la sosta non SHALL costare niente.
+
+#### Scenario: l'agente al volante
+- **GIVEN** una pane pesante guidata da un agente, in una finestra senza fuoco
+- **THEN** la tab SHALL mostrare il glifo dell'agente e la pane non SHALL andare in pausa
+
+#### Scenario: una pane in pausa dietro un'altra tab
+- **GIVEN** una pane in pausa la cui tab non e' piu' quella attiva
+- **WHEN** il verdetto pesante cade
+- **THEN** la pane SHALL tornare viva senza che la vista nativa venga mostrata
+
+### Requirement: BROWSER-HEAVY-04 - La pausa e' un fermo immagine chiaro, e il ritorno non ricarica
+
+La pausa SHALL prendere il fermo immagine mentre la vista e' ancora a schermo,
+disegnarlo a 1x, e SOLO dopo nascondere la vista nativa. La pane in pausa SHALL
+mostrare il fermo con una scheda statica (titolo, una riga col consumo, «Riprendi»)
+e la tab SHALL mostrare il glifo della pausa; la pane pesante viva SHALL mostrare il
+glifo del consumo. L'agente resta il primo glifo e resta il bottone per riprendere il
+controllo. Il ritorno SHALL mostrare lo stesso documento senza `browser_reload`,
+`browser_navigate`, `browser_open` o `browser_close`, anche con un overlay aperto sopra
+la pane in quel momento: la vista resta parcheggiata sotto il fermo finche' l'overlay
+non si chiude. Un freeze chiesto su una pane in pausa non SHALL fotografare la vista
+nascosta.
+
+#### Scenario: ritorno con un overlay aperto
+- **GIVEN** una pane in pausa e un menu aperto sopra il suo posto
+- **WHEN** la pane torna viva
+- **THEN** la vista SHALL restare parcheggiata senza nessuno screenshot
+- **AND** alla chiusura del menu SHALL tornare al suo posto
+
+### Requirement: BROWSER-HEAVY-05 - I poll di una pane tacciono quando nessuno la guarda
+
+I poll di una pane nativa SHALL fermarsi con il documento nascosto e con la finestra
+senza fuoco. I due eval (120 ms e 800 ms) SHALL fermarsi anche con la pane in pausa,
+e i drain nativi (stato, errori, nuove schede, download) SHALL girare solo con la
+pane a schermo, usata da un agente o, per i download, con un download in corso; con un
+agente ingaggiato i drain SHALL girare anche con la finestra senza fuoco, perche' un
+link aperto dall'agente in una nuova scheda non aspetti il ritorno della persona. Al
+riaprirsi di ogni cancello SHALL arrivare una lettura di recupero, e nessuna mentre
+un altro cancello e' ancora chiuso.
+
+#### Scenario: download in corso
+- **GIVEN** un download partito da una pane che poi esce di scena
+- **THEN** il drain e l'avanzamento SHALL continuare finche' il download e' in corso
+
+### Requirement: BROWSER-LOGIN-01 - Un muro di login si apre alla persona, non si descrive
+
+Quando un agente trova un muro di login (password, passkey, secondo fattore) SHALL chiamare
+`request_login`, che apre l'URL in una scheda nuova portata in primo piano, in una finestra
+staccata se richiesto, e scrive nello storico una notifica col link al topic. L'agente non
+SHALL scrivere credenziali. Poi SHALL aspettare che la pagina lasci il login, con un tetto
+di 30 minuti, scaduto il quale la card passa a needs_input con la scheda ancora aperta.
+
+#### Scenario: login richiesto con finestra staccata
+- **GIVEN** un agente davanti a una pagina di login
+- **WHEN** chiama `request_login` con `detached`
+- **THEN** SHALL comparire una scheda nuova in primo piano in una finestra staccata
+- **AND** lo storico SHALL avere una notifica che porta al topic

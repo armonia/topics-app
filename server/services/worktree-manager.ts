@@ -39,10 +39,15 @@ import {
 } from "../utils/worktree-naming";
 import { makeSerialQueue } from "../lib/serial-queue";
 import { isInsideDir } from "../lib/path-containment";
+import { removalMeansAlive, worktreeGitArgs } from "./worktree-platform";
 import { provisionTauriSidecars } from "./worktree-sidecars";
 import { existsSync, mkdirSync, statSync, cpSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { topicsHome } from "./daemon-state";
+import { worktreeRootDir, ownedRootsOfStores } from "./worktree-root";
+import { forgetFolderOwned, markFolderOwned, writeRootSentinel } from "./worktree-root-ledger";
+
+// The root lives in its own module (this file is at the size gate); re-exported so callers keep one import.
+export { worktreeRootDir };
 import { installArgv, missingPackageManager } from "../lib/project-scripts";
 import type { LifecycleHookRunner } from "./lifecycle-hooks";
 import { join, resolve } from "node:path";
@@ -50,6 +55,9 @@ import { isTopicsSpawned, type OwnedScript } from "../lib/ghost-script";
 import type { NotificationRecordInput } from "../../shared/notification-log";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { copyWorktreeIncludes, readWorktreeProjectConfig, runWorktreeCommand, worktreePort, type WorktreeSetupResult } from "./worktree-ready";
+import { defaultRunGit } from "./own-commits";
+import { lockLiftRule, lockOwned, unlockOwned, writeOwnerMarker } from "./worktree-owner";
+import { resolveWorktreeAbandonDays } from "./app-settings";
 
 export class WorktreeRefusalError extends Error {
   constructor(reason: string) {
@@ -89,6 +97,13 @@ export interface DeleteWorktreeOptions {
    * force-delete a `reuse`-mode worktree's branch (rarely useful).
    */
   deleteBranch?: boolean;
+  /**
+   * Remove the FOLDER of a worktree that lives outside the root too (an adopted
+   * one), with a plain `git worktree remove`: no `--force`, so git itself refuses
+   * a dirty or locked tree, and the branch is never touched. Without it a foreign
+   * row is only forgotten and its folder is left to whoever made it.
+   */
+  includeForeign?: boolean;
 }
 
 export interface WorktreeManager {
@@ -145,6 +160,8 @@ export interface WorktreeManagerGcDeps {
    * tests; the error log line is written regardless.
    */
   notify?: (input: NotificationRecordInput) => void;
+  /** Called right after a worktree row is created: the GC checks the per-project cap. Never awaited. */
+  afterCreate?: (projectId: string) => void;
 }
 
 /**
@@ -157,27 +174,18 @@ const RM_ATTEMPTS = 3;
 const RM_RETRY_MS = 500;
 
 /**
- * LA RADICE DEI WORKTREE — e perché non è `homedir()`.
- *
- * Era `join(homedir(), ".topics", "worktrees")`, cablata. Ma `TOPICS_HOME`
- * esiste apposta perché un server possa avere una casa TUTTA SUA: lo usano il
- * server di test (`scripts/start-test-server.sh`, «dedicated TOPICS_HOME so the
- * test server doesn't…») e l'isolamento di un server avviato per sbaglio da una
- * worktree di dispatch.
- *
- * Con la radice cablata quell'isolamento era vero a metà: il database andava
- * dove doveva, i WORKTREE no. Misurato il 19/08/2026 nella casa vera:
- * **55 cartelle** appartenenti a progetti `e2e-naming-…`, `e2e-rename-…`,
- * `e2e-archive-…` — cioè checkout fabbricati da una suite di test che si
- * credeva confinata, mai puliti da nessuno perché nessun registro li
- * conosceva.
- *
- * Derivarla da `topicsHome()` rende l'isolamento una PROPRIETÀ invece che una
- * cosa da ricordarsi due volte. `TOPICS_WORKTREES_DIR` resta, ed è l'override
- * esplicito per chi vuole staccare solo questa.
+ * A project path's fitness for `git worktree add`, by inspecting the resolved
+ * `.git` entry: a real repo has `<root>/.git/` as a directory; a worktree
+ * checkout has `<root>/.git` as a file pointing at the parent repo's
+ * `.git/worktrees/<name>/` directory. Shared by the refusal thrown in `create`
+ * (below) and by the board-settings warning (`worktreeReady` in
+ * `server/boot/tasks-router.ts`), so the two can never disagree on the exact
+ * same path.
  */
-export function worktreeRootDir(env: NodeJS.ProcessEnv = process.env): string {
-  return env.TOPICS_WORKTREES_DIR || join(topicsHome(env), "worktrees");
+export function classifyWorktreeSource(projectPath: string): "ok" | "no-git" | "nested-worktree" {
+  const dotGit = join(projectPath, ".git");
+  if (!existsSync(dotGit)) return "no-git";
+  return statSync(dotGit).isFile() ? "nested-worktree" : "ok";
 }
 
 export function createWorktreeManager(
@@ -190,7 +198,9 @@ export function createWorktreeManager(
   },
   gcDeps: WorktreeManagerGcDeps = {},
 ): WorktreeManager {
-  const worktreesDir = worktreeRootDir();
+  // Read at every use, not once at build: a root changed in Settings applies to
+  // the NEXT worktree without a restart (the ones already made keep their path).
+  const currentRoot = () => worktreeRootDir();
 
   // Ensure base dir exists lazily — first create() touches the disk.
   function ensureDirSync(p: string) {
@@ -216,11 +226,9 @@ export function createWorktreeManager(
     // Letto alla chiamata, non alla costruzione: permette di variare l'env
     // in test (e di passare da solo-log ad armato senza riavviare il server).
     const armed = process.env.TOPICS_GHOST_REAP === "1";
-    const base = wtPath.endsWith("/") ? wtPath : wtPath + "/";
     const owned = gcDeps.listOwnedScripts().filter(s => {
       if (!isTopicsSpawned(s.source) || s.status !== "running" || !s.pid) return false;
-      const p = s.projectPath;
-      return p === wtPath || p.startsWith(base);
+      return !!s.projectPath && isInsideDir(s.projectPath, wtPath);
     });
     if (owned.length === 0) return;
 
@@ -304,10 +312,10 @@ export function createWorktreeManager(
   async function addWorktree(projectPath: string, absPath: string, addArgs: string[]): Promise<void> {
     const commonDir = await gitCryptDir(projectPath);
     if (!commonDir) {
-      await runGit(projectPath, ["worktree", "add", ...addArgs]);
+      await runGit(projectPath, worktreeGitArgs(["worktree", "add", ...addArgs]));
       return;
     }
-    await runGit(projectPath, ["worktree", "add", "--no-checkout", ...addArgs]);
+    await runGit(projectPath, worktreeGitArgs(["worktree", "add", "--no-checkout", ...addArgs]));
     try {
       const gitDir = resolve(absPath, (await runGit(absPath, ["rev-parse", "--git-dir"])).stdout.trim());
       const link = join(gitDir, "git-crypt");
@@ -336,21 +344,15 @@ export function createWorktreeManager(
     }
   }
 
-  /**
-   * Refuse to create a worktree from inside another worktree. Detect by
-   * inspecting the resolved `.git` path: a real repo has `<root>/.git/` as
-   * a directory; a worktree has `<root>/.git` as a file pointing at the
-   * parent repo's `.git/worktrees/<name>/` directory.
-   */
+  /** Refuse to create a worktree from inside another worktree, or from a path with no git repo. */
   function assertNotAlreadyAWorktree(projectPath: string) {
-    const dotGit = join(projectPath, ".git");
-    if (!existsSync(dotGit)) {
+    const kind = classifyWorktreeSource(projectPath);
+    if (kind === "no-git") {
       throw new WorktreeRefusalError(
         `Project path is not a git repository: ${projectPath}`,
       );
     }
-    const st = statSync(dotGit);
-    if (st.isFile()) {
+    if (kind === "nested-worktree") {
       throw new WorktreeRefusalError(
         `Cannot create worktrees from inside an existing worktree (${projectPath}). Pick the original repository instead.`,
       );
@@ -378,7 +380,7 @@ export function createWorktreeManager(
     assertNotAlreadyAWorktree(project.path);
 
     const name = pickName(input.projectId, input.name);
-    const targetDir = join(worktreesDir, project.slug);
+    const targetDir = join(currentRoot(), project.slug);
     ensureDirSync(targetDir);
     const absPath = join(targetDir, name);
 
@@ -429,6 +431,9 @@ export function createWorktreeManager(
       absPath,
     });
 
+    // The proof the GC asks before it may ever move this folder, written before git touches the disk.
+    writeRootSentinel(currentRoot());
+    markFolderOwned(currentRoot(), absPath, { worktreeId: row.id, projectId: input.projectId });
     // Caller broadcasts `worktree:new` with `row` immediately.
     // Materialise asynchronously, serialised per project.
     buildInFlight.add(row.id);
@@ -436,6 +441,7 @@ export function createWorktreeManager(
       try {
         const result = await materialiseOnDisk(project.path, absPath, branchName, input, row.id);
         setupResults.set(row.id, result);
+        await markOwned(project.path, absPath, row);
         // Wrap the DB write: when this async runs AFTER `closeDatabase()`
         // (e.g. a peer test in the same process has torn down the
         // singleton between scheduling and execution), the prepared
@@ -470,7 +476,18 @@ export function createWorktreeManager(
       }
     });
 
+    try { gcDeps.afterCreate?.(input.projectId); } catch { /* the cap check is a courtesy, never a reason to fail a create */ }
     return row;
+  }
+
+  /** Marker + lock of a worktree Topics made (see `worktree-owner.ts`). Best effort: without them the checkout is merely unprotected. */
+  async function markOwned(projectPath: string, absPath: string, row: Worktree): Promise<void> {
+    try {
+      writeOwnerMarker(absPath, { worktreeId: row.id, projectId: row.projectId, createdAt: row.createdAt });
+      await lockOwned(defaultRunGit, projectPath, absPath, row.name);
+    } catch (err) {
+      console.warn(`[WorktreeManager] owner marker/lock failed { worktree: ${absPath} }`, err);
+    }
   }
 
   async function materialiseOnDisk(
@@ -640,6 +657,8 @@ export function createWorktreeManager(
         await rm(absPath, { recursive: true, force: true });
       } catch (err) {
         lastErr = err;
+        // Windows: a process holds a file in there. Alive: no further attempts this pass.
+        if (removalMeansAlive(err)) break;
       }
       if (!existsSync(absPath)) {
         console.log(`[WorktreeManager] folder removed by hand after git refused (attempt ${attempt}): ${absPath}`);
@@ -648,9 +667,7 @@ export function createWorktreeManager(
       if (attempt < RM_ATTEMPTS) await new Promise((r) => setTimeout(r, RM_RETRY_MS));
     }
     const detail = lastErr instanceof Error ? lastErr.message : String(lastErr ?? "folder still present");
-    console.error(
-      `[WorktreeManager] cannot remove worktree folder ${absPath} (git: ${cause}; rm: ${detail}), row kept so the GC retries`,
-    );
+    console.error(`[WorktreeManager] cannot remove worktree folder ${absPath} (git: ${cause}; rm: ${detail}), row kept so the GC retries`);
     try {
       gcDeps.notify?.({
         kind: "other",
@@ -664,10 +681,7 @@ export function createWorktreeManager(
     throw new WorktreeOperationError(`worktree folder could not be removed: ${absPath}`, detail, null);
   }
 
-  async function del(
-    id: string,
-    opts: DeleteWorktreeOptions = {},
-  ): Promise<boolean> {
+  async function del(id: string, opts: DeleteWorktreeOptions = {}): Promise<boolean> {
     const wt = deps.worktreeStore.get(id);
     if (!wt) return false;
     const project = deps.projectStore.get(wt.projectId);
@@ -678,10 +692,21 @@ export function createWorktreeManager(
       // `<repo>/.claude/worktrees/`, a `git worktree add` by hand). Topics
       // forgets the row; the folder, its git registration and its branch
       // belong to whoever made them.
-      if (!isInsideDir(wt.absPath, worktreesDir)) {
+      // «Ours» is any root Topics used (current, default, past): a root moved twice still counts.
+      const ownRoot = ownedRootsOfStores(deps).find((root) => isInsideDir(wt.absPath, root));
+      if (!ownRoot) {
+        if (opts.includeForeign && project && existsSync(wt.absPath)) {
+          await runGit(project.path, ["worktree", "remove", wt.absPath]);
+        }
         const removed = deps.worktreeStore.delete(id);
         setupResults.delete(id);
         return removed;
+      }
+      // The lock Topics took at creation would make git refuse both the remove
+      // and the prune below; a lock with a foreign reason stays and git refuses.
+      // A `claude-code:` lock is lifted only when its rule says the session is over (B4); a check that throws protects.
+      if (project && !(await unlockOwned(defaultRunGit, project.path, wt.absPath, lockLiftRule(defaultRunGit, () => resolveWorktreeAbandonDays())).catch(() => false))) {
+        throw new WorktreeOperationError(`worktree is locked by someone else: ${wt.absPath}`, "git worktree lock with a foreign reason, or a lock nobody could read", null);
       }
       // Best-effort: remove from disk, then the branch if we own it.
       if (project && existsSync(wt.absPath)) {
@@ -697,6 +722,9 @@ export function createWorktreeManager(
         } catch (err: any) {
           const cause = String(err?.stderr || err?.message || err).trim();
           console.warn(`[WorktreeManager] git worktree remove failed for ${wt.absPath}:`, cause);
+          // Windows, EBUSY/EPERM: somebody is inside; or a lock taken since the check above. The row stays, no rm on top.
+          if (removalMeansAlive(err)) throw new WorktreeOperationError(`worktree is in use: ${wt.absPath}`, cause, null);
+          if (/locked working tree/i.test(cause)) throw new WorktreeOperationError(`worktree is locked by someone else: ${wt.absPath}`, cause, null);
           // Throws when the folder survives: row and branch stay, see above.
           await removeFolderOurselves(project.path, wt.absPath, cause);
         }
@@ -739,6 +767,7 @@ export function createWorktreeManager(
       }
       const removed = deps.worktreeStore.delete(id);
       setupResults.delete(id);
+      if (!existsSync(wt.absPath)) forgetFolderOwned(ownRoot, wt.absPath);
       // Caller is responsible for the WS broadcast.
       return removed;
     });
@@ -763,7 +792,7 @@ export function createWorktreeManager(
     delete: del,
     awaitMaterialisation,
     isMaterialising: (id) => buildInFlight.has(id),
-    worktreesDir: () => resolve(worktreesDir),
+    worktreesDir: () => resolve(currentRoot()),
     setupResult: (id) => setupResults.get(id) ?? null,
     portForPath,
     knownWorktreePort,

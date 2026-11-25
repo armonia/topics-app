@@ -6,7 +6,7 @@
  *   GET    /api/projects?path=<abs>             → lookup-or-null (200 with body=null on miss)
  *   GET    /api/projects/:id                    → single
  *   POST   /api/projects                        → create (auto-generates slug from name when omitted)
- *   PATCH  /api/projects/:id                    → update (name, color, icon)
+ *   PATCH  /api/projects/:id                    → update (name, color, icon, parentId + mergeMode = accorpa / separa)
  *   POST   /api/projects/:id/archive            → set archived=1
  *   POST   /api/projects/:id/restore            → set archived=0
  *   DELETE /api/projects/:id                    → row delete (refuses if any worktree exists)
@@ -22,7 +22,8 @@
  * surfaces 400/404/409 with clear messages.
  */
 import type { AppContext, RouteHandler } from "../types";
-import { SlugConflictError, ProjectInUseError } from "../services/project-store";
+import { SlugConflictError, ProjectInUseError, ParentRefusedError } from "../services/project-store";
+import { isMergeMode, type MergeMode } from "../../shared/project-family";
 import { unwatchGitDir } from "../git-watcher";
 import { unwatchProjectFiles } from "../file-watcher";
 import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";
@@ -31,12 +32,17 @@ import { resolveProjectIcon, ICON_CONTENT_TYPE } from "../lib/project-icon";
 import { knownProjectDirs } from "../services/known-project-dirs";
 import { createProjectIconWatch } from "../services/project-icon-watch";
 import { isInsideDir } from "../lib/path-containment";
+import { canonicalProjectFor } from "../services/project-path-resolver";
+import { worktreeRootDir } from "../services/worktree-manager";
 import { osservatoreDaDispositivo, vedeProgetto, visibilitaDi } from "../lib/project-visibility";
 import { resolveOsOpenPath, fsProbe } from "../lib/os-open-path";
 import { installationOrgId, actingPersonId } from "../lib/orgs";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { isAbsoluteServerPath } from "../lib/absolute-path";
 import { stripCtrl } from "../lib/strip-ctrl";
+import { projectIdOfFolder } from "../usage/project-folders";
+import { readProjectLimit, setProjectLimit } from "../usage/project-limit";
+import { QUOTA_LIMIT_CHOICES } from "../../shared/usage-shapes";
 
 const NAME_MAX = 200;
 const SLUG_REGEX = /^[a-z][a-z0-9-]{0,63}$/;
@@ -57,7 +63,7 @@ let iconAllowCache: { at: number; dirs: Set<string>; db: unknown } | null = null
 const ICON_VERSIONS_MAX_PATHS = 512;
 
 export function createProjectsRouter(ctx: AppContext): RouteHandler {
-  const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, broadcastProject, broadcastToProjectViewers } = ctx;
+  const { db, json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, broadcastProject, broadcastToProjectViewers } = ctx;
 
   /**
    * La riga intera esce SOLO verso chi la vede: `broadcastProject` chiede
@@ -339,6 +345,29 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       return json({ target });
     }
 
+    // GET /api/projects/quota-limit?path=<abs>: the project's own 24h quota
+    // limit (project quota, USAGE-29). `null` = no limit; a project
+    // that was never configured reads the default.
+    if (method === "GET" && pathname === "/api/projects/quota-limit") {
+      const raw = url.searchParams.get("path");
+      if (!raw) return errorResponse(400, "path required");
+      return json({ limit: readProjectLimit(db, projectIdOfFolder(db, raw)) });
+    }
+
+    // POST /api/projects/quota-limit {path, limit}: writes the choice from the
+    // project's menu. `limit: null` clears it.
+    if (method === "POST" && pathname === "/api/projects/quota-limit") {
+      const body = await readJSON(req);
+      if (!body || typeof body.path !== "string" || !body.path) return errorResponse(400, "path required");
+      const limit = body.limit;
+      if (!QUOTA_LIMIT_CHOICES.includes(limit as number | null)) {
+        return errorResponse(400, `limit must be one of ${QUOTA_LIMIT_CHOICES.join(", ")}`);
+      }
+      const projectId = projectIdOfFolder(db, body.path);
+      setProjectLimit(db, projectId, limit as number | null);
+      return json({ limit: readProjectLimit(db, projectId) });
+    }
+
     // POST /api/projects
     if (method === "POST" && pathname === "/api/projects") {
       const body = await readJSON(req);
@@ -359,6 +388,18 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       // `/api/files/content` on the next call. Loopback and agents pass.
       if (clientProjectPathRefused(req, path, ctx)) {
         return errorResponse(400, CLIENT_PROJECT_PATH_ERROR);
+      }
+
+      // A worktree (or a symlink alias of the repo) is never a project of its
+      // own: answer with the project that already owns the repository instead of
+      // opening a second board for it. Idempotent, so a client that "adds" the
+      // folder it is working in simply gets the project it belongs to.
+      {
+        const owner = canonicalProjectFor(path, projectStore.list(), {
+          worktreeOwner: (abs) => ctx.worktreeStore.getByAbsPath(abs)?.projectId ?? null,
+          worktreeRoot: worktreeRootDir(),
+        });
+        if (owner && owner.path !== path && visibile(req, owner)) return json(owner, 200);
       }
 
       let slug = stripCtrl(body.slug);
@@ -494,7 +535,34 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
             }
             patch.orgId = body.orgId;
           }
-          const project = projectStore.update(idParams.id, patch);
+          // Accorpa / separa: where the project sits in a family and whether it
+          // shares the parent's board. Cards never move (only `projects` changes),
+          // so this is safe to flip back and forth.
+          let familyChange: { parentId?: string | null; mergeMode?: MergeMode } | null = null;
+          if (body.parentId !== undefined || body.mergeMode !== undefined) {
+            familyChange = {};
+            if (body.parentId !== undefined) {
+              if (body.parentId !== null && typeof body.parentId !== "string") return errorResponse(400, "parentId must be a project id or null");
+              if (typeof body.parentId === "string") {
+                const wanted = projectStore.get(body.parentId);
+                if (!wanted || !visibile(req, wanted)) return errorResponse(404, "Parent project not found");
+              }
+              familyChange.parentId = body.parentId;
+            }
+            if (body.mergeMode !== undefined) {
+              if (!isMergeMode(body.mergeMode)) return errorResponse(400, "mergeMode must be accorpa or separa");
+              familyChange.mergeMode = body.mergeMode;
+            }
+            if (!projectStore.get(idParams.id)) return errorResponse(404, "Project not found");
+            try { projectStore.setFamily(idParams.id, familyChange); }
+            catch (err) {
+              if (err instanceof ParentRefusedError) return errorResponse(409, `cannot change the family: ${err.reason}`);
+              throw err;
+            }
+          }
+          const project = Object.keys(patch).length || !familyChange
+            ? projectStore.update(idParams.id, patch)
+            : projectStore.get(idParams.id);
           if (!project) return errorResponse(404, "Project not found");
           emit("project:updated", project);
           return json(project);

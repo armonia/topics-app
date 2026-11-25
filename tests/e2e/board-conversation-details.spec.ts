@@ -655,7 +655,7 @@ test('a single-line system question keeps its inline answers in the conversation
   await page.goto(`/task/${taskId}`);
   const conversation = page.getByTestId('task-session-column');
   await expect(conversation.getByTestId('task-question-options').getByRole('button', { name: 'Contracts', exact: true })).toBeVisible();
-  await expect(conversation.getByRole('button', { name: 'Orders', exact: true })).toBeVisible();
+  await expect(conversation.getByTestId('task-question-options').getByRole('button', { name: 'Orders', exact: true })).toBeVisible();
 });
 
 for (const gesture of ['button', 'enter', 'attachment'] as const) {

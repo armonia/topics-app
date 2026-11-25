@@ -216,8 +216,8 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
     await expect(box).toContainText(/sta rimandando il tuo messaggio/);
     // NO RETRY: pressing it would buy a second turn while the first resumes.
     await expect(page.locator('[data-testid="turn-interrupted-retry"]')).toHaveCount(0);
-    // The activity indicator, same ring the app spins on any wait.
-    await expect(box.locator(".animate-spin")).toBeVisible();
+    // The activity indicator, the same square loader the app shows on any wait.
+    await expect(box.locator("[data-spinner]")).toBeVisible();
 
     // First token: from here the answer is its own proof, and the banner goes.
     send({ type: "stream:content_chunk", messageId: RESUME_MSG_ID, content: RESUMED_OPENING });

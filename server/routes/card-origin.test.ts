@@ -10,6 +10,10 @@ import { projectIdForPath } from "../services/tasks";
 import { createTasksRouter } from "./tasks";
 import { call, freshDb, makeCtx, rawCall, withOwnSessionToken } from "./tasks-test-support";
 
+// The channel place is read from the channel bridge's database: on a machine that has
+// one, a test chat named like a real thread would get its real place. Point it nowhere.
+process.env.JARVIS_CHANNELS_DB = "/nonexistent/channels.sqlite";
+
 const GLOBAL_TOPIC_ID = "global-orchestrator-topic";
 const GLOBAL_KEY = "topic:global-orchestrator";
 const LONG = "A description with enough context to finish the card on its own.";
@@ -185,6 +189,22 @@ describe("card origin and agent-card contract", () => {
     const ghost = await post("/api/boards/pX/tasks", { text: "from nowhere", originTopicId: "no-such-topic" });
     expect(ghost.body.openerTopicId).toBeUndefined();
     expect(ghost.body.channel).toBeUndefined();
+  });
+
+  test("a chat in an agent's home names the agent: on the opener and on the channel", async () => {
+    topic(db, "chan-v", "#lancio-campagna");
+    db.run("UPDATE topics SET icon = 'Discord', project_path = '/home/u/.topics/agents/gtm' WHERE id = 'chan-v'");
+    topic(db, "chat-j", "Promemoria della settimana");
+    db.run("UPDATE topics SET project_path = '/home/u/.topics/agents/jarvis' WHERE id = 'chat-j'");
+    const v = await post("/api/boards/pX/tasks", { text: "from Visione's channel", originTopicId: "chan-v" });
+    expect(v.body.openerAgent).toBe("gtm");
+    expect(v.body.channel).toMatchObject({ kind: "discord", agent: "gtm" });
+    const j = await post("/api/boards/pX/tasks", { text: "from Jarvis' chat", originTopicId: "chat-j" });
+    expect(j.body.openerAgent).toBe("jarvis");
+    expect(j.body.channel).toBeUndefined();
+    // An ordinary project chat belongs to no agent.
+    const plain = await post("/api/boards/pX/tasks", { text: "from a project chat", originTopicId: "top-s1" });
+    expect(plain.body.openerAgent).toBeUndefined();
   });
 
   test("channelTopicId links the channel at birth and after, and wakes nothing (display only, no origin)", async () => {

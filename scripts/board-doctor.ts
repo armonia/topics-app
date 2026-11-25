@@ -1044,7 +1044,8 @@ export function saveState(state: DoctorState, path = statePath()): void {
 // ── Lettura del mondo: DB in sola lettura, git in sola lettura ───────────────
 
 /** Dove stanno le due verita' del controllo 7. Percorsi relativi alla repo. */
-export const MCP_SERVER = "server/mcp/topics-mcp-server.ts";
+// The tool schemas live in the catalog the MCP server composes, not in the server file.
+export const MCP_SERVER = "server/mcp/tool-catalog.ts";
 export const PROTOCOL_DOCS = ["docs/board-protocol.md"] as const;
 
 /**

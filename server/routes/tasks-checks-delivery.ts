@@ -7,11 +7,11 @@ import { mintSessionToken, SESSION_TOKEN_HEADER } from "../lib/session-token";
 import { topicsHome } from "../services/daemon-state";
 import { type Task } from "../services/tasks";
 import { type RealignOutcome } from "../services/task-automerge";
-import { FAST_GATES_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, hasFastGates, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { FAST_GATES_CHECK, TOUCHED_TESTS_CHECK, hasTouchedTests, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, hasFastGates, runReviewChecks, type CheckRun, type ReviewCheck } from "../services/review-checks";
 import { ChecksInterruptedError, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping } from "../services/review-checks-brakes";
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
-import { ciNotMeasured } from "../services/ci-evidence";
+import { ciNotMeasured, ciRemeasurable, ciRowOfThisHead } from "../services/ci-evidence";
 import type { TasksCore, TasksLate } from "./tasks-scope";
 
 /** How many pre-review check runs may execute at once (see `createChecksGate`). */
@@ -246,6 +246,16 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
   const MAX_DELIVERY_ROUNDS = 3;
 
   /**
+   * How many more waits on the pull request CI a round gets when the one
+   * before ended with no verdict for a cause that passes by itself
+   * (`ciRemeasurable`). Each wait is up to `CI_E2E_DEADLINE_MS` of polling at
+   * one read a minute, with no process alive in between: three more is three
+   * hours, past the 42-minute queue measured in a 10-PR burst by a wide margin
+   * and short of a loop nobody watches.
+   */
+  const CI_REMEASURES = 3;
+
+  /**
    * The round is not restarted a fourth time: the card is told, once.
    *
    * The row goes with it, because leaving it would restart the count at the
@@ -310,7 +320,15 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
       }
       // COUNTED BEFORE IT RESTARTS, because the round that follows may well be
       // cut by the next save under `server/` and never be counted at all.
-      const round = bumpPendingDeliveryRound(ctx.db, entry.taskId);
+      //
+      // EXCEPT A ROUND THAT WAS ONLY WAITING ON GITHUB. Its local commands are
+      // green on this very commit and written on the card, so the restart
+      // resumes the wait on the run already going (`awaitingCiOn`) and costs a
+      // few `gh` reads, not minutes of commands: counting it gave up on 10
+      // deliveries after three restarts that had measured everything but the
+      // CI, which kept running on GitHub without anybody reading it.
+      const waitOnly = !!entry.commit && awaitingCiOn(entry.taskId, entry.commit);
+      const round = waitOnly ? 0 : bumpPendingDeliveryRound(ctx.db, entry.taskId);
       if (round > MAX_DELIVERY_ROUNDS) {
         giveUpOnDelivery(entry.taskId, round);
         continue;
@@ -336,10 +354,12 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
         // Said HERE and not in the sweep above: a line that announces a resume
         // must only be printed by a resume that happens.
         console.warn(
-          `[Tasks] consegna di ${entry.taskId.slice(0, 8)} ripresa dopo il riavvio: i check ripartono ` +
-          (entry.commit
-            ? `sullo stesso commit (${entry.commit.slice(0, 7)}), nessun riallineamento in più`
-            : "con un riallineamento su main: il giro tagliato non era arrivato a farlo"),
+          `[Tasks] consegna di ${entry.taskId.slice(0, 8)} ripresa dopo il riavvio: ` +
+          (waitOnly
+            ? `riprende l'attesa della CI sullo stesso commit (${entry.commit!.slice(0, 7)}), senza rifare i comandi locali`
+            : "i check ripartono " + (entry.commit
+              ? `sullo stesso commit (${entry.commit.slice(0, 7)}), nessun riallineamento in più`
+              : "con un riallineamento su main: il giro tagliato non era arrivato a farlo")),
         );
         reissueDelivery(entry.taskId, entry.pathname, entry.body, "riavvio del server");
       }, 0);
@@ -358,6 +378,44 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
     return !!task && task.status === "in_progress";
   }
 
+  /**
+   * The local commands this card ran green on `commit`, when the card says its
+   * round got as far as waiting on the pull request CI, or null.
+   *
+   * Read off the card, not off memory: the wait writes the local rows into
+   * `checks_json` with the commit (`onCiWait` below), and a boot leaves both
+   * where they are (`clearStaleChecksRuns` only switches the light off). A
+   * verdict already recorded carries the CI rows too and is not a wait.
+   */
+  function localRowsAwaitingCi(taskId: string, commit: string, local: readonly ReviewCheck[]): CheckRun[] | null {
+    let task: Task | undefined;
+    try { task = svc.get(taskId)?.task; } catch { return null; }
+    if (!task || task.checksCommit !== commit) return null;
+    if (task.checksState === "pass" || task.checksState === "fail") return null;
+    const rows = task.checks ?? [];
+    if (!rows.length || rows.some((r) => isCiEvidenceCheck(r) || !r.ok)) return null;
+    const mine: CheckRun[] = [];
+    for (const c of local) {
+      const row = rows.find((r) => r.cmd === c.cmd);
+      if (!row) return null;
+      mine.push(row);
+    }
+    return mine;
+  }
+
+  /** Was this delivery, on this commit, waiting only on GitHub? Asked at boot with the board's declared bar. */
+  function awaitingCiOn(taskId: string, commit: string): boolean {
+    let task: Task | undefined;
+    try { task = svc.get(taskId)?.task; } catch { return false; }
+    if (!task) return false;
+    let declared: ReviewCheck[] = [];
+    try { declared = svc.getBoardSettings(task.projectId).reviewChecks; } catch { return false; }
+    if (!declared.some(isCiEvidenceCheck)) return false;
+    // `gates:fast` is prepended by the round itself when the checkout has it: matched by its row, not by the declared list.
+    const local = declared.filter((c) => !isCiEvidenceCheck(c));
+    return localRowsAwaitingCi(taskId, commit, local) !== null;
+  }
+
   async function runChecksGate(
     taskId: string,
     projectId: string,
@@ -365,7 +423,9 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
     // A delivery planted from another machine has no worktree of its own: the
     // meter (`node-delivery-meter.ts`) hands in a throwaway checkout instead.
     checkout?: () => Promise<{ cwd: string; commit: string | null } | null>,
+    fresh = false,
   ): Promise<ChecksLeg> {
+    if (fresh) checksGate.forget(taskId);
     const checkoutRef = checkout ?? (opts?.taskCheckoutRef ? () => opts!.taskCheckoutRef!(taskId) : null);
     if (!checkoutRef || !opts) return null;
     let checks: ReviewCheck[] = [];
@@ -417,11 +477,11 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
       if (!re.ok) {
         const comment =
           `**Riallineamento su main fallito, check non partiti**: ${re.reason}. ` + // allow-italian: board notes are written in Italian like every other service comment
-          "Nel worktree fai `git merge main`, risolvi, committa, poi rimetti in review con update_task(status=\"review\")."; // allow-italian: board notes are written in Italian like every other service comment
+          "Nel worktree fai `git fetch origin && git merge origin/main` (su un nodo il `main` locale è vecchio e non mostra il conflitto), risolvi, committa, poi rimetti in review con update_task(status=\"review\")."; // allow-italian: board notes are written in Italian like every other service comment
         try {
           svc.recordChecks({
             taskId, state: "fail", commit: null,
-            runs: [{ name: "realign", cmd: "git merge main", ok: false, code: 1, ms: 0, timedOut: false, tail: re.reason }],
+            runs: [{ name: "realign", cmd: "git merge origin/main", ok: false, code: 1, ms: 0, timedOut: false, tail: re.reason }],
           });
           svc.addComment({ taskId, author: "system", kind: "comment", content: comment });
           const t = svc.get(taskId, { projectId })?.task;
@@ -443,12 +503,37 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
     // costs seconds here instead of a queued CI run. The list lives in the
     // `gates:fast` script, the one CI runs as well. A project without it
     // (any repo but this one) is measured exactly as before.
-    if (hasFastGates(ref.cwd)) checks = [FAST_GATES_CHECK, ...checks.filter((c) => c.cmd !== FAST_GATES_CHECK.cmd)];
+    // The tests of the touched files come right after, on this machine: a red
+    // one bounces the delivery like any other check, with its output.
+    const own = [
+      ...(hasFastGates(ref.cwd) ? [FAST_GATES_CHECK] : []),
+      ...(hasTouchedTests(ref.cwd) ? [TOUCHED_TESTS_CHECK] : []),
+    ];
+    if (own.length) checks = [...own, ...checks.filter((c) => !own.some((o) => o.cmd === c.cmd))];
     // The CI evidence rows never reach a shell: they are read after the local commands.
     const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
     const ciChecks = checks.filter(isCiEvidenceCheck);
 
     const measure = async (lane: ChecksLane) => {
+      // A round on a new branch ends the pull requests of the card's earlier
+      // rounds now, not only once its own draft is open (ci-supersede.ts).
+      if (ciChecks.length && opts?.supersedeEarlierRounds) {
+        void opts.supersedeEarlierRounds({ cwd: ref.cwd, taskId })
+          .then((out) => {
+            const closed = (out as { closed?: number[] } | null)?.closed ?? [];
+            if (closed.length) console.warn(`[checks] ${taskId.slice(0, 8)}: chiuse le PR dei giri prima (${closed.map((n) => `#${n}`).join(", ")})`);
+          })
+          .catch(() => undefined);
+      }
+      // THE SAME DELIVERY CUT WHILE IT WAITED ON GITHUB resumes the wait. Its
+      // local commands are green on this commit and written on the card; the
+      // run they handed over is still going on GitHub, on the same head, and
+      // `awaitCiEvidence` finds it again (same sha: the push is a no-op, the
+      // draft is reused). Running the commands again cost minutes of CPU, and
+      // the round they started was the one the next restart cut.
+      const resumedLocal = ciChecks.length > 0 && !!ref.commit && sameDelivery && restoredDeliveries.get(taskId) === ref.commit
+        ? localRowsAwaitingCi(taskId, ref.commit!, localChecks)
+        : null;
       // 'running' subito e in broadcast: i comandi possono durare minuti e una
       // board ferma senza spiegazioni si legge come "si è impiantato".
       try {
@@ -470,7 +555,7 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
        *
        * Best-effort come la spia qui sopra: se la scrittura fallisce il gate
        * continua: un progresso mancato non deve poter fermare una consegna. */
-      const runs = await runReviewChecks(localChecks, {
+      const runs = resumedLocal ? [...resumedLocal] : await runReviewChecks(localChecks, {
         cwd: ref.cwd,
         // So a run frozen for load can say so in THIS card's thread.
         taskId,
@@ -498,7 +583,7 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
         // of a run that blew up, which the delivery reads as "no gate at all",
         // and the card entered review with no e2e verdict. Only a shutdown
         // passes through, as the interrupted outcome it already has.
-        const unread = (reason: string) => ciChecks.map((c) => ciNotMeasured(c, reason));
+        const unread = (reason: string, transient = false) => ciChecks.map((c) => ciNotMeasured(c, reason, { transient }));
         /* THE WAIT ON GITHUB IS NOT A MUTE WAIT.
          *
          * The pull request and its run exist within seconds of the push, and
@@ -507,21 +592,44 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
          * which the card said «check 1/2» and nothing that could be opened.
          * Best-effort like every other lamp of this round: a link that fails to
          * be written must not be able to stop a delivery. */
+        // The local rows travel with the links: they are what lets a restart
+        // resume this wait instead of running the commands again.
+        const localRows = [...runs];
         const onCiWait = (links: { prUrl: string; runUrl?: string }) => {
           try {
             const t = svc.recordChecks({
-              taskId, state: "running", commit: ref.commit, runs: null,
+              taskId, state: "running", commit: ref.commit, runs: localRows,
               progress: { done: localChecks.length, total: checks.length }, ci: links,
             });
             broadcastToAll({ type: "task:updated", projectId, task: t });
           } catch { /* a link lost does not stop the gate */ }
         };
-        const ciRuns = ref.commit && opts?.ciEvidence
-          ? await opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks, onCiWait }).catch((err: unknown) => {
-            if (err instanceof ChecksInterruptedError) throw err;
-            return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`);
-          })
-          : unread(ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit");
+        // A row that describes another head is checked HERE, before the
+        // remeasure loop below: as a transient NOT MEASURED it is read again
+        // on this head instead of closing the round.
+        const readCi = () => ref.commit && opts?.ciEvidence
+          ? opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks, onCiWait })
+            .then((rows) => rows.map((row) => {
+              const check = ciChecks.find((c) => c.cmd === row.cmd);
+              return check ? ciRowOfThisHead(row, check, ref.commit) : row;
+            }))
+            .catch((err: unknown) => {
+              if (err instanceof ChecksInterruptedError) throw err;
+              return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`, true);
+            })
+          : Promise.resolve(unread(ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit"));
+        let ciRuns = await readCi();
+        // A ROUND WITHOUT A VERDICT IS MEASURED AGAIN, NOT HANDED BACK. Only a
+        // red of a check sends the card to its agent: a deadline that ran out
+        // while the run sat in the runner queue, or GitHub not answering, has
+        // nothing for the agent to fix, and the 409 it got burnt one of its
+        // rounds on the same commit it would deliver again.
+        for (let again = 1; again <= CI_REMEASURES && ciRemeasurable(ciRuns); again++) {
+          throwIfStopping();
+          const why = ciRuns.find((r) => r.transient)?.tail.split("\n")[0] ?? "no verdict";
+          console.warn(`[checks] ${taskId.slice(0, 8)}: CI senza verdetto (${why}), la rimisuro sulla stessa testa (${again}/${CI_REMEASURES})`);
+          ciRuns = await readCi();
+        }
         // One row per declared CI check, whatever the reader answered.
         runs.push(...ciChecks.map((c) => ciRuns.find((r) => r.cmd === c.cmd) ?? ciNotMeasured(c, "the CI evidence reader returned no row for it")));
         throwIfStopping();

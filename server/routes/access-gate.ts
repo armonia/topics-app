@@ -8,6 +8,7 @@ import { isDelegatedNodeAllowedRequest, isGuestAllowedPath, isGuestAllowedMethod
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "../lib/grants-query";
 import { resolveDelegatedCredential, resolveIdentity } from "../lib/identity";
 import { isScreenAllowedRequest } from "../lib/screen-scope";
+import { isNodeAllowedRequest, markNodeDevice, shouldLearnNodeDevice } from "../lib/node-scope";
 import { isBillingWebhookPath } from "../routes/billing";
 import { evaluateAuth, isLoopbackAddress, isOriginGatedPath, resolveAllowedOrigins } from "../lib/auth-gate";
 import { isViaTunnel, isLocalTransport } from "../lib/tunnel";
@@ -104,6 +105,20 @@ export function createAccessGate(scope: Pick<AfterHttp, "corsAllowOrigin" | "ctx
                 return isScreenAllowedRequest(pathname, method)
                   ? { ok: true as const }
                   : { ok: false as const, status: 403, reason: "screen device", code: "screen_scope" };
+              }
+              // A machine credential paired before the node scope existed is marked the first
+              // time it calls the run routes as a Topics server (`shouldLearnNodeDevice`).
+              if (io && !io.node && device && shouldLearnNodeDevice(pathname, req.headers.get("user-agent"))) {
+                markNodeDevice(ctx.db, device.id, null, "learned");
+                io.node = true;
+                console.log(`[auth] device ${device.id} called the node routes as a Topics server: it is a node credential from now on`);
+              }
+              // The credential a server collected by pairing this node reaches the fleet's
+              // routes and nothing else: no command, no topic, no pairing, no settings.
+              if (io?.node) {
+                return isNodeAllowedRequest(pathname, method)
+                  ? { ok: true as const }
+                  : { ok: false as const, status: 403, reason: "node credential", code: "node_scope" };
               }
               if (delegated && !isDelegatedNodeAllowedRequest(pathname, method)) {
                 return { ok: false as const, status: 403, reason: "delegated credential scope", code: "delegated_scope" };

@@ -28,6 +28,7 @@ export const SLOT_ACQUIRED_PREFIX = "[slot] acquired";
  */
 export const SLOT_WAITING_PREFIX = "[slot] waiting";
 
+/** @knipignore used by scripts/slot.ts, outside the production graph */
 export function slotWaitingLine(label: string): string {
   return `${SLOT_WAITING_PREFIX} ${label}: queued behind another run, the command has not started`;
 }
@@ -41,6 +42,7 @@ export function hasSlotWaiting(text: string): boolean {
 }
 
 /**
+ * @knipignore used by scripts/gate-slot.ts, outside the production graph
  * `run`: the token of this `slot.ts` run, a secret of the script (never passed
  * to the command). A second queue after a freeze is told by lines carrying it
  * (`slotQueuedAgainLine`): a command that merely prints "[slot] waiting ..." after
@@ -51,6 +53,7 @@ export function slotAcquiredLine(label: string, queuedMs: number, run?: string):
 }
 
 /**
+ * @knipignore used by scripts/slot.ts, outside the production graph
  * A RUN CONTINUED AFTER A FREEZE QUEUES AGAIN: its command is stopped until it
  * holds a place again, and the acquired line with the same token ends that wait.
  * `pid` is the `slot.ts` process and `group` the stopped command's process

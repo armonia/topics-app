@@ -58,10 +58,11 @@
 import type { Database } from "bun:sqlite";
 import type { ContentBlock } from "../types";
 import { decodeCol } from "../../shared/message-blob";
-import { stoppedSubagentChat, wakeVerdict } from "./wake-adoption";
+import { launchedSinceRetired, stoppedSubagentChat, wakeVerdict } from "./wake-adoption";
 import { isProviderHeld } from "./provider-hold";
 import { isChatsLastWord, outageCutUnanswered, outageResendAttempt, outageResendOwed } from "./ripresa-boot";
 import type { ResendChain } from "./resend-count";
+import { sleep } from "./unref-sleep";
 
 /** What the topic is told about a process that ended. */
 export interface ProcessExitFacts {
@@ -71,6 +72,8 @@ export interface ProcessExitFacts {
   label: string;
   /** Null: the process ended without recording a code. */
   exitCode: number | null;
+  /** ISO time the command started: an archived chat that started it after being archived is alive. */
+  startedAt?: string;
   durationMs: number;
   /** The last lines of its output, oldest first. */
   lines: string[];
@@ -248,8 +251,6 @@ export function wakeDelivered(db: Pick<Database, "query">, sessionKey: string, p
   return wakeCutByOutage(db, sessionKey, processId) === null;
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.(); });
-
 /**
  * One wake, from the wait to the end of the turn it opened: "sent" comes back
  * once a turn it opened is over uncut by an outage, "capped" once the copies
@@ -268,7 +269,11 @@ export async function deliverProcessExit(
     // Resolved on every round: the topic can be archived, or its card leave
     // the column, while the wake waits.
     const topic = deps.getTopicById(f.topicId);
-    if (!topic || wakeVerdict({ id: f.topicId, archived: topic.archived }, deps.ownedByRunningTask, (id) => stoppedSubagentChat(deps.db, id)) !== "adopt") return "no-topic";
+    // A command a chat started after it was archived is that chat at work.
+    if (!topic || wakeVerdict(
+      { id: f.topicId, archived: topic.archived }, deps.ownedByRunningTask, (id) => stoppedSubagentChat(deps.db, id),
+      (id) => launchedSinceRetired(deps.db, id, topic.sessionKey, f.startedAt ? { startedAt: f.startedAt } : undefined),
+    ) !== "adopt") return "no-topic";
     // Busy first: the row cannot appear while somebody else's turn holds the
     // session, and the search below scans the session's rows.
     if (deps.isBusy(topic.sessionKey)) { await sleep(pollMs); continue; }
@@ -387,7 +392,7 @@ export function startProcessExitWakes(d: ProcessExitWakeDeps): void {
   for (const r of waiting.splice(0)) schedule(d, r);
 }
 
-/** Every wake scheduled so far has settled. For tests. */
+/** @internal Every wake scheduled so far has settled. For tests. */
 export async function processExitWakesIdle(): Promise<void> {
   while (chains.size) await Promise.all([...chains.values()]);
 }

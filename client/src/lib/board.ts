@@ -13,11 +13,10 @@
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
 // The board's columns (`shared/workflow.ts`): which ones, and which a card is in.
-import type { BoardWorkflow, WorkflowPresetId, WorkflowRules, WorkflowRulesRow } from '../../../shared/workflow';
-export { STAGE_CI, WORKFLOW_PRESETS, WORKFLOW_PRESET_IDS, columnOfTask, type WorkflowPresetId } from '../../../shared/workflow';
-/** `GET /boards/:id/workflow`: the resolved workflow plus the row of exactly this board. */
+import type { BoardWorkflow, WorkflowRules, WorkflowRulesRow } from '../../../shared/workflow';
+export { STAGE_CI, WORKFLOW_COLUMNS, columnOfTask } from '../../../shared/workflow';
+/** `GET /boards/:id/workflow`: the columns (the same for every board) plus the rules. */
 export interface BoardWorkflowView extends BoardWorkflow {
-  own: WorkflowPresetId | null;
   /** The CI switch and the board's paths a person must look at, resolved; `ownRules` = this board's row. */
   rules?: WorkflowRules;
   ownRules?: WorkflowRulesRow | null;
@@ -29,7 +28,7 @@ export { personPathsFromText, personPathsToText } from '../../../shared/workflow
 // gli occhi di una persona, e due copie inizierebbero a dire numeri diversi.
 export { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX, GLOBAL_CAP_OFF, clampGlobalCap, effectiveDispatchCap } from '../../../shared/board';
 export {
-  CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB, CHECKS_MEM_FLOOR_DEFAULT_GB,
+  CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB,
   checksMemFloorGB, checksMemFloorIsOff,
 } from '../../../shared/checks-memory-floor';
 export type { GlobalDispatchCap } from '../../../shared/board';
@@ -92,6 +91,7 @@ export { attemptHasWork } from '../../../shared/task-attempt';
 // da lì che lo importa chi lo usa (il servizio lato server).
 export type { TaskAttempt } from '../../../shared/task-attempt';
 import type { TaskAttempt } from '../../../shared/task-attempt';
+import type { BoardFamilyLink } from '../../../shared/project-family';
 import { coalescedFetch } from './coalesceFetch';
 import { uiGet, uiPutDebounced } from './boardDraftsIO';
 import { serverHttpBase, apiFetch } from './shell/net';
@@ -581,6 +581,10 @@ export interface BoardTask {
   updatedAt: string;
   /** Topic (chat tab) the dispatched agent works this task in, if any. */
   assignedTopicId: string | null;
+  /** Soft-deleted: off the board, kept for history. A drawer already open on
+   *  it still gets a GET — this is how it finds out, since the status
+   *  `archive()` leaves untouched (still e.g. `review`) would read as live. */
+  archived: boolean;
   /** null = not dispatched; queued | starting | working | needs_input. */
   dispatchState: string | null;
   /** Why the last dispatch attempt was released/parked (visible feedback). */
@@ -675,11 +679,13 @@ export interface BoardTask {
   openerTopicId?: string;
   /** That chat's name. */
   openerName?: string;
-  /** The Jarvis channel the work came from (Discord, WhatsApp, Telegram), only while its chat exists. */
-  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace };
+  /** The always-on agent that chat belongs to (`shared/agent-home.ts`), when it is an agent's chat. */
+  openerAgent?: string;
+  /** The Jarvis channel the work came from (Discord, WhatsApp, Telegram), only while its chat exists; `agent` answers in it. */
+  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace; agent?: string };
   /** The workflow column when it is not the default one of the status (`shared/workflow.ts`); absent/null = the default column. */
   stage?: string | null;
-  /** The question for the person the delivery carried (Human review). */
+  /** The question for the person the delivery carried. */
   humanAsk?: string;
   /** Who decided the work goes to main ('human' | 'auto'): the card is in, or will return to, the CI phase. */
   landIntent?: "human" | "auto";
@@ -866,14 +872,14 @@ async function readFeedIfChanged(read?: { ttlMs: number }): Promise<BoardTask[]>
   return tasks;
 }
 
-/** Tests only: forget the held feed. */
+/** @internal Tests only: forget the held feed. */
 export function __resetFeedRevalidation(): void {
   lastFeed = null;
 }
 
 export interface CreateTaskBody {
   text: string;
-  /** The workflow column to be born in; absent = the server decides (Triage for a person's card). */
+  /** The workflow column to be born in; absent = the default column of its status. */
   stage?: string;
   description?: string | null;
   priority?: number;
@@ -1176,6 +1182,9 @@ export interface BoardProjectRef {
   path: string;
 }
 
+/** A project that sits under another one (accorpa / separa), in board ids. */
+export type { BoardFamilyLink };
+
 const enc = encodeURIComponent;
 
 /** Lo stato della modalità notturna, come lo riporta il server. */
@@ -1327,7 +1336,7 @@ export const boardApi = {
    *  `newProjectDir`: la cartella in cui nascerebbe un progetto creato per
    *  nome. È dedotta lato server, e va MOSTRATA prima di creare. */
   projects: () =>
-    req<{ projects: BoardProjectRef[]; labelOnly?: BoardProjectRef[]; newProjectDir: string | null }>('/all-boards/projects'),
+    req<{ projects: BoardProjectRef[]; labelOnly?: BoardProjectRef[]; newProjectDir: string | null; families?: BoardFamilyLink[] }>('/all-boards/projects'),
   /** Per-project commits on the current branch not yet pushed — feeds the Publish control.
    *  `commits` is the exact list a push would ship (newest first, capped at 50). */
   publishStatus: () =>
@@ -1368,9 +1377,6 @@ export const boardApi = {
   /** The board's workflow: its columns, which preset, and whether it is chosen HERE (`own`) or inherited. */
   getWorkflow: (projectId: string) =>
     req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`),
-  /** Choose this board's preset; `null` goes back to inheriting the global one. */
-  setWorkflow: (projectId: string, preset: WorkflowPresetId | null) =>
-    req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`, { method: 'PUT', body: JSON.stringify({ preset }) }),
   /** Write the workflow's rules; only the keys present change, `null` = inherit. */
   setWorkflowRules: (projectId: string, patch: WorkflowRulesRow) =>
     req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`, { method: 'PUT', body: JSON.stringify(patch) }),

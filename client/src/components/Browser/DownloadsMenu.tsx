@@ -22,10 +22,11 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { Download, Check, X as XIcon, FolderOpen, Loader2, AlertTriangle } from 'lucide-react';
+import { Download, Check, X as XIcon, FolderOpen, AlertTriangle } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import type { DownloadState } from './downloadsModel';
+import { Spinner } from '../Shared/Spinner';
 
 /** Una riga del menu, comune alle due pane. */
 export interface DownloadRow {
@@ -146,7 +147,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
         data-active={activeCount > 0 || undefined}
       >
         {activeCount > 0
-          ? <Loader2 size={14} className="animate-spin shrink-0" aria-hidden />
+          ? <Spinner size="sm" box={14} tone="current" />
           : <Download size={14} className="shrink-0" aria-hidden />}
         {label && <span className="flex-1 text-left">{label}</span>}
         {label && <span className="text-app-text-faint tabular-nums text-mini">{items.length}</span>}
@@ -201,7 +202,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
                 ) : failed ? (
                   <AlertTriangle size={13} className="text-red-700 dark:text-red-400 shrink-0" aria-hidden />
                 ) : (
-                  <Loader2 size={13} className="animate-spin text-app-text-muted shrink-0" aria-hidden />
+                  <Spinner size={11} box={13} tone="current" className="text-app-text-muted" />
                 )}
                 <div className="min-w-0 flex-1">
                   {/* Il nome è il bersaglio: apre il file (pane nativa) o scarica

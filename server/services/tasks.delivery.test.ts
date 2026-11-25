@@ -75,9 +75,12 @@ describe("deliveredBy (chi ha portato il task in review)", () => {
     // turno esaurito. Misurato il 10/08: quattro rimbalzi in un'ora.
     const p = s.create({ projectId: PID, text: "epic" });
     const kid = s.create({ projectId: PID, text: "passo aperto", parentTaskId: p.id });
-    // «Aperto» vuol dire che qualcuno lo sta lavorando o sta per farlo: in coda.
-    // Un figlio lasciato in backlog è parcheggiato e non blocca (test qui sotto).
-    s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "todo" } });
+    // "Open" here means someone is working the child (in flight): back to the queue.
+    // A child left in backlog OR in todo is parked, since no dispatcher serves a
+    // sub-card (the tick lists roots only), and does not block: see the parked tests.
+    // This used to pass with the child in todo only because moving it there asked the
+    // parent through another door first, which left the parent in review.
+    s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "in_progress" } });
     const d = s.deliverToReviewBySystem({ taskId: p.id, reason: "budget finito", cause: "retries_exhausted" });
     expect(d.status).toBe("todo");
     // La ragione resta scritta nel thread: sparire in silenzio sarebbe peggio.
@@ -95,7 +98,7 @@ describe("deliveredBy (chi ha portato il task in review)", () => {
     // trova: gli chiede di valutare una consegna che allora non esisteva.
     const p = s.create({ projectId: PID, text: "epic" });
     const kid = s.create({ projectId: PID, text: "passo aperto", parentTaskId: p.id });
-    s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "todo" } });
+    s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "in_progress" } });
     const d = s.deliverToReviewBySystem({
       taskId: p.id, reason: "budget finito", cause: "retries_exhausted",
       nextMove: "L'ho portato io in review: valuta cosa ha prodotto.",
@@ -1052,5 +1055,37 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     expect(s.sweepReviewPreviews()).toBe(1);
     expect(preview(t.id)).toContain("task-sheets");
     expect(s.sweepReviewPreviews()).toBe(0); // gia' coperta: non e' piu' in lista
+  });
+});
+
+/**
+ * A card that runs on a node delivers a new branch every round, each born from
+ * the round before. The land tells the card's commits from another session's
+ * by the card's branch history, so a branch overwritten without a trace made
+ * the card's own fix look foreign: on 17/11 (card 76d3e2ff) the land brought
+ * the e2e spec to main without the code it measured.
+ */
+describe("recordDelivery keeps the branch it replaces", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("each replaced branch joins the card's history once, the live one stays out", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-a", commit: "a1" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-a", commit: "a2" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-b", commit: "b1" });
+    s.setDeliveryBranch(t.id, "topics/round-c");
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-a", commit: "a3" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-b", commit: "b2" });
+    const task = s.get(t.id)!.task;
+    expect(task.deliveryBranch).toBe("topics/round-b");
+    expect(task.pastDeliveryBranches).toEqual(["topics/round-a", "topics/round-b", "topics/round-c"]);
+  });
+
+  test("a delivery with no branch does not erase the history", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-a", commit: "a1" });
+    s.recordDelivery({ taskId: t.id, branch: null, commit: "zz" });
+    expect(s.get(t.id)!.task.pastDeliveryBranches).toEqual(["topics/round-a"]);
   });
 });

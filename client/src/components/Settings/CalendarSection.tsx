@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Loader2, TriangleAlert } from 'lucide-react';
+import { Check, TriangleAlert } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Switch } from '../Shared/Switch';
 import { Select } from '../Shared/Select';
@@ -10,6 +10,7 @@ import {
   DEFAULT_CALENDAR_REFRESH_MINUTES,
 } from '../../../../shared/calendar';
 import { appSettingsApi, calendarApi, type AppBehaviorSettings, type CalendarProbe } from '../../lib/api';
+import { Spinner } from '../Shared/Spinner';
 
 /**
  * CALENDAR: where the agenda comes from, and how often it is re-read.
@@ -137,7 +138,7 @@ export function CalendarSection() {
             onClick={() => { void test(); }}
             className="flex items-center gap-1.5 rounded-md border border-app-border px-2.5 py-1.5 text-compact text-app-text-secondary transition-colors hover:bg-app-hover disabled:opacity-40 coarse:min-h-11 coarse:px-3"
           >
-            {probing && <Loader2 size={12} className="animate-spin" />}
+            {probing && <Spinner size="sm" tone="current" />}
             {t('calendar.test')}
           </button>
           <button

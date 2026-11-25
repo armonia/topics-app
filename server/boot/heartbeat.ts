@@ -10,12 +10,20 @@ import { createNodeClient, readNodeToken } from "../services/node-client";
 import { createNodeProbe } from "../services/node-heartbeat";
 import { CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, isCloudBaseUrl } from "../providers/claude-cloud/node";
 import { initVapid } from "../push-service";
+import { execFile } from "node:child_process";
+import { projectIdForPath } from "../services/tasks";
+import {
+  findProjectDirForRepo,
+  readPrReviewConfig,
+  createPrReviewDeps,
+  startPrReviewTick,
+} from "../services/revisione-pr";
 import { startDevBundleReload } from "../lib/dev-bundle-reload";
 import { startBundleProbe } from "../lib/bundle-probe";
 import type { AfterRouters2 } from "./scope";
 
 export async function bootHeartbeat(scope: AfterRouters2) {
-  const { PUBLIC_DIR, broadcastToAll, cloudEnabled, cloudNode, ctx, retirementConsequences } = scope;
+  const { PUBLIC_DIR, broadcastToAll, cloudEnabled, cloudNode, ctx, dispatcherSvc, listSelectableProjectDirs, retirementConsequences } = scope;
   // Phase D — heartbeat ticker. Upserts the local machine row every 30 s
   // and flips other machines that haven't checked in for 5 minutes to
   // `offline`. Cheap (one indexed UPDATE + one indexed SELECT per tick).
@@ -37,10 +45,13 @@ export async function bootHeartbeat(scope: AfterRouters2) {
     tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
     touch: (machineId) => ctx.machineStore.touchNode(machineId),
     onRefreshed: (machine) => ctx.broadcastToAll({ type: "machine:upserted", machine, payload_version: 1 }),
+    recordReported: (machineId, input) => ctx.machineStore.recordReported(machineId, input),
+    recordWorktreeReport: (machineId, report) => ctx.machineStore.recordWorktreeReport(machineId, report),
     isCloud: isCloudBaseUrl,
     log: (message, err) => console.warn(`[Heartbeat] ${message}`, err),
   });
 
+  let lastCloudOffline: string | null = null;
   function tickHeartbeat() {
     try {
       const local = ctx.machineStore.upsertLocal();
@@ -59,10 +70,13 @@ export async function bootHeartbeat(scope: AfterRouters2) {
         if (env && !env.ok) {
           const off = ctx.machineStore.markNodeOffline(cloud.id);
           if (off) {
-            console.warn(`[claude-cloud] offline: ${env.reason}`);
+            // Once per cause: the same refusal is not written again on every beat.
+            if (lastCloudOffline !== env.reason) console.warn(`[claude-cloud] offline: ${env.reason}`);
+            lastCloudOffline = env.reason;
             ctx.broadcastToAll({ type: "machine:updated", machine: off, payload_version: 1 });
           }
         } else {
+          lastCloudOffline = null;
           ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
         }
       }
@@ -79,6 +93,34 @@ export async function bootHeartbeat(scope: AfterRouters2) {
   tickHeartbeat();
 
   const heartbeatTimer = setInterval(tickHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+  // Automatic review of PRs opened after boot; off until REVIEW_PR_REPO and REVIEW_PR_WORKFLOW are set.
+  // Confirmed defects become a card in review on the board of the project whose `origin` is that repo.
+  const originOf = (dir: string) =>
+    new Promise<string | null>((resolve) => {
+      execFile("git", ["-C", dir, "remote", "get-url", "origin"], { timeout: 5000 }, (err, stdout) => resolve(err ? null : stdout.trim()));
+    });
+  const projectDirOf = (repo: string) => findProjectDirForRepo(repo, listSelectableProjectDirs(), originOf);
+  startPrReviewTick(
+    readPrReviewConfig(process.env, ctx.APP_DATA_DIR),
+    createPrReviewDeps({
+      hasBoard: async (repo) => (await projectDirOf(repo)) !== null,
+      openCard: async (card) => {
+        const dir = await projectDirOf(card.repo);
+        if (!dir) throw new Error(`no project owns ${card.repo}`);
+        const projectId = projectIdForPath(dir);
+        const task = dispatcherSvc.create({
+          projectId,
+          text: card.title,
+          description: card.description,
+          status: "review",
+          createdBy: "cron:revisione-pr",
+          idempotencyKey: card.idempotencyKey,
+        });
+        broadcastToAll({ type: "task:updated", projectId, task });
+      },
+    }),
+  );
 
 
   // I registri d'accordo col fatto, a ogni avvio.

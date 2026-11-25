@@ -4,7 +4,7 @@
  */
 import { test, expect } from "bun:test";
 import { parseCreatedBy, splitCreatedBy } from "./created-by";
-import { creatorChip } from "../client/src/components/Board/createdByLabel";
+import { cardOwner } from "../client/src/components/Board/cardOrigin";
 
 test("parseCreatedBy accepts the three shapes and nothing else", () => {
   for (const ok of ["human", "agent:jarvis", "cron:scheduled-card", "agent:a.b_c-1"]) expect(parseCreatedBy(ok)).toBe(ok);
@@ -20,13 +20,13 @@ test("splitCreatedBy returns kind and name", () => {
   expect(splitCreatedBy(null)).toBeNull();
 });
 
-test("the card names who opened it: a named agent or schedule, «you» for a person, nothing without an author", () => {
-  const tr = (key: string, p?: Record<string, string | number>) => `${key}|${p?.name ?? ""}`;
-  expect(creatorChip({ createdBy: "agent:jarvis" }, tr)).toMatchObject({ label: "board.card.channelJarvis|", jarvis: true, initial: "b" });
-  expect(creatorChip({ createdBy: "agent:zeno" }, tr)).toMatchObject({ label: "zeno", jarvis: false });
-  expect(creatorChip({ createdBy: "cron:nightly" }, tr)?.label).toBe("board.card.createdByCron|nightly");
-  expect(creatorChip({ createdBy: "human" }, tr)?.label).toBe("board.card.createdByMe|");
-  expect(creatorChip({ createdBy: "agent:api" }, tr)?.label).toBe("board.card.createdByApi|");
-  expect(creatorChip({ createdBy: null }, tr)).toBeNull();
-  expect(creatorChip({ createdBy: "garbage" }, tr)).toBeNull();
+test("whose card it is follows who opened it: a named agent, a schedule, the person, the board", () => {
+  const owner = (createdBy: string | null) => cardOwner({ createdBy } as Parameters<typeof cardOwner>[0], null).key;
+  expect(owner("agent:jarvis")).toBe("agent:jarvis");
+  expect(owner("agent:zeno")).toBe("agent:zeno");
+  expect(owner("cron:nightly")).toBe("scheduled");
+  expect(owner("human")).toBe("me");
+  expect(owner("agent:api")).toBe("board");
+  expect(owner(null)).toBe("board");
+  expect(owner("garbage")).toBe("board");
 });

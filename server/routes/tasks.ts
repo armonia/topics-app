@@ -17,7 +17,6 @@
  * Both go through the service's projectId guard, so a caller can only touch
  * tasks on the project it named/owns (no cross-project IDOR).
  */
-import { STAGE_AI_REVIEW } from "../../shared/workflow";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import { homedir } from "node:os";
@@ -61,6 +60,8 @@ const checksFloorFields = (svc: TaskService): { checksMemFloorGB: number } =>
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { resolveCreatedSource } from "../lib/created-by";
 import { createTaskService, projectIdForPath, type TaskService } from "../services/tasks";
+import { familyLinks } from "../../shared/project-family";
+import { loadFamilyRows } from "../services/project-family-rows";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { activeFrozenCount } from "../services/budget-governor";
 import { swapFrozenCount } from "../lib/swap-freeze-hold";
@@ -75,6 +76,7 @@ import { createTaskAttemptStore, setAttemptFinishedListener } from "../services/
 import { conditionalJson } from "../lib/conditional-json";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { makeSheetWriter } from "../services/delivery-sheet";
+import { branchAheadOfMain } from "../services/own-branch";
 import { resolveTaskDiffRange, revsOfRange } from "../services/task-diff-range";
 import { gitDiffFilePatch, serveDiffBlob } from "../services/task-diff-file";
 import { gitDiffBundle } from "../lib/git-diff-stat";
@@ -91,12 +93,32 @@ import type { TasksRouterOpts } from "./tasks-opts";
 import { gitRunner, runGitCap } from "./tasks-git";
 import { emitReviewReadyEdge, requestCardProcessStop } from "./tasks-shared";
 import { matchGuestTaskAction } from "./tasks-guests";
+import { resolveBoardPath } from "../lib/board-alias";
+import { MIRROR_KEY_PREFIX } from "../services/task-dispatcher-support";
+
+/** The mirror-card sign is reserved: only the node-run handoff may mint it, never a caller-chosen key. */
+function reservedKeyRejection(body: { idempotency_key?: unknown } | null): { error: string; code: string } | null {
+  if (typeof body?.idempotency_key === "string" && body.idempotency_key.startsWith(MIRROR_KEY_PREFIX)) {
+    return { error: `idempotency_key may not start with "${MIRROR_KEY_PREFIX}": that prefix is reserved for node runs`, code: "reserved_idempotency_key" };
+  }
+  return null;
+}
 
 // These moved to sibling modules; this path stays their public home.
-export { runGitCap, ownChangesBetween, ownCommitFiles, ownBranchFiles } from "./tasks-git";
-export { matchGuestTaskAction } from "./tasks-guests";
+/**
+ * Scheduled or waiting work an agent opens (a cron, "recheck after 02:00", an
+ * external wait) is not an idea: it starts in todo, waiting, not in backlog.
+ */
+function scheduledWait(body: unknown): { reason: string; minutes: number } | null {
+  const b = body as { wait_reason?: unknown; wait_minutes?: unknown } | null;
+  if (typeof b?.wait_reason !== "string" || !b.wait_reason.trim()) return null;
+  if (typeof b.wait_minutes !== "number" || !Number.isFinite(b.wait_minutes) || b.wait_minutes < 1) return null;
+  return { reason: b.wait_reason.trim(), minutes: b.wait_minutes };
+}
+
+export { runGitCap, ownCommitFiles, ownBranchFiles } from "./tasks-git";
 export type { TasksRouterOpts } from "./tasks-opts";
-export { emitReviewReadyEdge, pendingQuestion } from "./tasks-shared";
+export { emitReviewReadyEdge } from "./tasks-shared";
 
 /**
  * How many CLOSED cards the global feed carries.
@@ -139,6 +161,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const svc = createTaskService(db, {
     writeDeliverySheet: makeSheetWriter(ctx.APP_DATA_DIR),
     repoRootFor: opts?.repoRootFor,
+    branchAheadOf: branchAheadOfMain,
     listRepoRoots: opts?.listRepoRoots,
     listProjectDirs: opts?.listProjectDirs,
     probeFor: opts?.probeFor,
@@ -208,11 +231,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   // The human board routes live in tasks-board.ts; same closure values, passed by name.
   const boardRoutes = createBoardRoutes({
     ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, scheduledCards: opts?.scheduledCards, askRouting, landings,
-    emitReviewReadyEdge, titoloInSottofondo, resolveBoardId, sweepRemoteDelivery, captureDelivery,
+    emitReviewReadyEdge, titoloInSottofondo, resolveBoardId, sweepRemoteDelivery, captureDelivery, capturaConsegna,
     triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, enterCiPhase, landDirect, proposeDeployIfConfigured, runDeploy,
     publishProject, filterMedia, acceptPreview, rejectDeliveryPatch, asTaskStatus, fail, checksRedGate,
   });
   const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+    // An old board id (project folder moved, symlink left behind) is rewritten
+    // once here, so every board route below sees the current id.
+    if (pathname.startsWith("/api/boards/")) pathname = resolveBoardPath(ctx.db, pathname);
     const sessionActionOrigin = req.headers.get("X-Topics-Action-Origin") === "mcp" ? "mcp" : "api";
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped),
     // plus the machine-wide dispatch-capacity probe (a /api/system/ path that this
@@ -910,7 +936,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         : null);
       if (method === "GET") {
         const { projects, labelOnly } = listPickerProjects(loadRegisteredProjects(db), knownDirs());
-        return json({ projects, labelOnly, newProjectDir: newDir() });
+        // `families`: the projects that sit under another one (accorpa / separa), in board ids.
+        return json({ projects, labelOnly, newProjectDir: newDir(), families: familyLinks(loadFamilyRows(db)) });
       }
       if (method === "POST") {
         if (!opts?.workspaceDir) return json({ error: "workspace not configured", code: "invalid_input" }, 500);
@@ -1003,6 +1030,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             "bar", "source", "createdSource", "created_source", "origin_topic_id", "originTopicId", "createdBy", "created_by"],
         );
         if (unexpected) return unexpected;
+        const reservedKey = reservedKeyRejection(body);
+        if (reservedKey) return json(reservedKey, 400);
         if (typeof body?.board_id !== "string" || !body.board_id.trim()) {
           return json({ error: "board_id is required", code: "invalid_input" }, 400);
         }
@@ -1046,7 +1075,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
             // A coordinator records work; a human still decides when a card is
             // runnable. This preserves normal board lifecycle accounting.
-            status: "backlog",
+            status: scheduledWait(body) ? "todo" : "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
             createdByTopicId: globalSession.topicId,
             createdSource: resolveCreatedSource(req, body as Record<string, unknown> | null) ?? "coordinator",
@@ -1054,7 +1083,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             bar: typeof body?.bar === "string" ? body.bar : null,
             createdBy: "agent:coordinator",
           });
-          broadcastToAll({ type: "task:created", projectId, task });
+          const wait = scheduledWait(body);
+          if (wait) svc.deferForWait({ taskId: task.id, reason: wait.reason, minutes: wait.minutes, by: "agent:coordinator" });
+          broadcastToAll({ type: "task:created", projectId, task: wait ? svc.get(task.id)!.task : task });
           confirmCardOrigin({ db, broadcast: broadcastToAll, recordActivity: logActivity }, {
             taskId: task.id, projectId, title: task.text, createdBy: "agent:coordinator",
             sessionKey: sk, topicId: globalSession.topicId,
@@ -1088,7 +1119,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const target = resolveGlobalTask(globalCommentsRoute.taskId);
       if (!target) return json({ error: "task not found", code: "not_found" }, 404);
       try {
-        const prevStage = target.got.task.stage ?? null;
         const comment = svc.addComment({
           taskId: globalCommentsRoute.taskId,
           author: globalSession.actor,
@@ -1101,9 +1131,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         });
         const task = svc.get(globalCommentsRoute.taskId, { projectId: target.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: target.projectId, task });
-        // A question on a card in AI review sends it to the person.
-        emitReviewReadyEdge(broadcastToAll, target.projectId, task, "review", undefined,
-          () => svc.get(globalCommentsRoute.taskId)?.comments, prevStage);
         return json(comment, 201);
       } catch (e) { return fail(e); }
     }
@@ -1162,6 +1189,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       }
       if (method === "POST") {
         const body = (await readJSON(req)) as any;
+        const reservedKey = reservedKeyRejection(body);
+        if (reservedKey) return json(reservedKey, 400);
         // Il cancello contro la 321esima card. In 24h gli agenti ne hanno
         // aperte 320 contro le 45 dell'umano, e il modo in cui il backlog
         // cresce non è che qualcuno chiuda male: è che nessuno CERCA prima di
@@ -1212,10 +1241,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             description: typeof body?.description === "string" ? body.description : null,
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
-            // Agents/MCP always create into `backlog` (intake), never straight into
-            // the "todo" run-queue: a task only becomes dispatch-eligible when a
-            // HUMAN moves it to todo. Symmetric to the agent-cannot-mark-done gate.
-            status: "backlog",
+            // Agents/MCP create into `backlog` (intake): a task only becomes
+            // dispatch-eligible when a HUMAN moves it to todo. The exception is
+            // scheduled work (wait_reason + wait_minutes): it is not an idea, so
+            // it starts in todo, waiting, with its first retry time.
+            status: scheduledWait(body) ? "todo" : "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
             parentTaskId: typeof body?.parent_task_id === "string" ? body.parent_task_id : null,
             // PROVENIENZA (migration 093): chi sta scrivendo. Viene dal topic
@@ -1230,7 +1260,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             originTopicId: sess.topicId,
             bar: typeof body?.bar === "string" ? body.bar : null,
           });
-          broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
+          const wait = scheduledWait(body);
+          if (wait) svc.deferForWait({ taskId: task.id, reason: wait.reason, minutes: wait.minutes, by: "agent:session" });
+          broadcastToAll({ type: "task:created", projectId: sess.projectId, task: wait ? svc.get(task.id)!.task : task });
           // The chat's request became a card: the chat is told, the coordinator
           // reads it in the log (`services/card-origin-notice.ts`).
           if (sess.topicId) {
@@ -1283,7 +1315,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         }, 400);
       }
       try {
-        const prevStage = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task.stage ?? null;
         const comment = svc.addComment({
           taskId: commentsRoute.taskId,
           // The same identity the status row carries. What a person reads on
@@ -1307,9 +1338,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         });
         const task = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
-        // A question on a card in AI review sends it to the person.
-        emitReviewReadyEdge(broadcastToAll, sess.projectId, task, "review", undefined,
-          () => svc.get(commentsRoute.taskId)?.comments, prevStage);
         return json(comment, 201);
       } catch (e) { return fail(e); }
     }
@@ -1470,15 +1498,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // update_task). Al momento del fronte la domanda è l'ultima riga del
           // thread — esattamente ciò che la card mostra come quick-reply.
           emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus, undefined,
-            () => svc.get(task.id)?.comments, prev?.stage ?? null);
+            () => svc.get(task.id)?.comments);
           triggerUrlProbe(item.taskId, task.outputUrl ?? null, sess.projectId);
-          // AN AI REVIEW CLOSED BY WHOEVER OPENED THE CARD is the same «done»
-          // a person's approval is: what was waiting on it starts, and the
-          // delivery lands if the board lands on done.
-          if (prevStatus === "review" && prev?.stage === STAGE_AI_REVIEW && task.status === "done") {
-            dispatcher?.onBlockerDone(item.taskId);
-            if (task.deliveryBranch) enqueueLandOnDone(sess.projectId, item.taskId, task.deliveryBranch);
-          }
           return json(task);
         } catch (e) { return fail(e); }
       }

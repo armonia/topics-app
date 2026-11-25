@@ -125,6 +125,8 @@ export type ChecksGate = {
   isOffLane(key: string): boolean;
   /** A finished run for THIS commit is retained: the same delivery, asked again. */
   verdictFor(key: string, commit: string | null): boolean;
+  /** Drops a FINISHED run of this key, so the next leg measures again; a live run is never touched. */
+  forget(key: string): void;
   /**
    * Quante corse stanno GIRANDO adesso (non conteggiate quelle in coda).
    * Letto dal dispatcher per includere le barre di check nel freno del dispatch:
@@ -275,6 +277,10 @@ export function createChecksGate(opts: {
     verdictFor(key, commit) {
       const corsa = corse.get(key);
       return !!corsa && corsa.endedAt !== null && corsa.commit === commit;
+    },
+    forget(key) {
+      const corsa = corse.get(key);
+      if (corsa && corsa.endedAt !== null) corse.delete(key);
     },
     async leg(key, { commit, legMs, run }) {
       let corsa = corse.get(key);

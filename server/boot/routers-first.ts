@@ -11,6 +11,7 @@ import { createOrchestratorSessionsRouter } from "../routes/orchestrator-session
 import { archiveTopicFully, reopenTopicFully } from "../services/archive-topic";
 import { clearRetirement, recordRetirement, type ReconcileDeps } from "../services/retirement";
 import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
+import { tabCloseArchives } from "../lib/tab-close-policy";
 import { parkTopicSession } from "../lib/session-parking";
 import { buildStreamCatchupFrame } from "../lib/stream-catchup-frame";
 import { flushTurnBody } from "../lib/turn-body-flush";
@@ -24,6 +25,8 @@ import { createContextRouter } from "../routes/context";
 import { createUsageRouter } from "../routes/usage";
 import { createHubRouter, upstreamBase, HUB_DEFAULT_URL } from "../routes/hub";
 import { createHubLive } from "../lib/hub-live";
+import { isThisServerPrimary } from "../lib/primary-role";
+import { createWaitingStore } from "../attention/waiting-items";
 import { createTerminalRouter, setTerminalBrowserCloser, retireTerminalSession } from "../routes/terminal";
 import { createStatusRouter } from "../routes/status";
 import { createMemoryRouter } from "../routes/memory";
@@ -120,7 +123,7 @@ export function bootRoutersFirst(scope: AfterTracker) {
     loadMessages: (sk) => ctx.loadLocalMessages(sk),
     engineReady: () => tryGetProvider("topics")?.connected === true,
     // The same door as every archive: unread, ui_state, parked session, open ask.
-    archive: (topic) => retirementConsequences.archiveTopic(topic.id),
+    archive: (topic) => retirementConsequences.archiveTopic(topic.id, "subagent-end"),
     // And the unarchive's door to come back: flag, ui_state markers, retirement fact.
     reopen: (topic) => { reopenTopicFully(reopenDepsFor(ctx, ctx.broadcastToAll), topic.id); },
     // Its own children are read by the module itself (`subagentWakeState`).
@@ -167,15 +170,19 @@ export function bootRoutersFirst(scope: AfterTracker) {
 
   // The usage hub's quotas, Mac and services, read by ONE reader while a window
   // is connected and pushed as `hub:live` (server/lib/hub-live.ts).
+  const waiting = createWaitingStore({ file: join(ctx.APP_DATA_DIR, "waiting-items.json") });
   const hubLive = createHubLive({
+    waiting,
     base: () => upstreamBase("TOPICS_HUB_URL", HUB_DEFAULT_URL),
     broadcast: (frame) => broadcastToAll(frame),
-    hasClients: () => wsClients.size > 0,
+    // Only the primary reads the usage hub on its timer. Asked on every beat, not once at boot:
+    // a node adopts a new primary's epoch while it runs.
+    hasClients: () => wsClients.size > 0 && isThisServerPrimary(),
   });
 
   hubLive.start();
 
-  const hubRouter = createHubRouter(ctx, { live: hubLive });
+  const hubRouter = createHubRouter(ctx, { live: hubLive, waiting });
 
   const authRouter = createAuthRouter(ctx, {
     onCapabilityRevoked: async (capabilityId) => {
@@ -391,7 +398,7 @@ export function bootRoutersFirst(scope: AfterTracker) {
    * significa «chiuso», e nessuno d'accordo con gli altri due.
    */
   const retirementConsequences: ReconcileDeps = {
-    archiveTopic: (topicId) => {
+    archiveTopic: (topicId, reason = "system") => {
       // The singleton has a durable transcript and must survive closing its
       // ordinary ChatPanel. Keep the raw registry identity here: even a damaged
       // backing Topic must never fall back into generic cleanup/archival.
@@ -408,7 +415,7 @@ export function bootRoutersFirst(scope: AfterTracker) {
         purgeFromUiState: (id) =>
           purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id, (c) => browserService.destroyContext(c)),
         parkClaudeSession: parkTopicSession,
-        recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
+        recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, reason),
         stopProcesses: stopTopicCommandProcesses,
       }, topicId);
       // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non
@@ -418,6 +425,7 @@ export function bootRoutersFirst(scope: AfterTracker) {
       }
     },
     shouldRetireTopic: (topicId) => !isGlobalOrchestratorTopic(ctx.db, topicId),
+    tabCloseArchives: () => tabCloseArchives(ctx.db),
     restoreTopic: (topicId) => {
       if (!isGlobalOrchestratorTopic(ctx.db, topicId)) return;
       const topic = ctx.getTopicById(topicId);

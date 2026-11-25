@@ -25,6 +25,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBrowserBridgeRouter, type TerminalSessionRef } from "./browser-bridge";
+import { SURFACE_NOTES } from "./browser-open-pane-flow";
 import type { AppContext, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import type { PortOwnerDeps } from "../lib/port-project-owner";
@@ -306,10 +307,10 @@ describe("risoluzione del contesto — le tre provenienze di un contextId", () =
     const byId = await h.post("/api/topics/t1/browser/focus-pane");
     const bySession = await h.post("/api/sessions/topic%3At1/browser/focus-pane");
 
-    expect(await byId!.json()).toEqual({ ok: true, contextId: "t1" });
+    expect(await byId!.json()).toEqual({ ok: true, contextId: "t1", mounted: true });
     // La sessionKey arriva percent-encoded dal sottoprocesso MCP: senza
     // decodifica `topic%3At1` non troverebbe nessuna topic e finirebbe in 404.
-    expect(await bySession!.json()).toEqual({ ok: true, contextId: "t1" });
+    expect(await bySession!.json()).toEqual({ ok: true, contextId: "t1", mounted: true });
   });
 
   test("un pannello già aperto vince sull'id della topic (browserState.contextId)", async () => {
@@ -318,7 +319,7 @@ describe("risoluzione del contesto — le tre provenienze di un contextId", () =
 
     const resp = await h.post("/api/topics/t1/browser/focus-pane");
 
-    expect(await resp!.json()).toEqual({ ok: true, contextId: "ctx-esistente" });
+    expect(await resp!.json()).toEqual({ ok: true, contextId: "ctx-esistente", mounted: true });
   });
 
   test("terminale: la sessionKey che non è di nessuna chat diventa term-<id>, non un 404", async () => {
@@ -327,7 +328,7 @@ describe("risoluzione del contesto — le tre provenienze di un contextId", () =
 
     const resp = await h.post("/api/sessions/term-abc/browser/focus-pane");
 
-    expect(await resp!.json()).toEqual({ ok: true, contextId: "term-term-abc" });
+    expect(await resp!.json()).toEqual({ ok: true, contextId: "term-term-abc", mounted: true });
   });
 
   test("sessione senza chat né terminale ⇒ 404 che dice come uscirne", async () => {
@@ -348,6 +349,46 @@ describe("risoluzione del contesto — le tre provenienze di un contextId", () =
     // La forma :id parla di topic: se la topic non c'è la richiesta è sbagliata,
     // non «prova anche fra i terminali».
     expect(resp!.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// focus-pane: a headless context no window shows must end up MOUNTED from
+// here, not just signalled to a listener that isn't there (card 6e893f97:
+// `open_browser_pane` + `browser_focus_tab` answered "NO visible pane is
+// mounted" and the page stayed invisible on both desktop and web).
+// ---------------------------------------------------------------------------
+describe("focus-pane — deve MONTARE il pannello, non solo segnalarlo", () => {
+  test("nessuna pane si aggancia al broadcast ⇒ ripiego force-open con l'URL vivo del contesto", async () => {
+    const h = harness({ paneAttached: false, liveUrls: { t1: "https://example.com/admin" } });
+    h.addTopic("t1");
+
+    const resp = await h.post("/api/topics/t1/browser/focus-pane");
+
+    expect(await resp!.json()).toEqual({ ok: true, contextId: "t1", mounted: false });
+    expect(h.typed("browser:focus-pane")).toEqual([{ type: "browser:focus-pane", contextId: "t1" }]);
+    expect(h.typed("browser:force-open")).toEqual([
+      { type: "browser:force-open", contextId: "t1", url: "https://example.com/admin" },
+    ]);
+  });
+
+  test("il ripiego funziona: la pane si aggancia dopo force-open ⇒ mounted true", async () => {
+    const h = harness({ paneAttached: "dopo-force-open", liveUrls: { t1: "https://example.com/admin" } });
+    h.addTopic("t1");
+
+    const resp = await h.post("/api/topics/t1/browser/focus-pane");
+
+    expect(await resp!.json()).toEqual({ ok: true, contextId: "t1", mounted: true });
+    expect(h.typed("browser:force-open")).toHaveLength(1);
+  });
+
+  test("una finestra prende già il broadcast ⇒ nessun force-open (il ripiego non raddoppia i pannelli)", async () => {
+    const h = harness({ liveUrls: { t1: "https://example.com/admin" } });
+    h.addTopic("t1");
+
+    await h.post("/api/topics/t1/browser/focus-pane");
+
+    expect(h.typed("browser:force-open")).toEqual([]);
   });
 });
 
@@ -417,7 +458,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     // The context travels back too (BROWSER-CHAT-05): it is what lets the chat
     // marker and `browser_focus_tab` find this exact page again.
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "Titolo", visible: true, contextId: "t1" });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "Titolo", visible: true, contextId: "t1", media: expect.stringContaining("media/browser/opened/") });
     // L'ordine è il fix del guasto: prima il client monta il pannello sotto
     // ctxId, poi ci si naviga dentro. Invertito, Playwright guidava un fantasma.
     expect(h.broadcasts[0]).toMatchObject({ type: "browser:navigate", topicId: "t1", contextId: "t1", url: "https://example.com/" });
@@ -433,7 +474,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/inizio" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/finale", title: "Titolo", visible: true, contextId: "t1" });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/finale", title: "Titolo", visible: true, contextId: "t1", media: expect.stringContaining("media/browser/opened/") });
     expect(h.typed("browser:navigate").map((b) => b.url)).toEqual([
       "https://example.com/inizio",
       "https://example.com/finale",
@@ -447,7 +488,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: true, contextId: "task-12345678-aaaaaaaaa" });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: true, contextId: "task-12345678-aaaaaaaaa", media: expect.stringContaining("media/browser/opened/"), note: SURFACE_NOTES["card"] });
     // contextId STABILE per (task, topic): riaprire riusa la stessa scheda.
     expect(h.typed("browser:open-task-tab")[0]).toMatchObject({
       taskId: "12345678-task",
@@ -552,7 +593,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
     // nomi degeneri in UNA tab sola, che è peggio del ripiego.
     const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://x.test/", name: "###" });
 
-    expect(await resp!.json()).toEqual({ url: "https://x.test/", title: "", visible: true, contextId: "task-12345678-aaaaaaaaa" });
+    expect(await resp!.json()).toEqual({ url: "https://x.test/", title: "", visible: true, contextId: "task-12345678-aaaaaaaaa", media: expect.stringContaining("media/browser/opened/"), note: SURFACE_NOTES["card"] });
     expect(h.persisted[0].contextId).toBe("task-12345678-aaaaaaaaa");
     expect(h.persisted[0].title).toBe("");
   });
@@ -627,7 +668,7 @@ describe("open-pane — tre rami, tre pannelli diversi", () => {
 
     const resp = await h.post("/api/sessions/42/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: true, contextId: "term-42" });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: true, contextId: "term-42", media: expect.stringContaining("media/browser/opened/"), note: SURFACE_NOTES["terminal"] });
     expect(h.broadcasts).toEqual([{
       type: "browser:open-near-pane",
       paneId: "terminal:42",
@@ -851,7 +892,7 @@ describe("open-pane — «visibile» non si dà per scontato", () => {
 
     const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "Titolo", visible: false, contextId: "t1" });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "Titolo", visible: false, contextId: "t1", media: expect.stringContaining("media/browser/opened/") });
     expect(h.typed("browser:force-open")).toEqual([
       { type: "browser:force-open", contextId: "t1", url: "https://example.com/" },
     ]);
@@ -944,7 +985,7 @@ describe("open-pane — «visibile» non si dà per scontato", () => {
 
     const resp = await h.post("/api/sessions/42/browser/open-pane", { url: "https://example.com/" });
 
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: false, contextId: "term-42" });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: false, contextId: "term-42", media: expect.stringContaining("media/browser/opened/"), note: SURFACE_NOTES["terminal"] });
     expect(h.typed("browser:force-open")[0]).toMatchObject({ contextId: "term-42" });
   });
 
@@ -961,7 +1002,7 @@ describe("open-pane — «visibile» non si dà per scontato", () => {
     // `visible:false` is the HONEST answer: the drawer is closed, the
     // navigation still went to the headless context (where observe/act land),
     // but nobody is watching it and the caller knows.
-    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: false, contextId: "task-12345678-aaaaaaaaa" });
+    expect(await resp!.json()).toEqual({ url: "https://example.com/", title: "", visible: false, contextId: "task-12345678-aaaaaaaaa", media: expect.stringContaining("media/browser/opened/"), note: SURFACE_NOTES["card"] });
     expect(h.navigations).toEqual([{ contextId: "task-12345678-aaaaaaaaa", url: "https://example.com/" }]);
   });
 });

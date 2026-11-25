@@ -3,6 +3,7 @@
  */
 import { createLandingQueue } from "../services/landing-queue";
 import { join } from "path";
+import { branchAheadOfMain } from "../services/own-branch";
 import { resolveStateDir } from "../lib/data-dir";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "../services/swap-freeze-ledger";
 import { createMemoryPressureSignal } from "../services/memory-pressure";
@@ -11,7 +12,12 @@ import { existsSync } from "fs";
 import { setTerminalMemPressure, setChildAdmissionPreview, liveTerminalCwds } from "../routes/terminal";
 import { createTaskService, projectIdForPath } from "../services/tasks";
 import { configureChannelOriginCards } from "../lib/channel-origin-cards";
-import { createScheduledCards } from "../services/scheduled-cards";
+import { createCardAction } from "../schedule/card-action";
+import { createScheduledCardsService } from "../schedule/cards-service";
+import { createScheduleEngine, type TickResult } from "../schedule/engine";
+import { createCommandAction } from "../schedule/command-action";
+import { createRegistryRunner } from "../schedule/command-runner";
+import { createJobsService } from "../schedule/jobs-service";
 import { createExternalSessionsService } from "../services/external-sessions";
 import { type AgentWorktreeDeps } from "../services/worktree-for-agent";
 import { isChecksHold as isChecksHoldOf } from "../services/checks-lights";
@@ -35,12 +41,15 @@ import { buildProjectCandidates, resolveProjectPath } from "../services/project-
 import { SERVER_VERSION } from "../ws-capabilities";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { createWorktreeGcRunner } from "../services/worktree-gc-runner";
+import { createWorktreeOfTask } from "../services/task-worktree";
+import { ownedWorktreeRoots } from "../services/worktree-root";
 import { hostname as osHostname } from "node:os";
 import { createNodeClient, readNodeToken } from "../services/node-client";
 import { createNodeBranchPlanter } from "../services/node-branch-plant";
 import { projectPathOfAnyId } from "../lib/project-identity";
 import { CloudApi } from "../providers/claude-cloud/api";
 import { credentialsFor } from "../providers/claude-cloud/creds";
+import { recordSystemNotice } from "../attention/system-notices";
 import { CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN, cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl } from "../providers/claude-cloud/node";
 import type { AfterRouters1 } from "./scope";
 import { late } from "./late";
@@ -99,6 +108,7 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   const dispatcherSvc = createTaskService(ctx.db, {
     writeDeliverySheet: makeSheetWriter(ctx.APP_DATA_DIR),
     repoRootFor: repoRootForCard,
+    branchAheadOf: branchAheadOfMain,
     listRepoRoots: listKnownDeliveryRepoRoots,
     onLateDeliveryNote: (taskId, projectId) => {
       const noted = dispatcherSvc.get(taskId, { projectId })?.task;
@@ -109,20 +119,48 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   // Cards born from a channel chat follow that chat's turns (97e3951f).
   configureChannelOriginCards(ctx.db, dispatcherSvc);
 
-  const scheduledCards = createScheduledCards(ctx.db, dispatcherSvc, () => late.scheduledCardTestNow ?? new Date());
+  const scheduleNow = () => late.scheduledCardTestNow ?? new Date();
+  const scheduledCards = createScheduledCardsService(ctx.db, scheduleNow);
+  // The command action closes runs through the engine, which is built with the action: the door is read at call time.
+  const engineDoor = { closeIfOpen: (...args: Parameters<ReturnType<typeof createScheduleEngine>["closeIfOpen"]>) => scheduleEngine.closeIfOpen(...args) };
+  let tickAfterCloseQueued = false;
+  const jobRunner = createRegistryRunner();
+  const commandAction = createCommandAction(ctx.db, engineDoor, {
+    runner: jobRunner,
+    projectPath: (projectId) => projectId ? projectPathOfAnyId(ctx.db, (storeId) => ctx.projectStore.get(storeId)?.path, projectId) ?? null : null,
+    now: scheduleNow,
+    // A job that was waiting on this run restarts right away (R9); never from inside the tick that closed it.
+    onClosed: () => {
+      if (tickAfterCloseQueued) return;
+      tickAfterCloseQueued = true;
+      setTimeout(() => { tickAfterCloseQueued = false; tickScheduledCards(); }, 0).unref?.();
+    },
+  });
+  const scheduleEngine = createScheduleEngine(ctx.db, { executors: { card: createCardAction(ctx.db, dispatcherSvc), command: commandAction.executor }, now: scheduleNow });
+  // The registry reports a scheduled command's end; the ones that ended while the server was down close now.
+  jobRunner.onEnd((end) => commandAction.ended(end));
+  const scheduledJobs = createJobsService(ctx.db, {
+    engine: scheduleEngine, now: scheduleNow,
+    projectPath: (projectId) => projectPathOfAnyId(ctx.db, (storeId) => ctx.projectStore.get(storeId)?.path, projectId) ?? null,
+  });
 
-  function tickScheduledCards(): { created: string[]; skipped: string[] } {
+  /** Announces the cards a tick created, the same way a person's new card is. */
+  function announceTick(result: TickResult) {
+    for (const taskId of result.created) {
+      const task = dispatcherSvc.get(taskId)?.task;
+      if (!task) continue;
+      ctx.broadcastToAll({ type: "task:created", projectId: task.projectId, task });
+      if (task.status === "todo") late.taskDispatcher.onEnterTodo(task.projectId, task.id);
+    }
+  }
+
+  function tickScheduledCards(): TickResult {
     try {
-      const result = scheduledCards.tick();
-      for (const taskId of result.created) {
-        const task = dispatcherSvc.get(taskId)?.task;
-        if (!task) continue;
-        ctx.broadcastToAll({ type: "task:created", projectId: task.projectId, task });
-        if (task.status === "todo") late.taskDispatcher.onEnterTodo(task.projectId, task.id);
-      }
+      const result = scheduleEngine.tick();
+      announceTick(result);
       return result;
-    } catch (error) { console.warn("[scheduled-cards] tick failed:", error); }
-    return { created: [], skipped: [] };
+    } catch (error) { console.warn("[scheduled-jobs] tick failed:", error); }
+    return { created: [], skipped: [], started: [] };
   }
 
   // A delivery note that was waiting on git when the previous process stopped
@@ -315,6 +353,8 @@ export function bootDispatchPrep(scope: AfterRouters1) {
       return projectId ? projectPathForNode(projectId) ?? null : null;
     },
     statePath: join(ctx.STATE_DIR, "claude-cloud-runs.json"),
+    // One notice per cause, in the system notices where the other configuration alerts go.
+    notify: (n) => recordSystemNotice({ key: "claude-cloud", cycle: n.key, title: n.title, body: n.body }),
   });
 
   // ONE road to a node for everything that talks to one: the card lane below and
@@ -458,33 +498,21 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   // task → its dispatch topic → worktree → project's main checkout, then merges the
   // branch there. Only `branch`-mode worktrees on a ready project have something to
   // land; everything else resolves to null (skip). Default branch is `main`.
-  const worktreeOfTask = (taskId: string) => {
-    // Percorso primario: task → assigned_topic_id → topic.worktree_id → worktree.
-    // Funziona finché il dispatcher tiene il legame vivo.
-    const topicId = dispatcherSvc.get(taskId)?.task.assignedTopicId;
-    if (topicId) {
-      const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
-      if (worktreeId) return ctx.worktreeStore.get(worktreeId) ?? null;
-    }
-    // Percorso di ripiego: dopo un `release()` il dispatcher azzera
-    // `assigned_topic_id`, ma il record del tentativo corrente conserva
-    // `worktree_id`. Cerchiamo l'ultimo tentativo in stato `running` (o
-    // comunque con un worktree collegato) per questo task.
-    //
-    // Incidente 18/08: card `171b787d` in review con 279 righe non committate
-    // e `deliveryFilesChanged: 0` perche' `worktreeOfTask` tornava null dopo
-    // che il dispatcher aveva rilasciato la card — e la sonda `taskWorktreeDirt`
-    // leggeva null come «pulito» invece che come «non so».
-    try {
-      const row = ctx.db.prepare(
-        `SELECT worktree_id FROM task_attempts
-        WHERE task_id = ? AND worktree_id IS NOT NULL
-        ORDER BY idx DESC LIMIT 1`,
-      ).get(taskId) as { worktree_id: string } | undefined;
-      if (row?.worktree_id) return ctx.worktreeStore.get(row.worktree_id) ?? null;
-    } catch { /* fallback is best-effort */ }
-    return null;
-  };
+  // The card's worktree here, or none: the rule (and why a node card's old local
+  // attempt is not its round) is in `services/task-worktree.ts`. The local id is
+  // read once: `upsertLocal` also writes the heartbeat, and this runs per card.
+  let localMachineId: string | null = null;
+  const worktreeOfTask = createWorktreeOfTask({
+    task: (taskId) => dispatcherSvc.get(taskId)?.task,
+    topicWorktreeId: (topicId) => ctx.getTopicById(topicId)?.worktreeId,
+    worktree: (worktreeId) => ctx.worktreeStore.get(worktreeId),
+    lastAttemptWorktreeId: (taskId) => (ctx.db.prepare(
+      `SELECT worktree_id FROM task_attempts
+      WHERE task_id = ? AND worktree_id IS NOT NULL
+      ORDER BY idx DESC LIMIT 1`,
+    ).get(taskId) as { worktree_id: string } | undefined)?.worktree_id,
+    localMachineId: () => (localMachineId ??= ctx.machineStore.upsertLocal().id),
+  });
 
 
   // ── La potatura dei worktree: il cablaggio ─────────────────────────────────
@@ -498,6 +526,11 @@ export function bootDispatchPrep(scope: AfterRouters1) {
     worktreeStore: ctx.worktreeStore,
     worktreeManager: ctx.worktreeManager,
     projectStore: ctx.projectStore,
+    // The roots are named HERE, by the server: current, default, and the past ones its rows prove.
+    roots: () => ownedWorktreeRoots(ctx.worktreeStore.list(), new Set(ctx.projectStore.list().map((p) => p.slug))),
+    // Claude Code, Codex or jcode started from a terminal in a folder hold it like a session of ours,
+    // inside the worktree root too: `activeAt` would call those Topics' own and skip them.
+    externalActiveAt: (absPath) => externalSessions.activeInside(absPath).length > 0,
     getTopicBySessionKey: (sessionKey) => ctx.getTopicBySessionKey(sessionKey),
     resolveTopicCwd: (topic) => ctx.resolveTopicCwd(topic),
     svc: dispatcherSvc,
@@ -525,8 +558,12 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   });
 
 
+  // A worktree created over its project's cap triggers a cap pass at once (slim, then
+  // reap the oldest the contract admits) instead of waiting for the 30-minute timer.
+  ctx.worktreeGcDeps.afterCreate = (projectId) => { void worktreeGc.enforceCap(projectId); };
+
   // Owned here so the quiescence wait can see lands still queued or running.
   const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 
-  return { DISPATCH_AUTONOMY, agentWorktreeDeps, cloudEnabled, cloudNode, deliveryIsOnMain, deliveryOnlyWaitsOnChecks, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, isChecksHold, landingQueue, listKnownDeliveryRepoRoots, memSignal, memoryOwners, memoryPressureSignal, nodeBranchPlanter, nodeClient, projectPathForNode, recordDispatchMemoryHistory, remoteNodeRoad, repoRootForCard, scheduledCards, swapFreezeLedger, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc, worktreeOfTask };
+  return { DISPATCH_AUTONOMY, agentWorktreeDeps, cloudEnabled, cloudNode, deliveryIsOnMain, deliveryOnlyWaitsOnChecks, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, isChecksHold, landingQueue, listKnownDeliveryRepoRoots, memSignal, memoryOwners, memoryPressureSignal, nodeBranchPlanter, nodeClient, projectPathForNode, recordDispatchMemoryHistory, remoteNodeRoad, announceTick, repoRootForCard, scheduleEngine, scheduledCards, scheduledJobs, swapFreezeLedger, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc, worktreeOfTask };
 }

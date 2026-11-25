@@ -9,6 +9,7 @@
  * restare per un mese come le 11 sessioni misurate il 03/08.
  * @covers TAB-SYNC-01
  * @covers RETIRE-03
+ * @covers TABPOS-02
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -17,8 +18,9 @@ import { join } from "path";
 import { createUiStateRouter, PANE_STORE_KEY } from "./ui-state";
 import { createOpenRouter } from "./open";
 import { computeCascade } from "../services/pane-retirement-cascade";
-import { applyPaneCascade, isRetired, listOpen, reconcile, retiredIds } from "../services/retirement";
+import { applyPaneCascade, listOpen, reconcile, retiredIds } from "../services/retirement";
 import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
+import { tabCloseArchives } from "../lib/tab-close-policy";
 import type { AppContext } from "../types";
 
 let db: Database;
@@ -26,6 +28,8 @@ let archived: string[];
 let retiredTerminals: string[];
 let router: ReturnType<typeof createUiStateRouter>;
 let openRouter: ReturnType<typeof createOpenRouter>;
+/** The `closeArchives` option as the server wiring reads it; undefined = the rule of before. */
+let closePolicy: (() => boolean) | undefined;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -35,6 +39,7 @@ function consequences() {
   return {
     archiveTopic: (id: string) => { archived.push(id); db.run("UPDATE topics SET archived = 1 WHERE id = ?", [id]); },
     shouldRetireTopic: (id: string) => !isGlobalOrchestratorTopic(db, id),
+    tabCloseArchives: closePolicy,
     restoreTopic: (id: string) => { db.run("UPDATE topics SET archived = 0 WHERE id = ?", [id]); },
     retireTerminal: (id: string) => { retiredTerminals.push(id); db.run("DELETE FROM terminal_sessions WHERE id = ?", [id]); },
   };
@@ -90,6 +95,7 @@ beforeEach(() => {
   db.run("INSERT INTO terminal_sessions (id, name, cwd, created_at) VALUES ('sess-1','bash','/w','t')");
   archived = [];
   retiredTerminals = [];
+  closePolicy = undefined;
   router = createUiStateRouter(makeCtx(), { onPaneSnapshot });
   openRouter = createOpenRouter(makeCtx());
 });
@@ -100,6 +106,37 @@ describe("prima di chiudere niente", () => {
     expect(open.topics.map((t: any) => t.id)).toEqual(["chat-1"]);
     expect(open.terminals.map((t: any) => t.id)).toEqual(["sess-1"]);
     expect(open.divergences).toEqual([]);
+  });
+});
+
+describe("three states (closeArchives off): a closed chat stays, closed", () => {
+  test("the cascade does not archive the chat, and a restart does not either", async () => {
+    closePolicy = () => tabCloseArchives(db);
+    await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
+    await put(snap({ tombstones: { "chat-1": { at: 1000, seq: 2 } } }));
+
+    expect(archived).toEqual([]);
+    expect(retiredIds(db, "pane").has("chat-1")).toBe(true);
+    expect(retiredIds(db, "topic").has("chat-1")).toBe(false);
+    reconcile(db, consequences());
+    expect(archived).toEqual([]);
+    expect((await getOpen()).divergences).toEqual([]);
+  });
+
+  test("the option on brings back the rule of before; terminals retire either way", async () => {
+    db.run("INSERT INTO ui_state (key, value) VALUES ('settings', ?)", [JSON.stringify({ closeArchives: true })]);
+    closePolicy = () => tabCloseArchives(db);
+    await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" }, "term-p": { id: "term-p", terminalSessionId: "sess-1" } } }));
+    await put(snap({ tombstones: { "chat-1": { at: 1000, seq: 2 }, "term-p": { at: 1000, seq: 2 } } }));
+
+    expect(archived).toEqual(["chat-1"]);
+    expect(retiredTerminals).toEqual(["sess-1"]);
+  });
+
+  test("the reader: no settings, or the option off, is three states", () => {
+    expect(tabCloseArchives(db)).toBe(false);
+    db.run("INSERT INTO ui_state (key, value) VALUES ('settings', ?)", [JSON.stringify({ closeArchives: false, fontSize: 13 })]);
+    expect(tabCloseArchives(db)).toBe(false);
   });
 });
 
@@ -123,11 +160,11 @@ describe("chiudere una tab è il ritiro di ciò che contiene", () => {
     await put(snap({ tombstones: { "chat-1": { at: 1000, seq: 2 } } }));
 
     expect(archived).toEqual([]);
-    expect(isRetired(db, "topic", "chat-1")).toBe(false);
+    expect(retiredIds(db, "topic").has("chat-1")).toBe(false);
     expect((await getOpen()).topics.map((topic: any) => topic.id)).toEqual(["chat-1"]);
 
     await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
-    expect(isRetired(db, "pane", "chat-1")).toBe(false);
+    expect(retiredIds(db, "pane").has("chat-1")).toBe(false);
     expect((await getOpen()).topics.map((topic: any) => topic.id)).toEqual(["chat-1"]);
   });
 
@@ -153,13 +190,13 @@ describe("chiudere una tab è il ritiro di ciò che contiene", () => {
   test("una scrittura rifiutata dal gate CAS non archivia niente", async () => {
     // Il 409 dice che quello snapshot il server l'ha scartato. Trarne le
     // conseguenze significherebbe archiviare una chat per uno stato che non è
-    // mai stato scritto — e nessuna riapertura lo ritratterebbe.
+    // mai stato scritto - e nessuna riapertura lo ritratterebbe.
     await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
     const res = await put(snap({ tombstones: { "chat-1": { at: 1000, seq: 2 } } }), 99);
 
     expect(res.status).toBe(409);
     expect(archived).toEqual([]);
-    expect(isRetired(db, "topic", "chat-1")).toBe(false);
+    expect(retiredIds(db, "topic").has("chat-1")).toBe(false);
   });
 
   test("assenza senza tombstone non chiude niente: l'idratazione è un'unione", async () => {
@@ -196,7 +233,7 @@ describe("riavvia il server, riapri il progetto", () => {
     reconcile(db, consequences());
 
     expect(db.query("SELECT archived FROM topics WHERE id = 'chat-1'").get()).toEqual({ archived: 1 });
-    expect(isRetired(db, "topic", "chat-1")).toBe(true);
+    expect(retiredIds(db, "topic").has("chat-1")).toBe(true);
     expect((await getOpen()).divergences).toEqual([]);
   });
 
@@ -210,7 +247,7 @@ describe("riavvia il server, riapri il progetto", () => {
     reconcile(db, consequences());
 
     expect(archived).toEqual([]);
-    expect(isRetired(db, "topic", "chat-1")).toBe(false);
+    expect(retiredIds(db, "topic").has("chat-1")).toBe(false);
     expect((await getOpen()).topics.map((topic: any) => topic.id)).toEqual(["chat-1"]);
   });
 
@@ -230,12 +267,12 @@ describe("la riapertura", () => {
   test("annullare la chiusura ritratta il fatto, e la chiusura successiva torna a valere", async () => {
     await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
     await put(snap({ tombstones: { "chat-1": { at: 1, seq: 2 } } }));
-    expect(isRetired(db, "pane", "chat-1")).toBe(true);
+    expect(retiredIds(db, "pane").has("chat-1")).toBe(true);
 
     // ⇧⌘T: la pane torna, il marcatore sparisce.
     db.run("UPDATE topics SET archived = 0 WHERE id = 'chat-1'");
     await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
-    expect(isRetired(db, "pane", "chat-1")).toBe(false);
+    expect(retiredIds(db, "pane").has("chat-1")).toBe(false);
 
     await put(snap({ tombstones: { "chat-1": { at: 9, seq: 5 } } }));
     expect(archived).toEqual(["chat-1", "chat-1"]);

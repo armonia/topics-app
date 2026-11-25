@@ -33,6 +33,8 @@ export interface ScriptProcess {
    */
   pendingLine?: string;
   proc: ReturnType<typeof Bun.spawn> | null;
+  /** A job run whose end the engine has taken: until then its row is not pruned from `recentScripts`. Not persisted. */
+  jobSettled?: boolean;
   /** Byte size of the on-disk .log — tracked in memory so the per-chunk write
    *  path never stats the file. The log is per-processId (unique per spawn),
    *  so it always starts at 0. Not persisted. */
@@ -118,7 +120,9 @@ export interface CommandMeta {
    * by the agent. It wakes nobody, the agent's process tools do not see it,
    * and its end closes its row in `command_runs` (CMDRUN-05, CMDRUN-06).
    */
-  origin?: "person";
+  origin?: "person" | "job";
+  /** Only for `origin: "job"`: the scheduled job and the run this process is. */
+  job?: { jobId: string; runId: string };
   /**
    * The file the command names as its stdout (`> f`, `&> f`, `| tee f >…`),
    * read off the command line before it starts (`lib/command-redirect.ts`):
@@ -133,6 +137,8 @@ export interface CommandMeta {
 
 /** A run a person started from the chat: kept out of everything the agent reads. */
 export const isPersonRun = (sp: ScriptProcess) => sp.cmd?.origin === "person";
+/** A run of a scheduled command job (R11): the agent's process tools and its Stop never see it. */
+export const isJobRun = (sp: ScriptProcess) => sp.cmd?.origin === "job";
 
 // Serializable subset for persistence
 export interface PersistedScript {

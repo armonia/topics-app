@@ -111,6 +111,9 @@ export const CODICI_AUTH = [
   // ── L'APPAIAMENTO.
   'pairing_expired',
   'too_many_requests',
+  /** A pairing that hands this node's channel over, approved from anywhere but
+   *  a session on this computer (MACHINE-01). */
+  'machine_pairing_requires_local_session',
 
   // ── FORMA DELLA RICHIESTA. Un client corretto non le vede mai; restano
   //    distinte perché collassarle nasconderebbe quale campo è storto.

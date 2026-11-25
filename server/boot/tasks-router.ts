@@ -1,17 +1,19 @@
 /**
  * The tasks router and the process detection and presence that start with it.
  */
-import { join } from "path";
-import { existsSync } from "fs";
+import { basename } from "path";
 import { teardownArchivedTaskBrowserState } from "../services/task-tab-teardown";
 import { getClaudeSessionsForDetection, countBusyAgentTerminals } from "../routes/terminal";
 import { pushMainToOrigin } from "../services/main-on-origin";
-import { awaitCiEvidence } from "../services/ci-evidence";
+import { CI_BASE_BRANCH, awaitCiEvidence, githubPort, spawnCapped } from "../services/ci-evidence";
+import { supersedeEarlierRounds } from "../services/ci-supersede";
 import { worktreeDirtProbe, worktreeRealDirt } from "../services/task-automerge";
 import { killAgentProcessTree } from "../lib/kill-agent-tree";
 import { branchStatusFromRepo, commitIsAncestor, resolveCommit } from "../services/branch-status";
 import { resolveDeliveryBranch } from "../services/delivery-branch-ref";
+import { realMainCiPort } from "../services/main-ci-watch";
 import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
+import { classifyWorktreeSource } from "../services/worktree-manager";
 import { tryGetProvider } from "../providers";
 import { startProcessDetection, stopCardCommandProcesses, stopTopicCommandProcesses } from "../routes/processes";
 import { createTasksRouter, ownBranchFiles, runGitCap } from "../routes/tasks";
@@ -20,12 +22,29 @@ import { defaultLifecycleHooks } from "../services/lifecycle-hooks";
 import { getAppSettings, resolveOutputLanguage, resolveDiscordPresenceEnabled, resolveDiscordDetailLevel } from "../services/app-settings";
 import { startDiscordPresence } from "../services/discord-presence";
 import { computePresenceCounts } from "../services/profile-stats";
-import { tmpdir as osTmpdir } from "node:os";
+import { createNodeCheckWorktrees, nodeCheckRoot } from "../services/node-check-worktree";
+import { legacyNodeCheckRoot, sweepScratch } from "../services/worktree-scratch";
 import type { AfterPreviewDelivery } from "./scope";
 import { late } from "./late";
 
 export function bootTasksRouter(scope: AfterPreviewDelivery) {
   const { DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, auditOneLanding, autoLandTurnCount, browserService, ctx, db, deliveryBranchDeps, dispatchExtraPaths, dispatcherSvc, landingQueue, listKnownDeliveryRepoRoots, listSelectableProjectDirs, memSignal, repoRootForCard, scheduledCards, taskAutoMerge, taskCheckoutRef, taskDeliveryRef, taskDispatcher, worktreeOfTask } = scope;
+  // The throwaway checkouts node deliveries are measured on. No measure is in
+  // flight at boot, so whatever the previous process left (cut mid-measure by a
+  // restart, or killed) goes now: nothing else would ever remove it.
+  const nodeChecks = createNodeCheckWorktrees({ git: runGitCap, root: nodeCheckRoot(), resolveHead: (cwd) => resolveCommit(cwd, "HEAD") });
+  void nodeChecks.sweep()
+    .then((gone) => { if (gone.length) console.warn(`[node-checks] ${gone.length} checkout lasciati dal processo prima, tolti: ${gone.map((p) => basename(p)).join(", ")}`); })
+    .catch((err) => console.warn("[node-checks] spazzata d'avvio fallita", err));
+  // The other throwaway checkouts (land, realign, integration), and the node checks the
+  // layout before worktree-standard T2 left in $TMPDIR: nothing of this process is in
+  // flight yet, so whatever is there was cut by the previous one.
+  void sweepScratch(runGitCap)
+    .then((gone) => { if (gone.length) console.warn(`[scratch] ${gone.length} checkout lasciati dal processo prima, tolti: ${gone.map((p) => basename(p)).join(", ")}`); })
+    .catch((err) => console.warn("[scratch] spazzata d'avvio fallita", err));
+  void createNodeCheckWorktrees({ git: runGitCap, root: legacyNodeCheckRoot(), resolveHead: (cwd) => resolveCommit(cwd, "HEAD") }).sweep()
+    .then((gone) => { if (gone.length) console.warn(`[node-checks] ${gone.length} checkout del vecchio posto (temp), tolti`); })
+    .catch((err) => console.warn("[node-checks] spazzata del vecchio posto fallita", err));
   const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     scheduledCards,
     taskModelSnapshot: () => {
@@ -47,9 +66,13 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     autoMerge: taskAutoMerge,
     // Structural review gate: real uncommitted changes in the task's branch
     // worktree (junk excluded); null = no worktree, gate skipped.
-    // Il progetto di questa board puo' avere un worktree isolato? Stessa
-    // risoluzione che usa il dispatch, cosi' il pannello non puo' dire una cosa e
-    // il dispatch farne un'altra.
+    // Can this board's project have an isolated worktree? Same classification
+    // the dispatch uses (`classifyWorktreeSource`, shared with
+    // `assertNotAlreadyAWorktree`), so the panel can never say one thing while
+    // dispatch does another. A REGISTERED project (non-null projectStoreId)
+    // used to always return `true` here, skipping the `.git` check entirely:
+    // every project added through the UI (which is almost all of them) never
+    // saw the warning, even with no repo or from inside a nested worktree.
     worktreeReady: (projectId) => {
       try {
         const c = resolveProjectPath(
@@ -60,8 +83,9 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
             extraPaths: dispatchExtraPaths,
           }),
         );
-        if (!c) return false;
-        return !!c.projectStoreId || existsSync(join(c.path, ".git"));
+        if (!c) return "no-git";
+        const kind = classifyWorktreeSource(c.path);
+        return kind === "ok" ? true : kind;
       } catch { return true; } // in dubbio non si accusa il progetto
     },
     taskWorktreeDirt: async (taskId) => {
@@ -133,21 +157,17 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
     // The CI phase (`services/integration-queue.ts`): the repository a card's branch lives in.
     integrationRepo: async (taskId) => (await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null))?.repoPath ?? null,
+    // The CI of main, for the red no card owns (`services/main-ci-watch.ts`).
+    mainCiPort: async (projectId) => {
+      const repo = deliveryBranchDeps().boardRepoPath(projectId);
+      return repo ? realMainCiPort(repo) : null;
+    },
     // A throwaway checkout of a branch planted from another machine, so its bar
     // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
     nodeDeliveryCheckout: async (taskId) => {
       const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
       if (!ref) return null;
-      const path = join(osTmpdir(), "topics-node-checks", taskId.slice(0, 8));
-      await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]);
-      await runGitCap(ref.repoPath, ["worktree", "prune"]);
-      const added = await runGitCap(ref.repoPath, ["worktree", "add", path, ref.branch]);
-      if (added.code !== 0) return null;
-      return {
-        cwd: path,
-        head: () => resolveCommit(path, "HEAD"),
-        release: async () => { await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]); },
-      };
+      return nodeChecks.open({ repoPath: ref.repoPath, branch: ref.branch, taskId });
     },
     onAutoLand: (api) => {
       late.misuraConsegnaNodo = api.measureNodeDelivery;
@@ -242,6 +262,16 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     },
     // The e2e row of a delivery is read from the pull request CI, never run here.
     ciEvidence: ({ onCiWait, ...input }) => awaitCiEvidence(input, { onCiWait }),
+    // A round on a new branch ends the pull requests of the card's earlier rounds.
+    supersedeEarlierRounds: ({ cwd, taskId }) => supersedeEarlierRounds(githubPort(), { cwd, taskId, baseBranch: CI_BASE_BRANCH }),
+    // The review sweep asks whether a green card's pull request still merges into main.
+    reviewPrMergeable: async (taskId, branch) => {
+      const repo = (await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null))?.repoPath ?? null;
+      if (!repo) return null;
+      const r = await spawnCapped(["gh", "pr", "list", "--head", branch, "--state", "open", "--json", "mergeable", "--limit", "1"], repo);
+      if (r.code !== 0) return null;
+      try { return String((JSON.parse(r.out) as Array<{ mergeable?: string }>)[0]?.mergeable ?? "") || null; } catch { return null; }
+    },
     // No new pre-review command starts under the memory floor, into sustained
     // swap, or within 2 minutes of another delivery's release (15/09/2026: 5.9 GB
     // free and 9.9 GB of swap, four commands on one poll). The floor is READ HERE,

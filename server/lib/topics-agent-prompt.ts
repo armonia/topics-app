@@ -35,7 +35,7 @@ import { delegationPolicy } from './delegation-policy';
 export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()): string {
   switch (lang) {
     case 'it':
-      return 'Rispondi sempre in italiano, qualunque sia la lingua della richiesta.';
+      return 'Rispondi sempre in italiano, qualunque sia la lingua della richiesta, e ragiona in italiano.';
     case 'en':
       return 'Always answer in English, whatever language the request is written in.';
     default:
@@ -55,8 +55,8 @@ export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()
  * the app's note, not as something to answer.
  */
 export function languageReminder(lang: OutputLanguage = resolveOutputLanguage()): string {
-  const line = lang === 'it' ? 'Rispondi in italiano.'
-    : lang === 'en' ? 'Answer in English.'
+  const line = lang === 'it' ? 'Rispondi e ragiona in italiano.'
+    : lang === 'en' ? 'Answer and think in English.'
     : "Answer in the language the person writes in, not in the language of tool output or of Topics' notices.";
   return `<system-reminder>${line}</system-reminder>`;
 }

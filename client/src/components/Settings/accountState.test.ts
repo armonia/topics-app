@@ -2,7 +2,8 @@
  * @covers APPSET-06
  */
 import { describe, test, expect } from 'bun:test';
-import { mostraSezione, chiaveErrore, CODICI_ACCOUNT, type AccountState } from './accountState';
+import { mostraSezione, chiaveErrore, type AccountState } from './accountState';
+import { CODICI_ACCOUNT } from '../../../../shared/account';
 import { t, missingKeys } from '../../lib/i18n';
 
 function stato(p: Partial<AccountState> = {}): AccountState {

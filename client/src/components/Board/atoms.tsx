@@ -148,11 +148,10 @@ export type StatusGlyph = TaskStatus | 'failed';
  *  run is the same shape language as the five column states. */
 const FAILED_COLOR = 'text-red-700 dark:text-red-400';
 
-/** `live` spins the half pie of in_progress, motion-safe only: one turn per
- *  1.44 s in 12 steps of 120 ms, the cadence of the tray glyph. */
-export function StatusIcon({ status, className = 'h-3.5 w-3.5', live = false }: { status: StatusGlyph; className?: string; live?: boolean }) {
+/** A category glyph, always still. A card whose agent is at work draws the
+ *  square loader (`SparkLoader`) instead, not a spinning half pie. */
+export function StatusIcon({ status, className = 'h-3.5 w-3.5' }: { status: StatusGlyph; className?: string }) {
   const color = status === 'failed' ? FAILED_COLOR : STATUS_ICON_COLOR[status];
-  const spin = live && status === 'in_progress';
   return (
     <svg
       viewBox="0 0 14 14"
@@ -178,12 +177,7 @@ export function StatusIcon({ status, className = 'h-3.5 w-3.5', live = false }: 
           />
           {status === 'failed' && <path d="M5 5l4 4M9 5l-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />}
           {status === 'in_progress' && (
-            <path
-              d={sectorPath(50)}
-              fill="currentColor"
-              className={spin ? 'status-glyph-spin motion-safe:animate-[status-glyph-spin_1.44s_steps(12)_infinite]' : undefined}
-              style={spin ? { transformOrigin: '7px 7px' } : undefined}
-            />
+            <path d={sectorPath(50)} fill="currentColor" />
           )}
           {status === 'review' && <path d={sectorPath(75)} fill="currentColor" />}
         </>
@@ -232,7 +226,7 @@ export function DispatchChip({ state, error, deliveredBy, hasWork = true }: { st
  * partirà mai» — si leggevano identici.
  */
 const QUEUE_TONE_CLS: Record<QueueTone, string> = {
-  queued: 'bg-white/10 text-app-text-secondary',
+  queued: 'bg-black/5 dark:bg-white/10 text-app-text-secondary',
   waiting: 'bg-indigo-500/15 text-indigo-800 dark:text-indigo-300',
   stalled: 'bg-amber-500/15 text-amber-800 dark:text-amber-300 ring-1 ring-amber-400/30',
 };
@@ -291,7 +285,7 @@ export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSo
       ? 'bg-sky-500/15 text-sky-800 dark:text-sky-300'
       : label === 'decisione' // allow-italian: the closed label vocabulary, compared by value
         ? 'bg-violet-500/15 text-violet-800 dark:text-violet-300'
-        : 'bg-white/10 text-app-text-heading';
+        : 'bg-black/5 dark:bg-white/10 text-app-text-heading';
   const why = label === 'invisibile'
     ? tr('board.label.invisibleWhy')
     : label === 'visibile'

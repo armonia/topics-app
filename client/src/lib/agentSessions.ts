@@ -14,51 +14,11 @@
  * until `AGENT_NAMES` gives it a friendlier one.
  */
 import type { TerminalSessionInfo, Topic } from '../types';
-import { LEGACY_DATA_DIR_NAME } from '../../../shared/legacy-data-dir';
+import { MAIN_AGENT, agentName, agentOfPath, isAgentPath } from '../../../shared/agent-home';
 
-/** The agent homes, as path suffixes: the old data root and Jarvis' home. */
-const AGENT_HOMES = [`/${LEGACY_DATA_DIR_NAME}`, '/.claude/jarvis/home'] as const;
-
-/** The main agent, the one that answers in the home itself. */
-export const MAIN_AGENT = 'jarvis';
-
-/** Friendly names of the agents we know; any other shows its folder id. */
-const AGENT_NAMES: Record<string, string> = {
-  jarvis: 'Jarvis',
-  gtm: 'Visione', // allow-italian: the agent's own name, not UI copy
-};
-
-function norm(p: string): string {
-  return p.replace(/\\/g, '/').replace(/\/+$/, '');
-}
-
-/**
- * The agent that owns a folder, or null when the folder is not an agent's.
- * The old data root and its `workspace` are the main agent,
- * its `workspace-gtm/…` is `gtm`.
- */
-export function agentOfPath(path: string | null | undefined): string | null {
-  if (!path) return null;
-  const p = norm(path);
-  for (const home of AGENT_HOMES) {
-    const at = p.indexOf(home);
-    if (at < 0) continue;
-    const rest = p.slice(at + home.length);
-    if (rest !== '' && !rest.startsWith('/')) continue;
-    const first = rest.split('/')[1] ?? '';
-    const m = /^workspace-(.+)$/.exec(first);
-    return m ? m[1] : MAIN_AGENT;
-  }
-  return null;
-}
-
-export function isAgentPath(path: string | null | undefined): boolean {
-  return agentOfPath(path) !== null;
-}
-
-export function agentName(id: string): string {
-  return AGENT_NAMES[id] ?? id;
-}
+// The criterion lives in `shared/agent-home.ts` (the server reads it too, for the
+// card's origin); re-exported so the client keeps importing it from here.
+export { MAIN_AGENT, agentName, agentOfPath, isAgentPath };
 
 /**
  * A readable name for an agent's chat. The bridge names a channel's chat after

@@ -1,33 +1,33 @@
 /**
- * Chi può fare cosa, per il runtime nativo.
+ * Who can do what, for the native runtime.
  *
- * IL BUCO CHE CHIUDE. Il runtime nativo esegue i tool DA SÉ: non c'è una CLI in
- * mezzo che applichi le sue regole, quindi le regole sono queste e nient'altro.
- * Al primo giro `bash` e `write_file` eseguivano e basta — su una macchina
- * vera, con agenti dispacciati che girano da soli, è la lacuna che fa danno.
+ * THE GAP IT CLOSES. The native runtime runs the tools ITSELF: there is no CLI
+ * in between applying its own rules, so the rules are these and nothing else.
+ * At first `bash` and `write_file` just executed, and on a real machine, with
+ * dispatched agents running on their own, that is the gap that does damage.
  *
- * NON È UNA SANDBOX, e va detto subito perché la differenza conta: un comando
- * shell può sempre uscire da qualunque perimetro (`ssh`, `curl | sh`, un
- * interprete). Qui si decide COSA L'AGENTE PUÒ CHIEDERE, non cosa il sistema
- * operativo gli lascia fare. Serve a fermare l'errore e l'iniziativa infelice,
- * non un avversario.
+ * IT IS NOT A SANDBOX, and that is worth saying up front because the difference
+ * matters: a shell command can always get out of any perimeter (`ssh`,
+ * `curl | sh`, an interpreter). What is decided here is WHAT THE AGENT MAY ASK
+ * FOR, not what the operating system lets it do. It stops mistakes and
+ * unfortunate initiative, not an adversary.
  *
- * I LIVELLI SONO QUELLI CHE TOPICS HA GIÀ (`AutonomyLevel`, sul topic), perché
- * un secondo sistema di permessi accanto al primo è il modo sicuro di averne
- * zero funzionanti:
+ * THE LEVELS ARE THE ONES TOPICS ALREADY HAS (`AutonomyLevel`, on the topic),
+ * because a second permission system next to the first is the sure way to end
+ * up with zero working ones:
  *
- *   • `ask`        — propone e non tocca: lettura sì, scrittura ed esecuzione
- *                    no. È il «plan mode» delle CLI, tradotto qui.
- *   • `auto-apply` — lavora nel progetto: legge, scrive, esegue. Fuori dal
- *                    perimetro non va (ci pensa già `tools.ts`), e i comandi
- *                    DISTRUTTIVI restano fuori.
- *   • `yolo`       — tutto, ed è una scelta esplicita di chi la mette.
+ *   - `ask`        - proposes and does not touch: reading yes, writing and
+ *                    executing no. It is the CLIs' "plan mode", translated.
+ *   - `auto-apply` - works in the project: reads, writes, executes. Outside the
+ *                    perimeter it does not go (`tools.ts` already handles that),
+ *                    and DESTRUCTIVE commands stay out.
+ *   - `yolo`       - everything, and it is an explicit choice by whoever sets it.
  *
- * IL DEFAULT È `auto-apply`, non `yolo`. Le CLI storicamente partivano in
- * `bypassPermissions` e Topics ne ha ereditato il default per non zittire le
- * chat esistenti; ma quel default descriveva un programma altrui, mentre qui
- * l'esecuzione è nostra e la scelta pure. Un agente che non ha mai visto una
- * riga di configurazione non deve poter lanciare `rm -rf`.
+ * THE DEFAULT IS `auto-apply`, not `yolo`. The CLIs historically started in
+ * `bypassPermissions` and Topics inherited that default so as not to silence
+ * existing chats; but that default described somebody else's program, whereas
+ * here execution is ours and so is the choice. An agent that never saw a line
+ * of configuration must not be able to run `rm -rf`.
  */
 
 import { isAbsolute, relative, resolve } from "path";
@@ -50,6 +50,8 @@ export type ToolDecision =
 export type TurnScope = {
   tempDir?: string;
   createdPaths?: ReadonlySet<string>;
+  /** The `bash` call's own cwd, to resolve a relative `rm` target against. */
+  cwd?: string;
 };
 
 /** `/tmp/topics-turn-<id>`, one per call to `runAgentTurn`. */
@@ -123,15 +125,19 @@ const TEMP_ROOT = /^(\/tmp|\/private\/tmp|\/var\/folders|\/private\/var\/folders
  * under the generic `/tmp`-style roots, under THIS turn's own temp folder, or
  * a path this turn itself created (tracked in `scope.createdPaths`).
  *
- * Relative targets (no leading `/`) never qualify: `decide` has no cwd to
- * resolve them against, and guessing one would be the widening this guard
- * exists to avoid.
+ * A relative target (no leading `/`) is resolved against `scope.cwd` — the
+ * bash call's own working directory — before the same checks run on it. A
+ * turn working from its temp folder cleans up with plain relative names
+ * (`rm -rf scratch`, not `rm -rf /tmp/topics-turn-xyz/scratch`), and that used
+ * to be rejected outright for lack of a cwd to resolve against. Without
+ * `scope.cwd` a relative target still never qualifies: guessing one would be
+ * the widening this guard exists to avoid.
  */
 function targetAllowed(target: string, scope?: TurnScope): boolean {
   if (target.includes("..")) return false;
-  if (TEMP_ROOT.test(target)) return true;
-  if (!isAbsolute(target)) return false;
-  const abs = resolve(target);
+  const abs = isAbsolute(target) ? resolve(target) : scope?.cwd ? resolve(scope.cwd, target) : null;
+  if (abs === null) return false;
+  if (TEMP_ROOT.test(abs)) return true;
   if (scope?.tempDir && insideDir(abs, scope.tempDir)) return true;
   if (scope?.createdPaths?.has(abs)) return true;
   return false;
@@ -142,12 +148,29 @@ function targetAllowed(target: string, scope?: TurnScope): boolean {
  * An rm whose targets all sit under a temp root, the turn's own temp folder,
  * or files the turn created, only removes what the turn owns, so it passes.
  */
+function rmTargets(args: string[]): string[] {
+  const targets: string[] = [];
+  let afterDashes = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (!a) continue;
+    // A redirection is not a target: `rm -f /tmp/x 2>/dev/null`, `rm -f /tmp/x > /dev/null`.
+    if (/^\d*>>?$/.test(a)) { i++; continue; }
+    if (/^\d*>>?\S/.test(a)) continue;
+    if (!afterDashes && a === "--") { afterDashes = true; continue; }
+    if (!afterDashes && a.startsWith("-")) continue;
+    // Single quotes keep `$TMPDIR` literal, so it is a relative path, not the temp root.
+    targets.push(a.replace(/^(["']?)\$\{?(?:TMPDIR|TMP)\}?(?=\/|["']?$)/, (m, q: string) => (q === "'" ? m : `${q}/tmp`)));
+  }
+  return targets;
+}
+
 function rmReason(segment: string, scope?: TurnScope): string | null {
   const forced = RM_FORCED.test(segment);
   const root = RM_ROOT.test(segment);
   if (!forced && !root) return null;
   const args = segment.slice(segment.search(/\brm\b/)).split(/\s+/).slice(1);
-  const targets = args.filter((a) => !a.startsWith("-"));
+  const targets = rmTargets(args);
   const unquoted = targets.map((t) => t.replace(/^["']|["']$/g, ""));
   const allOwned = unquoted.length > 0 && unquoted.every((t) => targetAllowed(t, scope));
   if (allOwned) return null;

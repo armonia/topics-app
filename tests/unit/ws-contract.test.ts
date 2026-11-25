@@ -28,11 +28,7 @@ import { z } from 'zod';
 import { browserWsMessageSchema } from '../../shared/browser-ws-messages';
 import { chatWsInboundSchema } from '../../server/schemas/chat-ws-inbound';
 import { toolCallDetailSchema } from '../../shared/tool-call-detail';
-import {
-  welcomeMessageSchema,
-  helloMessageSchema,
-  upgradeRequiredSchema,
-} from '../../shared/ws-handshake';
+import { welcomeMessageSchema } from '../../shared/ws-handshake';
 import {
   SERVER_PROTOCOL_VERSION,
   SERVER_CAPABILITIES,
@@ -481,28 +477,6 @@ describe('WS-04 contract: ws-handshake schemas (WS-02)', () => {
     expect(sig.literalKeys.type).toBe('welcome');
   });
 
-  test('helloMessageSchema shape is locked', () => {
-    const sig = objectSignature(helloMessageSchema);
-    expect(sig.requiredKeys).toEqual([
-      'capabilities',
-      'clientVersion',
-      'protocolVersion',
-      'type',
-    ]);
-    expect(sig.optionalKeys).toEqual([]);
-    expect(sig.literalKeys.type).toBe('hello');
-  });
-
-  test('upgradeRequiredSchema shape is locked', () => {
-    const sig = objectSignature(upgradeRequiredSchema);
-    expect(sig.requiredKeys).toEqual([
-      'currentClientProtocolVersion',
-      'message',
-      'minClientProtocolVersion',
-      'type',
-    ]);
-    expect(sig.literalKeys.type).toBe('upgrade-required');
-  });
 });
 
 // ----- Sanity: assert objectSignature works on a synthetic schema -----------

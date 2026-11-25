@@ -9,8 +9,9 @@ import type { UsageRange } from '../../hooks/useProjectUsage';
 import { KPICardGrid } from './KPICardGrid';
 import { TimeSeriesChart } from './TimeSeriesChart';
 import { RangeSelector } from './RangeSelector';
-import { RefreshCw, BarChart3, Coins } from 'lucide-react';
+import { BarChart3, Coins } from 'lucide-react';
 import type { WSMessage } from '../../types';
+import { Spinner } from '../Shared/Spinner';
 
 // The hub's half of «Consumi» and the usage per project: chunks of their own,
 // fetched only where they are drawn (HUBBR-12).
@@ -21,6 +22,10 @@ const HubUsageSection = lazy(async () => {
 const ProjectUsagePanel = lazy(async () => {
   const { ProjectUsagePanel: Panel } = await import('../Sidebar/ProjectUsagePanel');
   return { default: Panel };
+});
+const PeopleUsageBox = lazy(async () => {
+  const { PeopleUsageBox: Box } = await import('./PeopleUsageBox');
+  return { default: Box };
 });
 
 // The pane's strings travel with its chunk, before its first render.
@@ -86,6 +91,13 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
     </section>
   );
 
+  // WHO SPENT the weekly quota, person by person (channel senders included).
+  const peopleUsage = (
+    <Suspense fallback={null}>
+      <PeopleUsageBox />
+    </Suspense>
+  );
+
   // WITH THE HUB the Dashboard is «Consumi»: the hub's sections first, the
   // board's numbers in one compact box, then the two cards above.
   if (hubPresent) {
@@ -94,6 +106,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
         <Suspense fallback={null}>
           <HubUsageSection kpis={kpis}>
             {chartCard}
+            {peopleUsage}
             {projectUsage}
           </HubUsageSection>
         </Suspense>
@@ -123,11 +136,9 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
               it only while loading pushed the label sideways every 60 seconds,
               and again on every WS update: a shift the size of an icon,
               repeated for as long as the pane stays open. */}
-          <RefreshCw
-            size={12}
-            aria-hidden={!loading}
-            className={`text-app-text-muted ${loading ? 'animate-spin' : 'opacity-0'}`}
-          />
+          {loading
+            ? <Spinner size="sm" tone="current" className="text-app-text-muted" />
+            : <span className="inline-block h-3 w-3 flex-shrink-0" aria-hidden="true" />}
           <span className="text-mini text-app-text-muted">{tr('dashboard.autoRefresh')}</span>
         </div>
       </div>
@@ -144,6 +155,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
         <KPICardGrid kpis={kpis} />
 
         {chartCard}
+        {peopleUsage}
         {projectUsage}
       </div>
     </div>

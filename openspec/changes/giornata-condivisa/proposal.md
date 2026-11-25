@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** aperta, tracce T0-T2, T5, T6, T9, T12 in main (`scripts/backup-restore-check.ts`, `check-inp-shell.ts`, `check-gates-orfani.ts`, `test:unit:shuffle`); mancano `scripts/measure-cross-device.ts` (T3), `tests/sim/sync-convergence.test.ts` (T4), `scripts/runner-parity.ts` (T8) e `scripts/delivery-score.ts` (T11), tutti assenti; T7 e T10 senza prova di consegna in `reports/`.
+
 # giornata-condivisa: Topics tenuto da tre persone su sei dispositivi, senza toccare la macchina che lo ospita
 
 Successore di `daily-driver`, che ha chiuso il suo arco: D0-D7 hanno 45 report su

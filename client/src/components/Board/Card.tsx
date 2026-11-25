@@ -7,10 +7,11 @@ import { AlarmClock, AlertTriangle, ArchiveRestore, ArrowRightLeft, CalendarCloc
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { useIsMergedHere } from './mergedBoards';
 import { useToast } from '../Shared/Toast';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
-import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, dueDateChip, scheduledChip, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardSettings, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
+import { STATUS_GLYPH_PX, STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, dueDateChip, scheduledChip, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardSettings, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
 import { recallColumnPages, rememberColumnPages } from '../../lib/columnPages';
 import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
@@ -44,7 +45,7 @@ import { taskTriggerLine } from '../../lib/modelLabel';
 import { machineLabel, useMachines } from '../../state/machinesStore';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { EASE, MOTION } from '../../lib/motion';
-import { COLUMN_FRAME, columnWidthClass, type BoardDensity } from './boardGeometry';
+import { COLUMN_FRAME, COLUMN_FRAME_BARE, columnWidthClass, type BoardDensity } from './boardGeometry';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
@@ -52,7 +53,8 @@ import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState 
 import { TaskCountdown } from './TaskCountdown';
 import { TaskContextChip } from './TaskContextChip';
 import { TaskChildrenChip } from './TaskChildrenChip';
-import { estimatesByProject } from '../../../../shared/task-countdown';
+import type { EstimateBasis } from '../../../../shared/task-countdown';
+import { useCardRenderer } from './useCardRenderer';
 import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
@@ -65,8 +67,11 @@ import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
-import { creatorChip, incompleteChip } from './createdByLabel';
-import { CreatorChipView, IncompleteChipView } from './CreatorChipView';
+import { incompleteChip } from './createdByLabel';
+import { IncompleteChipView } from './IncompleteChipView';
+import { OriginChipView } from './OriginChipView';
+import { ownerChip } from './ownerChip';
+import { useOwnerName } from '../../hooks/useOwnerName';
 import { channelChip } from './channelChip';
 import { ChannelChipView } from './ChannelChipView';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
@@ -91,9 +96,9 @@ export function Column(props: ColumnProps) {
   return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} dragging={active !== null} activeId={active ? String(active.id) : null} />;
 }
 
-type ColumnProps = {
+export type ColumnProps = {
   status: TaskStatus; tasks: BoardTask[];
-  /** The workflow column this is, when it is not the plain one of `status` (Triage, AI review, Human review). */
+  /** The workflow column this is, when it is not the plain one of `status` (today only CI). */
   columnId?: string;
   /** Its header; absent = the status label. */
   label?: string; onOpen: OpenTask; onCreate: (text: string) => void;
@@ -199,28 +204,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
     scroller.addEventListener('scroll', update, { passive: true });
     return () => { resizeObserver.disconnect(); scroller.removeEventListener('scroll', update); };
   }, [virtualized, layout]);
-  const estimateByProject = useMemo(() => estimatesByProject(tasksById.values()), [tasksById]);
-  const renderCard = useCallback((t: BoardTask) => (
-    <Card
-      key={t.id} task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
-      error={cardError?.taskId === t.id ? cardError.message : null}
-      onError={onCardError}
-      sessionState={resolveSession?.(t.assignedTopicId) ?? 'unknown'}
-      paneBoardId={paneBoardId}
-      paneSettings={paneSettings}
-      parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
-      projectPath={projectPathById.get(t.projectId)}
-      live={liveById.get(t.id)}
-      estimateMs={estimateByProject.get(t.projectId) ?? null}
-      // The live event OR the thread: the first dies with the process, the
-      // second does not, and an unanswered question survives a restart.
-      awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
-      justMovedTo={justMoved.get(t.id)}
-      justCreated={justCreated.has(t.id)}
-      archived={archived}
-      density={density}
-    />
-  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, paneBoardId, paneSettings, tasksById, projectPathById, liveById, estimateByProject, awaitingHuman, justMoved, justCreated, archived, density]);
+  const renderCard = useCardRenderer({ onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, paneBoardId, paneSettings, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived, density }, Card);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the
@@ -296,6 +280,10 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
   // drop target): skip it, so when only one status is populated the list is
   // truly ONE column, not five headers.
   if (layout === 'list' && tasks.length === 0 && !draft) return null;
+  // An empty column keeps its header and its box (same border width, so nothing
+  // shifts) but paints no fill and no line, to lighten the board. While a card
+  // is carried the frame comes back, so every column is visible as a target.
+  const bare = tasks.length === 0 && !draft && !dragging;
   return (
     <div
       ref={setNodeRef}
@@ -307,7 +295,8 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
       // diceva «qui» in un colore che nessun'altra superficie usava.
       data-drop-active={isOver ? 'into' : undefined}
       data-lane-column={inLane || undefined}
-      className={`${COLUMN_FRAME} ${widthCls} ${layout === 'list' ? '' : 'shrink-0'} ${layout === 'list' || inLane ? '' : snapCls}`}
+      data-empty={tasks.length === 0 && !draft ? 'true' : undefined}
+      className={`${bare ? COLUMN_FRAME_BARE : COLUMN_FRAME} ${widthCls} ${layout === 'list' ? '' : 'shrink-0'} ${layout === 'list' || inLane ? '' : snapCls}`}
     >
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-compact leading-4 font-semibold uppercase tracking-wide text-app-text-heading">
@@ -322,7 +311,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
               are working in, so it is the one place where "why is nothing
               starting?" gets asked. Beside the count, never instead of it. */}
           {status === 'in_progress' && !archived && <DispatchLoadGauge onOpenSettings={onOpenSettings} />}
-          <span data-testid={`kanban-column-count-${colKey}`} className="rounded bg-white/10 px-1.5 text-compact leading-4 text-app-text-secondary">{tasks.length}</span>
+          <span data-testid={`kanban-column-count-${colKey}`} className="rounded bg-black/5 dark:bg-white/10 px-1.5 text-compact leading-4 text-app-text-secondary">{tasks.length}</span>
         </span>
       </div>
       {/* HUBBR-20: how many of this column a provider's wall holds, and until when. */}
@@ -378,25 +367,25 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
             ref={moreRef}
             onClick={() => setShown((n) => n + COLUMN_PAGE)}
             data-testid={`kanban-column-more-${status}`}
-            className="flex w-full items-center justify-center gap-1 rounded-md border border-app-border px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/5"
+            className="flex w-full items-center justify-center gap-1 rounded-md border border-app-border px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5"
           >
             {tr('board.column.showMore', { n: Math.min(slice.hidden, COLUMN_PAGE), left: slice.hidden })}
           </button>
         )}
         {!canCreate ? null : adding ? (
-          <div className="rounded-md border border-app-border bg-white/5 p-2">
+          <div className="rounded-md border border-app-border bg-black/5 dark:bg-white/5 p-2">
             <textarea
               autoFocus value={text} onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } if (e.key === 'Escape') { setText(''); setAdding(false); } }}
               className="w-full resize-none bg-transparent text-body-lg leading-5 text-app-text outline-none" rows={2} placeholder={tr('board.column.newTaskPlaceholder')}
             />
             <div className="mt-1 flex justify-end gap-1">
-              <button onClick={() => { setText(''); setAdding(false); }} className="rounded px-2 py-0.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10">{tr('board.column.cancel')}</button>
+              <button onClick={() => { setText(''); setAdding(false); }} className="rounded px-2 py-0.5 text-compact leading-4 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10">{tr('board.column.cancel')}</button>
               <button onClick={submit} className="rounded bg-emerald-500/80 px-2 py-0.5 text-compact leading-4 text-white hover:bg-emerald-500">{tr('board.column.add')}</button>
             </div>
           </div>
         ) : (
-          <button onClick={() => setAdding(true)} className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/5">
+          <button onClick={() => setAdding(true)} className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5">
             <Plus className="h-3.5 w-3.5" /> {tr('board.column.add')}
           </button>
         )}
@@ -450,6 +439,7 @@ export const Card = memo(function Card(props: CardProps) {
   // drop targeting went with it.
   const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
     id: props.task.id,
+    disabled: props.dragDisabled,
     // The neighbours' reflow runs on the app's tokens, not dnd-kit's default
     // `200ms ease`, and not at all when the person asked for less motion.
     transition: prefersReducedMotion() ? null : SORTABLE_TRANSITION,
@@ -459,7 +449,8 @@ export const Card = memo(function Card(props: CardProps) {
       {...props}
       boardTopicsRoutingDefault={cardSettings?.dispatchTopicsRouting ?? null}
       setNodeRef={setNodeRef}
-      dragAttributes={attributes}
+      // A card that cannot be dragged (the merged column) still opens on a click: dnd-kit's aria-disabled would tell a screen reader it is inert.
+      dragAttributes={props.dragDisabled ? { ...attributes, 'aria-disabled': false } : attributes}
       dragListeners={listeners}
       isDragging={isDragging}
       dragTransform={reflowTransform(transform, isDragging)}
@@ -480,9 +471,11 @@ type CardDragProps = {
 };
 
 type CardProps = {
-  /** Departure estimate learned from the project's closed cards; null = none. */
-  estimateMs?: number | null;
+  /** Estimate learned from the project's closed cards; null = none. */
+  estimate?: EstimateBasis | null;
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
+  /** The card cannot be picked up (the merged column: no status to move between); a click still opens it. */
+  dragDisabled?: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
    *  spesso fuori dal viewport, e da lassù un `approve` rifiutato sembrava un
@@ -525,7 +518,7 @@ type CardProps = {
   density?: BoardDensity;
 };
 
-const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
+const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showProject: showProjectOwn, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragDisabled = false, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
@@ -622,6 +615,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
   const confirm = useConfirm();
   const tr = useT();
   const toast = useToast();
+  const personName = useOwnerName();
   // Numeri e date della card seguono la lingua scelta, non una fissata a mano.
   const locale = useLocale();
   // The node's NAME for the foot chip. Subscribed only by a card that names one:
@@ -909,6 +903,9 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
   // Human-readable project label = the dirName prefix before the id hash.
   // Project-less = truly unassigned OR the catch-all board (which runs the task
   // standalone). Both render with NO chip — the "generale" label is noise.
+  // A card of a project merged into this board (accorpa) says which project it is.
+  const mergedHere = useIsMergedHere(task.projectId);
+  const showProject = showProjectOwn || mergedHere;
   const unassigned = isProjectlessId(task.projectId);
   const projectLabel = task.projectId.replace(/-[^-]+$/, '');
   // A task in review is the APPROVAL surface, never the "steer a working agent"
@@ -934,7 +931,9 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
   // tokens, git) moved to the card's foot, so this row renders only when it
   // has something of its own to say.
   const showTopRow = (showProject && !unassigned) || canOpenSession || sessionEnded;
-  const compact = density === 'compact';
+  // Three stops (`DensitySlider`): the title alone, the compact card, the whole card.
+  const compact = density !== 'full';
+  const titleOnly = density === 'title';
   const showPriority = !priorityAwaitingAgent(task) && task.priority !== 2;
   // THE CHECKLIST IS THE SAME IN EVERY COLUMN. It used to open only in review
   // and the other columns got a `3/7` chip instead: the same card changed
@@ -1092,8 +1091,10 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
   // blocco «i due versi dell'attesa» in lib/board.ts.
   const waitingOnThis = waitingOnThisChip(task, tr);
   const runInitiator = runInitiatorName(task);
-  // WHO opened the card (`createdBy`): the answer to "whose is this, who closes it".
-  const creator = creatorChip(task, tr);
+  // WHOSE work the card is (the person, the board, an agent, a chat, a schedule): the same rule as the filter bar.
+  const owner = ownerChip(task, tr, personName);
+  // Compact cards keep only the owners that carry a name: an agent or a chat.
+  const ownerNamed = owner.kind === 'agent' || owner.kind === 'session';
   // WHICH Jarvis channel the work came from (Discord, WhatsApp), one click from its chat.
   const channel = channelChip(task, tr);
   const incomplete = incompleteChip(task, tr);
@@ -1108,7 +1109,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
   // Compact cards skip the band: their live chips are drawn after it (`card-compact-chips`).
   const dueChip = dueDateChip(task, tr, Date.now(), locale);
   const plannedChip = scheduledChip(task, tr, locale);
-  const hasMetaRow = !compact && !!(channel || creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || dueChip || plannedChip || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const hasMetaRow = !compact && !!(channel || owner || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || dueChip || plannedChip || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1167,7 +1168,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
       // box spanned the whole board outside the column clip, paid on every drag
       // frame (main thread per pass ~360 -> ~290 ms, board-drag-frames.spec.ts).
       data-density={density}
-      className={`group relative cursor-grab rounded-md border border-app-border bg-surface ${compact ? 'px-2 py-1.5' : 'p-2.5'} text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
+      className={`group relative ${dragDisabled ? 'cursor-pointer' : 'cursor-grab'} rounded-md border border-app-border bg-surface ${compact ? 'px-2 py-1.5' : 'p-2.5'} text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
       {/* THE FROST, first child and under everything else: `.swap-ice-host`
           lifts every other child one layer, so the text stays above it and
@@ -1204,7 +1205,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
               // 24x24 (WCAG 2.5.8), not 20: `-m-0.5` gives the 4px back to the row,
               // `tap-expand` makes it 44 under a finger (usability audit, 04/10);
               // `coarse:mr-0.5` keeps that 44 inside the card's padding, which clips.
-              className="tap-expand -m-0.5 shrink-0 rounded bg-white/10 p-1.5 text-app-text hover:bg-white/20 coarse:mr-0.5"
+              className="tap-expand -m-0.5 shrink-0 rounded bg-black/5 dark:bg-white/10 p-1.5 text-app-text hover:bg-black/10 dark:hover:bg-white/20 coarse:mr-0.5"
               title={tr('board.task.openSessionTitle')}
             ><MessageSquare className="h-3 w-3" /></button>
           )}
@@ -1213,7 +1214,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
           {sessionEnded && (
             <span
               data-testid="card-session-gone"
-              className="shrink-0 rounded bg-white/5 p-1 text-app-text-faint"
+              className="shrink-0 rounded bg-black/5 dark:bg-white/5 p-1 text-app-text-faint"
               title={tr('board.task.sessionGoneTitle')}
             ><MessageSquare className="h-3 w-3" /></span>
           )}
@@ -1292,7 +1293,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
           una colonna.
           UNA distanza sola (`gap-1.5`): prima erano 6px dopo la priorita' e
           4px dopo il `#`, due misure per la stessa cosa nella stessa riga. */}
-      <span className={`block break-words leading-snug ${compact ? 'line-clamp-2' : ''}`}>
+      <span className={`block break-words leading-snug ${titleOnly ? 'line-clamp-1' : compact ? 'line-clamp-2' : ''}`}>
         {/* `align-top` e non `align-text-bottom`.
             Il gruppo e' alto ESATTAMENTE una line-box (`h-[1.375em]` =
             `leading-snug`), quindi il suo centro coincide con quello della
@@ -1309,7 +1310,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             <span
               title={tr('board.card.priorityTitle', { label: PRIORITY_LABEL[task.priority] ?? task.priority })}
               className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
-                task.priority >= 3 ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300' : 'bg-white/10 text-app-text-secondary'
+                task.priority >= 3 ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300' : 'bg-black/5 dark:bg-white/10 text-app-text-secondary'
               }`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
@@ -1350,7 +1351,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
               className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><CircleSlash className="h-3 w-3 shrink-0" /> {systemDelivered.label}</span>
           )}
-          {blockedChip && (
+          {!titleOnly && blockedChip && (
             <span
               data-testid="card-blocked-by"
               title={blockedChip.title}
@@ -1381,7 +1382,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
           {task.userCommentCount > 0 && (
             <span
               title={tr(task.userCommentCount === 1 ? 'board.card.yourMessagesOne' : 'board.card.yourMessagesMany', { n: task.userCommentCount })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
             ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
           )}
           {notLanded && (
@@ -1413,13 +1414,13 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
               stesso confronto. Un `!== null` secco lasciava passare l'undefined
               di un payload che quel campo non lo porta - ed e' costato un giro
               di debug, perche' il dato era giusto nel DB e giusto nel feed. */}
-          {attesa && (
+          {!titleOnly && attesa && (
             <span
               data-testid="card-review-age"
               title={tr('board.card.reviewAgeTitle', {
                 when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '',
               })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             ><Clock className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
           {senzaCommit && (
@@ -1442,14 +1443,14 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             <span
               data-testid="card-worked-in-place"
               title={tr('board.card.inPlaceTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
             ><GitBranch className="h-3 w-3 shrink-0" /> {tr('board.card.inPlace')}</span>
           )}
           {spostataAMano && (
             <span
               data-testid="card-moved-by-hand"
               title={tr('board.card.movedByHandTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
             >{/* NON PIU' UNA MANO, e non e' una questione di gusto: segnalata come
                   «la vedo sgranata», e misurata lo e' davvero. A 12px il
                   viewBox 24 si comprime a scala 0,5, e `hand` e' l'icona piu'
@@ -1478,7 +1479,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
                     done: task.checksProgress.done, total: task.checksProgress.total,
                   })
                 : tr('board.card.checksRunningTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             >
               <Timer className="h-3 w-3 shrink-0" />
               {/* A CHE PUNTO E', non solo «in corso». Segnalato: «vedo che c'e'
@@ -1498,7 +1499,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
                 // La barra: due numeri si leggono, una barra si coglie senza
                 // leggere. Larghezza fissa perche' in una riga di chip un
                 // elemento che cresce col contenuto fa ballare i vicini.
-                <span className="ml-0.5 h-1 w-6 overflow-hidden rounded-full bg-white/15" aria-hidden>
+                <span className="ml-0.5 h-1 w-6 overflow-hidden rounded-full bg-black/10 dark:bg-white/15" aria-hidden>
                   <span
                     /* NON `card-…`: quel prefisso e' riservato ai CHIP della
                      * fascia, e un cancello (`card-meta-row-completeness`)
@@ -1554,14 +1555,14 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
               data-testid="card-assignee"
               data-closes={conductorCloses ? 'conductor' : undefined}
               title={tr(conductorCloses ? 'board.card.assigneeNameOnlyTitle' : 'board.card.assigneeTitle', { name: task.assignedTo })}
-              className={`rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini ${conductorCloses ? 'text-app-text-muted' : 'text-app-text-heading'}`}
+              className={`rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini ${conductorCloses ? 'text-app-text-muted' : 'text-app-text-heading'}`}
             >@{task.assignedTo}{conductorCloses ? ` · ${tr('board.card.assigneeNameOnly')}` : ''}</span>
           )}
           {dueChip && (
             <span
               data-testid="card-due-date"
               title={dueChip.title}
-              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${dueChip.overdue ? 'bg-red-500/15 text-red-800 dark:text-red-300' : 'bg-white/10 text-app-text-heading'}`}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${dueChip.overdue ? 'bg-red-500/15 text-red-800 dark:text-red-300' : 'bg-black/5 dark:bg-white/10 text-app-text-heading'}`}
             ><CalendarClock className="h-3 w-3 shrink-0" /> {dueChip.label}</span>
           )}
           {/* Who actually wrote the last collaborator comment, and from
@@ -1575,7 +1576,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             >{task.lastActorPersonName}</span>
           )}
-          {creator && <CreatorChipView chip={creator} notify={toast.error} />}
+          <OriginChipView chip={owner} notify={toast.error} />
           {channel && <ChannelChipView chip={channel} notify={toast.error} />}
           {incomplete && <IncompleteChipView chip={incomplete} />}
           {runInitiator && (
@@ -1637,11 +1638,11 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
       {/* COMPACT: of the whole band only the live facts stay, the ones that say
           the card cannot move (blocker) or that a person is awaited (review age).
           After the band in the source, so the band's chips keep their order. */}
-      {compact && (channel || creator?.jarvis || blockedChip || attesa || plannedChip) && (
+      {compact && (channel || ownerNamed || (!titleOnly && (blockedChip || attesa || plannedChip))) && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5" data-testid="card-compact-chips">
-          {creator?.jarvis && <CreatorChipView chip={creator} notify={toast.error} />}
+          {ownerNamed && <OriginChipView chip={owner} notify={toast.error} />}
           {channel && <ChannelChipView chip={channel} notify={toast.error} />}
-          {plannedChip && (
+          {!titleOnly && plannedChip && (
             <span
               data-testid="card-scheduled"
               title={plannedChip.title}
@@ -1659,13 +1660,13 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             <span
               data-testid="card-review-age"
               title={tr('board.card.reviewAgeTitle', { when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '' })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             ><Clock className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
         </div>
       )}
       {/* COMPACT: a question with quick replies shows both (`CompactQuestion`). */}
-      {compact && task.status === 'review' && pending && (
+      {compact && !titleOnly && task.status === 'review' && pending && (
         <CompactQuestion question={pending.question} options={replyOptions} busy={busy} onAnswer={answer} />
       )}
       {/* The checklist: the steps, in EVERY column and not only in review.
@@ -1683,7 +1684,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
           <span
             data-testid="card-subtasks-to-approve"
             title={tr('board.card.subtasksToApproveTitle', { n: task.subtaskReviewCount ?? 0 })}
-            className="inline-flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
+            className="inline-flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
           ><ListTree className="h-3 w-3 shrink-0" aria-hidden />{tr('board.card.subtasksToApprove', { n: task.subtaskReviewCount ?? 0 })}</span>
         </div>
       )}
@@ -1701,7 +1702,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
               key={s.id}
               onClick={() => onOpen(s.id)}
               title={tr('board.card.openSubtaskTitle', { status: STATUS_LABEL[s.status] })}
-              className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-white/5"
+              className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
             >
               <StatusIcon status={s.status} />
               <span className={`min-w-0 flex-1 truncate text-compact leading-4 ${s.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-heading'}`}>{s.text}</span>
@@ -1735,7 +1736,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
         <div className="mt-1">
           <span
             title={tr('board.card.subtasksDone', { done: task.subtaskDoneCount, total: task.subtaskCount })}
-            className="inline-flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
+            className="inline-flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
           ><ListTree className="h-3 w-3 shrink-0" aria-hidden />{task.subtaskDoneCount}/{task.subtaskCount}</span>
         </div>
       ) : null}
@@ -1935,7 +1936,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
           controls: the card reads top down (name, how it stands, what it asks)
           and closes with the measure of whoever is working it. The row is
           always there, because the last update always is: no state hides it. */}
-      <div className={`${compact ? 'mt-1' : 'mt-1.5'} flex flex-wrap items-center gap-1.5`} data-testid="card-foot">
+      <div className={`${titleOnly ? 'hidden' : compact ? 'mt-1' : 'mt-1.5'} flex flex-wrap items-center gap-1.5`} data-testid="card-foot">
         {/* The live chip's pulse dot already says "working": while it ticks,
             the 'al lavoro' state chip is redundant — one chip, not two. */}
         {awaiting ? (
@@ -1987,12 +1988,12 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             from its tail (tokens first) when it does not. The last update
             still closes the row, on the right. */}
         {live && !live.retry && task.dispatchState === 'working' ? (
-          <LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo('')} />
+          <LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo('')} taskId={task.id} />
         ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
           // The model always lives here, in the time/effort chip — never as a
           // second standalone chip. Before the agent has logged any time we
-          // show just the model; once it runs we prepend it to the ⏱ effort,
-          // matching the live chip (`Opus · ⏱ 2m · 1.2k tok`).
+          // show just the model; once it runs we prepend it to the timer effort,
+          // matching the live chip (`Opus · timer 2m · 1.2k tok`).
           <span
             // IL NUMERO E' QUANTO E' COSTATO, non quanti token sono passati.
             // `agentTokens` da solo lascia fuori la RILETTURA di cache, che e'
@@ -2017,13 +2018,13 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             className="flex w-full min-w-0 max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
           ><span className="min-w-[8rem] flex-1 break-words" title={measureLine}>{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. The
-              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{task.status !== 'in_progress' && updatedAgo('')}</span></span>
+              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span className="inline-flex items-center gap-1">{(task.agentMs > 0 || costo > 0) && <><Timer size={STATUS_GLYPH_PX} className="shrink-0" aria-hidden />{fmtMs(task.agentMs)}{costo > 0 && ` · ${fmtTok(costo)}`}</>}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{task.status !== 'in_progress' && updatedAgo('')}</span></span>
         ) : null}
         {/* THE COUNTDOWN AND THE WEIGHT, on a row of their own under the effort chip: inside it they squeezed the
             description block to one letter per line and ran past the card's edge. Wraps, never overflows. */}
         {task.status === 'in_progress' && (
           <div data-testid="card-work-row" className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden text-compact leading-4 md:text-mini">
-            {task.status === 'in_progress' && task.assignedTopicId && <TaskChildrenChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown estimateMs={estimateMs} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}
+            {task.status === 'in_progress' && task.assignedTopicId && <TaskChildrenChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown basis={estimate} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}
           </div>
         )}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
@@ -2034,7 +2035,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
           <span
             data-testid="card-node-chip"
             title={tr(task.overflowedAt ? 'board.task.node.overflowedTitle' : 'board.task.node.onTitle', { node: machineLabel(machines, task.machineId) })}
-            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
           ><Server className="h-3 w-3 shrink-0 text-app-text-muted" /> {tr(task.overflowedAt ? 'board.task.node.overflowed' : 'board.task.node.on', { node: machineLabel(machines, task.machineId) })}</span>
         )}
         {/* THE GIT CHANGES, next to the model that is writing them.
@@ -2148,7 +2149,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
                 <button
                   key={i} disabled={busy}
                   onClick={() => answer(opt)}
-                  className="rounded-md bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20 disabled:opacity-50"
+                  className="rounded-md bg-black/5 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-black/10 dark:hover:bg-white/20 disabled:opacity-50"
                 >{opt}</button>
               ))}
             </div>
@@ -2265,7 +2266,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
           <button
             aria-label={tr('board.task.closeError')}
             onClick={clearError}
-            className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"
+            className="tap-expand shrink-0 rounded p-0.5 hover:bg-black/5 dark:hover:bg-white/10 coarse:p-1.5"
           ><X className="h-3 w-3" /></button>
         </div>
       )}

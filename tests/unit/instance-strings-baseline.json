@@ -1,0 +1,101 @@
+{
+  "files": {
+    "client/src/components/Auth/PairingApproval.tsx": {
+      "ip": 2
+    },
+    "client/src/demo/scenarios/acme-terminals.ts": {
+      "ip": 1
+    },
+    "client/src/demo/scenarios/acme.ts": {
+      "account": 2
+    },
+    "client/src/demo/scenarios/organizzazioni-data.ts": {
+      "account": 1
+    },
+    "client/src/lib/browserNavUrl.ts": {
+      "ip": 1
+    },
+    "client/src/lib/homeTilde.ts": {
+      "home": 1
+    },
+    "client/src/ui/copy/i18n-ui-team-en.ts": {
+      "account": 1
+    },
+    "client/src/ui/copy/i18n-ui-team-it.ts": {
+      "account": 2
+    },
+    "deploy/permanent-node/ci-runners.sh": {
+      "ip": 1
+    },
+    "scripts/backup-offsite.ts": {
+      "account": 2
+    },
+    "scripts/check-inp-shell.ts": {
+      "harness": 2
+    },
+    "scripts/quality-bar.ts": {
+      "harness": 1
+    },
+    "scripts/set-discord-app.sh": {
+      "longId": 1
+    },
+    "scripts/windows-ui-verify.sh": {
+      "home": 13,
+      "ip": 1
+    },
+    "server/browser-framing.ts": {
+      "ip": 11
+    },
+    "server/lib/ipv6.ts": {
+      "ip": 4
+    },
+    "server/lib/listening-ports.ts": {
+      "ip": 1
+    },
+    "server/lib/person-identities.ts": {
+      "account": 2
+    },
+    "server/lib/private-endpoint-url.ts": {
+      "ip": 4
+    },
+    "server/lib/provenienza.ts": {
+      "ip": 3
+    },
+    "server/providers/claude-cloud/node.ts": {
+      "account": 3
+    },
+    "server/routes/auth.ts": {
+      "ip": 2
+    },
+    "server/routes/public-profile.ts": {
+      "ip": 3
+    },
+    "server/services/ci-evidence.ts": {
+      "account": 1
+    },
+    "server/services/discord-presence.ts": {
+      "longId": 1
+    },
+    "server/services/external-proxy.ts": {
+      "ip": 6
+    },
+    "server/services/task-dispatcher-remote-node-test-support.ts": {
+      "account": 1
+    },
+    "server/services/turn-checkpoints.ts": {
+      "account": 2
+    },
+    "server/utils/path-env.ts": {
+      "home": 1
+    },
+    "shared/relay-http.ts": {
+      "ip": 1
+    }
+  },
+  "openspec": {
+    "harness": 12,
+    "ip": 20,
+    "home": 2,
+    "account": 2
+  }
+}

@@ -1,31 +1,29 @@
-import { Timer } from 'lucide-react';
+import { Timer, TrendingUp } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { taskCountdown, type CountdownInput } from '../../../../shared/task-countdown';
-import { fmtMs } from './format';
-
-/** Whole minutes, at least one: «~12 min», never «~0». */
-const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000));
+import { countdownText, countdownTitle } from '../../lib/etaText';
 
 /**
- * How long a card in progress still has to go, or by how much it overran its
- * estimate. Draws nothing without an estimate: no figure beats a made-up one.
+ * How long a card in progress still has to go. The figure is checked at half,
+ * three quarters and the end of the estimate and raised when the card will not
+ * make it: then it turns amber and says it was re-estimated. Draws nothing
+ * without an estimate: no figure beats a made-up one.
  */
 export function TaskCountdown(props: CountdownInput & { className?: string }) {
   const tr = useT();
   const c = taskCountdown(props);
   if (!c) return null;
-  const over = c.kind === 'over';
-  const text = over
-    ? tr('board.countdown.over', { min: minutes(c.overMs) })
-    : tr('board.countdown.left', { min: minutes(c.remainingMs) });
+  const revised = c.revisedAt !== null;
+  const Icon = revised ? TrendingUp : Timer;
   return (
     <span
       data-testid="card-countdown"
-      data-state={c.kind}
-      title={tr('board.countdown.title', { spent: fmtMs(props.elapsedMs) })}
-      className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${over ? 'text-amber-600 dark:text-amber-400' : 'text-app-text-secondary'} ${props.className ?? ''}`}
+      data-state="left"
+      data-revised={revised ? 'true' : 'false'}
+      title={countdownTitle(tr, c, props.elapsedMs)}
+      className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${revised ? 'text-amber-600 dark:text-amber-400' : 'text-app-text-secondary'} ${props.className ?? ''}`}
     >
-      <Timer size={11} aria-hidden="true" />{text}
+      <Icon size={11} aria-hidden="true" />{countdownText(tr, c)}
     </span>
   );
 }

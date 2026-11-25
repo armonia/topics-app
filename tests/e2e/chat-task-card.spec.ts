@@ -5,7 +5,7 @@
  * (`/api/sessions/:key/tasks`, which stamps the opener), and its transcript
  * carries the tool call. The card drawn there must follow the board without a
  * reload (todo, in progress, review), and the waiting line under the last
- * message must name the card while it is going and leave when it reaches review.
+ * message must name the card while an agent has it and leave when it reaches review.
  *
  * The phase is drawn by the status glyph (`data-testid="status-glyph"` with
  * `data-status`), never by the four-dot spinner.
@@ -20,9 +20,10 @@ import { hermetic } from "./fixtures/hermetic";
 import { createTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
+import { videoAt } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on", viewport: { width: 1440, height: 900 } });
+test.use({ video: videoAt("on", { width: 1440, height: 900 }), viewport: { width: 1440, height: 900 } });
 
 /** Where the evidence goes: the card's screenshots and the clip of the live transition. */
 const EVIDENCE_DIR = process.env.CHAT_TASK_CARD_EVIDENCE_DIR ?? join(homedir(), ".topics", "media", "card-in-chat-214ac2a7");
@@ -65,7 +66,9 @@ test("the card in the transcript and the waiting line follow the board without a
   const card = page.locator(`[data-testid="task-tool-card"][data-task-id="${id}"]`);
   const line = page.locator('[data-testid="background-work-line"]');
   await expect(card).toBeVisible({ timeout: 20_000 });
-  await expect(card.getByTestId("task-card-title")).toHaveText(title);
+  // The title is said once, by the row; the card under it does not repeat it.
+  await expect(page.getByTestId(`tool-call-row-ct-${stamp}`)).toContainText(title);
+  await expect(card.getByTestId("task-card-title")).toHaveCount(0);
   await expect(card).toHaveAttribute("data-phase", "todo", { timeout: 20_000 });
   await expect(card).toHaveAttribute("data-action", "created");
   await expect(card.getByTestId("status-glyph")).toHaveAttribute("data-status", "todo");
@@ -76,9 +79,24 @@ test("the card in the transcript and the waiting line follow the board without a
 
   expect((await patch({ status: "in_progress" })).ok()).toBe(true);
   await expect(card).toHaveAttribute("data-phase", "working", { timeout: 20_000 });
-  await expect(card.getByTestId("status-glyph")).toHaveAttribute("data-status", "in_progress");
-  await expect(card.getByTestId("status-glyph")).toHaveCount(1);
-  await expect(line).toContainText(title);
+  // At work the card draws the square loader (the one sign of an agent at work),
+  // not the still `in_progress` glyph: exactly one sign, and it is the loader.
+  await expect(card.getByTestId("status-glyph")).toHaveCount(0);
+  await expect(card.locator("canvas")).toHaveCount(1);
+  // Moved by hand, with no agent on it: nothing will ever wake the chat, so the
+  // line is not up (17/11: it stayed five hours on a chat with nothing running).
+  await expect(line).toHaveCount(0);
+
+  // The dispatcher gives it to an agent: now the chat is waiting on it. The hold
+  // keeps the reconcile sweep from recovering an agent that has no live turn.
+  expect((await request.post(`${E2E_BASE}/api/test/dispatch-hold`, { data: { ms: 60_000 } })).ok()).toBe(true);
+  expect((await request.post(`${E2E_BASE}/api/test/tasks/${id}/dispatch-state`, { data: { state: "working" } })).ok()).toBe(true);
+  // The test verb writes the chip without a board frame, so the client reads it on the next load.
+  await page.reload();
+  await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 20_000 });
+  if (!(await card.isVisible())) await page.locator(`[data-pane-id="${topic.id}"]`).first().click();
+  await expect(card).toHaveAttribute("data-phase", "working", { timeout: 20_000 });
+  await expect(line).toContainText(title, { timeout: 20_000 });
 
   expect((await patch({ status: "review" })).ok()).toBe(true);
   await expect(card).toHaveAttribute("data-phase", "review", { timeout: 20_000 });

@@ -13,11 +13,14 @@
  * @covers GATE-01
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { gitEnv } from "../tests/setup/bun-test-preload";
 
 const SCRIPT = resolve(import.meta.dir, "check-spec-coverage.ts");
+const UNTRACED_SCRIPT = resolve(import.meta.dir, "check-untraced-tests.ts");
 const dirs: string[] = [];
 
 function fixtureRoot(): string {
@@ -110,5 +113,116 @@ describe("check-spec-coverage: R1 vs an open change's delta", () => {
     expect(code).toBe(1);
     expect(out).toContain("R1");
     expect(out).toContain("LAYOUT-34");
+  });
+});
+
+/** Two requirements, both claimed apart, so the only thing on trial below is the joint unit. */
+const PAIR_SPEC = `## Requirements\n\n### Requirement: LEFT-01 — the left side\nThe app SHALL do the left thing.\n\n### Requirement: RIGHT-01 — the right side\nThe app SHALL do the right thing.\n`;
+// Built from pieces for the same reason as COVERS_TAG: written out, the real run of the gate would read
+// this line as an annotation of its own.
+const ANNOTATION_TAG = `test.info().annotations.push({ ${["type", '"spec"'].join(": ")}, ${["description", ""].join(": ")}`;
+
+async function runWithMap(root: string): Promise<{ code: number; out: string; map: { joint: { ids: string[]; file: string; channel: string }[] } }> {
+  const mapPath = join(root, "coverage-map.json");
+  const proc = Bun.spawn(["bun", "run", SCRIPT, "--json", mapPath], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, SPEC_COVERAGE_ROOT: root },
+  });
+  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  const code = await proc.exited;
+  return { code, out: stdout + stderr, map: JSON.parse(readFileSync(mapPath, "utf8")) };
+}
+
+describe("check-spec-coverage: the joint units spec-flow's D19 reads", () => {
+  test("`@covers A+B` in one docblock is ONE per-file joint unit, and both ids are still claimed", async () => {
+    const root = fixtureRoot();
+    write(root, "openspec/specs/demo/spec.md", PAIR_SPEC);
+    write(root, "scripts/meeting.test.ts", `/** ${COVERS_TAG} LEFT-01+RIGHT-01 */\nimport { test } from "bun:test";\ntest("both", () => {});\n`);
+
+    const { code, out, map } = await runWithMap(root);
+    expect(code).toBe(0);
+    expect(out).not.toContain("R2");
+    expect(map.joint).toEqual([{ ids: ["LEFT-01", "RIGHT-01"], file: "scripts/meeting.test.ts", channel: "covers" }]);
+  });
+
+  test("`@covers A, B` is two claims, never a joint unit", async () => {
+    const root = fixtureRoot();
+    write(root, "openspec/specs/demo/spec.md", PAIR_SPEC);
+    write(root, "scripts/apart.test.ts", `/** ${COVERS_TAG} LEFT-01, RIGHT-01 */\nimport { test } from "bun:test";\ntest("apart", () => {});\n`);
+
+    const { code, map } = await runWithMap(root);
+    expect(code).toBe(0);
+    expect(map.joint).toEqual([]);
+  });
+
+  test("two ids in ONE annotation are a per-test joint unit; two annotations are not", async () => {
+    const root = fixtureRoot();
+    write(root, "openspec/specs/demo/spec.md", PAIR_SPEC);
+    write(root, "tests/e2e/together.spec.ts", `test("x", async () => {\n  ${ANNOTATION_TAG}"LEFT-01 RIGHT-01" });\n});\n`);
+    write(
+      root,
+      "tests/e2e/separate.spec.ts",
+      `test("y", async () => {\n  ${ANNOTATION_TAG}"LEFT-01" });\n  ${ANNOTATION_TAG}"RIGHT-01" });\n});\n`,
+    );
+
+    const { code, map } = await runWithMap(root);
+    expect(code).toBe(0);
+    expect(map.joint).toEqual([{ ids: ["LEFT-01", "RIGHT-01"], file: "tests/e2e/together.spec.ts", channel: "annotation" }]);
+  });
+
+  test("an id that is no requirement is dropped from the joint unit, so one typo does not break the gate that reads it", async () => {
+    const root = fixtureRoot();
+    write(root, "openspec/specs/demo/spec.md", PAIR_SPEC);
+    write(root, "scripts/typo.test.ts", `/** ${COVERS_TAG} LEFT-01+NOPE-99 */\nimport { test } from "bun:test";\ntest("t", () => {});\n`);
+    write(root, "scripts/rest.test.ts", `/** ${COVERS_TAG} RIGHT-01 */\nimport { test } from "bun:test";\ntest("r", () => {});\n`);
+
+    const { map, out } = await runWithMap(root);
+    expect(map.joint).toEqual([]);
+    expect(out).toContain("NOPE-99"); // still R1 dangling: the typo is not hidden, only kept out of the proof
+  });
+
+  test("a joint unit is not a double declaration: R4 stays quiet when both ids are also titles elsewhere", async () => {
+    const root = fixtureRoot();
+    write(root, "openspec/specs/demo/spec.md", PAIR_SPEC);
+    write(root, "scripts/left.test.ts", `/** ${COVERS_TAG} LEFT-01 */\nimport { test } from "bun:test";\ntest("LEFT-01: the left", () => {});\n`);
+    write(root, "scripts/right.test.ts", `/** ${COVERS_TAG} RIGHT-01 */\nimport { test } from "bun:test";\ntest("RIGHT-01: the right", () => {});\n`);
+    write(root, "scripts/meeting.test.ts", `/** ${COVERS_TAG} LEFT-01+RIGHT-01 */\nimport { test } from "bun:test";\ntest("they meet", () => {});\n`);
+
+    const { code, out, map } = await runWithMap(root);
+    expect(code).toBe(0);
+    expect(out).not.toContain("R4");
+    expect(out).not.toContain("R3");
+    expect(map.joint).toHaveLength(1);
+  });
+});
+
+describe("check-untraced-tests: the `A+B` form is a declaration", () => {
+  function untracedRun(root: string): { code: number; out: string } {
+    try {
+      const out = execFileSync("bun", ["run", UNTRACED_SCRIPT], { env: { ...process.env, UNTRACED_TESTS_ROOT: root }, stdio: "pipe" }).toString();
+      return { code: 0, out };
+    } catch (e) {
+      const err = e as { status?: number; stdout?: Buffer; stderr?: Buffer };
+      return { code: err.status ?? 1, out: `${err.stdout ?? ""}${err.stderr ?? ""}` };
+    }
+  }
+  function gitRoot(testBody: string): string {
+    const root = fixtureRoot();
+    write(root, "scripts/probe.test.ts", testBody);
+    execFileSync("git", ["init", "-q"], { cwd: root, env: gitEnv() });
+    return root;
+  }
+
+  test("a file whose only declaration is `@covers A+B` is traced", () => {
+    const { code, out } = untracedRun(gitRoot(`/** ${COVERS_TAG} LEFT-01+RIGHT-01 */\nimport { test } from "bun:test";\ntest("t", () => {});\n`));
+    expect(out).toContain("OK");
+    expect(code).toBe(0);
+  });
+
+  test("the same file with no declaration is still a new untraced file (the gate is not vacuous)", () => {
+    const { code, out } = untracedRun(gitRoot(`import { test } from "bun:test";\ntest("t", () => {});\n`));
+    expect(code).toBe(1);
+    expect(out).toContain("scripts/probe.test.ts");
   });
 });

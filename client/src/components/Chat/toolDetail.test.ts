@@ -21,7 +21,7 @@ describe('deriveToolDetail — background / harness tools', () => {
     const d = deriveToolDetail('Bash', { command: 'npm run dev', run_in_background: true });
     expect(d.type).toBe('shell');
     if (d.type === 'shell') expect(d.background).toBe(true);
-    expect(buildToolDisplayLabel(d).name).toBe('Shell (background)');
+    expect(buildToolDisplayLabel(d, 'Bash').name).toBe('Background');
   });
 
   test('Monitor', () => {
@@ -383,8 +383,10 @@ describe('toolDetail — browser openings (CHAT-BROWSER-03)', () => {
 
   test('a sub-agent row does not repeat its type when the description is just the type', () => {
     const repeated = buildToolDisplayLabel({ type: 'sub_agent', via: 'task', subAgentType: 'general-purpose', description: 'general-purpose' } as never);
-    expect(repeated.name).toBe('general-purpose');
-    expect(repeated.summary).toBeUndefined();
+    // The type is the only thing it has to say: said once, as the line, never twice.
+    expect(repeated.name).toBe('Sub-agent');
+    expect(repeated.summary).toBe('general-purpose');
+    expect(repeated.tooltip).toBe('general-purpose');
     const described = buildToolDisplayLabel({ type: 'sub_agent', via: 'task', subAgentType: 'Explore', description: 'cerca il bug' } as never);
     expect(described.summary).toBe('cerca il bug');
   });
@@ -393,7 +395,7 @@ describe('toolDetail — browser openings (CHAT-BROWSER-03)', () => {
     const long = 'Controlla in dettaglio ogni file del modulo di pagamento e riporta le differenze '.repeat(3).trim();
     const d = buildToolDisplayLabel({ type: 'sub_agent', via: 'task', subAgentType: 'Explore', description: long } as never);
     expect(d.summary).toBe(long);
-    expect(d.tooltip).toBe(long);
+    expect(d.tooltip).toBe(`Explore · ${long}`);
   });
 
   test('the open sub-agent card repeats the description only when the row really cuts it', () => {
@@ -407,5 +409,34 @@ describe('toolDetail — browser openings (CHAT-BROWSER-03)', () => {
     const same = { subAgentType: 'general-purpose', description: 'general-purpose' };
     expect(subAgentBodyDescription(same, true)).toBeUndefined();
     expect(subAgentBodyDescription(same, false)).toBeUndefined();
+  });
+});
+
+describe('a row is never without words, and says what kind of work it is', () => {
+  test('a sub-agent call with nothing else to say is still the sub-agent', () => {
+    for (const detail of [
+      { type: 'sub_agent', actions: [] },
+      { type: 'sub_agent', via: 'spawn_agent', actions: [] },
+    ] as const) {
+      const label = buildToolDisplayLabel(detail as never);
+      expect(label.name).toBe('Sub-agent');
+    }
+  });
+
+  test('a spawn_agent line is its name, else what it was asked, else its type', () => {
+    const base = { type: 'sub_agent', via: 'spawn_agent', actions: [] } as const;
+    expect(buildToolDisplayLabel({ ...base, name: 'foglio', description: 'Find it', subAgentType: 'scout' } as never).summary).toBe('foglio');
+    expect(buildToolDisplayLabel({ ...base, description: 'Find it', subAgentType: 'scout' } as never).summary).toBe('Find it');
+    expect(buildToolDisplayLabel({ ...base, subAgentType: 'scout' } as never).summary).toBe('scout');
+  });
+
+  test('run_command, run_script and a Bash in the background are all «Background»', () => {
+    const shell = deriveToolDetail('run_command', { command: 'bun run dev' });
+    expect(buildToolDisplayLabel(shell, 'run_command').name).toBe('Background');
+    const script = deriveToolDetail('run_script', { script: 'dev' });
+    expect(buildToolDisplayLabel(script, 'run_script').name).toBe('Background');
+    expect(buildToolDisplayLabel(deriveToolDetail('mcp__topics__run_script', { script: 'dev' }), 'mcp__topics__run_script').name).toBe('Background');
+    const plain = deriveToolDetail('Bash', { command: 'ls' });
+    expect(buildToolDisplayLabel(plain, 'Bash').name).toBe('Shell');
   });
 });

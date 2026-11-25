@@ -31,6 +31,7 @@ import type { Database } from "bun:sqlite";
 import { hashToken, readSessionCookie, type DeviceRecord } from "./device-auth";
 import { resolvePrincipals, type Principals } from "./principals";
 import type { Principal } from "./grants-query";
+import { isNodeDevice } from "./node-scope";
 
 type Db = Pick<Database, "query">;
 
@@ -55,6 +56,13 @@ export interface ResolvedIdentity {
    * inferred, only the owner's explicit choice at the pairing writes it.
    */
   screen: boolean;
+  /**
+   * The device is the credential a Topics server collected by pairing this one
+   * as its node (a row in `node_devices`): it may reach the fleet's routes and
+   * nothing else (`lib/node-scope.ts`). Its person and grants stay what they
+   * were, because the node routes it is let into still ask for the owner.
+   */
+  node: boolean;
 }
 
 export interface DelegatedCredentialIdentity {
@@ -91,7 +99,7 @@ export function resolveDelegatedCredential(
 }
 
 const LOCALE: ResolvedIdentity = {
-  locale: true, device: null, principals: [], confined: false, personId: null, rev: 0, screen: false,
+  locale: true, device: null, principals: [], confined: false, personId: null, rev: 0, screen: false, node: false,
 };
 
 function rowADevice(r: Record<string, unknown>, confined: boolean): DeviceRecord {
@@ -131,26 +139,26 @@ export function resolveIdentity(db: Db, cookieHeader: string | null, locale: boo
   if (locale) return LOCALE;
 
   const token = readSessionCookie(cookieHeader);
-  if (!token) return { locale: false, device: null, principals: [], confined: true, personId: null, rev: 0, screen: false };
+  if (!token) return { locale: false, device: null, principals: [], confined: true, personId: null, rev: 0, screen: false, node: false };
 
   const riga = db.query(`SELECT id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at
       FROM devices WHERE token_hash = ?`)
     .get(hashToken(token)) as Record<string, unknown> | undefined;
-  if (!riga) return { locale: false, device: null, principals: [], confined: true, personId: null, rev: 0, screen: false };
+  if (!riga) return { locale: false, device: null, principals: [], confined: true, personId: null, rev: 0, screen: false, node: false };
 
   // Un dispositivo revocato non ha principali: la riga si restituisce perché a
   // valle si possa dire «ti è stato tolto l'accesso» invece di «non ti conosco»,
   // ma non porta con sé nessun potere.
   if (riga.revoked_at !== null) {
     const device = rowADevice(riga, true);
-    return { locale: false, device, principals: [], confined: true, personId: null, rev: 0, screen: false };
+    return { locale: false, device, principals: [], confined: true, personId: null, rev: 0, screen: false, node: false };
   }
 
   // A screen has no person and no grants: itself, and the gate lets it read one route.
   if (isScreenDevice(db, String(riga.id))) {
     return {
       locale: false, device: rowADevice(riga, true), principals: [{ kind: "device", id: String(riga.id) }],
-      confined: true, personId: null, rev: 0, screen: true,
+      confined: true, personId: null, rev: 0, screen: true, node: false,
     };
   }
 
@@ -164,10 +172,6 @@ export function resolveIdentity(db: Db, cookieHeader: string | null, locale: boo
     personId: p.personId,
     rev: p.rev,
     screen: false,
+    node: isNodeDevice(db, String(riga.id)),
   };
-}
-
-/** Il confinamento derivato dalla persona e dalla proprietà locale. */
-export function confinamentoDerivato(db: Db, deviceId: string): boolean {
-  return resolvePrincipals(db, deviceId).confined;
 }

@@ -1046,3 +1046,28 @@ describe("getProjectLabel", () => {
     expect(getProjectLabel("acme-web")).toBe("acme-web");
   });
 });
+
+describe("buildSidebarItems — a chat closed inside a project window", () => {
+  test("stays under its project as a closed row; open again, it is a plain child", () => {
+    const chat = topic("pc1", "Inner", { projectPath: PP });
+    const closed = buildSidebarItems({
+      ...base,
+      topics: { pc1: chat },
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+      closedProjectChatIds: new Set(["pc1"]),
+    });
+    expect(projectChildren(closed).map((c) => [c.id, c.closed])).toEqual([["pc1", true]]);
+
+    const reopened = buildSidebarItems({
+      ...base,
+      topics: { pc1: chat },
+      terminalSessions: [],
+      openPanels: [projectPaneId],
+      projectOpenPanes: { [PP]: ["chat:pc1"] },
+      closedProjectChatIds: new Set(["pc1"]),
+    });
+    expect(projectChildren(reopened).map((c) => [c.id, c.closed])).toEqual([["pc1", undefined]]);
+  });
+});

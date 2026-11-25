@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import { readableCommentContent } from './readableCommentContent';
 import { useT } from '../../hooks/useT';
 import { getMediaUrl } from '../../lib/api';
 import { parseQuestionBlock, type TaskStatus, type TaskComment, STATUS_LABEL, TASK_STATUSES, commentAuthorLabel, parseStatusEvent } from '../../lib/board';
@@ -66,7 +68,7 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
       <p className="text-body-lg leading-5 text-app-text-secondary">{tr('board.task.noPreviewForType')}</p>
       <button
         onClick={(e) => openLink(url, { external: isExternalLinkGesture(e), origin: e.target })}
-        className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+        className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-black/10 dark:hover:bg-white/20"
       ><ExternalLink className="h-3.5 w-3.5" /> {tr('board.task.openInBrowser')}</button>
     </div>
   );
@@ -107,7 +109,7 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
         <a
           key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" onClick={(e) => open(e, p)}
           title={onPreview ? tr('task.media.preview') : p.split('/').pop()}
-          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-white/10 px-2 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-black/5 dark:bg-white/10 px-2 py-1.5 text-compact leading-4 text-app-text hover:bg-black/10 dark:hover:bg-white/20"
         ><Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{p.split('/').pop()}</span></a>
       ))}
     </div>
@@ -192,7 +194,7 @@ export function StatusTrail({ comments, ownerName }: { comments: TaskComment[]; 
   );
 }
 
-export function CommentBubble({ comment, ownerName = null, resolvedParked = false, onPreview, questionActions, historicalQuestion = false, continuation = false }: {
+export function CommentBubble({ comment: rawComment, ownerName = null, resolvedParked = false, onPreview, questionActions, historicalQuestion = false, continuation = false }: {
   comment: TaskComment;
   /** The name of whoever uses the app: YOUR rows are signed with your name. */
   ownerName?: string | null;
@@ -209,6 +211,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
   continuation?: boolean;
 }) {
   const tr = useT();
+  const comment = useMemo(() => ({ ...rawComment, content: readableCommentContent(rawComment.content, tr) }), [rawComment, tr]);
   const origin = actionOriginDisplay(comment.origin, tr);
   // Machine-authored review evidence (live-preview screenshot from the verifier).
   // Distinct from human/agent speech: it never woke the agent, it just informs.

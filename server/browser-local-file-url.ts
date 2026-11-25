@@ -111,6 +111,36 @@ export function isMediaRef(url: string): boolean {
   return url.startsWith(MEDIA_REF_PREFIX);
 }
 
+/** The plain-http port the desktop shell's proxy listens on (desktop-tauri sidecar_boot.rs). */
+export const DESKTOP_PROXY_PORT = "13333";
+
+/**
+ * An ABSOLUTE `/api/media` URL aimed at this server (its own port, or the
+ * desktop shell's proxy, which forwards to it), as the RELATIVE reference.
+ *
+ * An agent that copies the address it saw pins the pane to one origin: the
+ * phone, the LAN and the headless pane each resolve a relative reference on
+ * their own, and only that works for all of them. Another loopback port is
+ * someone else's server and stays exactly as it was written.
+ */
+export function mediaRefOfOwnOrigin(raw: string, deps: LocalFileServing | null = serving): string | null {
+  let u: URL;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  if (u.pathname !== "/api/media") return null;
+  const ownPort = deps ? new URL(deps.origin).port : "";
+  const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname);
+  const sameHostAsServer = deps ? u.hostname === new URL(deps.origin).hostname : false;
+  if (!loopback && !sameHostAsServer) return null;
+  if (u.port !== ownPort && u.port !== DESKTOP_PROXY_PORT) return null;
+  const path = u.searchParams.get("path");
+  return path ? `${MEDIA_REF_PREFIX}${encodeURIComponent(path)}` : null;
+}
+
 /**
  * `file:///…` (o un path assoluto) → l'URL http che serve QUEL file, se i
  * permessi di `/api/media` lo consentono.
@@ -141,7 +171,7 @@ export function toServableUrl(raw: string, deps: LocalFileServing | null = servi
       reason:
         `"${path}" is outside the paths this server may serve. ` +
         `Local files are shown over http (/api/media), never as file://. ` +
-        `Move it under an allowed media folder, or open the project it belongs to.`,
+        `Copy it under ~/.topics/media (an allowed media folder) and open it from there, or open the project it belongs to.`,
     };
   }
   if (deps.exists && !deps.exists(allowed)) {

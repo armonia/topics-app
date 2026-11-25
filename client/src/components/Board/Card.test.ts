@@ -140,7 +140,7 @@ describe('the wait before a retry and the running tool', () => {
     // A second `<LiveToolLine>` in the card would print «Bash · bun run test:unit» twice.
     expect(src).not.toContain('<LiveToolLine');
     expect(src).not.toContain('card-live-tool');
-    expect(live).toContain('export function LiveToolLine');
+    expect(live).not.toContain('LiveToolLine');
   });
 });
 
@@ -197,12 +197,12 @@ describe('the progress word', () => {
 describe('la misura del turno sulla card', () => {
   test('in lavorazione la riga viva c\'e\': niente chip, solo testo e il caricamento di main', () => {
     expect(src).not.toContain("task.status === 'in_progress' ? null");
-    expect(src).toContain('<LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo(\'\')} />');
+    expect(src).toContain('<LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo(\'\')} taskId={task.id} />');
     expect(live).toContain('data-testid="card-measure"');
-    // The live mark is the card status glyph (spinning half pie), not the four-dot spinner.
-    expect(live).toContain("import { StatusIcon } from './atoms';");
-    expect(live).toContain('<StatusIcon status="in_progress" live className="h-3 w-3 shrink-0" />');
-    expect(live).not.toContain('SparkLoader');
+    // The live mark is the square loader, the one status icon; its movement comes from the caller.
+    expect(live).toContain("import { TaskActionLoader } from '../Layout/StreamingIndicator';");
+    expect(live).toContain('<TaskActionLoader taskId={taskId} activity={activity} size={12} className="shrink-0" />');
+    expect(live).not.toContain('StatusIcon');
     expect(live).not.toContain('animate-pulse rounded-full bg-sky-400');
     expect(live).not.toContain('bg-sky-500/15');
   });
@@ -214,7 +214,7 @@ describe('la misura del turno sulla card', () => {
     expect(live).toContain('<span className="min-w-0 break-words">{label ?? fmtModel(usage.model)}</span>');
     // The model label must never be cut: no truncate on it.
     expect(live).not.toContain('min-w-0 truncate">{label');
-    expect(live).toContain('⏱ {fmtLive(ms)}');
+    expect(live).toContain('{fmtLive(ms)}');
   });
 
   test('a 300 px non va in overflow: si accorcia dalla coda, prima i token', () => {
@@ -235,7 +235,7 @@ describe('la misura del turno sulla card', () => {
 
   test('il piede non ha pillole impilate: la misura non porta sfondo pieno', () => {
     const start = src.indexOf('data-testid="card-measure"');
-    expect(src.slice(start, start + 400)).not.toContain('bg-white/10');
+    expect(src.slice(start, start + 400)).not.toMatch(/bg-(white|black)\/\d/);
   });
 
   // Attilio, 01/11: una fascia avvolta, larga quanto la card, distinta dal testo.
@@ -260,7 +260,7 @@ describe('la misura del turno sulla card', () => {
 
   // Il lato destro (durata e consumo) non va mai a capo né si taglia: si accorcia il sinistro.
   test('a 300 px durata e consumo restano interi: il lato destro non va a capo né si taglia', () => {
-    expect(live).toContain('<span>⏱ {fmtLive(ms)}');
+    expect(live).toContain('{fmtLive(ms)}');
     const start = src.indexOf('data-testid="card-measure"');
     expect(src.slice(start, start + 1200)).toContain('<span className="flex shrink-0 items-center gap-2 whitespace-nowrap">');
   });

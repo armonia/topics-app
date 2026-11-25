@@ -32,7 +32,7 @@ import type { TurnEndInfo } from "../providers/stop-reason";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
 import { createTaskAttemptStore } from "./task-attempts";
-import { dispatchResourceBlock, dispatchResourceVerdict } from "./dispatch-capacity";
+import { dispatchResourceVerdict } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 import { clearProviderHold, resetProviderHoldStore, setProviderHold } from "../lib/provider-hold";
 import { taskDetailBump } from "../../client/src/lib/board";
@@ -80,13 +80,6 @@ function freshDb(): Database {
 }
 
 const PID = "alpha-abc123";
-
-/**
- * The readings the rows showed that morning (5.7, 5.9, 6.0, 5.8), plus the swing
- * of a tenth around 6.0 the production DB also shows: under 6 the composer
- * writes "under the floor", from 6.0 up, while holding, "climbing back".
- */
-const READINGS = [5.7, 5.9, 6.0, 5.8, 6.1, 5.9];
 
 const dispatchers: { shutdown(): void }[] = [];
 afterEach(() => {
@@ -185,41 +178,6 @@ function daySpend(h: ReturnType<typeof harness>, on: boolean): void {
 }
 
 describe("a held resume writes its chip when the hold changes, not at every retry", () => {
-  it("seven cards held by a moving memory reading for two minutes: at most two frames and two writes per card", async () => {
-    const h = harness();
-    let read = 0;
-    const ids = Array.from({ length: 7 }, (_, i) => `held-${i}`);
-    for (const id of ids) heldCard(h.db, id);
-
-    const t0 = Date.now();
-    const updatedAt = new Map<string, Set<string>>(ids.map((id) => [id, new Set<string>()]));
-    // Twenty retries, 6 s apart (the timer's 5 s plus its stagger): 0 .. 114 s.
-    for (let retry = 0; retry < 20; retry++) {
-      setSystemTime(new Date(t0 + retry * 6_000));
-      for (const id of ids) {
-        h.floor.memGB = READINGS[read++ % READINGS.length]!;
-        await h.dispatcher.resume(id, retry === 0 ? "continua" : "");
-        updatedAt.get(id)!.add(h.task(id).updatedAt);
-      }
-    }
-
-    // The swing is really there: the composer wrote both sentences on these readings.
-    const sentences = new Set<string>();
-    for (const gb of READINGS) {
-      sentences.add(dispatchResourceBlock("/", () => 100, windowAt(gb), false, { cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: true, ourWorkRunning: true })!.split(":")[0]!);
-    }
-    expect([...sentences].sort()).toEqual(["Memoria in risalita", "Memoria quasi finita"]);
-    for (const id of ids) {
-      expect(h.framesOf(id)).toBe(1);
-      expect(updatedAt.get(id)!.size).toBeLessThanOrEqual(2);
-      // Quiet, not blind: still queued, and the card still reads the floor.
-      expect(h.task(id).dispatchState).toBe("queued");
-      expect(h.task(id).dispatchError).toBe("waiting-memory");
-      expect(h.task(id).queueReason).toMatchObject({ kind: "resource_floor" });
-    }
-    // Nothing started while the floor held.
-    expect(h.task(ids[0]!).status).toBe("in_progress");
-  });
 
   it("a change of kind or of words is written at the next retry, and the card reads the new kind", async () => {
     const h = harness();

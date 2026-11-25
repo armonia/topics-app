@@ -21,7 +21,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, chmodSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWorktreeManager, WorktreeOperationError, WorktreeRefusalError, type WorktreeManagerGcDeps } from "./worktree-manager";
+import { classifyWorktreeSource, createWorktreeManager, WorktreeOperationError, WorktreeRefusalError, type WorktreeManagerGcDeps } from "./worktree-manager";
 import type { WorktreeStore } from "./worktree-store";
 import type { ProjectStore } from "./project-store";
 import type { AppContext, Worktree } from "../types";
@@ -370,6 +370,8 @@ describe("worktree-manager.create(): a repo with a git-crypt filter", () => {
     initRepo(true);
     const r = await createAndSettle("keeper");
     expect(r.status).toBe("ready");
+    // Topics' own lock is on every checkout it makes; delete lifts it, a bare `git` has to do the same.
+    git(repo, "worktree", "unlock", r.abs);
     expect(git(repo, "worktree", "remove", "--force", r.abs).code).toBe(0);
     expect(existsSync(join(repo, ".git", "git-crypt", "keys", "default"))).toBe(true);
   }, 10_000);
@@ -397,4 +399,86 @@ describe("worktree-manager.create(): a repo with a git-crypt filter", () => {
     expect(readFileSync(join(r.abs, "AGENTS.md"), "utf8")).toBe("agent rules\n");
     expect(existsSync(join(repo, ".git", "worktrees", "plain", "git-crypt"))).toBe(false);
   }, 10_000);
+});
+
+/**
+ * `classifyWorktreeSource` is the ONE check shared between the refusal thrown
+ * here and the board-settings warning (`worktreeReady` in
+ * `server/boot/tasks-router.ts`): a project with no `.git` at all is a
+ * different cause ("no-git") from a project path that is itself a worktree
+ * checkout ("nested-worktree"), and the two need different advice to a human.
+ */
+describe("classifyWorktreeSource(): no-git vs. already-a-worktree vs. a real repo", () => {
+  let root: string;
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), "wt-classify-")); });
+  afterEach(() => { try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ } });
+
+  test("no .git at all: \"no-git\"", () => {
+    const plain = join(root, "plain-folder");
+    mkdirSync(plain, { recursive: true });
+    expect(classifyWorktreeSource(plain)).toBe("no-git");
+  });
+
+  test("a real repo, .git is a directory: \"ok\"", () => {
+    const repo = join(root, "repo");
+    git(root, "init", "--quiet", "repo");
+    expect(classifyWorktreeSource(repo)).toBe("ok");
+  });
+
+  test("a worktree checkout, .git is a file: \"nested-worktree\"", () => {
+    const repo = join(root, "repo");
+    git(root, "init", "--quiet", "repo");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    git(repo, "symbolic-ref", "HEAD", "refs/heads/main");
+    writeFileSync(join(repo, "README.md"), "base\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    const nested = join(root, "nested");
+    git(repo, "worktree", "add", "-b", "feature", nested, "main");
+    expect(classifyWorktreeSource(nested)).toBe("nested-worktree");
+  });
+});
+
+describe("worktree-manager.create(): refuses from inside an existing worktree", () => {
+  test("project path is a worktree checkout: refused with the exact cause, not a generic failure", async () => {
+    const root = mkdtempSync(join(tmpdir(), "wt-mgr-nested-"));
+    try {
+      const repo = join(root, "repo");
+      const wtBase = join(root, "worktrees");
+      mkdirSync(wtBase, { recursive: true });
+      git(root, "init", "--quiet", "repo");
+      git(repo, "config", "user.email", "t@t.t");
+      git(repo, "config", "user.name", "t");
+      git(repo, "symbolic-ref", "HEAD", "refs/heads/main");
+      writeFileSync(join(repo, "README.md"), "base\n");
+      git(repo, "add", "-A");
+      git(repo, "commit", "-q", "-m", "base");
+      const nested = join(root, "nested");
+      git(repo, "worktree", "add", "-b", "feature", nested, "main");
+
+      repoForStore = nested; // the registered project points at the nested checkout
+      const origDir = process.env.TOPICS_WORKTREES_DIR;
+      process.env.TOPICS_WORKTREES_DIR = wtBase;
+      try {
+        const m = createWorktreeManager(fakeCtx(), {
+          projectStore: fakeProjectStore(),
+          worktreeStore: {
+            get: () => null, delete: () => true, list: () => [], listNamesForProject: () => new Set(),
+            create: () => { throw new Error("should not reach the row insert"); },
+            update: (_id: string, patch: Partial<Worktree>) => ({ id: "w9", ...patch }) as Worktree,
+          } as unknown as WorktreeStore,
+        });
+        let thrown: unknown = null;
+        try { await m.create({ projectId: "proj-1", name: "fromnested", mode: "branch", baseRef: "main" }); }
+        catch (err) { thrown = err; }
+        expect(thrown).toBeInstanceOf(WorktreeRefusalError);
+        expect((thrown as Error).message).toContain("Cannot create worktrees from inside an existing worktree");
+      } finally {
+        if (origDir === undefined) delete process.env.TOPICS_WORKTREES_DIR; else process.env.TOPICS_WORKTREES_DIR = origDir;
+      }
+    } finally {
+      try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
 });

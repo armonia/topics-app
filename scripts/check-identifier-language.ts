@@ -86,6 +86,19 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // unsubscribe: the name every subscribe/unsubscribe pair in the client stores uses (`client/src/lib/keyedListeners.ts`); the dictionary lacks it.
+  "unsubscribe",
+  // symlink: the filesystem term for a symbolic link (`server/services/worktree-root-gc.ts` tells a linked checkout from a folder); the dictionary lacks it.
+  "symlink",
+  // submodule, submodules: the git term for a nested repository (`server/services/worktree-relocate.ts` refuses to move a checkout that has them initialized).
+  "submodule", "submodules",
+  // ufw, netstat, softwareupdate, xprotect, powershell, gocryptfs, autopatch, tcp: the names of the OS tools and
+  // services the machine security probes read (`server/lib/machine-security.ts`, `server/lib/machine-exposure.ts`).
+  "ufw", "netstat", "softwareupdate", "xprotect", "powershell", "gocryptfs", "autopatch", "tcp",
+  // iptables, nft: the Linux kernel firewall tools the same probe reads when ufw is off (`iptablesBlocksInput`, `nftBlocksInput`).
+  "iptables", "nft",
+  // openspec: the spec tool and the repo folder of the same name (`openspec/`), counted apart by `tests/unit/no-instance-strings.test.ts`.
+  "openspec",
   // requeue: putting a task back in `todo` for the dispatcher to claim fresh
   // (`server/services/task-dispatcher.ts`, `server/routes/tasks-board.ts`) —
   // the project's own word for it, already used as a parameter name project-wide.
@@ -94,6 +107,15 @@ export const PROJECT_WORDS = new Set([
   "cancelled",
   // countdown: plain English the dictionary lacks, the time left on a card (card 791984dc).
   "countdown",
+  // hang: plain English the dictionary lacks, a node that answers the TCP handshake and never the
+  // request behind it (`hangBreaker` in `server/services/task-dispatcher-remote-node.ts`).
+  "hang",
+  // earlier, remeasurable: plain English the dictionary lacks, in the CI phase of the board (`supersedeEarlierRounds` in `server/services/ci-supersede.ts`,
+  // `ciRemeasurable` in `server/services/ci-evidence.ts`: a run with no verdict that is measured again).
+  "earlier", "remeasurable",
+  // stdin, oneshot: the standard input stream of a spawned CLI, and the one-shot `complete()` path of the Claude
+  // provider, which spawns the CLI once per completion (`server/providers/claude/cli-launch.ts`).
+  "stdin", "oneshot",
   // hetzner, uptime, reboot: the hosting provider the first machine adapter talks to, and two terms of server operations (`server/services/machine-providers.ts`, card 672744e2).
   "hetzner", "uptime", "reboot",
   // UI layer (card e12b765a): plain English the dictionary lacks, and the names of the example organization's documents.
@@ -102,6 +124,9 @@ export const PROJECT_WORDS = new Set([
   "consorzio", "dlgs", "libro",
   // openssl: the binary that builds the local CA of the external-sessions proxy (`server/services/external-proxy-ca.ts`).
   "openssl",
+  // pem, aws: the key file format and the cloud whose token prefix the secret mask recognises (`server/lib/secret-redaction.ts`);
+  // ubuntu: the distribution of the fixture server the read-only SSH probe reads (`server/lib/machine-security-ssh.test.ts`).
+  "pem", "aws", "ubuntu",
   // callee: the person a call on behalf rings, a field of the voice bridge protocol (`server/services/voice-call/prompts.ts`).
   "callee",
   // tps: tokens per second, the unit the sessions' speed is stated in (`server/services/session-consumption.ts`, `client/src/lib/sessionConsumption.ts`).
@@ -459,7 +484,7 @@ export const PROJECT_WORDS = new Set([
   "truthy", "falsy", "boolean", "enum", "enums", "middleware", "callback",
   "callbacks", "timestamp", "timestamps", "throttle", "debounce", "memoize",
   "hydrate", "rehydrate", "unmount", "remount", "prefetch", "refetch", "rerender",
-  "resnapshot",
+  "resnapshot", "unsubscribe",
   "teardown", "backoff", "changeset", "workspace", "workspaces", "toolbar",
   "tooltip", "dropdown", "popover", "checkbox", "placeholder", "viewport",
   "scrollbar", "sidebar", "keyframe", "keyframes", "flex", "grid", "svg", "png",
@@ -488,10 +513,10 @@ export const PROJECT_WORDS = new Set([
   "editable", "embedded", "evaluator", "evaluators", "families", "mapping", "modified", "newer", "numeric",
   "oddities", "planned", "rerecord", "slowest", "startup", "summaries", "updating", "using", "weakest",
   // Proper nouns of the organizations preview's example data: the two example
-  // organizations (Consorzio di Nocera, SARIM), the programs and services their
+  // organizations (Consorzio di Nocera, ORBIT), the programs and services their
   // flows talk to (Halley, PEC = certified e-mail, Normattiva, BURC = the
   // regional bulletin, WhatsApp). The code names the thing it simulates.
-  "burc", "halley", "nocera", "normattiva", "pec", "sarim", "whatsapp",
+  "burc", "halley", "nocera", "normattiva", "pec", "orbit", "whatsapp",
   // Platforms and devices the code has to name to test them. Proper nouns: no
   // dictionary carries "iPhone", and the user-agent constants in
   // `push/environment.test.ts` cannot say which device they impersonate

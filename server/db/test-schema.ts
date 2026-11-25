@@ -209,7 +209,12 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261115120000: the Jarvis channel chat the work is followed in (display only).
   channel_topic_id TEXT,
   -- 20261115220000: 1 while that run is still open on the node.
-  node_run_open INTEGER NOT NULL DEFAULT 0
+  node_run_open INTEGER NOT NULL DEFAULT 0,
+  -- 20261116120000: the landed card whose CI is still to be read (JSON), NULL = nothing to measure.
+  ci_after TEXT,
+  -- 20261120100000: the plain-words summary of a card in Review and its key.
+  for_you TEXT,
+  for_you_key TEXT
 )`;
 
 /**
@@ -287,7 +292,17 @@ export const APP_SETTINGS_DDL = `CREATE TABLE IF NOT EXISTS app_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   auto_dispatch INTEGER,
   profile_publish_cost INTEGER NOT NULL DEFAULT 0,
-  first_run_done_at TEXT
+  first_run_done_at TEXT,
+  security_alerts_project_id TEXT,
+  topics_check_json TEXT,
+  worktree_root TEXT,
+  worktree_max_per_project INTEGER,
+  worktree_disk_floor_gb INTEGER,
+  cargo_target_mode TEXT,
+  gc_foreign TEXT,
+  worktree_abandon_days INTEGER,
+  claude_worktree_hooks TEXT,
+  worktree_quarantine_days INTEGER
 );
 INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0);`;
 

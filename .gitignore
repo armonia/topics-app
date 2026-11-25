@@ -114,6 +114,7 @@ research/
 competitor-screenshots/
 backups/
 tasks/
+!server/services/tasks/
 docs/*
 # ENV.md is the public env-var reference (env audit 2026-07) — committable.
 !docs/ENV.md
@@ -476,6 +477,10 @@ swap-freeze.json
 swap-freeze.json.tmp
 output/
 
+# The node breakers' open windows (server/services/wake-breaker.ts), kept across a
+# restart in STATE_DIR, the repo root under start-prod: same story as the files above.
+/node-breakers.json
+
 # Native addon build outputs and its isolated Cargo home.
 /native/.cargo-home/
 /native/target/
@@ -491,3 +496,4 @@ relay-identity.json
 # mutation testing
 .stryker-tmp/
 reports/mutation/
+design-conformity.json

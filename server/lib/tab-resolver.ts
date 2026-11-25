@@ -234,7 +234,7 @@ const TASK_LAYOUT_PREFIX = "task-browser-layout:";
  * che nessuno ha mai registrato come progetto). È il dominio su cui si
  * INVERTONO gli hash — un hash che non ricade qui dentro non si nomina.
  */
-function knownProjectPaths(db: Database): string[] {
+export function knownProjectPaths(db: Database): string[] {
   const paths = new Set<string>();
   for (const r of safeAll<{ p: string }>(db, "SELECT path AS p FROM projects")) {
     if (r.p) paths.add(r.p);

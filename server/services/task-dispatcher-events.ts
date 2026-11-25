@@ -7,7 +7,7 @@
 import { UNASSIGNED_PROJECT_ID, type Task } from "./tasks";
 import { hasDeliveredWork, PARKED_WAITED_OUT } from "../../shared/board";
 import { setHeldResumeBlock } from "./dispatch-block-signal";
-import { CHIP_QUEUED, CHIP_BLOCKED, parkedEdgeEvent } from "./task-dispatcher-support";
+import { isMirrorCard, CHIP_QUEUED, CHIP_BLOCKED, parkedEdgeEvent } from "./task-dispatcher-support";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
 export function createBoardEvents(ctx: DispatcherCtx) {
@@ -26,6 +26,9 @@ export function createBoardEvents(ctx: DispatcherCtx) {
     // Steps are never dispatch-eligible (tick filters rootsOnly): no queued
     // chip either, or it would strand forever on the subtask.
     try { if (deps.svc.get(taskId)?.task?.parentTaskId) return; } catch { return; }
+    if (deps.isActive?.() === false) {
+      try { if (!isMirrorCard(deps.svc.get(taskId)?.task)) return; } catch { return; }
+    }
     // A blocked task WAITS in todo without a queued chip (the claim would
     // never fire — the chip would strand). The client derives its own
     // "in attesa di…" chip from blockedByTaskId; onBlockerDone re-kicks it.

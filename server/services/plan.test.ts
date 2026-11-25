@@ -203,13 +203,13 @@ describe("what waits for the person, and the header state", () => {
     db.query(`INSERT INTO task_comments (id, task_id, author, content, created_at) VALUES (?,?,?,?,?)`)
       .run(crypto.randomUUID(), taskId, author, content, iso(0));
 
-  test("needsYou: review, open question, «aspetta: attilio», human_ask; nothing for done or ai_review", () => {
+  test("needsYou: review, open question, «aspetta: attilio», human_ask; nothing for done or the CI column", () => {
     task("rev", { status: "review" });
-    task("ai", { status: "review" }); db.query(`UPDATE tasks SET stage = 'ai_review' WHERE id = 'ai'`).run();
+    task("ci", { status: "review" }); db.query(`UPDATE tasks SET stage = 'ci' WHERE id = 'ci'`).run();
     task("ask", { status: "in_progress" }); comment("ask", "Prima di andare avanti:\n```question\nUso Postgres o SQLite?\n- Postgres\n- SQLite\n```");
     task("answered"); comment("answered", "```question\nVa bene?\n- sì\n```"); comment("answered", "sì", "user");
     task("waits", { status: "backlog" }); db.query(`UPDATE tasks SET description = ? WHERE id = 'waits'`).run("Piano.\naspetta: attilio — l'elenco è completo?");
-    task("human", { status: "review" }); db.query(`UPDATE tasks SET stage = 'human_review', human_ask = 'Ti piace il colore?' WHERE id = 'human'`).run();
+    task("human", { status: "review" }); db.query(`UPDATE tasks SET human_ask = 'Ti piace il colore?' WHERE id = 'human'`).run();
     task("closed", { status: "done" }); db.query(`UPDATE tasks SET description = 'aspetta: attilio' WHERE id = 'closed'`).run();
     comment("closed", "```question\nE questa?\n```");
     const p = buildPlan(db, { now: T0 }).projects[0]!;
@@ -261,11 +261,11 @@ describe("what waits for the person, and the header state", () => {
 });
 
 describe("counts and states with the Kanban's rules", () => {
-  test("ai_review does not count as «to approve»: it is the reviewer agent at work", () => {
+  test("a card in the CI column does not count as «to approve»: the queue has it", () => {
     const card = (status: any, stage: string | null = null) => ({ status, stage, dispatchState: null, signals: [] });
-    expect(activityOf([card("review", "ai_review")])).toEqual({ state: "working", count: 1 });
-    expect(activityOf([card("review", "human_review"), card("review", "ai_review")])).toEqual({ state: "working", count: 1 });
-    expect(activityOf([card("review", "human_review"), card("todo")])).toEqual({ state: "review", count: 1 });
+    expect(activityOf([card("review", "ci")])).toEqual({ state: "todo", count: 1 });
+    expect(activityOf([card("review"), card("review", "ci")])).toEqual({ state: "review", count: 1 });
+    expect(activityOf([card("review"), card("todo")])).toEqual({ state: "review", count: 1 });
   });
 
   test("in_progress without an agent is not at work", () => {

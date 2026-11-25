@@ -8,11 +8,16 @@
  */
 import { afterAll, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { slackMs } from "../tests/helpers/time-slack";
 
-const dir = mkdtempSync(join(tmpdir(), "stray-fixture-"));
+// Short base on purpose: under the runner this file already runs inside two
+// nested private TMPDIR levels, and a socket under tmpdir() grows past the
+// macOS 104 character unix socket limit so the daemon never listens.
+const shortBase = "/tmp/topics-test";
+mkdirSync(shortBase, { recursive: true });
+const dir = mkdtempSync(join(shortBase, "stray-fixture-"));
 const socket = join(dir, "ai-bridge.sock");
 let pid = 0;
 
@@ -26,9 +31,11 @@ test("starts a daemon", async () => {
   );
   daemon.unref();
   pid = daemon.pid ?? 0;
-  for (let i = 0; i < 200 && !existsSync(socket); i++) await Bun.sleep(50);
+  // The daemon takes seconds to listen on a loaded machine (10 s fixed was missed at load 25 on 12 cores).
+  const deadline = Date.now() + slackMs(10_000);
+  while (Date.now() < deadline && !existsSync(socket)) await Bun.sleep(50);
   expect(existsSync(socket)).toBe(true);
-});
+}, slackMs(30_000));
 
 afterAll(() => {
   if (process.env.STRAY_FIXTURE_STOP === "1" && pid) process.kill(pid, "SIGTERM");

@@ -86,3 +86,12 @@ con `nextRunAt`/`lastRunAt` in ISO, ricavati da `state.nextRunAtMs` e
 - **GIVEN** un job cancellato altrove
 - **WHEN** il pannello lo accende o lo spegne
 - **THEN** la risposta SHALL essere 400 con la frase della CLI
+
+### Requirement: CRONRUNS-01 — Gli esiti dei giri del scheduler stanno nel DB di Topics
+
+Il server SHALL copiare i giri finiti dei job di `jarvis-channels` (`cron runs --id --json`) nella tabella `cron_runs`, una riga per (job, inizio), così che rimandare lo stesso giro non lo duplichi e nessun giro vada perso fra un ciclo e l'altro. Un job si rilegge solo se il suo ultimo giro è più recente di quello già copiato. `GET /api/cron/runs` SHALL restituire esito, errore e durata di ogni giro con i token (e il costo) dei turni registrati in `usage_records` dentro la finestra del giro; un job di tipo comando non ha turni e legge 0. Uno scheduler che non risponde SHALL dare 502 sul sync, mai un elenco vuoto.
+
+#### Scenario: un giro compare con esito e token
+- **GIVEN** un job con un giro finito in errore e uno riuscito con dei turni registrati
+- **WHEN** il sync gira due volte
+- **THEN** le righe sono due, l'errore è conservato e i token sono quelli dei turni dentro la finestra

@@ -3,6 +3,7 @@ import { AlertCircle, ChevronDown, ChevronRight, LogIn, Plug, RefreshCw } from '
 import { useT } from '../../hooks/useT';
 import { mcpApi, type McpFleetStatus, type McpServerStatus } from '../../lib/api';
 import { openExternalOnce } from '../../lib/openExternal';
+import { Spinner } from '../Shared/Spinner';
 
 /**
  * How often the panel re-reads the fleet while a sign-in is open, and for how
@@ -150,7 +151,7 @@ export function McpFleetPanel() {
           // and only grows where there is an actual finger.
           className="flex flex-shrink-0 items-center gap-1 rounded-md border border-app-border bg-surface px-2 py-1 text-mini hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:px-3"
         >
-          <RefreshCw size={11} className={refreshing ? 'animate-spin' : undefined} />
+          {refreshing ? <Spinner size={11} tone="current" /> : <RefreshCw size={11} />}
           {refreshing ? t('mcp.rechecking') : t('mcp.recheck')}
         </button>
       </div>

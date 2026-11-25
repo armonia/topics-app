@@ -211,9 +211,8 @@ const AGENT_FIELDS: Record<string, FieldSpec> = {
   // `status: 'review'`. Not a task field: the service writes it into the thread
   // as a `kind: 'delivery'` comment, and without it review is refused.
   summary: { to: "summary", read: asString },
-  // Triage moves a card out of its column, and a delivery may carry the
-  // question that sends it to Human review. Which stages an agent may name is
-  // the service's rule (`update`), not this reader's.
+  // A delivery may carry the question for the person. Which stages an agent
+  // may name is the service's rule (`update`), not this reader's.
   stage: { to: "stage", read: asStringOrNull },
   humanAsk: { to: "humanAsk", read: asStringOrNull },
   human_ask: { to: "humanAsk", read: asStringOrNull },

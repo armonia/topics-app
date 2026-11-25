@@ -16,13 +16,15 @@
 import fs from "fs";
 import { getDatabase } from "../db";
 import { warnThrottled } from "./warn-throttled";
+import { resetStaleSweep, sweepStaleResults } from "./subagent-stale-sweep";
+import { noteSubagentWaitChanged } from "./subagent-wait-events";
 import { claudeTranscriptPath } from "./claude-transcript-path";
 import {
   childModel, emptyTally, endingChildTurn, tallyAwaitsBackground, forgetTurns, pendingTallyTurns, resultKey, tallyLines, tallyTurnDurationMs, turnDurationMs,
   type SubAgentEnding, type SubAgentOutcome, type SubAgentResult, type TranscriptTally,
 } from "./subagent-result";
 import {
-  SUBAGENT_RETIRE_IDLE_MS, SUBAGENT_RESUME_WINDOW_MS, addPendingResult, allPendingResults, clearPendingResult, getSubagent,
+  SUBAGENT_RETIRE_IDLE_MS, SUBAGENT_RESUME_WINDOW_MS, addPendingResult, allPendingResults, clearPendingResult, getSubagent, markPendingResultRowWritten,
   markTurnReported, parentHasPendingResults, runningSubagents, setSubagentState, subagentDepth, type SubagentRow,
 } from "./subagent-store";
 import type { SubAgentExitInfo } from "../routes/subagent-exit";
@@ -109,8 +111,8 @@ interface TranscriptCursor {
   partial: string;
   tally: TranscriptTally;
 }
-/** The live state of a child as its strip and card show it (SUBAGENT-16). */
-export type SubAgentPhase = 'waiting-prompt' | 'working' | 'finished';
+/** The live state of a child as its strip and card show it (SUBAGENT-16). `waiting-results`: turn reported, only its own work is running. */
+export type SubAgentPhase = 'waiting-prompt' | 'working' | 'waiting-results' | 'finished';
 const childRuntime = new Map<string, ChildRuntime>();
 /** Delivered results, per `resultKey`: the per-turn dedup of this process. */
 const deliveredResultKeys = new Set<string>();
@@ -211,6 +213,7 @@ export function emitChildResult(parentSessionKey: string, result: SubAgentResult
   const rt = childRuntime.get(result.agentId);
   if (rt && result.status !== 'undelivered') {
     rt.phase = 'finished';
+    noteSubagentWaitChanged(parentSessionKey);
     // A look already in flight may have read the row before this report and
     // set the phase back: the next tick reads the file again and settles it.
     rt.lastSize = -1;
@@ -252,6 +255,7 @@ function deliverChildResult(clean: SubAgentResult, exitCode: number | null, pare
       turn: clean.turn, model: clean.model, agentType: clean.agentType, durationMs: clean.durationMs, cwd: clean.cwd,
       ...(clean.stoppedByParent ? { stoppedByParent: true as const } : {}),
       settle: () => clearPendingResult(getDatabase(), clean.agentId, clean.turn, clean.status),
+      ...(clean.rowWritten ? { rowWritten: true } : {}), markRowWritten: () => markPendingResultRowWritten(getDatabase(), clean.agentId, clean.turn, clean.status),
     });
   } catch (err) {
     console.warn(`[Terminal] subAgentExitHandler failed for ${clean.agentId}:`, err);
@@ -329,7 +333,7 @@ async function checkChildTurns(child: ChildRef): Promise<void> {
   })) {
     emitChildResult(row.parentSessionKey, resultOf(child, row, turn, outcome, { model: tally.model, durationMs: tallyTurnDurationMs(tally, turn) }), null);
   }
-  if (rt.phase !== before) deps().broadcast();
+  if (rt.phase !== before) { deps().broadcast(); noteSubagentWaitChanged(row.parentSessionKey); }
 }
 
 /**
@@ -371,6 +375,7 @@ async function watchChildren(): Promise<void> {
 }
 
 /**
+ * @knipignore re-exported by routes/terminal.ts, which an open branch is editing
  * Retire every live child due for it, now. The watch does it on its tick; a
  * test calls it with a clock moved forward instead of waiting 15 minutes.
  */
@@ -382,10 +387,11 @@ export function retireIdleSubAgents(opts: { now?: number; idleMs?: number } = {}
   return retired;
 }
 
-/** Test seam: forget what this process remembers of its children, as a restart does. */
+/** @internal Test seam: forget what this process remembers of its children, as a restart does. */
 export function _forgetSubAgentMemory(): void {
   childRuntime.clear();
   deliveredResultKeys.clear();
+  resetStaleSweep();
   for (const id of [...foregroundHolds.keys()]) {
     clearTimeout(foregroundHolds.get(id)!.timer);
     foregroundHolds.delete(id);
@@ -647,7 +653,15 @@ export function cliChildPhaseNow(child: { id: string; cwd: string; claudeSession
 export function noteChildSeeded(id: string, opts: { working?: boolean } = {}): void {
   const rt = runtimeOf(id);
   rt.seededAt = Date.now();
-  if (opts.working) rt.phase = 'working';
+  if (opts.working) setChildPhase(id, 'working');
+}
+
+/** A child's phase, and the parent chat told (BGVIS-10): every writer of a phase goes through here. */
+export function setChildPhase(id: string, phase: SubAgentPhase): void {
+  const rt = runtimeOf(id);
+  if (rt.phase === phase) return;
+  rt.phase = phase;
+  try { noteSubagentWaitChanged(getSubagent(getDatabase(), id)?.parentSessionKey); } catch { /* the roster is not the writer's business */ }
 }
 
 /**
@@ -659,7 +673,7 @@ export function noteChildSeeded(id: string, opts: { working?: boolean } = {}): v
 export function noteChildSteered(id: string): void {
   const rt = childRuntime.get(id);
   if (!rt) return;
-  rt.phase = 'working';
+  setChildPhase(id, 'working');
   deps().broadcast();
 }
 
@@ -710,7 +724,7 @@ let childWatchTimer: ReturnType<typeof setInterval> | null = null;
 /** Start the watch, once for the process however many routers there are. */
 export function startChildWatch(): void {
   if (childWatchTimer) return;
-  childWatchTimer = setInterval(() => { void watchChildren(); }, CHILD_WATCH_MS);
+  childWatchTimer = setInterval(() => { void watchChildren(); sweepStaleResults(getDatabase(), deliverChildResult); }, CHILD_WATCH_MS);
   childWatchTimer.unref?.();
 }
 

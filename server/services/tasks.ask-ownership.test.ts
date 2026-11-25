@@ -9,18 +9,13 @@ import { test, expect, beforeEach } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { createTaskService } from "./tasks";
 import { freshDb, PID } from "./tasks-test-db";
-import { writeBoardWorkflow } from "./board-workflow";
-import { _resetAiReviewNotices } from "./ai-review-notice";
 
 let db: Database;
 
 beforeEach(() => {
   db = freshDb();
-  db.run("CREATE TABLE board_workflows (scope TEXT PRIMARY KEY, preset TEXT NOT NULL, updated_at TEXT NOT NULL)");
   db.run("INSERT INTO topics (id) VALUES ('topic-worker')");
   db.run("INSERT INTO topics (id) VALUES ('topic-stranger')");
-  writeBoardWorkflow(db, PID, "armonia", "2026-10-31T10:00:00.000Z");
-  _resetAiReviewNotices();
 });
 
 function workedCard() {
@@ -37,7 +32,7 @@ test("a stranger agent cannot plant human_ask on a worked card", () => {
   expect(delivered.humanAsk ?? null).toBeNull();
 });
 
-test("a stranger agent cannot plant human_ask on a card in AI review", () => {
+test("a stranger agent cannot plant human_ask on a delivered card", () => {
   const { svc, id } = workedCard();
   svc.update({ taskId: id, actor: "agent", by: "worker", agentTopicId: "topic-worker", patch: { status: "review", summary: "done" } });
   expect(() => svc.update({ taskId: id, actor: "agent", by: "stranger", agentTopicId: "topic-stranger", patch: { humanAsk: "planted" } })).toThrow();

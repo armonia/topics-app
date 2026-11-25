@@ -1,15 +1,16 @@
-import { openSync, closeSync } from "fs";
+import { openSync, closeSync, writeFileSync } from "fs";
 import type { AppContext } from "../types";
 import { augmentEnv } from "../utils/path-env";
 import { killProcessTree } from "../lib/process-tree";
 import { getDescendantPids } from "../lib/process-tree";
-import { commandArgv, endedWhileAway, readExitCode } from "../lib/command-process";
+import { commandArgv, endedWhileAway, jobArgv, readExitCode } from "../lib/command-process";
 import { captureProcessGroup, closeCommandProcessGroup, commandProcessGroupStopPath, commandProcessGroup, forgetCommandProcessGroupIfGone, processGroupAlive, processGroupIdentityMatches, registerCommandProcessGroup, type ProcessGroupIdentity } from "../lib/command-process-groups";
 import { cardIdForTopic, configureCommandGroupLifecycle, createCommandGroupHooks } from "./command-process-lifecycle";
 import { closeRegistryRun } from "../lib/command-runs";
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
 import { agentBaseEnv } from "../lib/agent-env";
+import { getSubagentBySessionKey } from "../lib/subagent-store";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { commandLabel, commandWorkOver, pushBackgroundChanged } from "../lib/command-background";
 import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, SERVICE_WATCH_MIN_MS, type ServiceRowLike } from "../lib/command-services";
@@ -17,9 +18,10 @@ import { getListeningPorts, listenersOf, servesHtml } from "../lib/listening-por
 import { isPidAlive } from "../lib/pid-liveness";
 import { topicIdOfSubject } from "../../shared/attention";
 import { addToRecent, endFollow, followLog, followOf, pumpTail, startFollow } from "./processes-output";
-import { exitPathOf, loadProcessRegistry, logPathOf, pidStartTime, saveState } from "./processes-persist";
+import { existsSync } from "fs";
+import { exitPathOf, loadProcessRegistry, logPathOf, pidStartTime, saveState, stderrPathOf, stdinPathOf, timeoutMarkPathOf } from "./processes-persist";
 import { broadcastScriptsUpdate, lastLineOf } from "./processes-snapshot";
-import { type ScriptProcess, isPersonRun, recentScripts, runningScripts, _broadcastCtx } from "./processes-state";
+import { type ScriptProcess, isJobRun, isPersonRun, recentScripts, runningScripts, _broadcastCtx } from "./processes-state";
 
 /**
  * THE ONE WAY A COMMAND'S ROW CLOSES: its exit (`proc.exited`), the pid gone
@@ -54,7 +56,53 @@ export function finishCommand(sp: ScriptProcess, how: { foundDead?: boolean } = 
   if (commandServiceWatch.listenOf(sp.processId)) setTimeout(() => commandServiceWatch.forget(sp.processId), SERVICE_END_SHOWN_MS * 2).unref?.();
   if (cmd.wake) requestWakeFor(sp);
   if (cmd.origin === "person") settlePersonRun(sp);
+  if (cmd.origin === "job") { signalGroupHup(sp.processId); settleJobRun(sp); }
   forgetCommandProcessGroupIfGone(sp.processId);
+}
+
+/** How a scheduled command ended, as the engine reads it (R11, R13). */
+export interface JobCommandEnd {
+  processId: string; jobId: string; runId: string;
+  /** Null: no code was written (killed before it could). */
+  exitCode: number | null;
+  /** Ended by a Stop of Topics, not on its own. */
+  stopped: boolean;
+  /** The wrapper's own time limit fired. */
+  timedOut: boolean;
+}
+let jobEndListener: ((end: JobCommandEnd) => void) | null = null;
+
+function jobEndOf(sp: ScriptProcess): JobCommandEnd | null {
+  const job = sp.cmd?.job;
+  if (!job) return null;
+  return {
+    processId: sp.processId, jobId: job.jobId, runId: job.runId,
+    exitCode: sp.cmd?.stopped ? null : sp.exitCode ?? null, stopped: !!sp.cmd?.stopped,
+    timedOut: existsSync(timeoutMarkPathOf(sp.processId)),
+  };
+}
+
+/** A scheduled command ended: its run closes in the engine, once. Without a listener the row waits (it is not pruned) for the one that comes at boot. */
+export function settleJobRun(sp: ScriptProcess): void {
+  const end = jobEndOf(sp);
+  if (!end || !jobEndListener || sp.status === "running" || sp.jobSettled) return;
+  sp.jobSettled = true;
+  try { jobEndListener(end); } catch (error) { console.warn("[processes] closing the run of a scheduled command failed:", error); }
+}
+
+/** The engine's door: from now on every ended job row closes its run, and those that ended before it existed close now. */
+export function setJobCommandEndListener(listener: ((end: JobCommandEnd) => void) | null): void {
+  jobEndListener = listener;
+  if (!listener) return;
+  loadProcessRegistry();
+  for (const sp of [...recentScripts]) if (isJobRun(sp) && !sp.jobSettled) settleJobRun(sp);
+}
+
+/** SIGHUP to what is left of the group once the command is over (R11). */
+function signalGroupHup(processId: string): void {
+  const group = commandProcessGroup(processId);
+  if (!group || !processGroupAlive(group.pgid)) return;
+  try { process.kill(-group.pgid, "SIGHUP"); } catch { /* the group may have gone since the check */ }
 }
 
 /** A person's run ended: its row in `command_runs` closes (`closeRegistryRun`), once the router has a database. */
@@ -94,7 +142,7 @@ export const topicCommandProcesses = (topicId: string) => (loadProcessRegistry()
  * prints and a server's addresses. A person's Run has its own card in the chat.
  */
 export const liveCommandsOf = (topicId: string) => (loadProcessRegistry(), [...runningScripts.values()]
-  .filter((sp) => sp.status === "running" && !isPersonRun(sp) && (sp.cmd?.topicId ?? sp.agentRun?.topicId) === topicId)
+  .filter((sp) => sp.status === "running" && !isPersonRun(sp) && !isJobRun(sp) && (sp.cmd?.topicId ?? sp.agentRun?.topicId) === topicId)
   .map((sp) => ({
     processId: sp.processId, name: sp.scriptName, command: sp.command, startedAt: sp.startedAt,
     lastLine: lastLineOf(sp), listen: commandServiceWatch.listenOf(sp.processId) ?? [], wakes: !!sp.cmd?.wake,
@@ -215,6 +263,7 @@ export function requestWakeFor(sp: ScriptProcess): void {
     topicId: cmd.topicId,
     label: sp.scriptName,
     exitCode: sp.exitCode ?? null,
+    startedAt: sp.startedAt,
     durationMs: ended - Date.parse(sp.startedAt),
     lines: sp.output.slice(-WAKE_TAIL_LINES),
     settle: () => { cmd.wake = false; saveState(); },
@@ -242,16 +291,35 @@ export function settleWakeReadInTurn(sp: ScriptProcess, sessionKey: string, db: 
 }
 
 /**
+ * A sub-agent that stops its parent's service and relaunches it without a wake
+ * is replacing it, not starting something of its own: the archive of the child
+ * at the end of its turn would otherwise stop the parent's server with it.
+ * The replacement is matched by name (the same label) against a stopped command
+ * of the parent's session; it then belongs to the parent's session and topic.
+ */
+export function adoptedByParent<T extends { command: string; description?: unknown; sessionKey: string; topicId: string | null; wake: boolean; db: AppContext["db"] }>(o: T): T {
+  if (o.wake) return o;
+  const parentKey = getSubagentBySessionKey(o.db as never, o.sessionKey)?.parentSessionKey;
+  if (!parentKey) return o;
+  const label = commandLabel(o.command, o.description);
+  const replaced = [...runningScripts.values(), ...recentScripts].find((sp) =>
+    sp.cmd?.stopped && sp.cmd.sessionKey === parentKey && sp.scriptName === label);
+  if (!replaced?.cmd) return o;
+  return { ...o, sessionKey: parentKey, topicId: replaced.cmd.topicId };
+}
+
+/**
  * `run_command`: an arbitrary command, spawned by the server (so a restart of
  * the CLI does not touch it) in its own process group (so Stop reaches every
  * child), with its output going straight into its log file (so a reload of
  * the server does not lose it).
  */
-export function startCommandProcess(o: {
+export function startCommandProcess(input: {
   projectPath: string; cwd: string; command: string; description?: unknown;
   sessionKey: string; topicId: string | null; wake: boolean; db: AppContext["db"];
   origin?: "person";
 }): { processId: string; scriptName: string; pid: number | null; startedAt: string; wake: boolean } | null {
+  const o = adoptedByParent(input);
   const processId = crypto.randomUUID();
   const argv = commandArgv(o.command, exitPathOf(processId), commandProcessGroupStopPath(processId));
   if (!argv) return null; // no POSIX shell here (Windows)
@@ -310,4 +378,68 @@ export function startCommandProcess(o: {
   void proc.exited.then(() => finishCommand(sp));
   // `wake` as it will be honoured: a terminal's session has no topic to wake.
   return { processId, scriptName: sp.scriptName, pid: proc.pid, startedAt: sp.startedAt, wake: sp.cmd!.wake };
+}
+
+/**
+ * A scheduled command (R11): argv, not a shell line, spawned by the server in
+ * its own process group like `run_command`, but with its stdin from the job's
+ * text, its stderr in a file of its own, no stdout file to follow, and the
+ * environment of an agent plus the job's own variables. Its owner key is the
+ * job, so no chat's Stop reaches it and `list_processes` never shows it.
+ */
+export function startJobCommandProcess(o: {
+  jobId: string; runId: string; argv: string[]; cwd: string; stdin: string | null;
+  env: Record<string, string>; timeoutSec: number;
+}): { processId: string; pid: number | null; startedAt: string } {
+  const processId = crypto.randomUUID();
+  const argv = jobArgv(o.argv, exitPathOf(processId), commandProcessGroupStopPath(processId), timeoutMarkPathOf(processId), o.timeoutSec);
+  if (!argv) throw new Error("A scheduled command needs a POSIX shell, which this system does not have.");
+  const env = augmentEnv(agentBaseEnv(), { FORCE_COLOR: "0", NO_COLOR: "1", ...o.env, TOPICS_JOB_ID: o.jobId, TOPICS_JOB_RUN_ID: o.runId });
+  writeFileSync(stdinPathOf(processId), o.stdin ?? "");
+  const logPath = logPathOf(processId);
+  const stdinFd = openSync(stdinPathOf(processId), "r");
+  const stdoutFd = openSync(logPath, "a");
+  const stderrFd = openSync(stderrPathOf(processId), "a");
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn(argv, { cwd: o.cwd, stdin: stdinFd, stdout: stdoutFd, stderr: stderrFd, detached: true, env });
+  } finally {
+    closeSync(stdinFd); closeSync(stdoutFd); closeSync(stderrFd);
+  }
+  const startedAt = new Date().toISOString();
+  let groupIdentity: ProcessGroupIdentity | null;
+  try { groupIdentity = captureProcessGroup(proc.pid); }
+  catch (error) { try { proc.kill("SIGKILL"); } catch { /* the leader may already be dead; the original error is rethrown */ } throw error; }
+  if (groupIdentity) {
+    try {
+      registerCommandProcessGroup({
+        processId, ownerKey: `job:${o.jobId}`, cardId: null, topicId: null,
+        pgid: groupIdentity.pgid, leaderPid: groupIdentity.pid, leaderStartTime: groupIdentity.startTime, startedAt,
+      });
+    } catch (error) {
+      if (processGroupIdentityMatches(groupIdentity) && processGroupAlive(groupIdentity.pgid)) {
+        try { process.kill(-groupIdentity.pgid, "SIGKILL"); } catch { /* the group may already be gone; the original error is rethrown */ }
+      }
+      throw error;
+    }
+  }
+  const sp: ScriptProcess = {
+    processId, scriptName: `job ${o.jobId}`, command: o.argv.join(" "), projectPath: o.cwd,
+    status: "running", pid: proc.pid, startedAt, output: [], outputBytes: 0, proc, source: "command",
+    cmd: { sessionKey: `job:${o.jobId}`, topicId: null, wake: false, origin: "job", job: { jobId: o.jobId, runId: o.runId } },
+  };
+  runningScripts.set(processId, sp);
+  followLog(sp, logPath, 0);
+  saveState();
+  if (_broadcastCtx) { broadcastScriptsUpdate(_broadcastCtx); pushBackgroundChanged(_broadcastCtx, sp.cmd!); }
+  void proc.exited.then(() => finishCommand(sp));
+  return { processId, pid: proc.pid, startedAt };
+}
+
+/** Stops a scheduled command's whole group, whether or not the registry still has its row (a lost `scripts.json` must not leave it running). */
+export function stopJobCommand(processId: string): void {
+  const group = commandProcessGroup(processId);
+  if (group) { void closeCommandProcessGroup(group, commandGroupHooks); return; }
+  const sp = runningScripts.get(processId);
+  if (sp) stopCommand(sp);
 }

@@ -120,7 +120,8 @@ describe("il riallineamento prima del land finisce nel thread", () => {
       } as any,
     });
     const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
-    d.prepare("UPDATE tasks SET status='review' WHERE id = ?").run(t.id);
+    d.run("INSERT INTO topics (id) VALUES ('topic-vivo')");
+    d.prepare("UPDATE tasks SET status='review', assigned_topic_id='topic-vivo' WHERE id = ?").run(t.id);
     await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
     await new Promise((res) => setTimeout(res, 20));
 
@@ -136,8 +137,44 @@ describe("il riallineamento prima del land finisce nel thread", () => {
     expect(parseStatusEvent(ev.content)?.reason).toContain("riportare main nel ramo");
     // And the instruction to the agent says `git merge main`, not rebase.
     expect(r).toHaveLength(1);
-    expect(r[0][1]).toContain("git merge main");
+    expect(r[0][1]).toContain("git merge origin/main");
     expect(r[0][1]).toContain("server/db.ts");
     expect(r[0][1]).not.toContain("git rebase main");
+  });
+
+  /**
+   * A card running on a node has no `assigned_topic_id`: `resume` returned silently and the
+   * card stayed `in_progress` with nobody on it, holding the node slot (f4dbe271: the
+   * model-proxy token rotation waited two days for a "busy" slot).
+   */
+
+  test("conflitto su una card senza sessione legata: torna in coda col thread, non resta in corso", async () => {
+    const d = freshDb(); const b: any[] = []; const r: string[] = []; const entered: string[] = [];
+    const dispatcher = {
+      onEnterTodo: (_p: string, id: string) => { entered.push(id); }, onLeaveTodo() {}, onBlockerDone() {},
+      resume: async (id: string) => { r.push(id); },
+    } as any;
+    const rt = createTasksRouter(makeCtx(d, b), dispatcher, {
+      autoMerge: {
+        tryMerge: async () => ({
+          status: "conflict", branch: "topics/ramo-vecchio",
+          realignConflict: { behind: 3, files: ["server/db.ts"] },
+        }),
+        buildClient: async () => ({ code: 0, stderr: "" }),
+      } as any,
+    });
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    d.prepare("UPDATE tasks SET status='review', assigned_topic_id=NULL WHERE id = ?").run(t.id);
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((res) => setTimeout(res, 20));
+
+    const after = createTaskService(d).get(t.id)!;
+    expect(after.task.status).toBe("todo");
+    expect(entered).toEqual([t.id]);
+    expect(r).toHaveLength(0);
+    // The hand-off (the files, git merge main) is in the thread: the fresh session has nothing else.
+    const thread = after.comments.map((c) => c.content).join("\n");
+    expect(thread).toContain("git merge origin/main");
+    expect(thread).toContain("server/db.ts");
   });
 });

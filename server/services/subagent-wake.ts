@@ -22,9 +22,15 @@
  *    `<subagent-result>` envelope whose `<` are neutralised.
  *  - A parent that cannot be woken (an archived chat nobody works in, a route
  *    that refuses for good) still gets the result, as the plain row of before.
+ *  - A provider hold keeps back the parent's TURN, never the result: the card
+ *    is written as a row at once, and the turn that hands it to the model goes
+ *    when the hold lifts. On 18/11 63 results sat in memory behind a hold
+ *    while their parents went on working and never saw them.
  */
 import { formatSubAgentExitBody } from "../routes/subagent-exit";
-import type { SubAgentResult } from "../lib/subagent-result";
+import { resultKey, type SubAgentResult } from "../lib/subagent-result";
+import type { WakeLaunch } from "../lib/wake-adoption";
+import { sleep } from "../lib/unref-sleep";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
 
@@ -35,6 +41,10 @@ export interface SubagentWakeRequest {
   writeRow: () => void;
   /** The result reached the chat, as a wake or as a row: its durable copy can go. */
   settle: () => void;
+  /** The card is already a row of the chat (written during a hold): only the parent's turn is owed. */
+  rowWritten?: boolean;
+  /** Persist `rowWritten` on the durable copy, so a restart in the hold does not write the card twice. */
+  noteRowWritten?: () => void;
 }
 
 export interface SubagentWakeDeps {
@@ -44,8 +54,10 @@ export interface SubagentWakeDeps {
   /**
    * `wake`: send the turn. `wait`: not now (the topic's provider is held).
    * `row`: never wake this one, write the row (an archived chat no card owns).
+   * Asked once per result, with the child it answers: a chat archived between
+   * two spawns is alive for the second one only.
    */
-  canWake(sessionKey: string): "wake" | "wait" | "row";
+  canWake(sessionKey: string, launch?: WakeLaunch): "wake" | "wait" | "row";
   log?: (msg: string) => void;
   debounceMs?: number;
   pollMs?: number;
@@ -97,8 +109,31 @@ export function subagentWakeText(results: readonly SubAgentResult[]): string {
  * and that stop is the parent's all the same. The reason stays for results
  * written on a child's row before the mark existed.
  */
-export function resultWakesParent(r: Pick<SubAgentResult, "reason" | "stoppedByParent">): boolean {
-  return r.stoppedByParent !== true && r.reason?.code !== "stopped-by-parent";
+export function resultWakesParent(r: Pick<SubAgentResult, "reason" | "stoppedByParent"> & Partial<Pick<SubAgentResult, "status" | "turn" | "text">>): boolean {
+  if (r.stoppedByParent === true || r.reason?.code === "stopped-by-parent") return false;
+  return !isNoNewsReply(r);
+}
+
+/** Longest reply still read as a "nothing new" acknowledgement. */
+const NO_NEWS_MAX_CHARS = 300;
+
+// A queued message the child already answered earlier, acknowledged with no new
+// work. The wake patterns are English and Italian (the languages chats run in).
+// allow-italian: the quoted acknowledgement phrases are the data matched
+const NO_NEWS_PATTERN =
+  /\b(?:stale|outdated|already (?:handled|answered|reported|covered)|nothing new|no news|no new (?:information|update|work)|messaggio arretrato|nessuna novit[àa]|nulla di nuovo|gi[àa] (?:gestito|risposto|riportato))\b/i;
+
+/**
+ * A steered-turn reply that only says the message was stale and nothing
+ * changed carries nothing for the parent: waking it costs a full paid turn to
+ * read "no news" (about twenty empty wakes in one chat, 35% of its cost). Only
+ * a completed, short reply of a later turn counts; the first turn is the
+ * child's real result, whatever it says. The row still lands.
+ */
+export function isNoNewsReply(r: Partial<Pick<SubAgentResult, "status" | "turn" | "text">>): boolean {
+  if (r.status !== "completed" || (r.turn ?? 1) < 2) return false;
+  const text = (r.text ?? "").trim();
+  return text.length > 0 && text.length <= NO_NEWS_MAX_CHARS && NO_NEWS_PATTERN.test(text);
 }
 
 /** What the row's `subagent-result` block carries of each result: the card's data. */
@@ -118,13 +153,16 @@ export function subagentResultCard(r: SubAgentResult) {
   };
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.(); });
-
 export function createSubagentWake(deps: SubagentWakeDeps) {
   const debounceMs = deps.debounceMs ?? SUBAGENT_WAKE_DEBOUNCE_MS;
   const pollMs = deps.pollMs ?? 500;
   const graceMs = deps.endGraceMs ?? 20_000;
   const pending = new Map<string, SubagentWakeRequest[]>();
+  /** Results asked for and not settled yet: queued or in flight. */
+  const tracked = new Map<string, string>();
+  /** Results already delivered by this process: a late re-ask (the durable clear failed) must not wake twice. */
+  const delivered = new Set<string>();
+  const DELIVERED_CAP = 500;
   const workers = new Map<string, Promise<void>>();
 
   async function drain(sessionKey: string, reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
@@ -142,12 +180,34 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
 
   function asRows(batch: SubagentWakeRequest[]): void {
     for (const r of batch) {
-      try { r.writeRow(); r.settle(); } catch (err) { deps.log?.(`row for ${r.result.agentId}: ${err instanceof Error ? err.message : String(err)}`); }
+      try { if (!r.rowWritten) r.writeRow(); r.settle(); } catch (err) {
+        // Forgotten, not settled: the durable copy stays and a later sweep may ask again.
+        tracked.delete(resultKey(r.result));
+        deps.log?.(`row for ${r.result.agentId}: ${err instanceof Error ? err.message : String(err)}`); }
     }
+  }
+
+  /** The card as a row now, the wake still owed: the durable copy stays until the turn goes. */
+  function writeAheadOfTurn(batch: readonly SubagentWakeRequest[]): number {
+    let written = 0;
+    for (const r of batch) {
+      if (r.rowWritten) continue;
+      try {
+        r.writeRow();
+        r.rowWritten = true;
+        written++;
+        r.noteRowWritten?.();
+      } catch (err) {
+        deps.log?.(`row for ${r.result.agentId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return written;
   }
 
   async function work(sessionKey: string): Promise<void> {
     await sleep(debounceMs);
+    // One log line per wait on a hold, not one per poll.
+    let saidWaiting = false;
     for (;;) {
       if (deps.isBusy(sessionKey)) { await sleep(pollMs); continue; }
       // The parent's own stop wakes nobody (`resultWakesParent`), but it waited
@@ -160,12 +220,34 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
         pending.set(sessionKey, queued.filter((r) => resultWakesParent(r.result)));
         asRows(rowsOnly);
       }
+      const live = pending.get(sessionKey) ?? [];
+      if (!live.length) return;
+      const verdicts = live.map((r) => deps.canWake(sessionKey, { subagentId: r.result.agentId }));
+      const refused = live.filter((_, i) => verdicts[i] === "row");
+      if (refused.length) {
+        pending.set(sessionKey, live.filter((_, i) => verdicts[i] !== "row"));
+        asRows(refused);
+      }
       if (!pending.get(sessionKey)?.length) return;
-      const verdict = deps.canWake(sessionKey);
-      if (verdict === "wait") { await sleep(pollMs); continue; }
+      if (verdicts.some((v) => v === "wait")) {
+        // The hold is the provider's, not the chat's: the parent may well be
+        // working on another one. The cards go in now; only the model's turn waits.
+        const written = writeAheadOfTurn(pending.get(sessionKey) ?? []);
+        // A wait used to be silent: on 18/11 three parents sat on eleven
+        // results for hours behind a hold and the log said nothing.
+        if (!saidWaiting || written) {
+          saidWaiting = true;
+          deps.log?.(`${sessionKey}: the topic's provider is held, ${pending.get(sessionKey)?.length ?? 0} result(s) written as rows, the turn waits for the hold to lift`);
+        }
+        await sleep(pollMs);
+        continue;
+      }
+      saidWaiting = false;
       const batch = pending.get(sessionKey)?.splice(0) ?? [];
       if (!batch.length) return;
-      if (verdict === "row") { asRows(batch); continue; }
+      // Some cards are rows already: the rest join them, and the wake row draws one line, not the cards again.
+      const shown = batch.some((r) => r.rowWritten);
+      if (shown) writeAheadOfTurn(batch);
       const results = batch.map((r) => r.result);
       const url = new URL("http://localhost/api/chat");
       const resp = await deps.route(
@@ -176,6 +258,7 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
             sessionKey,
             messages: [{ role: "user", content: subagentWakeText(results) }],
             subagentResults: results.map(subagentResultCard),
+            ...(shown ? { subagentResultsShown: true } : {}),
           }),
         }),
         url, "/api/chat", "POST",
@@ -202,19 +285,44 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
   }
 
   function request(r: SubagentWakeRequest): void {
+    // Asked again for a result already on its way, or already delivered here
+    // (the runtime's stale sweep): a second copy would wake the chat twice.
+    const key = resultKey(r.result);
+    if (tracked.has(key) || delivered.has(key)) return;
+    tracked.set(key, r.parentSessionKey);
+    const settleOnce = r.settle;
+    r.settle = () => {
+      // Delivered is recorded before the durable clear, which may fail silently.
+      delivered.add(key);
+      if (delivered.size > DELIVERED_CAP) delivered.delete(delivered.values().next().value as string);
+      tracked.delete(key);
+      settleOnce();
+    };
+    enqueue(r);
+  }
+
+  /** Queue an already tracked request and make sure its parent has a worker. */
+  function enqueue(r: SubagentWakeRequest): void {
     const list = pending.get(r.parentSessionKey) ?? [];
     list.push(r);
     pending.set(r.parentSessionKey, list);
     if (workers.has(r.parentSessionKey)) return;
-    const job = work(r.parentSessionKey)
-      .catch((err) => deps.log?.(`${r.parentSessionKey}: ${err instanceof Error ? err.message : String(err)}`))
+    const parent = r.parentSessionKey;
+    const job = work(parent)
+      .catch((err) => {
+        deps.log?.(`${parent}: ${err instanceof Error ? err.message : String(err)}`);
+        // The batch the worker held is gone with the throw: forget it so the
+        // sweep's next ask is not discarded. Still queued ones stay tracked.
+        const queued = new Set((pending.get(parent) ?? []).map((x) => resultKey(x.result)));
+        for (const [key, owner] of tracked) if (owner === parent && !queued.has(key)) tracked.delete(key);
+      })
       .finally(() => {
-        workers.delete(r.parentSessionKey);
+        workers.delete(parent);
         // Something arrived after the worker's last look: start another.
-        const left = pending.get(r.parentSessionKey)?.splice(0) ?? [];
-        for (const x of left) request(x);
+        const left = pending.get(parent)?.splice(0) ?? [];
+        for (const x of left) enqueue(x);
       });
-    workers.set(r.parentSessionKey, job);
+    workers.set(parent, job);
   }
 
   /**
@@ -261,7 +369,7 @@ export function startSubagentWakes(deps: SubagentWakeDeps): SubagentWake {
   return wake;
 }
 
-/** Test seam: forget the started wake. */
+/** @internal Test seam: forget the started wake. */
 export function _resetSubagentWakes(): void {
   wake = null;
   waiting.length = 0;

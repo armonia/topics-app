@@ -16,10 +16,14 @@
 // test unitario che lo monta — `SessionActivity.test.ts`.
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { useSessionActivity, useSubjectLastActivity, useProjectWorkStart } from '../../state/signals';
+import { useSessionActivity, useSubjectLastActivity, useProjectWorkStart, useTopicWaitingOn } from '../../state/signals';
+import { useTopicAction } from '../../state/agentActionHooks';
+import { loaderActivityForAction } from '../Layout/loaderState';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '../../state/workLongevity';
 import { useTopicPreview } from '../../state/topicPreviews';
+import type { WaitingOn } from '../../state/backgroundWork';
+import { useAgentsAtWork } from '../../state/childWork';
 import { timeToneClass, timeVoice } from './timeTone';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { ON_FILL_TEXT, ON_FILL_TEXT_SOFT, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
@@ -181,8 +185,26 @@ export function TopicSubline({ topicId, onFill, className = '' }: {
   className?: string;
 }) {
   const activity = useSessionActivity(topicId);
+  // A closed turn that waits on work says WHAT, in words, where the last message would sit (BGVIS-10).
+  // A board agent's chat has no attention wait (rule 2): its agents at work say it.
+  const agents = useAgentsAtWork(topicId);
+  const waitingOn = useTopicWaitingOn(topicId) ?? (agents > 0 ? 'subagent' : null);
   if (activity) return <SessionActivityText subjectId={topicId} onFill={onFill} className={className} />;
+  if (waitingOn) return <WaitingLine on={waitingOn} agents={agents} onFill={onFill} className={className} />;
   return <TopicPreviewLine topicId={topicId} onFill={onFill} className={className} />;
+}
+
+/** What the closed turn waits on: the agents at work by number, when there are any, never «waiting» for work that runs. */
+function WaitingLine({ on, agents, onFill, className = '' }: { on: WaitingOn; agents: number; onFill?: boolean; className?: string }) {
+  const tr = useT();
+  const text = on === 'subagent' && agents > 0
+    ? (agents === 1 ? tr('topic.waitLine.agentsOne') : tr('topic.waitLine.agentsMany', { n: agents }))
+    : tr(`topic.waitLine.${on}`);
+  return (
+    <span className={`truncate-tight text-mini ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-secondary'} ${className}`} title={text} data-testid="topic-waiting-on" data-waiting-on={on} data-agents={agents || undefined}>
+      {text}
+    </span>
+  );
 }
 
 function TopicPreviewLine({ topicId, onFill, className = '' }: {
@@ -211,18 +233,41 @@ function TopicPreviewLine({ topicId, onFill, className = '' }: {
   // un'icona — su una riga da 11px un glifo in più è rumore — e non un colore,
   // perché il colore da solo non dice chi ha parlato.
   const tone = onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary';
+  // The receipt sits OUTSIDE the truncating span: inside it a long last message
+  // would ellipsize the time away. The text shrinks, the time never does.
   return (
-    <span
-      className={`truncate-tight text-mini ${tone} ${className}`}
-      title={preview.text}
-      // Ancora per l'e2e: il testo dell'anteprima è quello dell'ultimo
-      // messaggio, quindi non è cercabile per stringa senza inseguire il seed.
-      data-testid="topic-preview"
-    >
-      {preview.role === 'user' && <span className="opacity-70">Tu: </span>}
-      {preview.text}
+    <span className={`flex min-w-0 items-baseline text-mini ${tone} ${className}`}>
+      <span
+        className="truncate-tight min-w-0"
+        title={preview.text}
+        // E2E anchor: the preview text is the last message, so it cannot be found by string.
+        data-testid="topic-preview"
+      >
+        {preview.role === 'user' && <span className="opacity-70">Tu: </span>}
+        {preview.text}
+      </span>
+      <FinishedAgo topicId={topicId} />
     </span>
   );
+}
+
+/**
+ * The receipt of a finished chat ("· 34m ago") at the tail of its preview line.
+ * Split into its own component so the shared 10s clock is subscribed only by
+ * rows that actually have a last-activity time to age.
+ */
+function FinishedAgo({ topicId }: { topicId: string | undefined }) {
+  const lastActivityAt = useSubjectLastActivity(topicId);
+  if (!lastActivityAt || !Number.isFinite(lastActivityAt) || lastActivityAt <= 0) return null;
+  return <FinishedAgoText at={lastActivityAt} />;
+}
+
+function FinishedAgoText({ at }: { at: number }) {
+  const now = useSharedNow();
+  const tr = useT();
+  const label = formatElapsedShort(Math.max(0, now - at));
+  if (!label) return null;
+  return <span className="shrink-0 whitespace-pre" data-testid="finished-ago">{` · ${tr('topic.finishedAgo', { time: label })}`}</span>;
 }
 
 /**
@@ -287,6 +332,8 @@ function ProjectElapsedTicking({ startedAt, onFill, className = '' }: {
  */
 export function SessionActivityBar({ subjectId, className = '' }: { subjectId: string | undefined; className?: string }) {
   const activity = useSessionActivity(subjectId);
+  // The bar sits in a chat (subjectId is its topic): the loader plays what its agent is doing.
+  const action = useTopicAction(subjectId);
   if (!activity) return null;
   // Il blu qui era `bg-sky-500`, cioè una tinta DIVERSA da quella dei fill di
   // tab e riga: due superfici che dicono la stessa cosa con due blu. Ora vengono
@@ -299,7 +346,7 @@ export function SessionActivityBar({ subjectId, className = '' }: { subjectId: s
   return (
     <div className={`flex items-center gap-2 px-3 py-1.5 border-b border-app-border bg-surface flex-shrink-0 ${className}`}>
       {activity.working || activity.tier === 'input'
-        ? <SparkLoader className="flex-shrink-0" state={activity.working ? 'working' : 'waiting'} />
+        ? <SparkLoader className="flex-shrink-0" state={activity.working ? 'working' : 'waiting'} activity={activity.working ? loaderActivityForAction(action) : undefined} />
         : <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />}
       <SessionActivity subjectId={subjectId} className="!text-compact" />
     </div>

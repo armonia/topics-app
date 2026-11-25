@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  automationJarvisText, automationKeyOfLink, automationSummary, hubPlaceOfLink, jarvisHref, jarvisLinks, macStrain, closeWaitingBody, failedJobs, firingAlerts, quotaLines, redGates, servicesDown, waitingItems,
+  automationJarvisText, automationKeyOfLink, automationSummary, hubPlaceOfLink, jarvisHref, jarvisLinks, macStrain, closeWaitingBody, failedJobs, firingAlerts, quotaLines, servicesDown, waitingItems,
 } from './hubSystem';
 
 const SERVICES = { at: 1, services: [
@@ -100,19 +100,6 @@ describe('HUBBR-03: the hub readers', () => {
   test('alerts are the firing ones, not the rules', () => {
     const data = { rules: [{ message: 'rule' }], firing: [{ id: 'muse:pace', subject: 'Muse pace', source: 'ritmo-muse', message: 'Ritmo Muse: 71%' }, { id: 'x' }] };
     expect(firingAlerts(data)).toEqual([{ id: 'muse:pace', subject: 'Muse pace', message: 'Ritmo Muse: 71%', source: 'ritmo-muse' }]);
-  });
-
-  test('red gates: classes and brakes that say go false', () => {
-    const data = {
-      classes: { interattivo: { go: true, reason: 'ok' }, batch: { go: false, reason: 'quota finita' } },
-      brakes: { muse: { go: false, reason: 'sopra ritmo' }, codex: { go: true } },
-      providers: { claude: { state: 'libero' } },
-    };
-    expect(redGates(data)).toEqual([
-      { id: 'class:batch', name: 'batch', kind: 'class', reason: 'quota finita' },
-      { id: 'brake:muse', name: 'muse', kind: 'brake', reason: 'sopra ritmo' },
-    ]);
-    expect(redGates('nope')).toEqual([]);
   });
 
   test('automations: counters and the next run from the summary, failed jobs from the full list', () => {

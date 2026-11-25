@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** costruite le tracce 0 e 1 (`PANE-AUTH-04` con test, tombstone causali). Mancano `POST /api/panes/intents` (nessuna rotta in `server/routes`), la coda di intenti persistente sul client e la migrazione 3; `client/src/state/pane/adapters/tombstoneSync.ts` esiste ancora (la 2e.1 lo cancella). `PANE-AUTH-01..03` non sono promossi in `openspec/specs/layout/spec.md` e senza test `@covers`.
+
 # Change: pane-store-server-authoritative
 
 ## Why

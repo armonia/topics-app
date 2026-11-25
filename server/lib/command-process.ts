@@ -130,6 +130,29 @@ export function commandArgv(command: string, exitPath: string, stopPath: string,
   return [shell, "-c", script, "_", shell, command, exitPath, stopPath];
 }
 
+/**
+ * The wrapper of a scheduled command (R11, R13): argv instead of a shell line,
+ * the exit code written beside the log, and a time limit the wrapper enforces
+ * itself, so it holds with the server stopped. At the limit it marks the
+ * timeout file and sends TERM to its own group; the command ends and the
+ * leader writes the code as for any other end. Positional parameters: exit
+ * file, stop file, timeout mark, seconds, then the argv.
+ */
+export function jobArgv(argv: string[], exitPath: string, stopPath: string, timeoutPath: string, timeoutSec: number, platform: NodeJS.Platform = process.platform): string[] | null {
+  if (!hasCommandShell(platform) || !argv.length) return null;
+  const shell = platform === "darwin" ? "/bin/zsh" : "/bin/sh";
+  const script = [
+    waitForGroupMembersScript(platform),
+    "_topics_exit=$1; _topics_stop=$2; _topics_mark=$3; _topics_limit=$4; shift 4",
+    "trap ':' TERM",
+    '( trap \'kill "$_topics_sleep" 2>/dev/null; exit 0\' TERM; sleep "$_topics_limit" & _topics_sleep=$!; wait "$_topics_sleep" && { printf 1 > "$_topics_mark"; kill -TERM "-$$"; } ) &',
+    "_topics_watchdog=$!",
+    `trap 'rc=$?; trap - EXIT; kill "$_topics_watchdog" 2>/dev/null; ${DRAIN_IGNORES_TERM}; wait; _topics_wait_for_group_members; printf "%s\\n" "$rc" > "$_topics_exit"; exit "$rc"' EXIT`,
+    `${START_UNLESS_STOPPING} "$_topics_stop" "$@"; exit "$?"`,
+  ].join("\n");
+  return [shell, "-c", script, "_", exitPath, stopPath, timeoutPath, String(Math.max(1, Math.floor(timeoutSec))), ...argv];
+}
+
 /** Keep the registered group leader alive through TERM while its child command exits. */
 export function commandGroupArgv(argv: string[], stopPath: string, platform: NodeJS.Platform = process.platform): string[] {
   if (platform === "win32") return argv;

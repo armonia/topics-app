@@ -24,10 +24,12 @@ const SERVER = join(ROOT, "server");
 /** Calls that have NO deadline by choice. `snippet` is a piece of the call's line. */
 const LONG_LIVED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/webrtc-bridge.ts", snippet: "spawn(bin, [\"--socket\"", why: "WebRTC bridge daemon: lives as long as the server" },
+  { file: "server/providers/exec-turn.ts", snippet: "spawn(bin, args", why: "the one-shot completion child (Codex, Muse): killed by its own timer, armed right after the spawn, at the caller's `timeoutMs` capped by PROVIDER_TURN_TIMEOUT_MS" },
   { file: "server/providers/muse.ts", snippet: "spawn(bin, args", why: "an agent turn: governed by the turn's abort, not by a fixed deadline" },
   { file: "server/providers/acp.ts", snippet: "spawn(bin", why: "an agent turn (ACP)" },
   { file: "server/providers/codex.ts", snippet: "spawn(bin, args", why: "an agent turn (Codex)" },
   { file: "server/providers/claude-code.ts", snippet: "spawn(resolveCliPath()", why: "an agent turn (CLI)" },
+  { file: "server/providers/claude/cli-launch.ts", snippet: "spawn(resolveCliPath()", why: "the one-shot completion: killed by its own timer at the caller's `timeoutMs` (30 min at most)" },
   { file: "server/providers/native/tools.ts", snippet: "spawn(argv[0]!", why: "an agent's command: the caller has its cap and its abort" },
   { file: "server/providers/native/mcp-client.ts", snippet: "spawn(this.command", why: "an MCP server: lives as long as the session" },
   { file: "server/ai-bridge.mjs", snippet: "spawn(cliPath", why: "the AI bridge: a long-lived child by design" },
@@ -39,6 +41,7 @@ const LONG_LIVED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/routes/processes.ts", snippet: "const proc = Bun.spawn(argv, {", why: "project script launched from the panel: lives until the user stops it" },
   { file: "server/services/review-checks.ts", snippet: "proc = Bun.spawn(lowPriorityArgv", why: "pre-review checks have their own cap and tree kill (`killCheckTree`)" },
   { file: "server/services/worktree-manager.ts", snippet: "Bun.spawn(installArgv(dir)", why: "`install` of the user's package manager: lasts as long as the network, in the worktree queue" },
+  { file: "server/reasoning-translation/apple-adapter.ts", snippet: "spawn(path, [], {", why: "the translation helper: stays up while reasoning is being translated, every request has its own deadline and it stops after 5 idle minutes" },
   { file: "server/lib/low-priority.ts", snippet: "spawn(cmd, args, { stdio: \"ignore\" })", why: "renice fired and forgotten: nobody waits for its result" },
   { file: "server/lib/fleet-usage.ts", snippet: "Bun.spawn([\"ps\"", why: "deadline in `snapshot()` with Promise.race (21/09)" },
   { file: "server/lib/fleet-usage.ts", snippet: "const proc = spawn();", why: "the injected `ps` above: the deadline is in the same function" },

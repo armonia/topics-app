@@ -62,23 +62,6 @@ export async function createRelayIdentity(): Promise<{ relayId: string; segreto:
   };
 }
 
-/** Signs a proof with WebCrypto. The tests use it to play the host; the machine uses the sync twin in `relay-client.ts`. */
-export async function createHostProof(segreto: string, relayId: string, timestamp = Date.now()): Promise<string> {
-  const privateKeyBytes = toArrayBuffer(daBase64url(segreto));
-  const signingKey = await crypto.subtle.importKey("pkcs8", privateKeyBytes, SIGNING_ALGORITHM, true, ["sign"]);
-  // WebCrypto has no "public key of this private key": the JWK export carries the point.
-  const { x, y } = await crypto.subtle.exportKey("jwk", signingKey);
-  if (!x || !y) throw new Error("Host key has no public component");
-  const verifyKey = await crypto.subtle.importKey(
-    "jwk", { kty: "EC", crv: "P-256", x, y, ext: true }, SIGNING_ALGORITHM, true, ["verify"],
-  );
-  const publicKeyBytes = new Uint8Array(await crypto.subtle.exportKey("spki", verifyKey));
-  const signature = await crypto.subtle.sign(
-    { name: "ECDSA", hash: "SHA-256" }, signingKey, toArrayBuffer(hostProofPayload(relayId, timestamp)),
-  );
-  return encodeHostProof(timestamp, publicKeyBytes, new Uint8Array(signature));
-}
-
 /** Verifies identity, signature, and expiry before routing the host to its Durable Object. */
 export async function verifyHostProof(
   proof: string | null | undefined,

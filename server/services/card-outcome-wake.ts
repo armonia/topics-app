@@ -16,6 +16,8 @@
  *  - A chat that only READ the card is not its opener, so it gets nothing.
  */
 import type { TaskStatus } from "../../shared/board";
+import type { WakeLaunch } from "../lib/wake-adoption";
+import { sleep } from "../lib/unref-sleep";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
 
@@ -31,8 +33,6 @@ export interface CardFrame {
   deliveryBranch?: string | null;
   checksState?: string | null;
   updatedAt?: string;
-  /** `ai_review`: the opener is already told by `services/ai-review-notice.ts`. */
-  stage?: string | null;
   recentComments?: ReadonlyArray<{ author?: string; content?: string; kind?: string }>;
 }
 
@@ -83,7 +83,7 @@ export interface CardOutcomeWakeDeps {
   isBusy(sessionKey: string): boolean;
   sessionKeyOfTopic(topicId: string): string | null;
   /** `wake`: send now. `wait`: not now. `row`: this chat cannot take a turn. */
-  canWake(sessionKey: string): "wake" | "wait" | "row";
+  canWake(sessionKey: string, launch?: WakeLaunch): "wake" | "wait" | "row";
   log?: (msg: string) => void;
   now?: () => number;
   pollMs?: number;
@@ -91,8 +91,6 @@ export interface CardOutcomeWakeDeps {
   /** A card never seen before counts as a fresh outcome only if its row changed this recently. */
   freshMs?: number;
 }
-
-const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.(); });
 
 export function createCardOutcomeWake(deps: CardOutcomeWakeDeps) {
   const now = deps.now ?? Date.now;
@@ -108,10 +106,13 @@ export function createCardOutcomeWake(deps: CardOutcomeWakeDeps) {
     await sleep(debounceMs);
     for (;;) {
       if (deps.isBusy(sessionKey)) { await sleep(pollMs); continue; }
-      const verdict = deps.canWake(sessionKey);
-      if (verdict === "wait") { await sleep(pollMs); continue; }
-      const batch = pending.get(sessionKey)?.splice(0) ?? [];
-      if (!batch.length || verdict === "row") return;
+      const live = pending.get(sessionKey) ?? [];
+      const verdicts = live.map((b) => deps.canWake(sessionKey, { taskId: b.frame.id }));
+      if (verdicts.some((v) => v === "wait")) { await sleep(pollMs); continue; }
+      // A card whose chat cannot take a turn is dropped; the others go together.
+      const batch = live.filter((_, i) => verdicts[i] === "wake");
+      pending.delete(sessionKey);
+      if (!batch.length) return;
       const url = new URL("http://localhost/api/chat");
       const resp = await deps.route(
         new Request(url, {
@@ -120,7 +121,11 @@ export function createCardOutcomeWake(deps: CardOutcomeWakeDeps) {
           body: JSON.stringify({
             sessionKey,
             messages: [{ role: "user", content: batch.map((b) => cardOutcomeText(b.frame, b.outcome)).join("\n\n") }],
-            dispatched: true,
+            // Not `dispatched`: that says «a card is the subject of this chat»,
+            // and the attention state then kept the person's own chat idle for
+            // the whole turn, no loader in the tab, no «finished» at its end.
+            // This turn is the chat's; the mark only says nobody typed the row.
+            cardOutcome: true,
           }),
         }),
         url, "/api/chat", "POST",
@@ -164,9 +169,9 @@ export function createCardOutcomeWake(deps: CardOutcomeWakeDeps) {
       const changedAt = frame.updatedAt ? Date.parse(frame.updatedAt) : NaN;
       if (!Number.isFinite(changedAt) || now() - changedAt > freshMs) return;
     }
-    if (!frame.openerTopicId || frame.stage === "ai_review") return;
+    if (!frame.openerTopicId) return;
     const sessionKey = deps.sessionKeyOfTopic(frame.openerTopicId);
-    if (!sessionKey || deps.canWake(sessionKey) === "row") return;
+    if (!sessionKey || deps.canWake(sessionKey, { taskId: frame.id }) === "row") return;
     enqueue(sessionKey, frame, outcome);
   }
 

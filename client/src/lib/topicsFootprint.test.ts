@@ -3,10 +3,7 @@
  */
 import { test, expect, describe, beforeEach } from 'bun:test';
 import {
-  computeTopicsFootprint,
-  serverMetricLabel,
-  _resetTopicsFootprintSmoothing,
-  type TopicsUsageInput,
+  computeTopicsFootprint, _resetTopicsFootprintSmoothing, type TopicsUsageInput,
 } from './topicsFootprint';
 
 beforeEach(() => {
@@ -142,17 +139,5 @@ describe('computeTopicsFootprint · smorzamento', () => {
     // Dopo reset il primo valore e raw, non smorzato
     const fp = computeTopicsFootprint(letture({ serverMB: 100 }));
     expect(fp.serverMB).toBe(100);
-  });
-});
-
-describe('serverMetricLabel', () => {
-  test('footprint', () => {
-    expect(serverMetricLabel('footprint')).toBe('footprint');
-  });
-  test('rss', () => {
-    expect(serverMetricLabel('rss')).toBe('RSS (stima alta)');
-  });
-  test('mixed', () => {
-    expect(serverMetricLabel('mixed')).toBe('footprint parziale');
   });
 });

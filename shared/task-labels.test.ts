@@ -7,7 +7,6 @@ import { join } from "node:path";
 import {
   deriveCloser,
   deriveKind,
-  isAgentWritableLabel,
   isDocumentFile,
   isTaskLabel,
   isUserVisibleFile,
@@ -109,22 +108,6 @@ describe("deriveCloser — le tre classi", () => {
   test("un documento INSIEME al codice non salva il codice", () => {
     // Un `.md` accanto a un cambio di server non lo trasforma in un piano.
     expect(deriveCloser(["docs/x.md", "server/routes/tasks.ts"])).toBe("invisibile");
-  });
-});
-
-describe("chi può scrivere che cosa", () => {
-  test("un agente alza la mano, non se la abbassa", () => {
-    // `visibile` e `decisione` sono due modi di passare la card a un umano:
-    // sempre permessi. `invisibile` è l'unica che gliela toglie.
-    expect(isAgentWritableLabel("visibile")).toBe(true);
-    expect(isAgentWritableLabel("decisione")).toBe(true);
-    expect(isAgentWritableLabel("invisibile")).toBe(false);
-  });
-  test("le etichette di genere non decidono niente, quindi le scrive chiunque", () => {
-    for (const l of KIND_LABELS) expect(isAgentWritableLabel(l)).toBe(true);
-  });
-  test("ciò che non è nel vocabolario non è scrivibile da nessuno", () => {
-    expect(isAgentWritableLabel("bugfix-ui")).toBe(false);
   });
 });
 

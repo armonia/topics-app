@@ -1,0 +1,5 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-17
+x-status: proposed
+x-richiesta: "il nodo principale si sceglie a mano dalla tray, così quando spengo o mi porto via il Mac il lavoro continua sul server Hetzner"

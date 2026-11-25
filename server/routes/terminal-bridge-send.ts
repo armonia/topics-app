@@ -44,15 +44,27 @@ export function resolveTerminalSend(
   // over 1022 bytes reached it without its head (lib/subagent-seed.ts). Keys
   // (Enter, arrows, anything with a control byte) and short text stay raw so
   // dialogs and menus keep reading them as keystrokes.
-  const claudeTui = sessionType === "claude-code" || sessionType === "claude-code-team";
+  const claudeTui = isPasteTui(sessionType);
   // One trailing Enter (the legacy gateway sends `text + "\r"`) is split off and
   // sent as its own key after the paste.
   const enter = data.endsWith("\r");
-  const text = enter ? data.slice(0, -1) : data;
+  // CRLF from a pasted document is line breaks, not Enter: normalise it so the
+  // text stays "plain" and takes the paste path instead of the raw write.
+  const text = normalizeLineBreaks(enter ? data.slice(0, -1) : data);
   if (claudeTui && Buffer.byteLength(text, "utf8") > PASTE_MIN_BYTES && isPlainText(text)) {
     return { data: promptAsPaste(text), sent, dropped: false, pasted: true, enter };
   }
   return { data, sent, dropped: false, pasted: false };
+}
+
+/** TUIs that take long text as one bracketed paste (a raw write over 1022 bytes loses its head). */
+export function isPasteTui(sessionType: string | undefined): boolean {
+  return sessionType === "claude-code" || sessionType === "claude-code-team" || sessionType === "codex";
+}
+
+/** CRLF becomes LF (a lone CR stays an Enter key), so line breaks inside a long text do not count as control bytes. */
+export function normalizeLineBreaks(s: string): string {
+  return s.replace(/\r\n/g, "\n");
 }
 
 /** Under this many bytes a write reaches the TUI in one piece (macOS reads 1022 at a time). */

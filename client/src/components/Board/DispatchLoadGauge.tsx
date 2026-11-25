@@ -187,7 +187,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
         aria-valuemax={reading.limit != null && Number.isFinite(reading.limit) ? reading.limit : undefined}
         aria-label={phrase}
         title={phrase}
-        className={`tap-expand-y flex items-center gap-1 rounded px-1 py-0.5 text-mini font-medium normal-case tracking-normal tabular-nums hover:bg-white/10 ${loadToneClass(reading)}`}
+        className={`tap-expand-y flex items-center gap-1 rounded px-1 py-0.5 text-mini font-medium normal-case tracking-normal tabular-nums hover:bg-black/5 dark:hover:bg-white/10 ${loadToneClass(reading)}`}
       >
         <LoadRing reading={reading} size={12} />
         <span data-testid="dispatch-load-word">{tr(loadWordKey(reading))}</span>
@@ -248,7 +248,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
               type="button"
               data-testid="dispatch-load-settings"
               onClick={() => { setOpen(false); onOpenSettings(); }}
-              className="mt-1 w-full rounded bg-white/5 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/10"
+              className="mt-1 w-full rounded bg-black/5 dark:bg-white/5 px-2 py-1 text-mini text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10"
             >{tr('board.gauge.settings')}</button>
           )}
         </div>

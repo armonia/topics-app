@@ -171,6 +171,15 @@ export const SERIAL_GLOBS = [
   // the watchdog answered at 2083 ms), green on the same tests before the
   // rebase (run 40022305558): the window follows the load of the box.
   "tests/integration/late-scan-past-cap.test.ts",
+  // Spawns `tsc`/`eslint` and waits on their own CPU-bound deadline: five
+  // consecutive pre-review rounds red on commit 027037c9 (11/11/2026),
+  // green standalone every time. CPU contention from the other shards, not
+  // the code under review.
+  "relay/gate-coverage.test.ts",
+  // A real SSE drain against a hardcoded 10 s cap inside a 30 s test timeout,
+  // neither scaled by `TOPICS_TEST_TIME_SLACK`: same five-red streak as
+  // gate-coverage above, same commit, same fix.
+  "tests/integration/native-shutdown-notice.test.ts",
 ] as const;
 
 const TEST_GLOBS = ["**/*.test.ts", "**/*.test.tsx"] as const;
@@ -547,8 +556,12 @@ if (import.meta.main) {
   }
   // What reached the REAL temp folder in spite of the private one: a test that
   // writes to a hard-coded path. Judged only where nobody else is writing to
-  // it (CI); on a developer machine other programs add entries all the time.
-  const escaped = process.env.CI
+  // it (a CI runner); on a developer machine other programs add entries all the time.
+  // `CI` alone is not that: the board's pre-review checks set `CI=1` on the developer
+  // machine too, and there the hub and native builds wrote into the real temp folder
+  // and turned card 8e9c2873 red with no test at fault. `GITHUB_ACTIONS` is set only by a runner,
+  // and `CI` stays required so a caller that unsets it still switches the check off.
+  const escaped = process.env.CI && process.env.GITHUB_ACTIONS === "true"
     ? OUTER_TEMP_ROOTS.flatMap((dir, i) =>
         newEntries(outerBefore[i]!, dir)
           // The short base `testTmpDir` makes on purpose: what is INSIDE it is judged by the second root.

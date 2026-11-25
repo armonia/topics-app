@@ -4,6 +4,7 @@
  * One reconciliation: requeue, park, hand to review or wait for a command, and
  * the review chip that goes with it.
  */
+import { BOARD_HOLD_KEY, setProviderHold, holdFromDeclaredReset } from "../lib/provider-hold";
 import { isAgentAuthor } from "../../shared/comment-author";
 import { awaitsHuman } from "../../shared/workflow";
 import { commentAsksHuman, type Task } from "./tasks";
@@ -238,6 +239,16 @@ export function createTurnEnd(ctx: DispatcherCtx) {
         // perché quella è una funzione pura sul singolo turno e questa è una
         // domanda sulla STORIA del task.
         let free = !consumesAttempt(end);
+        // A WALL THAT NAMES ITS END IS A WAIT, NOT A FAILED ATTEMPT. A turn that died on an
+        // error declaring when the plan frees up (`resets_at`, see `readDeclaredReset`) costs
+        // nothing: the hold goes up until then, and the wait below (`taskPlanWait`) parks the
+        // card in Todo until that hour. Without it four such turns in a row sent the card to
+        // backlog, where nobody takes it up again (19/11, card 8f2d0c9f, reserve stop).
+        if (end.end === "error") {
+          const wall = holdFromDeclaredReset(end.detail);
+          // The wall belongs to the board, not to chats: the reserve stays with whoever can confirm it (BOARD_HOLD_KEY).
+          if (wall) { setProviderHold({ ...wall, provider: BOARD_HOLD_KEY }); free = true; }
+        }
         // `process-died` arriva come `error` ma NON si perdona: è la rete di
         // sicurezza sulla liveness, cioè l'unico freno contro una sessione
         // fantasma. Perdonare anche quella significherebbe pagare un problema
@@ -438,8 +449,7 @@ export function createTurnEnd(ctx: DispatcherCtx) {
             // notification (OS banner + web-push) would never fire. Emit it here:
             // this is exactly the "task waiting for review after a timeout" case
             // that was previously silent.
-            // Only a card that waits on a PERSON rings: one routed to AI review goes
-            // back to whoever opened it (`awaitsHuman`, shared/workflow.ts).
+            // Only a card that waits on a PERSON rings (`awaitsHuman`, shared/workflow.ts).
             if (awaitsHuman(delivered)) {
               try {
                 deps.broadcast({

@@ -133,6 +133,49 @@ describe("a wait open across a restart", () => {
     expect(rowCount()).toBe(rowsBefore);
   });
 
+  // The 19/11 question that left no row: one was open at the stop, the agent
+  // asked ANOTHER after the restart, and the first wait of its kind took the
+  // carried id, so the new question counted as the old one said again.
+  it("a DIFFERENT question after the restart, while the old one was open at the stop, is a new epoch and notifies", async () => {
+    _dropAskStateLikeARestart();
+    bootWired();
+    turnStarted("topic:askme");
+    beginAsk("topic:askme", Date.now(), "Which of the four?");
+    expect(getAttention("topic:askme")).toMatchObject({ state: "needs-you", reason: "question", epoch: 1 });
+
+    _dropAskStateLikeARestart();
+    resetAttentionStore();
+    pushes.length = 0; frames.length = 0;
+    bootWired();
+    recomposeAttentionOnBoot({ liveProcess: () => true });
+    await new Promise((r) => setTimeout(r, 5));
+    beginAsk("topic:askme", Date.now() + 1, "The four proposals are side by side: which one?");
+
+    expect(getAttention("topic:askme")).toMatchObject({ state: "needs-you", reason: "question", epoch: 2 });
+    expect(liveAnnounces()).toHaveLength(1);
+  });
+
+  it("the SAME question said again after the restart, with its words, is still no new epoch", async () => {
+    _dropAskStateLikeARestart();
+    bootWired();
+    turnStarted("topic:askme");
+    beginAsk("topic:askme", Date.now(), "Which of the four?");
+    const rowsBefore = rowCount();
+
+    _dropAskStateLikeARestart();
+    resetAttentionStore();
+    pushes.length = 0; frames.length = 0;
+    bootWired();
+    recomposeAttentionOnBoot({ liveProcess: () => true });
+    await new Promise((r) => setTimeout(r, 5));
+    beginAsk("topic:askme", Date.now() + 1, "Which of the four?");
+
+    expect(getAttention("topic:askme")).toMatchObject({ state: "needs-you", reason: "question", epoch: 1 });
+    expect(pushes).toHaveLength(0);
+    expect(liveAnnounces()).toHaveLength(0);
+    expect(rowCount()).toBe(rowsBefore);
+  });
+
   it("a new question after the restart, once the old one was answered, is a new epoch", () => {
     bootWired();
     turnStarted("topic:askme");

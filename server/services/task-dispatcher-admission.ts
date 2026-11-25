@@ -402,6 +402,7 @@ export function createAdmission(ctx: DispatcherCtx) {
   const spendBrake: ReturnType<typeof createSpendBrake> = createSpendBrake({
     getSpendCaps: () => deps.svc.getSpendCaps(),
     spent24hCents: () => deps.svc.agentSpend().cents24h,
+    clearsAtMs: (capCents) => deps.svc.agentSpendClearsAt(capCents),
     log,
   });
 

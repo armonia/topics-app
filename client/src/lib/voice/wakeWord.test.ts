@@ -4,7 +4,7 @@
  * @covers VOICE-02
  */
 import { describe, test, expect } from 'bun:test';
-import { extractAfterWakePhrase, containsWakePhrase, DEFAULT_WAKE_PHRASE } from './wakeWord';
+import { extractAfterWakePhrase, DEFAULT_WAKE_PHRASE } from './wakeWord';
 
 describe('extractAfterWakePhrase', () => {
   test('assente: null', () => {
@@ -25,12 +25,5 @@ describe('extractAfterWakePhrase', () => {
 
   test('una frase vuota per parola d\'attivazione: mai un match', () => {
     expect(extractAfterWakePhrase('qualunque cosa', '   ')).toBeNull();
-  });
-});
-
-describe('containsWakePhrase', () => {
-  test('rispecchia extractAfterWakePhrase', () => {
-    expect(containsWakePhrase(`${DEFAULT_WAKE_PHRASE} ok`)).toBe(true);
-    expect(containsWakePhrase('niente qui')).toBe(false);
   });
 });

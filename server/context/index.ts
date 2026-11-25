@@ -9,7 +9,7 @@
  *     per le funzioni: il barile ri-esporta SOLO ciò che qualcuno importa da
  *     qui. I costruttori di singoli blocchi (`browserInstructionContent`,
  *     `planModeContent`, `projectMarkersContent`, `topicSwitchContent`), i
- *     helper di test (`resetInlineSent`, `snapshotCounts`, `hashSlot`) e le
+ *     helper di test (`snapshotCounts`, `hashSlot`) e le
  *     costanti interne (`RING_SIZE`) si prendono dal loro modulo, che è già
  *     quello che fanno i chiamanti veri.
  *

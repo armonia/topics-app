@@ -69,6 +69,7 @@ import { GATES_CI_CHECK, NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type R
 import { lowPriorityArgv } from "../lib/low-priority";
 import { ChecksInterruptedError } from "./checks-gate";
 import { cardTag, supersedePreviousDelivery } from "./ci-supersede";
+import { CI_PUSH_TIMEOUT_MS, type CiStep, pushRejectedAsNonFastForward, reportStepFault } from "./ci-evidence-fault";
 import { reviewChecksStopping } from "./review-checks-brakes";
 
 /** No verdict this long after the push is NOT MEASURED (42 min measured in a 10-PR burst). */
@@ -97,24 +98,29 @@ export const CI_BASE_BRANCH = "main";
 /** What unblocks a row whose run ended without a verdict, in the words of the card. */
 const NEEDS_A_NEW_COMMIT = "this same commit cannot be measured again, only a new commit can";
 /**
- * A DELIVERY WITH NOTHING OF ITS OWN STAYS NOT MEASURED, and the sentence names
- * BOTH ways out because only one of them belongs to an agent.
+ * A DELIVERY WITH NOTHING OF ITS OWN IS SKIPPED, NOT NOT MEASURED.
  *
- * The verdict was weighed again on 17/09/2026: three real cards of that night
- * had exactly this shape (their work was already in `main`, nothing left to
- * land), and NOT MEASURED sends the delivery back to its agent instead of into
- * review. Kept anyway. This shape is indistinguishable, from here, from the ones
- * that are real damage: a commit made on the wrong branch, a worktree reset onto
- * `main`, a branch whose commits a rebase dropped. Two green rows would be the
- * exact lie these rows exist not to tell, on the one input where NOTHING was
- * measured. What was wrong was the advice: "only a new commit can" told an agent
- * whose work is already merged to invent a commit that does not exist, so the
- * reason now says the other exit first, the one a person takes.
+ * Until 17/11/2026 this returned `notMeasured`, which `runChecksGate` reads as
+ * a row that FAILED to measure and refuses `update_task(status="review")` for
+ * it. The reasoning behind that (kept here, not followed anymore): this shape
+ * is indistinguishable, from here, from one that is real damage — a commit on
+ * the wrong branch, a worktree reset onto `main`, a rebase that dropped
+ * commits — and a plain green row would be the exact lie `review-checks.ts`
+ * warns against for local rails.
+ *
+ * In practice it blocked every card whose work genuinely lives outside the
+ * repo (a question, an analysis, headless work): `gh pr create` was never
+ * even reached, there was nothing to push, and the card bounced to review
+ * twice in a row on nothing but "no commit of its own" (card 9f9663cc,
+ * 17/11/2026). Nothing to measure is a legitimate outcome, not a defect, so
+ * it is reported as `ciSkipped`: `ok: true` so the gate lets the delivery
+ * through, `skipped: true` so the card never claims a CI verdict nobody ran.
+ * A branch that truly lost its commits still looks the same from here; that
+ * mistake shows up in the delivery's own diff, which this row does not read.
  */
 const NO_OWN_COMMIT =
-  `no commit of its own beyond ${CI_BASE_BRANCH}: nothing was pushed and no CI run reads this delivery. ` +
-  `Either the work of this card is already in ${CI_BASE_BRANCH}, and then there is nothing to land and a person closes it, ` +
-  `or this branch lost the commits it had, and then ${NEEDS_A_NEW_COMMIT}`;
+  `no commit of its own beyond ${CI_BASE_BRANCH}: nothing to push, nothing for a CI run to measure. ` +
+  `Either the work of this card is already in ${CI_BASE_BRANCH}, or it never touched the repo at all.`;
 const E2E_JOB = /^e2e( \(\d+\))?$/;
 const PREPARE_JOB = "prepare-e2e";
 /** The jobs whose red stops the e2e shards of a pull request (scripts/e2e-stop-on-red.sh). */
@@ -166,11 +172,6 @@ export type CiEvidence =
 export function repoFromRemote(url: string): string | null {
   const m = url.trim().match(/^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/(?:[^@/]+@)?github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/);
   return m ? m[1]! : null;
-}
-
-/** `git push --porcelain` refused the ref because the remote moved on. */
-export function pushRejectedAsNonFastForward(porcelainOut: string): boolean {
-  return /\[rejected\] \((non-fast-forward|fetch first)\)/.test(porcelainOut);
 }
 
 /**
@@ -378,12 +379,47 @@ function contextLines(run: GithubRun | null, ctx: RunContext): string[] {
 }
 
 /** A NOT MEASURED row: code 97, the reason first. Never `timedOut`. */
-export function ciNotMeasured(check: ReviewCheck, reason: string, extra: RunContext & { ms?: number; run?: GithubRun | null } = {}): CheckRun {
+export function ciNotMeasured(check: ReviewCheck, reason: string, extra: RunContext & { ms?: number; run?: GithubRun | null; transient?: boolean } = {}): CheckRun {
   return {
     name: check.name, cmd: check.cmd, ok: false, code: NOT_MEASURED_EXIT, ms: extra.ms ?? 0,
-    timedOut: false, notMeasured: true,
+    timedOut: false, notMeasured: true, ...(extra.transient ? { transient: true } : {}),
     tail: [`NOT MEASURED: ${reason}`, ...contextLines(extra.run ?? null, extra)].join("\n"),
   };
+}
+
+/**
+ * MEASURING AGAIN IS WORTH IT: no row is red, and a row without a verdict says
+ * its cause passes by itself (`transient`).
+ *
+ * Measured on 133 rounds: 29% of the `e2e-ci` rows ended with no verdict, most
+ * of them on the 60-minute deadline while the run sat in the runner queue. The
+ * gate read them as a failed delivery and handed the card back to its agent,
+ * which had nothing to fix: same commit, same run, only later. A dead end (the
+ * rerun spent, a conflict with main, a branch someone else pushed) is NOT
+ * transient: only a new commit or a person unblocks it, and the agent is told.
+ */
+export function ciRemeasurable(rows: readonly CheckRun[]): boolean {
+  if (rows.some((r) => !r.ok && !r.notMeasured && !r.timedOut)) return false;
+  return rows.some((r) => r.notMeasured === true && r.transient === true);
+}
+
+/**
+ * A CI ROW BELONGS TO THE HEAD IT WAS READ ON. A row that names the head of its
+ * run and that head is not the commit being measured is evidence of an earlier
+ * delivery (a green run of the previous tip next to a queued run of the new one),
+ * and writing it as a verdict of this commit lands code nobody measured. It
+ * becomes a transient NOT MEASURED row, so the round is measured again.
+ */
+export function ciRowOfThisHead(row: CheckRun, check: ReviewCheck, commit: string | null): CheckRun {
+  if (!row.ciCommit || !commit) return row;
+  const n = Math.min(row.ciCommit.length, commit.length);
+  if (n >= 7 && row.ciCommit.slice(0, n) === commit.slice(0, n)) return row;
+  return ciNotMeasured(check, `the CI evidence describes commit ${row.ciCommit.slice(0, 8)}, not ${commit.slice(0, 8)}`, { transient: true });
+}
+
+/** A SKIPPED row: nothing of this card's own to measure. `ok: true`, so the review gate lets the delivery through; `skipped: true`, so the card never reads it as a verdict GitHub never gave. */
+export function ciSkipped(check: ReviewCheck, reason: string): CheckRun {
+  return { name: check.name, cmd: check.cmd, ok: true, code: 0, ms: 0, timedOut: false, skipped: true, tail: `SKIPPED: ${reason}` };
 }
 
 /** The CheckRun of a settled outcome (a pending one is not a row). */
@@ -404,6 +440,7 @@ export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { ki
   if (outcome.kind === "pass") {
     return {
       name: check.name, cmd: check.cmd, ok: true, code: 0, ms, timedOut: false,
+      ...(outcome.run ? { ciCommit: outcome.run.head_sha } : {}),
       tail: [`${label} green on the pull request CI`, ...contextLines(outcome.run, ctx), jobList].join("\n"),
     };
   }
@@ -415,6 +452,7 @@ export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { ki
   return {
     name: check.name, cmd: check.cmd, ok: false, code: 1, ms, timedOut: false,
     ...(elsewhere ? { ciRunRed: elsewhere } : {}),
+    ...(outcome.run ? { ciCommit: outcome.run.head_sha } : {}),
     tail: [
       `${label} red on the pull request CI: ${outcome.failed.map((j) => j.name).join(", ")}`,
       ...(elsewhere ? [`look there first, the shards stop when unit or gates is red: ${elsewhere}`] : []),
@@ -574,7 +612,7 @@ export function githubPort(): GithubPort {
       const argv = ["git", "push", "--porcelain",
         ...(lease ? [`--force-with-lease=refs/heads/${branch}:${lease}`] : []),
         "origin", `${sha}:refs/heads/${branch}`];
-      const r = await spawnCapped(argv, cwd);
+      const r = await spawnCapped(argv, cwd, CI_PUSH_TIMEOUT_MS);
       if (r.code === 0) return { ok: true, value: "pushed" };
       if (!lease && pushRejectedAsNonFastForward(`${r.out}\n${r.err}`)) return { ok: true, value: "non-fast-forward" };
       return failed(argv, r);
@@ -657,7 +695,7 @@ export type AwaitCiDeps = {
  * server stops the checks.
  */
 export async function awaitCiEvidence(
-  input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[] },
+  input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[]; onFault?: (step: CiStep, error: string) => void },
   deps: AwaitCiDeps = {},
 ): Promise<CheckRun[]> {
   const port = deps.port ?? githubPort();
@@ -683,18 +721,24 @@ export async function awaitCiEvidence(
   const settled = new Map<ReviewCheck, CheckRun>();
   const open = () => checks.filter((c) => !settled.has(c));
   // Every row still open gets the same reason; the rows already settled keep theirs.
-  const notMeasured = (reason: string, ctx: RunContext & { run?: GithubRun | null } = {}): CheckRun[] =>
+  const notMeasured = (reason: string, ctx: RunContext & { run?: GithubRun | null; transient?: boolean } = {}): CheckRun[] =>
     checks.map((c) => settled.get(c) ?? ciNotMeasured(c, reason, { ...ctx, ms: elapsed() }));
+  // A cause that passes by itself: the same commit measured again can still give a verdict.
+  const notYet = (reason: string, ctx: RunContext & { run?: GithubRun | null } = {}): CheckRun[] =>
+    notMeasured(reason, { ...ctx, transient: true });
+  const fault = (step: CiStep, reason: string, transient = false): CheckRun[] =>
+    (reportStepFault({ taskId: input.taskId, sha }, step, reason, input.onFault), transient ? notYet(reason) : notMeasured(reason));
+  const skipped = (reason: string): CheckRun[] => checks.map((c) => settled.get(c) ?? ciSkipped(c, reason));
 
   halt();
   const own = await port.ownCommits(cwd, sha, CI_BASE_BRANCH);
-  if (!own.ok) return notMeasured(`cannot count the commits beyond ${CI_BASE_BRANCH}: ${own.error}`);
+  if (!own.ok) return notYet(`cannot count the commits beyond ${CI_BASE_BRANCH}: ${own.error}`);
   // A GREEN THAT MEASURED NOTHING IS NOT A GREEN (`review-checks.ts` says it of
   // the local rails, and these rows exist for the same reason). Until 17/09/2026
   // a branch with nothing of its own beyond main came back as TWO greens with a
   // note in the tail — the shortest path there is to deliver a branch that
   // measures nothing at all.
-  if (own.value === 0) return notMeasured(NO_OWN_COMMIT);
+  if (own.value === 0) return skipped(NO_OWN_COMMIT);
   const branch = await port.branch(cwd);
   if (!branch.ok || !branch.value) return notMeasured(`the worktree is not on a branch${branch.ok ? "" : `: ${branch.error}`}`);
   const repo = await port.repo(cwd);
@@ -702,7 +746,7 @@ export async function awaitCiEvidence(
 
   halt();
   const pushed = await port.push(cwd, sha, branch.value);
-  if (!pushed.ok) return notMeasured(`push failed: ${pushed.error}`);
+  if (!pushed.ok) return fault("push", `push failed: ${pushed.error}`, true);
   if (pushed.value === "non-fast-forward") {
     const head = await port.remoteHead(cwd, branch.value);
     if (!head.ok || !head.value) return notMeasured(`push rejected and the remote head is unreadable${head.ok ? "" : `: ${head.error}`}`);
@@ -712,14 +756,18 @@ export async function awaitCiEvidence(
       return notMeasured(`the remote branch ${branch.value} has commits this worktree never had (${head.value.slice(0, 8)}): left untouched`);
     }
     const forced = await port.push(cwd, sha, branch.value, head.value);
-    if (!forced.ok || forced.value !== "pushed") return notMeasured(`push with lease failed${forced.ok ? "" : `: ${forced.error}`}`);
+    if (!forced.ok || forced.value !== "pushed") return fault("push", `push with lease failed${forced.ok ? "" : `: ${forced.error}`}`);
   }
 
   const pr = await port.draftPullRequest(cwd, repo.value, branch.value,
     `board: ${branch.value} ${cardTag(input.taskId)}`,
     `Draft opened by the Topics board for commit ${sha.slice(0, 8)} of card ${input.taskId.slice(0, 8)}, ` +
       "to read the pull request CI (e2e jobs, unit tests). Not a request to merge: a person marks it ready when the card lands.");
-  if (!pr.ok) return notMeasured(`cannot open or find the draft pull request: ${pr.error}`);
+  // GitHub refuses a pull request with no diff against the remote base ("No commits
+  // between main and <branch>"): local `main` was behind, or the commits are already
+  // on the remote. Nothing for a CI run to measure, same outcome as no own commit.
+  if (!pr.ok && /no commits between/i.test(pr.error)) return skipped(NO_OWN_COMMIT);
+  if (!pr.ok) return fault("draft-pr", `cannot open or find the draft pull request: ${pr.error}`, true);
   await supersedePreviousDelivery(port, { cwd, repo: repo.value, taskId: input.taskId, branch: branch.value, sha, pr: pr.value, baseBranch: CI_BASE_BRANCH })
     .catch(() => undefined);
   const ctx: RunContext = { repo: repo.value, prUrl: pr.value.url };
@@ -769,7 +817,7 @@ export async function awaitCiEvidence(
       errors += 1;
       lastError = runs.error;
     }
-    if (errors >= errorsMax) return notMeasured(`${errors} GitHub reads failed in a row: ${lastError}`, { ...ctx, run: lastRun });
+    if (errors >= errorsMax) return notYet(`${errors} GitHub reads failed in a row: ${lastError}`, { ...ctx, run: lastRun });
     let noRun = false;
     const page = read;
     const run = page ? latestCiRun(sha, page.runs) : null;
@@ -892,7 +940,7 @@ export async function awaitCiEvidence(
       }
     }
     if (waited >= deadlineMs) {
-      return notMeasured(`no CI verdict ${Math.round(deadlineMs / 60_000)} minutes after the push`, { ...ctx, run: lastRun });
+      return notYet(`no CI verdict ${Math.round(deadlineMs / 60_000)} minutes after the push`, { ...ctx, run: lastRun });
     }
     await pause(pollMs);
   }

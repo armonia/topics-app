@@ -6,36 +6,7 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import {
-  EMPTY_TOPIC_BROWSER_WINDOW,
-  MIN_WINDOW_SIZE,
-  EXPANDED_WIDTH_BOUNDS,
-  open,
-  activate,
-  close,
-  setMode,
-  move,
-  setWidth,
-  resizeFloating,
-  MIN_WINDOW_SIZE_BOUNDS,
-  promoteToTab,
-  returnFromTab,
-  releasePromoted,
-  reconcilePromoted,
-  resolveMinRect,
-  sanitizeTopicBrowserWindow,
-  applyRemoteTopicWindow,
-  applyRemoteTopicWindowInit,
-  applyTopicWindowFrame,
-  reloadTopicWindowsFromServer,
-  getTopicWindow,
-  findTopicOwningPromoted,
-  flushTopicWindowWrites,
-  updateSheet,
-  forgetTopicWindow,
-  subscribeTopicWindows,
-  topicBrowserWindow,
-  __resetTopicWindows,
-  type TopicBrowserWindowState,
+  EMPTY_TOPIC_BROWSER_WINDOW, EXPANDED_WIDTH_BOUNDS, open, activate, close, setMode, move, setWidth, resizeFloating, MIN_WINDOW_SIZE_BOUNDS, promoteToTab, returnFromTab, releasePromoted, reconcilePromoted, resolveMinRect, sanitizeTopicBrowserWindow, applyRemoteTopicWindow, applyRemoteTopicWindowInit, applyTopicWindowFrame, reloadTopicWindowsFromServer, getTopicWindow, findTopicOwningPromoted, flushTopicWindowWrites, updateSheet, forgetTopicWindow, subscribeTopicWindows, topicBrowserWindow, __resetTopicWindows, type TopicBrowserWindowState,
 } from './topicBrowserWindow';
 import { topicIdFromKey } from './topicBrowserKey';
 import { getTabId } from './pane/middleware/syncCrossTab';
@@ -166,12 +137,6 @@ describe('resolveMinRect (the corner survives a resize of the app)', () => {
     expect(tiny.height).toBe(240);
     expect(tiny.left).toBe(0);
     expect(tiny.top).toBe(0);
-  });
-
-  test('without a stored position the window sits in the default corner', () => {
-    const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, { width: 1440, height: 900 });
-    expect(r.left).toBe(1440 - 24 - MIN_WINDOW_SIZE.width);
-    expect(r.top).toBe(900 - 24 - MIN_WINDOW_SIZE.height);
   });
 
   // A composer DOCKED at the bottom: there is no room underneath, so the

@@ -158,6 +158,37 @@ test.describe("Multi-project intake proposal", () => {
     expect(roots[0].text).toContain("Alpha");
   });
 
+  test("under the «Needs you» filter, a card and a 3-card plan made here all stay visible until the filter changes", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-106" });
+    await page.goto("/");
+    await openProjectBoard(page);
+    const filter = page.getByTestId("board-needs-me");
+    await filter.click(); // Needs you: hides every card that does not wait on the person, a new one too
+    const composer = page.getByTestId("board-task-composer").locator("textarea");
+    const card = (title: string) => page.locator("[data-task-card]", { hasText: title });
+
+    await composer.click();
+    await composer.fill("Pin single card");
+    await composer.press("Enter");
+    await expect(card("Pin single card")).toBeVisible({ timeout: 15000 });
+
+    await composer.click();
+    await composer.fill(`@${PROJECT_NAME} Pin plan one
+@${PROJECT_NAME} Pin plan two
+@${PROJECT_NAME} Pin plan three`);
+    await composer.press("Enter");
+    await expect(page.getByTestId("intake-plan")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("intake-plan-confirm").click();
+    await expect(page.getByTestId("intake-plan")).toHaveCount(0, { timeout: 15000 });
+    expect(await boardTasks(request, PROJECT_ID, /Pin plan/)).toHaveLength(3);
+    for (const title of ["Pin single card", "Pin plan one", "Pin plan two", "Pin plan three"]) {
+      await expect(card(title)).toBeVisible();
+    }
+
+    await filter.click(); // Off: the pins are dropped, cards stay because the filter now lets them in
+    await expect(card("Pin plan three")).toBeVisible();
+  });
+
   test("a single line naming a project stays one card, no proposal", async ({ page, request }) => {
 
     test.info().annotations.push({ type: "spec", description: "KANBAN-106" });

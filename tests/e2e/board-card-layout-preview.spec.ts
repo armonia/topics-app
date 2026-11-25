@@ -248,7 +248,7 @@ test.describe("Preview della card della board", () => {
         description: "La card cambiava forma passando di colonna: in review si apriva la lista dei passi, altrove restava un contatore muto. Stessa card, stessa lettura, ovunque.",
         status: "todo",
         priority: 4,
-        model: "opus",
+        model: "auto",
       },
       [
         { text: "Togliere il cancello su status === review", done: true },
@@ -275,7 +275,7 @@ test.describe("Preview della card della board", () => {
         text: "Spostare le misure del turno nel piede",
         description: "Modello, tempo, token e ultimo aggiornamento stavano sparsi in cima e in mezzo: ora chiudono la card, e l'ultimo aggiornamento sta a destra.",
         status: "in_progress",
-        model: "sonnet",
+        model: "auto",
       },
       [
         { text: "Una riga sola, sempre montata", done: true },
@@ -294,7 +294,7 @@ test.describe("Preview della card della board", () => {
         text: "Le modifiche git diventano un chip che si apre",
         description: "Il pannello a tutta card e' diventato una tendina larga quanto basta, accanto al modello che quelle righe le ha scritte.",
         status: "review",
-        model: "opus",
+        model: "auto",
       },
       [
         { text: "Chip chiuso col conto dei file", done: true },

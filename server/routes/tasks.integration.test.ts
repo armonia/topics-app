@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTasksRouter } from "./tasks";
 import { createTaskService, type TaskService } from "../services/tasks";
-import { freshDb, makeCtx, call } from "./tasks-test-support";
+import { freshDb, makeCtx, call, setCiPhaseMode } from "./tasks-test-support";
 import type { IntegrationMeasure } from "../services/integration-queue";
 import { RED_BOUNCE_NOTE } from "../services/red-bounce";
 
@@ -28,14 +28,14 @@ const MERGED = {
 describe("the CI phase", () => {
   let db: Database; let svc: TaskService;
   let verdicts: Array<IntegrationMeasure["verdict"]>; let measured: string[][]; let merges: string[];
-  let commit = "abc1234";
+  let commit: string | null = "abc1234";
   let between: string[] | null = [];
   let landSkips = false;
   let measureGate: Promise<void> = Promise.resolve();
   let sweep: (() => Promise<number>) | null = null;
   const cwd = mkdtempSync(join(tmpdir(), "tasks-integration-"));
 
-  beforeEach(() => { db = freshDb(); svc = createTaskService(db); verdicts = []; measured = []; merges = []; commit = "abc1234"; between = []; landSkips = false; measureGate = Promise.resolve(); });
+  beforeEach(() => { db = setCiPhaseMode(freshDb(), "before"); svc = createTaskService(db); verdicts = []; measured = []; merges = []; commit = "abc1234"; between = []; landSkips = false; measureGate = Promise.resolve(); });
   afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });
 
   async function setup() {
@@ -143,7 +143,7 @@ describe("the CI phase", () => {
     db.run("CREATE TABLE IF NOT EXISTS board_workflow_rules (scope TEXT PRIMARY KEY, ci_phase INTEGER, person_paths TEXT, updated_at TEXT NOT NULL)");
     const put = (await call(s.router, "PUT", `/api/boards/${s.projectId}/workflow`, { ciPhase: false, personPaths: [{ pattern: "server/lib/**", why: "this board" }] }))!;
     expect(put.status).toBe(200);
-    expect((await put.json()).rules).toEqual({ ciPhase: false, personPaths: [{ pattern: "server/lib/**", why: "this board" }] });
+    expect((await put.json()).rules).toEqual({ ciPhase: "off", personPaths: [{ pattern: "server/lib/**", why: "this board" }] });
     expect((await call(s.router, "PUT", `/api/boards/${s.projectId}/workflow`, { personPaths: "server/**" }))!.status).toBe(400);
     await s.deliver();
     const r = (await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve" }))!;
@@ -207,6 +207,11 @@ describe("the CI phase", () => {
     const s = await setup();
     await s.deliver();
     db.prepare("UPDATE tasks SET delivery_commit = NULL WHERE id = ?").run(s.id);
+    // Approve re-asks git before giving up on the CI phase (e73d7a2d, 16/11):
+    // `commit` must answer the same "nothing of its own" the row was just set
+    // to, or the recapture would just restore the real commit above and this
+    // would stop testing the "verified empty" case it is named for.
+    commit = null;
     const r = (await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve" }))!;
     expect(r.status).toBe(200);
     expect(s.read().stage).toBeUndefined();

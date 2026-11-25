@@ -16,9 +16,10 @@ import { isAwaitingHuman } from '../../../../shared/types';
 import { turnIsOnlyError, turnErrorOf } from './turnError';
 import { isReserveStop, confirmReserve } from './reserveConfirm';
 import { goalLoopRowOf } from './goalLoopRow';
-import { machineStopOf } from './machineRow';
+import { hookNudgeOf, machineStopOf } from './machineRow';
 import { messageHasView } from './viewOpens';
 import { MachineStopLine } from './MachineStopLine';
+import { HookNudgeLine } from './HookNudgeLine';
 import { StreamTokenRateIndicator } from './StreamTokenRateIndicator';
 import { isDispatchedEnvelope } from './dispatchedEnvelope';
 import { isMachineWork } from './taskWorkFold';
@@ -295,6 +296,13 @@ export const MessageBubble = memo(function MessageBubble({
       </div>
     );
   }
+
+  // THE USER'S TURN-END HOOK TALKS, IT DOES NOT IMPERSONATE EITHER. The turn
+  // a hook asked for (`{"decision":"block"}`, HOOKS-04) is a `user` row for
+  // the same reason as the goal's: one compact line with what the hook said,
+  // the full text in the tooltip. See server/services/hook-continuation.ts.
+  const hookNudge = hookNudgeOf(msg.blocks, msg.content);
+  if (hookNudge) return <HookNudgeLine attempt={hookNudge.attempt} firstLine={hookNudge.firstLine} content={msg.content} />;
 
   // A TURN THE MACHINE STOPPED BEFORE IT SAID ANYTHING: a land, a
   // delegation's deadline, the stall judge. The row exists only so the chat
@@ -664,6 +672,7 @@ export const MessageBubble = memo(function MessageBubble({
               <TurnActivityIndicator
                 since={Date.parse(msg.timestamp)}
                 sessionKey={topic.sessionKey}
+                topicId={topic.id}
                 onMessage={onMessage}
                 awaitingInput={awaitingInput}
                 promptTokens={msg.usagePromptTokens}

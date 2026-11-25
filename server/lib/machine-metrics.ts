@@ -32,6 +32,60 @@ export function parseProcNetDev(text: string): { rx: number; tx: number } | null
   return seen ? { rx, tx } : null;
 }
 
+/**
+ * Memory in use of a node that cannot read its own, from its process list (`machine-readout`): the memory of
+ * every process over the machine total. Under-counts the kernel and its caches, but it is a real reading, not a gap.
+ */
+export function memPctFromReadout(readout: { memTotalMB?: number | null; procs?: Array<{ memMB: number }>; rest?: { memMB: number } } | null): number | null {
+  const total = readout?.memTotalMB;
+  if (!readout || typeof total !== "number" || total <= 0 || !Array.isArray(readout.procs)) return null;
+  // The readout is JSON from another node: keep only entries whose memMB is a finite number.
+  const values = [...readout.procs, readout.rest].map((p) => (p as { memMB?: unknown } | null | undefined)?.memMB);
+  const numeric = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (numeric.length === 0) return null;
+  const usedMB = numeric.reduce((sum, v) => sum + v, 0);
+  return Math.min(100, Math.round((usedMB / total) * 1000) / 10);
+}
+
+/**
+ * Memory in use, in percent, from a `/proc/meminfo` text: what the machine cannot give back without
+ * swapping is total minus `MemAvailable` (the kernel's own estimate, cache already counted as free).
+ * `null` when either line is missing: not measured, never 0.
+ */
+export function parseProcMemoryPct(text: string): number | null {
+  const kb = (name: string): number | null => {
+    const n = Number(new RegExp(`^${name}:\\s+(\\d+)`, "m").exec(text)?.[1] ?? NaN);
+    return Number.isFinite(n) ? n : null;
+  };
+  const total = kb("MemTotal");
+  const avail = kb("MemAvailable");
+  if (total === null || avail === null || total <= 0) return null;
+  return Math.round(Math.min(100, Math.max(0, (1 - avail / total) * 100)));
+}
+
+/**
+ * Memory in use of THIS machine, in percent, for the gauge and the 24 hour chart.
+ *
+ * macOS keeps the dispatch gate's own reading (`vm_stat`, stricter than a gauge needs). Off macOS the gate
+ * has no probe on purpose (a floor made of an unverified conversion would stop work), but a GAUGE can say what
+ * the OS says: Linux `/proc/meminfo`, Windows `os.freemem()` (there it is the available physical memory, not
+ * a cache-blind "free" like on macOS). Before this, a Linux node showed CPU and a dash for memory.
+ */
+export function readMemPct(
+  gate: number | null,
+  platform: NodeJS.Platform = process.platform,
+  readProcMemory: () => string = () => readFileSync("/proc/meminfo", "utf8"),
+  total: number = os.totalmem(),
+  free: number = os.freemem(),
+): number | null {
+  if (gate !== null) return gate;
+  try {
+    if (platform === "linux") return parseProcMemoryPct(readProcMemory());
+    if (platform === "win32" && total > 0) return Math.round(Math.min(100, Math.max(0, (1 - free / total) * 100)));
+  } catch { /* no procfs: not measured */ }
+  return null;
+}
+
 function netRates(now: number): { inBps: number | null; outBps: number | null } {
   if (process.platform !== "linux") return { inBps: null, outBps: null };
   let counters: { rx: number; tx: number } | null = null;
@@ -56,7 +110,7 @@ export function readLocalMetrics(now = Date.now()): MachineMetrics {
   let shares: { machineCpuPct: number | null; machineMemPct: number | null } = { machineCpuPct: null, machineMemPct: null };
   try { shares = machineSharesNow(); } catch { /* not measured, never zero */ }
   const totalGB = os.totalmem() / 1e9;
-  const memPct = shares.machineMemPct;
+  const memPct = readMemPct(shares.machineMemPct);
   const net = netRates(now);
   return {
     cpuPct: shares.machineCpuPct,

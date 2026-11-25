@@ -5,6 +5,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -22,7 +23,7 @@ hermetic(test);
  *
  * @covers SUBAGENT-16
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const DONE_ID = "0b7c2f0e-1d2a-4c3b-9e8f-1234567890a1";
 const LOST_PROMPT_ID = "0b7c2f0e-1d2a-4c3b-9e8f-1234567890a2";
@@ -126,7 +127,9 @@ test.describe.serial("La card del sotto-agente", () => {
     const card = call.getByTestId("spawn-agent-card");
     await expect(card).toBeVisible();
     await expect(card).toHaveAttribute("data-agent-id", LOST_PROMPT_ID);
-    await expect(card.getByTestId("spawn-agent-name")).toHaveText("dnd-audit");
+    // The name is said once, by the row; the card under it does not repeat it.
+    await expect(call).toContainText("dnd-audit");
+    await expect(card.getByTestId("spawn-agent-name")).toHaveCount(0);
     await expect(card.getByTestId("subagent-result-card")).toHaveAttribute("data-status", "undelivered");
     // Not the generic MCP card.
     await expect(page.getByText("topics · spawn_agent")).toHaveCount(0);

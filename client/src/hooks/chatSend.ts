@@ -30,7 +30,7 @@ updateMessages as setMessages
 } from '../state/messageStore';
 import { answerFromText, findPendingAsk } from '../state/pendingAsk';
 import { armPushAsk } from '../state/pushAsk';
-import { lastStopOf, noteServerTurn, openTurnRef, serverTurnOf, type TurnRef } from '../state/serverTurn';
+import { lastStopOf, noteServerTurn, openTurnRef, serverTurnOf, turnAlreadyClosed, type TurnRef } from '../state/serverTurn';
 import {
 finishStreamTokenRate
 } from '../state/streamTokenRate';
@@ -144,6 +144,9 @@ export function useSendPipeline(ctx: SendPipelineCtx) {
     let alreadyStored = false;
     // The empty reply bubble this send draws, found again by its id (`afterUnfinishedSend`).
     let placeholderId: string | undefined;
+    // Refused by a turn the server has since closed: the queue is tried again
+    // here, because that close has already been heard (`stream_in_flight` below).
+    let drainAfterRefusal = false;
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
     ownSendKeyRef.current.set(sessionKey, idemKey);
     endedDuringOwnSseRef.current.delete(sessionKey);
@@ -513,6 +516,28 @@ export function useSendPipeline(ctx: SendPipelineCtx) {
         // not merged into one new item under a new key.
         if (restoreOnFailure) restoreOnFailure(waitsFor);
         else unshiftTurn(sessionKey, content, options, waitsFor);
+        /**
+         * THE TURN THAT REFUSED IT CAN ALREADY BE OVER, and then nobody would
+         * ever call the queue again. The refusal travels: the turn it names
+         * ends while the answer is on the wire, its `turn:state` close is
+         * heard here on an empty queue (this message is still in flight), and
+         * the drain fires on nothing. A moment later the message goes back to
+         * the queue waiting for a word that has already been said. It stayed
+         * there, no answer in the chat, until the person typed again and the
+         * next send carried it along: measured as five silent threads in a
+         * day (card c8ff98f3).
+         *
+         * THE DRAIN ASKS FOR A CLOSE THAT WAS HEARD, not for the absence of an
+         * open turn. The two are not the same thing: a refusal that names no
+         * turn leaves no open turn here either, and yet the session IS busy -
+         * somebody else's turn, which this window has heard nothing of. Draining
+         * on that silence would send the message straight back into the turn
+         * that just refused it instead of letting it wait its turn
+         * (`tests/e2e/message-queue.spec.ts`). So the queue is tried again only
+         * when the close of the very turn named by the refusal is already held
+         * here, once the send lock this send still holds is released (`finally`).
+         */
+        drainAfterRefusal = !waitsFor && turnAlreadyClosed(sessionKey, refusedBy);
         return true; // Return true since we accepted the message
       }
 
@@ -572,6 +597,8 @@ export function useSendPipeline(ctx: SendPipelineCtx) {
         lastHistoryFetchAtRef.current.delete(sessionKey);
         // `fresh`: a read already in flight may predate the row; it is read again after it.
         void loadHistoryRef.current?.(sessionKey, alreadyStored ? { fresh: true } : undefined);
+      } else if (drainAfterRefusal) {
+        drainTurnQueueRef.current?.(sessionKey);
       } else if (liveAfterCut && swallowedAfterReply) {
         // A frame of the live turn came while the reload was in flight and the
         // gate dropped it: read again now that the socket's frames land, on a

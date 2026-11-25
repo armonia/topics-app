@@ -54,10 +54,23 @@ export function useCreatedFlash(holdCreated: (taskId: string) => void, refetch: 
   /** Switches off the "the card stays out of the composer" watch (see the pane). */
   const keepClearRef = useRef<(() => void) | null>(null);
   useEffect(() => () => keepClearRef.current?.(), []);
+  /**
+   * Cards born here stay on the board even when an active filter would hide
+   * them: a task you just sent must not vanish from your own view. The pane
+   * drops the pins as soon as the filters change.
+   */
+  const [pinnedIds, setPinnedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const clearPinned = useCallback(() => setPinnedIds((prev) => (prev.size ? new Set() : prev)), []);
   /** Creation started from this window: flash + the board scrolls to it. */
-  const onCreatedHere = useCallback((taskId?: string) => {
-    if (taskId) { flashCreated(taskId); setScrollTarget(taskId); holdCreated(taskId); }
+  const onCreatedHere = useCallback((taskIds?: string | string[]) => {
+    // A plan creates several cards at once: all of them are pinned, the board scrolls to the first.
+    const ids = (Array.isArray(taskIds) ? taskIds : [taskIds]).filter((id): id is string => !!id);
+    if (ids.length) {
+      for (const id of ids) { flashCreated(id); holdCreated(id); }
+      setScrollTarget(ids[0]);
+      setPinnedIds((prev) => new Set([...prev, ...ids]));
+    }
     refetch();
   }, [flashCreated, holdCreated, refetch]);
-  return { justCreated, flashCreated, scrollTarget, setScrollTarget, keepClearRef, onCreatedHere };
+  return { justCreated, pinnedIds, clearPinned, flashCreated, scrollTarget, setScrollTarget, keepClearRef, onCreatedHere };
 }

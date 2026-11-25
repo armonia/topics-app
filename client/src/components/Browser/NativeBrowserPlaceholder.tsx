@@ -17,10 +17,10 @@
 import { PausedPane } from './PausedPane';
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { Loader2 } from 'lucide-react';
 import type { NativeBrowserHandle } from './browserDevTypes';
 import { installNativeViewDragGate } from './nativeViewDragGate';
 import { suppressTextSelection } from '../../lib/dragSelectionGuard';
+import { Spinner } from '../Shared/Spinner';
 
 /** Inset (px) of each native WebContentsView vs its placeholder. 0 = the page
  *  fills the pane edge-to-edge (no visible "padding" frame), so the browser
@@ -491,7 +491,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       {/* Loading shimmer while WebContentsView spins up. */}
       {!browser.ready && (
         <div className="absolute inset-0 flex items-center justify-center text-text-muted">
-          <Loader2 className="w-5 h-5 animate-spin mr-2" />
+          <Spinner size={16} box={20} tone="current" className="mr-2" />
           {tr('browser.native.initializing')}
         </div>
       )}

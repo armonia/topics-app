@@ -62,6 +62,10 @@ describe('the events that also reach whoever owns the SSE', () => {
     expect(senderAlsoSees('stream:tool_update')).toBe(true);
   });
 
+  test('a translated reasoning sentence reaches the sender', () => {
+    expect(senderAlsoSees('stream:reasoning_translation')).toBe(true);
+  });
+
   test('events that ACCUMULATE stay out', () => {
     // The rule of the list: whoever writes a fixed state may enter, whoever
     // adds up may not. A text delta delivered twice would double the answer on
@@ -91,9 +95,10 @@ describe('the events that also reach whoever owns the SSE', () => {
     // If it grows, it grows for a written reason: every entry costs one event
     // delivered twice to someone who already receives it on the SSE.
     expect(new Set(SENDER_ALSO_SEES).size).toBe(SENDER_ALSO_SEES.length);
-    // 8 since `stream:command-answer` (CMDUI-04): the answer of a command the
-    // sender typed travels only on WS, and the card it fills is a fixed state.
-    expect(SENDER_ALSO_SEES.length).toBeLessThanOrEqual(8);
+    // 9 since `stream:reasoning_translation`: a translated sentence travels only
+    // on WS and is stored by its source text, a fixed pair. (8 before it, since
+    // `stream:command-answer`, CMDUI-04.)
+    expect(SENDER_ALSO_SEES.length).toBeLessThanOrEqual(9);
   });
 
   test('the answer of a command reaches the window that typed it (CMDUI-04)', () => {

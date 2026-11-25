@@ -153,8 +153,13 @@ test("a frame routed to a topic's subscribers keeps the guest rules of the globa
     ctx.broadcastToAll({ type: "stream:tool_permission_required", sessionKey, topicId, toolCallId: "tc1", request: { toolName: "Bash", requestedAt: 1, input: { command: "ls" } } });
     ctx.broadcastToAll({ type: "message:media", sessionKey, topicId, media: ["/uploads/owner-private.png"] });
     const types = (id: string) => (received.get(id) ?? []).map((p) => (JSON.parse(p) as { type: string }).type);
-    expect(types("owner"), "control: the subscribed owner receives every frame").toEqual(["stream:content_chunk", "stream:usage", "stream:tool_permission_required", "message:media"]);
-    expect(types("guest"), "a guest receives only the frame types shared with guests").toEqual(["stream:content_chunk"]);
+    // Each change of the turn's action (writing, then waiting on the permission)
+    // also goes out as the global `stream:action`, right after the frame that
+    // changed it.
+    expect(types("owner"), "control: the subscribed owner receives every frame").toEqual(["stream:content_chunk", "stream:action", "stream:usage", "stream:tool_permission_required", "stream:action", "message:media"]);
+    // `stream:action` carries only the action's kind and is shared with guests,
+    // for a topic the guest may read.
+    expect(types("guest"), "a guest receives only the frame types shared with guests").toEqual(["stream:content_chunk", "stream:action", "stream:action"]);
   } finally {
     ctx.wsClients.delete(owner as unknown as ServerWebSocket<WSData>);
     ctx.wsClients.delete(guestWs as unknown as ServerWebSocket<WSData>);

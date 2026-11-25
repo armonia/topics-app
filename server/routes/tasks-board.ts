@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AppContext } from "../types";
+import { canonicalBoardIdForPath } from "../lib/board-alias";
 import { titoloMigliore } from "../services/task-title";
 import { isLandedWork, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, pressedADeadQuickReply, type TaskStatus } from "../../shared/board";
 import { findDuplicateGroups } from "../../shared/task-similarity";
@@ -25,13 +26,13 @@ import { MAX_CHECKS, STATIC_RAILS_CHECK, parseReviewChecks } from "../services/r
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
-import { ScheduledCardsError, type ScheduledCardsService } from "../services/scheduled-cards";
+import { ScheduledCardsError, type ScheduledCardsService } from "../schedule/cards-service";
 import { invalidateProbeCache } from "../services/url-probe-cache";
-import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
+import { staleTaskModelError, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
-import { readBoardWorkflow, readOwnWorkflowPreset, readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
-import { MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_PRESET_IDS, isWorkflowPresetId, parsePersonPaths, type WorkflowPresetId } from "../../shared/workflow";
+import { readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
+import { CI_PHASE_MODES, MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_COLUMNS, parseCiPhase, parsePersonPaths } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -93,6 +94,8 @@ export interface BoardRouteDeps {
     over?: { cwd?: string | null; landed?: string | null; extra?: Array<string | null | undefined> },
   ) => Promise<void>;
   captureDelivery: <T extends { id: string; status: string }>(task: T, prevStatus?: string) => Promise<T>;
+  /** Backfills a review card's own commit when its branch outran the last capture. */
+  capturaConsegna: (taskId: string) => Promise<boolean>;
   triggerUrlProbe: (taskId: string, outputUrl: string | null, projectId?: string) => void;
   cutLiveTurn: (t: { id: string; assignedTopicId: string | null; dispatchState: string | null }, reason: string, cause: StopCause) => boolean;
   enqueueLand: (projectId: string, taskId: string) => LandingTicket;
@@ -130,6 +133,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     resolveBoardId,
     sweepRemoteDelivery,
     captureDelivery,
+    capturaConsegna,
     triggerUrlProbe,
     cutLiveTurn,
     enqueueLand,
@@ -169,6 +173,23 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       for (const child of svc.get(taskId)?.children ?? []) pending.push(child.id);
     }
     return ids;
+  };
+
+  // A card another machine's row owns AND that row answers at an address —
+  // the same two conditions `isRemoteTask` applies (task-dispatcher.ts).
+  // A row with no `base_url` is a STALE LOCAL row of THIS Mac (one per
+  // hostname, agent-census.ts), not a node: treating it as one sent the
+  // card to `todo` with FRESH_SESSION_NOTE while `launchOnNode` later
+  // bounced it back with "no known address" — the route had already
+  // answered `queued`. That case is already covered by `!assignedTopicId`
+  // below, so it does not need `isNodeCard` to lie about it.
+  const isNodeCard = (card: { machineId?: string | null }): boolean => {
+    if (!card.machineId) return false;
+    try {
+      const localId = ctx.machineStore?.upsertLocal().id ?? null;
+      if (localId === null || card.machineId === localId) return false;
+      return !!ctx.machineStore?.get(card.machineId)?.baseUrl;
+    } catch { return false; }
   };
 
   return async function boardRoutes(req: Request, pathname: string, method: string): Promise<Response | null> {
@@ -290,19 +311,18 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       catch (e) { return fail(e); }
     }
 
-    // THE BOARD'S WORKFLOW (`shared/workflow.ts`): GET resolves it (project row,
-    // else the global '*' row, else `default`); PUT { preset } writes this
-    // scope's row, `preset: null` removes it. `/api/boards/*/workflow` is the
-    // global default. `own` is the row of exactly this scope, so the picker can
-    // tell «inherited» from «chosen here».
+    // THE BOARD'S WORKFLOW (`shared/workflow.ts`): GET gives the columns (the same
+    // for every board) and the rules beside them. `/api/boards/*/workflow` is the
+    // global default of the rules.
     const bWorkflow = matchRoute(pathname, "/api/boards/:projectId/workflow");
     if (bWorkflow) {
       const scope = bWorkflow.projectId;
       // `rules` = the CI switch and the board's paths a person must look at,
-      // resolved; `ownRules` = this scope's row. PUT takes any of `preset`,
-      // `ciPhase` (boolean | null) and `personPaths` (list | null): only the
-      // keys present are written, `null` = inherit.
-      const view = () => ({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope), rules: readWorkflowRules(ctx.db, scope), ownRules: readOwnWorkflowRules(ctx.db, scope) });
+      // resolved; `ownRules` = this scope's row. PUT takes any of
+      // `ciPhase` (before | after | off | true | false | null) and `personPaths` (list | null): only the
+      // keys present are written, `null` = inherit. A `preset` key from an old
+      // caller is accepted and ignored: there is one set of columns now.
+      const view = () => ({ columns: WORKFLOW_COLUMNS, rules: readWorkflowRules(ctx.db, scope), ownRules: readOwnWorkflowRules(ctx.db, scope) });
       if (method === "GET") {
         try { return json(view()); }
         catch (e) { return fail(e); }
@@ -311,14 +331,10 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         const body = ((await readJSON(req)) ?? {}) as { preset?: unknown; ciPhase?: unknown; personPaths?: unknown };
         const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
         if (!has("preset") && !has("ciPhase") && !has("personPaths")) {
-          return json({ error: "nothing to write: send preset, ciPhase or personPaths", code: "invalid_input" }, 400);
+          return json({ error: "nothing to write: send ciPhase or personPaths", code: "invalid_input" }, 400);
         }
-        const preset = body.preset;
-        if (has("preset") && preset !== null && !isWorkflowPresetId(preset)) {
-          return json({ error: `preset must be one of ${WORKFLOW_PRESET_IDS.join(", ")}, or null`, code: "invalid_input" }, 400);
-        }
-        if (has("ciPhase") && body.ciPhase !== null && typeof body.ciPhase !== "boolean") {
-          return json({ error: "ciPhase must be true, false or null", code: "invalid_input" }, 400);
+        if (has("ciPhase") && body.ciPhase !== null && parseCiPhase(body.ciPhase) === null) {
+          return json({ error: `ciPhase must be one of ${CI_PHASE_MODES.join(", ")}, true, false or null`, code: "invalid_input" }, 400);
         }
         const personPaths = has("personPaths") && body.personPaths !== null ? parsePersonPaths(body.personPaths) : null;
         if (has("personPaths") && body.personPaths !== null && personPaths === null) {
@@ -327,17 +343,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         try {
           if (has("ciPhase") || has("personPaths")) {
             writeWorkflowRules(ctx.db, scope, {
-              ...(has("ciPhase") ? { ciPhase: body.ciPhase as boolean | null } : {}),
+              ...(has("ciPhase") ? { ciPhase: parseCiPhase(body.ciPhase) } : {}),
               ...(has("personPaths") ? { personPaths } : {}),
             }, new Date().toISOString());
-          }
-          // Through the service: the cards whose column the new workflow does
-          // not have go back to the default one, and the attention state reads
-          // them again (a card in review there waits on the person).
-          if (has("preset")) {
-            for (const task of svc.applyBoardWorkflow({ scope, preset: preset as WorkflowPresetId | null })) {
-              broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
-            }
           }
           return json(view());
         } catch (e) { return fail(e); }
@@ -358,7 +366,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           if (!settings.deployCommand) {
             let dirs: string[] = [];
             try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
-            const path = dirs.find((d) => projectIdForPath(d) === projectId);
+            const path = dirs.find((d) => projectIdForPath(d) === projectId || canonicalBoardIdForPath(d) === projectId);
             if (path) deployCommandSuggestion = deploySuggestionFromPackageJson(path);
           }
           // `admissionHolds`: same nature as the two above - a fact, not a
@@ -531,6 +539,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             tasks: svc.list({
               scope: "project", projectId, status: asTaskStatus(status), rootsOnly: true,
               includeOrphanSubtasks: true,
+              // The parent's board also shows the projects merged into it (accorpa).
+              includeChildBoards: true,
               labels: parseLabelsParam(params.get("labels")),
               archived,
             }),
@@ -540,7 +550,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       }
       if (method === "POST") {
         const body = (await readJSON(req)) as any;
-        if (!taskModelIsCurrent(body?.model, opts?.taskModelSnapshot?.() ?? null)) return json(STALE_TASK_MODEL_ERROR, 400);
+        if (!taskModelIsCurrent(body?.model, opts?.taskModelSnapshot?.() ?? null)) return json(staleTaskModelError(body?.model, opts?.taskModelSnapshot?.() ?? null), 400);
         try {
           const effectiveProjectId = resolveBoardId(projectId, body?.text, body?.description);
           // Absent = the board's default machine (see `TaskService.create`);
@@ -578,9 +588,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             originTopicId: knownTopicId(ctx.db, body?.originTopicId ?? body?.origin_topic_id),
             // The Jarvis channel chat the work is followed in: display only, no wake and no state move.
             channelTopicId: knownTopicId(ctx.db, body?.channelTopicId ?? body?.channel_topic_id),
-            // The workflow column it is born in; absent = the server decides.
+            // The workflow column it is born in; absent = the default column of its status.
             stage: typeof body?.stage === "string" ? body.stage : undefined,
-            // A card born in review: the question that lets it be born in Human review.
+            // A card born in review: the question for the person.
             humanAsk: typeof body?.human_ask === "string" ? body.human_ask
               : typeof body?.humanAsk === "string" ? body.humanAsk : undefined,
           });
@@ -808,7 +818,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       try {
         const tasks = svc.list({ scope: "project", projectId: bDupes.projectId });
         const scope = includeDone ? tasks : tasks.filter((t) => t.status !== "done");
-        const groups = findDuplicateGroups(scope.map((t) => ({ id: t.id, text: t.text, createdAt: t.createdAt })));
+        const groups = findDuplicateGroups(
+          scope.map((t) => ({ id: t.id, text: t.text, description: t.descriptionPreview, createdAt: t.createdAt })),
+        );
         return json({
           groups: groups.map((g) => ({
             survivor: { id: g.survivor.id, text: g.survivor.text },
@@ -850,8 +862,32 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             try { svc.addComment({ taskId: bReview.taskId, author: HUMAN, content: said, projectId: bReview.projectId, origin: actionOrigin }); }
             catch { /* the phase is what matters */ }
           }
+          // A branch with no commit ever captured for it (the periodic backfill has
+          // not run yet) used to fall through `enterCiPhase`'s `!deliveryCommit`
+          // guard straight into the plain approve below, closing the card `done`
+          // with nothing measured and nothing landed (e73d7a2d, 16/11). Capture it
+          // NOW instead of waiting for the next pass.
+          let curForCi = cur;
+          if (!curForCi.deliveryCommit) {
+            let captured = false;
+            try { captured = await capturaConsegna(bReview.taskId); } catch { captured = false; }
+            curForCi = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? curForCi;
+            // `captured` false ⇒ git could not say ANYTHING about this branch
+            // (no worktree, branch pruned): not accountable, so the approve must
+            // not guess and must not silently close `done` either. `captured`
+            // true with `deliveryCommit` still null is the OTHER, legitimate
+            // reading — verified, this card produced no commit of its own — and
+            // falls through below exactly as before: `enterCiPhase` declines on
+            // its own `!deliveryCommit` guard, so the plain approve closes it.
+            if (!captured) {
+              return json({
+                error: "this card's branch could not be read (no worktree, no branch to ask git): capture it again, or approve with `superseded` if the branch is to be discarded",
+                code: "delivery_commit_missing",
+              }, 409);
+            }
+          }
           if (enterCiPhase(bReview.projectId, bReview.taskId)) {
-            return json(svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? cur, 202);
+            return json(svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? curForCi, 202);
           }
         }
       }
@@ -951,7 +987,11 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // "Serve te" answer routes through here too), so the conversation
         // resumes instead of a fresh agent spawning. reviewDecision already
         // moved it back to in_progress.
-        if (dispatcher && decision === "reject" && task.assignedTopicId) {
+        // A card a NODE delivered is the exception: its run is closed and its work (the branch) lives on
+        // that node, so resuming the topic bound to it starts an agent HERE, on this Mac, where the branch
+        // is not ("the work is on the node, not here"). It goes back to todo, where the dispatcher launches
+        // it again on its node with the thread (the comments route already does this for the same card).
+        if (dispatcher && decision === "reject" && task.assignedTopicId && !isNodeCard(task)) {
           dispatcher.resume(bReview.taskId, comment ?? "", rejectCommentId ? { commentIds: [rejectCommentId] } : undefined)
             .catch((err) => console.warn(`[Tasks] resume after reject failed for ${bReview.taskId}:`, err));
         } else if (dispatcher && decision === "reject") {
@@ -1167,23 +1207,6 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       return json({ ok: true, text: migliore, before: t.text });
     }
 
-    // A card another machine's row owns AND that row answers at an address —
-    // the same two conditions `isRemoteTask` applies (task-dispatcher.ts).
-    // A row with no `base_url` is a STALE LOCAL row of THIS Mac (one per
-    // hostname, agent-census.ts), not a node: treating it as one sent the
-    // card to `todo` with FRESH_SESSION_NOTE while `launchOnNode` later
-    // bounced it back with "no known address" — the route had already
-    // answered `queued`. That case is already covered by `!assignedTopicId`
-    // below, so it does not need `isNodeCard` to lie about it.
-    const isNodeCard = (card: { machineId?: string | null }): boolean => {
-      if (!card.machineId) return false;
-      try {
-        const localId = ctx.machineStore?.upsertLocal().id ?? null;
-        if (localId === null || card.machineId === localId) return false;
-        return !!ctx.machineStore?.get(card.machineId)?.baseUrl;
-      } catch { return false; }
-    };
-
     // A card an AGENT delivered to review has a pending review approval; one a
     // person moved to review by hand never had a run, so there is nothing to
     // requeue and a comment on it stays a note (tests/e2e/board-comment-live-update).
@@ -1355,7 +1378,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // reject calls, so the two paths read the same in the thread. ROOT
           // ONLY: see the `else` below for why a STEP never takes this
           // branch.
-          if (dispatcher && !isStep && task && task.status === "review" && !isLandedWork(task)
+          if (dispatcher && !isStep && task && task.status === "review" && !isLandedWork(task) && !task.archived
               && (isNodeCard(task) || (!task.assignedTopicId && hasPendingDelivery(task.id)))) {
             const rejected = svc.reviewDecision({
               taskId: task.id, by: HUMAN, decision: "reject", projectId: bComments.projectId, origin: actionOrigin,
@@ -1388,7 +1411,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             // outcome this branch gives a step: resume the root, or an honest
             // `note` when the root has no topic either.
             const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
-            if (dispatcher && root && root.assignedTopicId && !isLandedWork(root)
+            if (dispatcher && root && root.assignedTopicId && !isLandedWork(root) && !root.archived
                 && (root.status === "review" || root.status === "in_progress")) {
               if (root.status === "review") {
                 const rejected = svc.reviewDecision({
@@ -1446,7 +1469,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // 200, ed è indistinguibile dall'aver funzionato. Vedi task-patch.ts.
         const parsed = parseTaskPatch(body, "human", acceptPreview);
         if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
-        if (isStaleModelChange(parsed.patch.model, () => svc.get(taskId, { projectId })?.task.model, opts)) return json(STALE_TASK_MODEL_ERROR, 400);
+        if (isStaleModelChange(parsed.patch.model, () => svc.get(taskId, { projectId })?.task.model, opts)) return json(staleTaskModelError(parsed.patch.model, opts?.taskModelSnapshot?.() ?? null), 400);
         // THE MACHINE MUST EXIST. `machine_id` has a FK to `machines`, so an
         // unknown id would surface as a 500 with SQLite's own words; and a
         // TYPO would be worse than an error - the card would sit in the queue
@@ -1462,6 +1485,22 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         try {
           const prevTask = svc.get(taskId, { projectId })?.task;
           const prevStatus = prevTask?.status;
+          // A card its owner closed does not leave Done because a script said so.
+          // On 2026-11-10 an agent tidying the board PATCHed a closed card back to
+          // backlog over the API, signed as the person, and it came back to review
+          // with nobody having asked. The interface (a click) passes; a programmatic
+          // caller must say it is deliberate with `X-Topics-Confirm-Reopen: 1`.
+          if (
+            prevTask?.status === "done" && prevTask.doneActor === "human"
+            && parsed.patch.status !== undefined && parsed.patch.status !== "done"
+            && actionOrigin !== "interface"
+            && req.headers.get("X-Topics-Confirm-Reopen") !== "1"
+          ) {
+            return json(
+              { error: "card closed by its owner: to reopen it from the API send the header X-Topics-Confirm-Reopen: 1", code: "closed_by_owner" },
+              409,
+            );
+          }
           // Invalidate probe cache when output_url changes (new URL needs a fresh probe).
           if (parsed.patch.outputUrl !== undefined) {
             const old = svc.get(taskId, { projectId })?.task.outputUrl;
@@ -1475,7 +1514,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId, task });
           emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
-            () => svc.get(taskId)?.comments, prevTask?.stage ?? null);
+            () => svc.get(taskId)?.comments);
           triggerUrlProbe(taskId, task.outputUrl ?? null, projectId);
           // Auto-dispatch trigger: the human dragging a task INTO todo is the
           // "vai" signal; dragging it back OUT while still queued cancels it.

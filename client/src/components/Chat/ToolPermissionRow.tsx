@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ShieldQuestion, Loader2, Check, ShieldCheck, ShieldOff, Ban } from 'lucide-react';
+import { ShieldQuestion, Check, ShieldCheck, ShieldOff, Ban } from 'lucide-react';
 import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest } from '../../types';
 import { PERMISSION_CHOICES, PERMISSION_HINT_KEY, PERMISSION_LABEL_KEY, summarizeToolInput } from '../../../../shared/permission-decision';
 import { useT } from '../../hooks/useT';
+import { Spinner } from '../Shared/Spinner';
 
 /**
  * The PERMISSION panel. It is not the question form, and it never really was.
@@ -138,7 +139,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
                   : 'text-app-text border border-app-border hover:bg-app-hover')
               }
             >
-              {sending === choice ? <Loader2 size={13} className="animate-spin" /> : <Icon size={13} />}
+              {sending === choice ? <Spinner size={11} box={13} tone="current" /> : <Icon size={13} />}
               {tr(PERMISSION_LABEL_KEY[choice])}
             </button>
           );
@@ -170,7 +171,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
             'hover:bg-amber-500/15 disabled:opacity-40 disabled:cursor-not-allowed'
           }
         >
-          {sending === 'allow_free' ? <Loader2 size={13} className="animate-spin" /> : <ShieldOff size={13} />}
+          {sending === 'allow_free' ? <Spinner size={11} box={13} tone="current" /> : <ShieldOff size={13} />}
           {tr(PERMISSION_LABEL_KEY.allow_free)}
         </button>
         <div className="text-mini leading-snug text-app-text-muted">{tr(PERMISSION_HINT_KEY.allow_free)}</div>

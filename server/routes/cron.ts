@@ -1,6 +1,7 @@
 import type { AppContext, RouteHandler } from "../types";
 import { runBounded, SPAWN_TIMEOUT } from "../lib/bounded-spawn";
 import { augmentPath } from "../utils/path-env";
+import { listCronRuns, syncCronRuns } from "../lib/cron-runs";
 
 export type CronCliResult =
   | { ok: true; stdout: string }
@@ -79,7 +80,14 @@ export function readJobList(stdout: string): CronJobView[] | null {
 const LIST_ARGS = ["list", "--json", "--all"];
 
 export function createCronRouter(ctx: AppContext, cli: CronCli = (args) => jarvisChannelsCron(args)): RouteHandler {
-  const { readJSON, json, matchRoute, broadcastToAll } = ctx;
+  const { readJSON, json, matchRoute, broadcastToAll, db } = ctx;
+  let syncing: Promise<unknown> | null = null;
+  const syncOnce = () => (syncing ??= syncCronRuns(db, cli).finally(() => { syncing = null; }));
+  // Keeps the run history fresh without anyone asking; a missing scheduler is only a skipped cycle.
+  if (process.env.NODE_ENV !== "test") {
+    setTimeout(() => { void syncOnce().catch(() => {}); }, 30_000).unref?.();
+    setInterval(() => { void syncOnce().catch(() => {}); }, 5 * 60_000).unref?.();
+  }
 
   async function listJobs(): Promise<{ ok: true; jobs: CronJobView[] } | { ok: false; status: number; message: string }> {
     const r = await cli(LIST_ARGS);
@@ -102,6 +110,16 @@ export function createCronRouter(ctx: AppContext, cli: CronCli = (args) => jarvi
       // scheduler that does not answer must not look like every job was deleted.
       if (!r.ok) return json({ jobs: [], warning: `Scheduler error: ${r.message}` }, 502);
       return json({ jobs: r.jobs });
+    }
+
+    // Run history (outcome + tokens), read from Topics' own DB; POST syncs it from the scheduler now.
+    if (method === "GET" && pathname === "/api/cron/runs") {
+      const lim = Number(_url.searchParams.get("limit"));
+      return json({ runs: listCronRuns(db, { jobId: _url.searchParams.get("job"), limit: Number.isFinite(lim) && lim > 0 ? lim : 100 }) });
+    }
+    if (method === "POST" && pathname === "/api/cron/runs/sync") {
+      const r = (await syncOnce()) as Awaited<ReturnType<typeof syncCronRuns>>;
+      return r.ok ? json(r) : json({ error: `Scheduler error: ${r.message}` }, 502);
     }
 
     // `--id`, not positional: an id starting with «-» never becomes an option.

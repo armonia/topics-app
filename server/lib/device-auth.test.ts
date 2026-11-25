@@ -4,7 +4,7 @@
  * 401 to a remote peer that presents nothing, a revoked device or an expired
  * session.
  *
- * @covers GUEST-03
+ * @covers GUEST-03, AUTH-01, AUTH-02, AUTH-03
  */
 import { describe, expect, it } from "bun:test";
 import {

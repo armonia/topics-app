@@ -2,7 +2,7 @@
 //! its piece disappears. The answers are fake, shaped like the service's `/api/live`.
 
 use super::*;
-use crate::tray_menu::dump_text;
+use crate::tray_menu::{dump_text, Priority};
 
 const NOW: i64 = 1_800_000_000;
 const NOW_MS: i64 = NOW * 1000;
@@ -41,8 +41,8 @@ fn table() -> String {
 fn state_cell_counts_working_agents_or_says_how_long_the_project_is_still() {
     let t = table();
     assert!(t.contains("Busy one | 53,1 | 0,4 | 2,8 | 44k | ▸ 2"), "{t}");
-    assert!(t.contains("Quiet one | 0,8 | 11,0 | 37,0 | – | ☾ 17 h"), "{t}");
-    assert!(t.contains("Old one | 5,0 | – | – | – | ☾ 3 g"), "{t}");
+    assert!(t.contains("Quiet one | 0,8 | 11,0 | 37,0 |  | ☾ 17 h"), "{t}");
+    assert!(t.contains("Old one | 5,0 | – | – |  | ☾ 3 g"), "{t}");
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn names_are_readable_and_a_dead_project_is_never_listed_whatever_it_carries() {
     assert!(t.contains("Busy one |") && !t.contains("busy-slug |"), "the slug is not a name: {t}");
     assert!(!t.contains("Prince of Persia"), "a dead project with a budget of 3% is not listed: {t}");
     assert!(!t.contains("Ghost"), "a dead project with no setting is not listed: {t}");
-    assert!(t.contains("1 lavori in corso in 1 su 3") || t.contains("2 lavori in corso in 1 su 3"), "the count is of the listed ones: {t}");
+    assert!(t.contains("2 lavori in corso in 1 progetto su 3"), "the count is of the listed ones: {t}");
     // a priority does not bring a dead one back either
     let by_priority = live().replace(r#""name":"ghost","title":"Ghost","dead":true,"claude":0,"codex":0,"muse":0,"total":0,"state":"fermo","priority":"normale""#, r#""name":"ghost","title":"Ghost","dead":true,"claude":0,"codex":0,"muse":0,"total":0,"state":"fermo","priority":"alta""#);
     assert!(by_priority.contains(r#""priority":"alta""#) && !dump_text(&project_table(&Some(by_priority), &None, NOW, 3600)).contains("Ghost"));
@@ -123,4 +123,58 @@ fn durations_and_ages_use_the_service_words() {
     assert_eq!(idle_text(3.0 * 86_400_000.0), "3 g");
     assert_eq!(ago_text(100_000, 10_000), "1 min fa");
     assert_eq!(ago_text(10_000, 10_000), "ora");
+}
+
+fn braked_table(extra: &str) -> (Vec<crate::tray_menu::Node>, String) {
+    let live = format!(r#"{{"projects":[
+      {{"name":"A","display":"Alpha","state":"frenato","claude":2.0,"codex":0,"muse":0{extra}}},
+      {{"name":"B","display":"Beta","state":"frenato","claude":3.0,"codex":0,"muse":0}},
+      {{"name":"C","display":"Gamma","state":"frenato","claude":1.0,"codex":0,"muse":0}}]}}"#);
+    let nodes = project_table(&Some(live), &None, NOW, 3600);
+    let text = dump_text(&nodes);
+    (nodes, text)
+}
+
+#[test]
+fn when_every_quiet_project_is_braked_the_header_says_it_once_and_the_rows_keep_the_sign() {
+    let (_, t) = braked_table("");
+    assert!(t.contains("3 frenati dal limite del piano"), "{t}");
+    assert!(t.contains("Alpha | 2,0 | – | – |  | ⏸"), "{t}");
+    assert!(!t.contains("⏸ frenato"), "{t}");
+}
+
+#[test]
+fn braked_with_one_still_quiet_keeps_the_word_on_each_row() {
+    let live = r#"{"projects":[
+      {"name":"A","display":"Alpha","state":"frenato","claude":2.0},
+      {"name":"B","display":"Beta","state":"","claude":3.0,"lastSeen":{"at":1}}]}"#;
+    let t = dump_text(&project_table(&Some(live.into()), &None, NOW, 3600));
+    assert!(t.contains("⏸ frenato") && !t.contains("dal limite del piano"), "{t}");
+}
+
+#[test]
+fn the_names_of_a_table_with_a_priority_arrow_all_start_on_one_x() {
+    let (nodes, _) = braked_table(r#","priority":"alta""#);
+    let looks: Vec<(Priority, bool)> = nodes.iter().filter_map(|n| match n {
+        crate::tray_menu::Node::Icon { node, .. } => match &**node {
+            crate::tray_menu::Node::Row { look, header: false, .. } => Some((look.priority, look.arrow_slot)),
+            _ => None,
+        },
+        _ => None,
+    }).collect();
+    assert_eq!(looks.len(), 3);
+    // the row with the arrow has it; the others keep its place empty
+    assert_eq!(looks.iter().filter(|l| l.0 == Priority::High && !l.1).count(), 1);
+    assert_eq!(looks.iter().filter(|l| l.0 == Priority::Normal && l.1).count(), 2);
+    // and with no arrow anywhere there is nothing to keep
+    let (plain, _) = braked_table("");
+    assert!(plain.iter().filter_map(|n| match n { crate::tray_menu::Node::Icon { node, .. } => Some(&**node), _ => None })
+        .all(|n| matches!(n, crate::tray_menu::Node::Row { look, .. } if !look.arrow_slot)));
+}
+
+#[test]
+fn a_rate_column_with_no_rate_has_no_heading() {
+    let (_, t) = braked_table("");
+    assert!(t.starts_with("PROGETTI | Claude | Codex | Muse |  | stato"), "{t}");
+    assert!(table().contains("ritmo/h"), "a column with a rate keeps its heading");
 }

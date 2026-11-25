@@ -111,15 +111,6 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
             // rhythm on desktop.
             className="flex-shrink-0 inline-flex min-h-6 items-center gap-2 text-left coarse:min-h-11"
           >
-          {/* 12px column always reserved; the chevron appears on hover and
-              focus of the group, and always on touch (`coarse:`). See ToolCallRow. */}
-          <span data-testid="tool-group-chevron" data-open={expanded ? 'true' : 'false'} className="w-3 flex-shrink-0 inline-flex justify-center">
-            {expanded ? (
-              <ChevronDown size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/toolgroup:opacity-100 group-focus-within/toolgroup:opacity-100 coarse:opacity-100" />
-            ) : (
-              <ChevronRight size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/toolgroup:opacity-100 group-focus-within/toolgroup:opacity-100 coarse:opacity-100" />
-            )}
-          </span>
           {/* `Workflow` e non un lampo: questa riga dice «una corsa di N
               azioni», non «veloce». Il lampo in questa app ha un significato
               solo — velocità — ed è del Fast Mode, che sta nel composer sotto
@@ -138,6 +129,16 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
             {live
               ? `${settledCount}/${summary.total} azioni`
               : `${summary.total} azioni`}
+          </span>
+          {/* 12px slot always reserved, AFTER the title like the Thinking row (no empty
+              column on the left); the chevron appears on hover and focus of the
+              group, and always on touch (`coarse:`). See ToolCallRow. */}
+          <span data-testid="tool-group-chevron" data-open={expanded ? 'true' : 'false'} className="w-3 flex-shrink-0 inline-flex justify-center">
+            {expanded ? (
+              <ChevronDown size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/toolgroup:opacity-100 group-focus-within/toolgroup:opacity-100 coarse:opacity-100" />
+            ) : (
+              <ChevronRight size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/toolgroup:opacity-100 group-focus-within/toolgroup:opacity-100 coarse:opacity-100" />
+            )}
           </span>
           </button>
           {/* L'esito si dice SOLO quando è cattivo, e si dice qui, accanto al

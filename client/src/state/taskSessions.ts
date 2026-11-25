@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import { createKeyedListeners } from '../lib/keyedListeners';
 
 /**
  * L'altra metà del legame fra una SCHEDA di task e la SESSIONE che la lavora:
@@ -36,7 +37,11 @@ export interface TopicTaskRef {
 
 let state: Record<string, TopicTaskRef> = {};
 /** Iscritti per topic. È l'unica ragione per cui questo store esiste. */
-const perTopic = new Map<string, Set<() => void>>();
+const perTopic = createKeyedListeners<string>();
+/** The reverse direction, task → topic, for the board card's loader (`useTaskAction`). */
+let topicByTask = new Map<string, string>();
+/** Subscribers to the reverse index: woken only when a task's topic changes. */
+const perTask = new Map<string, Set<() => void>>();
 
 /** Il task di un topic, con identità stabile finché non cambia. */
 export function getTopicTask(topicId: string): TopicTaskRef | undefined {
@@ -45,18 +50,7 @@ export function getTopicTask(topicId: string): TopicTaskRef | undefined {
 
 /** Si iscrive a UN topic: un task che si muove altrove non lo sveglia. */
 export function subscribeTopicTask(topicId: string, fn: () => void): () => void {
-  let subs = perTopic.get(topicId);
-  if (!subs) {
-    subs = new Set();
-    perTopic.set(topicId, subs);
-  }
-  subs.add(fn);
-  return () => {
-    const s = perTopic.get(topicId);
-    if (!s) return;
-    s.delete(fn);
-    if (s.size === 0) perTopic.delete(topicId);
-  };
+  return perTopic.subscribe(topicId, fn);
 }
 
 /**
@@ -87,9 +81,33 @@ export function applyTaskSessionIndex(next: Record<string, TopicTaskRef>): void 
   }
   state = next;
   for (const topicId of touched) {
-    const subs = perTopic.get(topicId);
-    if (subs) for (const fn of subs) fn();
+    perTopic.emit(topicId);
   }
+  const nextByTask = new Map<string, string>();
+  for (const [topicId, ref] of Object.entries(next)) nextByTask.set(ref.taskId, topicId);
+  const prevByTask = topicByTask;
+  topicByTask = nextByTask;
+  for (const [taskId, subs] of perTask) {
+    if (prevByTask.get(taskId) !== nextByTask.get(taskId)) for (const fn of subs) fn();
+  }
+}
+
+/** The topic of ONE task, waking only when that task's topic changes. */
+export function useTaskTopicId(taskId: string | undefined): string | undefined {
+  const subscribe = useCallback((onChange: () => void) => {
+    if (!taskId) return () => {};
+    let subs = perTask.get(taskId);
+    if (!subs) { subs = new Set(); perTask.set(taskId, subs); }
+    subs.add(onChange);
+    return () => {
+      const s = perTask.get(taskId);
+      if (!s) return;
+      s.delete(onChange);
+      if (s.size === 0) perTask.delete(taskId);
+    };
+  }, [taskId]);
+  const snapshot = useCallback(() => (taskId ? topicByTask.get(taskId) : undefined), [taskId]);
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
 /** Il task di un topic, con un risveglio che arriva solo per quello. */
@@ -102,8 +120,10 @@ export function useTopicTask(topicId: string | undefined): TopicTaskRef | undefi
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
-/** Solo per i test: riporta lo store allo stato di boot. */
+/** @internal Solo per i test: riporta lo store allo stato di boot. */
 export function __resetTaskSessions(): void {
   state = {};
   perTopic.clear();
+  topicByTask = new Map();
+  perTask.clear();
 }

@@ -23,8 +23,9 @@
  * The pure `resolveProjectPath(id, candidates)` is unit-tested; the impure
  * `buildProjectCandidates` (fs + store reads) is assembled in server.ts.
  */
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "fs";
-import { dirname, isAbsolute, join, resolve, sep } from "path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { isInsideDir } from "../lib/path-containment";
 import { projectIdForPath } from "./tasks";
 import type { ProjectStore } from "./project-store";
@@ -35,12 +36,235 @@ export interface ProjectCandidate {
   projectStoreId: string | null;
 }
 
-/** Pure: find the candidate whose path re-hashes to `projectId`. */
-export function resolveProjectPath(projectId: string, candidates: ProjectCandidate[]): ProjectCandidate | null {
+/**
+ * The other addresses under which the SAME project has been known: the symlinks
+ * a move leaves at the old place.
+ *
+ * The board id is the hash of the whole path, so moving a folder changes the id
+ * you derive from it: cards written before keep the id of the old address and no
+ * candidate inverts it any more (19/11: the reshuffle of the projects folder left
+ * the topics-app board without a checkout, and the land sent every card back to
+ * review). Whoever moves a folder usually leaves a symlink at the old place, in
+ * the same tree: we look for symlinks pointing at the project in the two folders
+ * above it, never higher than the home. The result also holds the real path when
+ * the candidate is itself a symlink. Folder listings are memoised for the
+ * duration of one resolution only.
+ */
+export function makeAliasPathFinder(home = homedir()): (path: string) => string[] {
+  const listings = new Map<string, Array<{ link: string; real: string }>>();
+  const linksIn = (dir: string) => {
+    let hit = listings.get(dir);
+    if (hit) return hit;
+    hit = [];
+    try {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (!e.isSymbolicLink()) continue;
+        const link = join(dir, e.name);
+        try { hit.push({ link, real: realpathSync(link) }); } catch { /* broken symlink */ }
+      }
+    } catch { /* unreadable or vanished folder */ }
+    listings.set(dir, hit);
+    return hit;
+  };
+  return (path) => {
+    let real: string;
+    try { real = realpathSync(path); } catch { return []; }
+    const out = new Set<string>();
+    if (real !== path) out.add(real);
+    let dir = dirname(real);
+    for (let level = 0; level < 2; level++) {
+      // Stop at the home: nobody keeps projects above it.
+      if (dir === home || dir === dirname(dir) || !isInsideDir(dir, home)) break;
+      for (const l of linksIn(dir)) if (l.real === real) out.add(l.link);
+      dir = dirname(dir);
+    }
+    return [...out];
+  };
+}
+
+/**
+ * Pure (apart from the symlinks, which are injectable): find the candidate whose
+ * path re-hashes to `projectId`. When no path matches, retry with the other
+ * addresses of the same project (`aliasPathsOf`): a card from before a move must
+ * find the checkout where it is now.
+ */
+export function resolveProjectPath(
+  projectId: string,
+  candidates: ProjectCandidate[],
+  aliasPathsOf: (path: string) => string[] = makeAliasPathFinder(),
+): ProjectCandidate | null {
   for (const c of candidates) {
     if (projectIdForPath(c.path) === projectId) return c;
   }
+  for (const c of candidates) {
+    if (aliasPathsOf(c.path).some((alias) => projectIdForPath(alias) === projectId)) return c;
+  }
   return null;
+}
+
+// ── Canonical project of a folder ─────────────────────────────────────────────
+//
+// A linked git worktree is never a project: it is another checkout of the SAME
+// repository. Registering one as a project gives the repo a second board and a
+// second sidebar entry (five of them exist today). The identity of a checkout
+// is its git common dir, so the question "which project is this folder?" is
+// answered by looking for the project whose main checkout owns that common dir.
+
+/** What the canonical lookup needs from a project row. */
+export interface CanonicalProjectRow {
+  id: string;
+  path: string;
+  slug?: string | null;
+}
+
+export interface GitCheckoutFacts {
+  /** The shared `.git` directory (absolute, symlinks resolved). */
+  commonDir: string;
+  /** The top of this checkout (absolute, symlinks resolved). */
+  topLevel: string;
+}
+
+export interface CanonicalProjectDeps {
+  /** Probe a folder with git; `null` when it is not (inside) a git checkout. Injectable for tests. */
+  gitFacts?: (dir: string) => GitCheckoutFacts | null;
+  /** Project id that owns a registered worktree row at this absolute path (the `worktrees` table). */
+  worktreeOwner?: (absPath: string) => string | null;
+  /** Topics' worktree root: a vanished `{root}/{slug}/…` folder belongs to the project with that slug. */
+  worktreeRoot?: string;
+}
+
+/** The git dir a `.git` FILE points at (a linked worktree or a submodule), resolved against the file's folder. */
+function gitDirOfFile(file: string): string | null {
+  const m = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync(file, "utf8"));
+  return m ? resolve(dirname(file), m[1]!) : null;
+}
+
+/**
+ * Common dir and top level of a folder, both with symlinks resolved, read off the
+ * `.git` entries the way git reads them: a directory is the common dir itself; a
+ * file names a git dir whose `commondir` leads to the shared one (a linked
+ * worktree), or is the common dir when it has none (a submodule).
+ *
+ * NO process is spawned on purpose. The dispatcher asks this on every tick for
+ * every board, and a synchronous `git rev-parse` there stops the event loop for as
+ * long as git takes (LOOP-SPAWN-01), which under load is far more than the read
+ * itself. `null` when no `.git` is found up the tree or an entry cannot be read.
+ */
+export function readGitCheckoutFacts(dir: string): GitCheckoutFacts | null {
+  try {
+    for (let top = resolve(dir); ; top = dirname(top)) {
+      const dotGit = join(top, ".git");
+      let isDir: boolean | null = null;
+      try { isDir = statSync(dotGit).isDirectory(); } catch { /* no .git here: look one folder up */ }
+      if (isDir !== null) {
+        const gitDir = isDir ? dotGit : gitDirOfFile(dotGit);
+        if (!gitDir) return null;
+        let commonDir = gitDir;
+        try { commonDir = resolve(gitDir, readFileSync(join(gitDir, "commondir"), "utf8").trim()); } catch { /* no commondir: the git dir is the common one */ }
+        return { commonDir: realpathSync(commonDir), topLevel: realpathSync(top) };
+      }
+      if (dirname(top) === top) return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+/** The folder a shared git dir belongs to: the parent of `.git`, or the dir itself for a bare repo. */
+function mainCheckoutOf(commonDir: string): string {
+  return commonDir.endsWith(`${sep}.git`) ? dirname(commonDir) : commonDir;
+}
+
+const realOrSelf = (p: string): string => {
+  try { return realpathSync(p); } catch { return p; }
+};
+
+/**
+ * Where a folder that no longer exists used to be a worktree of: the project it
+ * was carved for, read off the path alone. Two conventions, both explicit:
+ * `{worktreeRoot}/{slug}/…` (Topics') and `<repo>/.claude/worktrees/…` (Claude
+ * Desktop's). Returns null for a path that fits neither.
+ */
+export function vanishedWorktreeParent<T extends CanonicalProjectRow>(
+  path: string,
+  projects: readonly T[],
+  worktreeRoot?: string,
+): T | null {
+  if (worktreeRoot && isInsideDir(path, worktreeRoot)) {
+    const slug = relative(worktreeRoot, path).split(sep)[0];
+    const hit = slug ? projects.find((p) => p.slug === slug) : undefined;
+    if (hit) return hit;
+  }
+  const marker = `${sep}.claude${sep}worktrees${sep}`;
+  const at = path.indexOf(marker);
+  if (at > 0) {
+    const repo = path.slice(0, at);
+    return projects.find((p) => p.path === repo || realOrSelf(p.path) === realOrSelf(repo)) ?? null;
+  }
+  return null;
+}
+
+/**
+ * The project a folder canonically belongs to, or null when none of the known
+ * projects is it.
+ *
+ *  - a linked worktree (any address: symlink alias, `.claude/worktrees`, Topics'
+ *    own root) answers with the project of the repository's MAIN checkout;
+ *  - the main checkout, reached through an alias, answers with its own project;
+ *  - a subfolder of a repository is NOT the repository: a monorepo package
+ *    registered as a project stays itself (null);
+ *  - a folder that is gone answers from the worktree table or from where it
+ *    lived (`vanishedWorktreeParent`), because git can no longer be asked.
+ *
+ * Existing rows are never rewritten by this: callers use it at the moment a path
+ * COMES IN (dispatch, adoption, auto-bind, project creation), so a worktree can
+ * no longer open a second board for a repository that already has one.
+ */
+export function canonicalProjectFor<T extends CanonicalProjectRow>(
+  path: string,
+  projects: readonly T[],
+  deps: CanonicalProjectDeps = {},
+): T | null {
+  if (!path || !isAbsolute(path)) return null;
+  let real: string;
+  try {
+    real = realpathSync(path);
+  } catch {
+    // Gone: git cannot answer, the registry and the path layout can.
+    const owner = deps.worktreeOwner?.(path) ?? null;
+    const byRow = owner ? projects.find((p) => p.id === owner) : undefined;
+    if (byRow) return byRow;
+    return vanishedWorktreeParent(path, projects, deps.worktreeRoot);
+  }
+  const facts = (deps.gitFacts ?? readGitCheckoutFacts)(real);
+  if (!facts || facts.topLevel !== real) return null;
+  const main = mainCheckoutOf(facts.commonDir);
+  return projects.find((p) => realOrSelf(p.path) === main) ?? null;
+}
+
+/**
+ * Pure check behind `worktree-orphans --check-projects`: the projects whose own
+ * `path` is a worktree (linked checkout, or a folder under a worktree location)
+ * and that have no `parentId`. They are the boards a worktree opened by itself.
+ */
+export function projectsInsideWorktrees<T extends CanonicalProjectRow & { parentId?: string | null }>(
+  projects: readonly T[],
+  deps: Pick<CanonicalProjectDeps, "gitFacts" | "worktreeRoot"> = {},
+): T[] {
+  const out: T[] = [];
+  for (const p of projects) {
+    if (p.parentId) continue;
+    let real: string | null = null;
+    try { real = realpathSync(p.path); } catch { /* vanished: judged by its address */ }
+    if (real === null) {
+      const inRoot = !!deps.worktreeRoot && isInsideDir(p.path, deps.worktreeRoot) && p.path !== resolve(deps.worktreeRoot);
+      if (inRoot || p.path.includes(`${sep}.claude${sep}worktrees${sep}`)) out.push(p);
+      continue;
+    }
+    const facts = (deps.gitFacts ?? readGitCheckoutFacts)(real);
+    if (facts && facts.topLevel === real && mainCheckoutOf(facts.commonDir) !== real) out.push(p);
+  }
+  return out;
 }
 
 // Same discovery rules as topics.ts:getWorkspaceProjects — kept in sync by hand

@@ -1,5 +1,608 @@
 [
   {
+    "version": "2.5.0",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "one row grammar in the sidebar, and no ground at rest",
+          "scope": "ui"
+        },
+        {
+          "text": "the reused browser view passes the island flag too",
+          "scope": "tauri"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.110",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a pop-out window is dressed on the main thread, not on a tokio worker",
+          "scope": "tauri"
+        },
+        {
+          "text": "a project's browser in front is the title, and its page is an island",
+          "scope": "ui"
+        },
+        {
+          "text": "corner_plan is macOS-only outside tests, like its neighbours",
+          "scope": "tauri"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.108",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "table shows the project first, with its icon, on the design system tokens",
+          "scope": "board"
+        },
+        {
+          "text": "main gates green again after two lands",
+          "scope": "ci"
+        },
+        {
+          "text": "the request_login land and the wait-branch land, made green",
+          "scope": "ci"
+        },
+        {
+          "text": "check-e2e-touched reads the fetch of its own step",
+          "scope": "test"
+        },
+        {
+          "text": "with tabs at the side the title is the real tab, and the project column is islands",
+          "scope": "layout"
+        },
+        {
+          "text": "keep the front on close only on the desktop title",
+          "scope": "layout"
+        },
+        {
+          "text": "a new chat comes back after a reload; the queue chip scene leaves flight",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.107",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a declared wait keeps the worktree branch; a phantom delivery branch no longer pins the overflow",
+          "scope": "tasks"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.106",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a starving runner keeps its turn, a real message wakes it",
+          "scope": "ci-governor"
+        },
+        {
+          "text": "a card cut on an open question is not resumed with the interrupted-turn nudge",
+          "scope": "dispatcher"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.105",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a project's window shows only its title, which is its tab",
+          "scope": "layout"
+        },
+        {
+          "text": "no \"+\" on a project's title, its row in the column has it",
+          "scope": "layout"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.101",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [
+        {
+          "text": "red-main cards carry a fixed recipe and run on Sonnet",
+          "scope": "main-ci"
+        },
+        {
+          "text": "skip a spent account until its reset and retry the turn on the next one",
+          "scope": "native"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "run gate-coverage and native-shutdown-notice tests serially",
+          "scope": "tests"
+        },
+        {
+          "text": "no reap, prune or remove loses work the review found exposed",
+          "scope": "worktrees"
+        },
+        {
+          "text": "the vacuum and the auto-land read what WORKS, a parked card is not working",
+          "scope": "restart-gate"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.100",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a project's tabs show open or closed, and a row opens its own sub-agents",
+          "scope": "sidebar"
+        },
+        {
+          "text": "judge other tools' fresh rows, lift vanished hook locks, keep git off live sessions",
+          "scope": "worktree-gc"
+        },
+        {
+          "text": "one folder per session, atomic name claim, nothing lost on failure",
+          "scope": "worktree-hook"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.99",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "judge what a folder holds now, and never reap what Topics cannot prove it made",
+          "scope": "worktrees"
+        },
+        {
+          "text": "every cross-node and cross-tool door leaves Topics' proof, and nothing is removed without it",
+          "scope": "worktrees"
+        },
+        {
+          "text": "count the cells on screen, not the ones the layout remembers",
+          "scope": "split"
+        },
+        {
+          "text": "a closed row takes no fill under the pointer",
+          "scope": "sidebar"
+        },
+        {
+          "text": "a Topics worktree whose HEAD left its branch is judged by HEAD",
+          "scope": "worktrees"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.98",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [
+        {
+          "text": "a row of the column splits like a tab, one landing for every pane drop",
+          "scope": "split"
+        },
+        {
+          "text": "the drop footprint names what lands, the centre is an outline, nothing animates",
+          "scope": "split"
+        },
+        {
+          "text": "every side and 'even out' from every sheet, and a row opens beside",
+          "scope": "split"
+        },
+        {
+          "text": "a split cell says what it holds and who has the focus, and the split answers the keyboard",
+          "scope": "split"
+        },
+        {
+          "text": "a project row maps the splits inside its window",
+          "scope": "split"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "the column's toggle sits on the head of the first cell only",
+          "scope": "split"
+        },
+        {
+          "text": "an empty chat in a short narrow cell keeps its greeting under the title",
+          "scope": "split"
+        },
+        {
+          "text": "a narrow cell's empty field stays one line",
+          "scope": "split"
+        },
+        {
+          "text": "a closed row dropped on the centre of the pool opens there",
+          "scope": "split"
+        },
+        {
+          "text": "keep the lights inset line and count the project row's map",
+          "scope": "split"
+        },
+        {
+          "text": "the GC moves only what Topics proves it made, into a quarantine",
+          "scope": "worktrees"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.97",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [
+        {
+          "text": "tabs live in one place, with three states for every kind",
+          "scope": "sidebar"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "three states inside project windows, gates green, suite on the old layout",
+          "scope": "sidebar"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.96",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [
+        {
+          "text": "request_login records a notice linking to the topic, plus a 1440 px e2e",
+          "scope": "agent"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "bring main's any budget and identifier gate back to green",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.95",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a turn waiting for a person is parked, not streaming (#1634)",
+          "scope": "restart-gate"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.94",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "never let an isolated spawn_agent fall back to the remote fast path",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.90",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "drop the topic directory, switch_topic resolves names",
+          "scope": "context"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.87",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "BitLocker never turned on answers 0, read it as off",
+          "scope": "security"
+        },
+        {
+          "text": "keep machine-security.ts at its 813-line bloat baseline",
+          "scope": "security"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.81",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "ssh-only servers stop timing out to «unknown»",
+          "scope": "security"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.77",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "nome inglese per il ref simbolico",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.76",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [
+        {
+          "text": "request_login opens a login tab, raises it and waits for the sign-in",
+          "scope": "agent"
+        }
+      ],
+      "fixes": [],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.74",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [
+        {
+          "text": "security mark codes+i18n, route whitelist, statusVisual colours, no shield on cloud node, renumber MACHINE-09",
+          "scope": "machines"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "credito finito = limite che riprende da solo, non errore",
+          "scope": "motore"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.71",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "security mark hit area 24px (usability audit target-size)",
+          "scope": "machines"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.65",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [
+        {
+          "text": "security shield beside each node and its four checks in the row (MACHINE-06)",
+          "scope": "machines"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "bisect a red landed batch instead of bouncing every card",
+          "scope": "ci-phase"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.52",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "refuse ask_user_question for a Codex spawn_agent child too",
+          "scope": "subagent"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.51",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "refuse ask_user_question for CLI spawn_agent children, not just native ones",
+          "scope": "subagent"
+        },
+        {
+          "text": "never surface the ask-user panel for a spawned child, not just refuse its answer",
+          "scope": "subagent"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.49",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [
+        {
+          "text": "delivery summary is the review card, five fixed fields (#1297)",
+          "scope": "board"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "the re-measure drops the verdict the gate still retains for that commit",
+          "scope": "review-sweep"
+        },
+        {
+          "text": "one-shot jobs are tasks, not rows of the automations list",
+          "scope": "automations"
+        },
+        {
+          "text": "rm guard ignores redirections, -- and $TMPDIR when checking temp targets",
+          "scope": "native"
+        },
+        {
+          "text": "keep task/orchestrator drawer opaque under native-frost below 1024px",
+          "scope": "ui"
+        },
+        {
+          "text": "scheda del task trasparente sulla Board stretta (#1292)",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.48",
+    "date": "2026-11-18",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a round without a CI verdict is measured again, and a new round closes the card's earlier PRs",
+          "scope": "ci-phase"
+        },
+        {
+          "text": "a review card with no verdict on its commit is measured, a green one in conflict goes back",
+          "scope": "review-sweep"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.41",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "un turno di chat non promuove card che la chat ha aperto per sé (#1230)",
+          "scope": "board"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.40",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "una card che nessuno lavora non tiene su «in attesa di un lavoro in background» (#1224)",
+          "scope": "chat"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.29",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "una riadozione in corso risulta viva al watchdog anche se il figlio è già uscito (#1190)",
+          "scope": "chat"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.27",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "focus-pane mounts the panel with the same force-open fallback as open-pane",
+          "scope": "browser"
+        },
+        {
+          "text": "approve re-captures a missing delivery_commit before deciding CI",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.23",
     "date": "2026-11-16",
     "sections": {
@@ -58,6 +661,10 @@
         {
           "text": "sveglia comment on a review card rejects and requeues like board_review reject (#1124)",
           "scope": "board"
+        },
+        {
+          "text": "a 401 on the plan usage read recovers the OAuth token once and retries",
+          "scope": "usage"
         },
         {
           "text": "a branch carried to another machine lands or is refused, never accepted (#1028)",
@@ -135,6 +742,20 @@
         {
           "text": "a deferred turn write that hits SQLITE_BUSY is retried instead of killing the process (#960)",
           "scope": "server"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.3.107",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "four misleading buttons (send/note, archive, closed-by-human, approve with unmerged branch)",
+          "scope": "board"
         }
       ],
       "perf": []

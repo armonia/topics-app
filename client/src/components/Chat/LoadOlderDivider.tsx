@@ -14,8 +14,9 @@
  * two different things would make the reader wonder which is which.
  */
 
-import { History, Loader2 } from 'lucide-react';
+import { History } from 'lucide-react';
 import { useT } from '../../hooks/useT';
+import { Spinner } from '../Shared/Spinner';
 
 export function LoadOlderDivider({
   count,
@@ -43,7 +44,7 @@ export function LoadOlderDivider({
           title={label}
           className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-mini hover:bg-app-hover transition-colors disabled:cursor-progress"
         >
-          {loading ? <Loader2 size={12} className="flex-shrink-0 animate-spin" /> : <History size={12} className="flex-shrink-0" />}
+          {loading ? <Spinner size="sm" tone="current" /> : <History size={12} className="flex-shrink-0" />}
           <span className="font-medium">{label}</span>
         </button>
         <div className="h-px flex-1 bg-app-border/60" />

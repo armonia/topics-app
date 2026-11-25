@@ -103,17 +103,17 @@ export function useServedFromCache(sessionKey: string): boolean {
   );
 }
 
-/** Test seam: the raw flag, without the socket gate. */
+/** @internal Test seam: the raw flag, without the socket gate. */
 export const _isFromCacheForTests = (sessionKey: string): boolean => fromCache.has(sessionKey);
 
-/** Test seam: move the socket the way `useWebSocket` would. */
+/** @internal Test seam: move the socket the way `useWebSocket` would. */
 export function _setSocketOpenForTests(open: boolean): void {
   if (open === socketOpen) return;
   socketOpen = open;
   announce();
 }
 
-/** Test seam: nothing stale, socket shut, no listener left behind. */
+/** @internal Test seam: nothing stale, socket shut, no listener left behind. */
 export function _resetForTests(): void {
   fromCache.clear();
   listeners.clear();

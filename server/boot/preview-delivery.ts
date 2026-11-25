@@ -2,7 +2,7 @@
  * Card previews, auto-merge, worktree cleanup and the delivery references a card's branch is read through.
  */
 import { join } from "path";
-import { existsSync, readFileSync, mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
+import { mkdirSync, readFileSync, statSync, readlinkSync, realpathSync } from "fs";
 import { createTaskAutoMerge, declaredDeliveryFor, worktreeRealDirt } from "../services/task-automerge";
 import { imageShape, isBlankLikeImage } from "../services/image-shape";
 import { createPreviewManager, type PreviewProcess } from "../services/preview-manager";
@@ -10,8 +10,12 @@ import { createPreviewBrowser } from "../services/preview-browser";
 import { recordServerSpawn } from "../lib/spawn-metrics";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees } from "../routes/processes";
 import { killProcessTree } from "../lib/process-tree";
+import { resolvePreviewCommand } from "../services/preview-command";
 import { branchExistsInRepo, resolveCommit, worktreeDiffStat } from "../services/branch-status";
 import { deliveryPointer } from "../services/own-commits";
+import { collectCardOwnBranches } from "../services/card-own-branches";
+import { subagentBranchesOf } from "../lib/subagent-store";
+import { getDatabase } from "../db";
 import { resolveDeliveryBranch, type DeliveryBranchDeps } from "../services/delivery-branch-ref";
 import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
 import { ownBranchFiles, ownCommitFiles } from "../routes/tasks";
@@ -37,8 +41,6 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
   // la card mostrava un'immagine rotta.
   const PREVIEW_MEDIA_DIR = join(ctx.APP_DATA_DIR, "media", "task-previews");
 
-  const PREVIEW_SCRIPT_CANDIDATES = ["preview", "dev", "start"];
-
   const previewBrowser = createPreviewBrowser();
 
 
@@ -57,39 +59,63 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
   }
 
 
+  /** Last ~4 KB of a stream, to say why a child died. */
+  function collectTail(stream: ReadableStream<Uint8Array> | null | undefined, sink: { text: string }): void {
+    if (!stream) return;
+    void (async () => {
+      try {
+        const decoder = new TextDecoder();
+        for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>) {
+          sink.text = (sink.text + decoder.decode(chunk, { stream: true })).slice(-4096);
+        }
+      } catch { /* the child is closed: the tail stays as it is */ }
+    })();
+  }
+
+
   late.previewManager = createPreviewManager({
     worktreeOf: (taskId) => {
       const wt = worktreeOfTask(taskId);
       if (!wt) return null;
       return { id: wt.id, absPath: wt.absPath, branchName: wt.branchName, projectId: wt.projectId, mode: wt.mode };
     },
-    // Env override (TOPICS_PREVIEW_CMD / TOPICS_PREVIEW_PATH) wins; otherwise pick
-    // the first present of preview/dev/start in the worktree's package.json. The
-    // server honours PORT (injected by the manager) so the pool port sticks.
-    resolveCommand: (_taskId, wt) => {
-      const deepLinkPath = process.env.TOPICS_PREVIEW_PATH?.trim() || "/";
-      const override = process.env.TOPICS_PREVIEW_CMD?.trim();
-      if (override) return { cmd: override.split(/\s+/), deepLinkPath };
-      try {
-        const pkgPath = join(wt.absPath, "package.json");
-        if (!existsSync(pkgPath)) return null;
-        const scripts = (JSON.parse(readFileSync(pkgPath, "utf-8"))?.scripts ?? {}) as Record<string, string>;
-        const script = PREVIEW_SCRIPT_CANDIDATES.find((s) => typeof scripts[s] === "string" && scripts[s].trim());
-        if (!script) return null;
-        return { cmd: ["bun", "run", script], deepLinkPath };
-      } catch { return null; }
+    // How the command is chosen (env override, preview:worktree, package.json
+    // heuristic) lives in `resolvePreviewCommand`. The server honours PORT (injected
+    // by the manager) so the pool port sticks.
+    resolveCommand: (_taskId, wt) => resolvePreviewCommand(wt.absPath),
+    readDeepLink: (file) => {
+      try { return readFileSync(file, "utf-8").trim() || null; } catch { return null; }
     },
     spawn: (cmd, opts): PreviewProcess => {
       const child = Bun.spawn(cmd, {
         cwd: opts.cwd,
         env: { ...process.env, ...opts.env },
-        stdout: "ignore", stderr: "ignore", stdin: "ignore",
+        stdout: "pipe", stderr: "pipe", stdin: "ignore",
       });
+      const out = { text: "" };
+      collectTail(child.stdout, out);
+      collectTail(child.stderr, out);
       return {
         get pid() { return child.pid ?? null; },
         alive() { return child.exitCode === null && !child.killed; },
         kill() { try { child.kill(); } catch { /* already gone */ } },
+        tail() { return out.text; },
       };
+    },
+    runStep: async (cmd, opts) => {
+      try {
+        const child = Bun.spawn(cmd, { cwd: opts.cwd, env: { ...process.env, ...opts.env }, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+        const out = { text: "" };
+        collectTail(child.stdout, out);
+        collectTail(child.stderr, out);
+        const timer = setTimeout(() => { try { child.kill(); } catch { /* already gone */ } }, opts.timeoutMs);
+        try {
+          const code = await child.exited;
+          return { ok: code === 0, tail: out.text };
+        } finally { clearTimeout(timer); }
+      } catch (err) {
+        return { ok: false, tail: String(err instanceof Error ? err.message : err) };
+      }
     },
     probe: async (url) => {
       try {
@@ -147,7 +173,7 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
     // the literal string PanelGrid renders when no topic is selected — see
     // client/src/components/Layout/PanelGrid.tsx.
     // Both captures run on the preview's own WebKit, never on the remote
-    // browser's Chromium (KANBAN-95, server/services/preview-browser.ts).
+    // browser's Chromium (KANBAN-119, server/services/preview-browser.ts).
     emptyAppShell: (url) => previewBrowser.emptyAppShell(url),
     // Viewport, not full page: the card draws the preview with `object-cover`,
     // and an image taller than `PREVIEW_CARD_MAX_RATIO` (0.70) times its width
@@ -333,8 +359,14 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
    */
   function cardOwnBranches(taskId: string): string[] {
     const task = dispatcherSvc.get(taskId)?.task;
-    const named = [...taskAttemptStore.list(taskId).map((a) => a.branch), task?.deliveryBranch, task?.priorBranch, ...(task?.pastDeliveryBranches ?? [])];
-    return [...new Set(named.filter((b): b is string => typeof b === "string" && b.length > 0))];
+    const db = getDatabase();
+    return collectCardOwnBranches({
+      attemptBranches: taskAttemptStore.list(taskId).map((a) => a.branch),
+      deliveryBranches: [task?.deliveryBranch, task?.priorBranch, ...(task?.pastDeliveryBranches ?? []), worktreeOfTask(taskId)?.branchName],
+      // The chat the dispatcher holds is cleared on release, `chatId` keeps the last one.
+      agentSessionKeys: [task?.assignedTopicId, task?.chatId].map((id) => (id ? ctx.getTopicById(id)?.sessionKey : null)),
+      childBranchesOf: (key) => subagentBranchesOf(db, key),
+    });
   }
 
 

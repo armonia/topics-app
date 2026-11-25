@@ -11,8 +11,11 @@ import {
   isGuestSocketData, isGuestAllowedMethod, isGuestHandshakeFrame, isGuestInboundFrameAllowed,
   isDelegatedNodeAllowedRequest,
 } from "./grants";
-import { REGISTERED_OUTBOUND_TYPES } from "../../shared/ws-outbound";
+import { OUTBOUND_FRAME_CLASSES } from "../../shared/ws-outbound";
 import { chatWsInboundSchema } from "../schemas/chat-ws-inbound";
+
+// The frame classes are a Record over every registered type, so their keys are the registry.
+const REGISTERED_OUTBOUND_TYPES = Object.keys(OUTBOUND_FRAME_CLASSES).sort();
 
 describe("grants · tipi di risorsa", () => {
   it("solo cio' che ha una riga vera a cui appendere un permesso", () => {
@@ -153,7 +156,7 @@ describe("grants · i frame che un ospite può MANDARE", () => {
 describe("grants · i frame che un ospite può ricevere", () => {
   const ammessi = [
     "task:created", "task:updated", "task:deleted", "task:review-ready", "task:parked",
-    "stream:start", "stream:content_chunk", "stream:end", "stream:alive", "stream:catchup",
+    "stream:start", "stream:content_chunk", "stream:end", "stream:alive", "stream:action", "stream:catchup",
     "message", "message:new",
   ];
 

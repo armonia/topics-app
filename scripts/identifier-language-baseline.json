@@ -177,8 +177,7 @@
       "kbdRef",
       "replayer",
       "replayerRef",
-      "scrollAccRef",
-      "unsubscribe"
+      "scrollAccRef"
     ],
     "client/src/components/Browser/NativeBrowserPlaceholder.tsx": [
       "coalesceRaf",
@@ -413,8 +412,7 @@
     ],
     "client/src/components/Layout/hooks/projectPersistence.ts": [
       "hsum",
-      "lraw",
-      "unsubscribeFromProjectLayout"
+      "lraw"
     ],
     "client/src/components/Layout/hooks/usePaneLifecycle.ts": [
       "handleUnsolo",
@@ -1066,7 +1064,6 @@
     "client/src/hooks/usePushNotifications.ts": [
       "arr",
       "setDevicePrefs",
-      "unsubscribe",
       "urlBase64ToUint8Array"
     ],
     "client/src/hooks/useRemoteBrowser.ts": [
@@ -1301,9 +1298,6 @@
       "chiusa",
       "riaperta"
     ],
-    "client/src/lib/devBundleReload.ts": [
-      "unsubscribe"
-    ],
     "client/src/lib/devLayoutProbe.ts": [
       "classNameDesc",
       "desc",
@@ -1328,10 +1322,7 @@
       "elemento"
     ],
     "client/src/lib/dragPreview.test.ts": [
-      "INTENTI",
       "ScattoRegistrato",
-      "dopo",
-      "intenti",
       "presa",
       "presaDedotta",
       "primo",
@@ -1339,10 +1330,6 @@
       "rimaste",
       "scatto",
       "secondo",
-      "selettori",
-      "sorgente",
-      "superficie",
-      "testo",
       "testoDi",
       "traslazioneDi",
       "trovate",
@@ -1398,7 +1385,6 @@
       "PesoDichiarato",
       "Proprietario",
       "VocePeso",
-      "inventarioVisibile",
       "ordinaVoci",
       "pesoDaVoce",
       "proprietari",
@@ -1421,7 +1407,6 @@
     ],
     "client/src/lib/featureWeightText.ts": [
       "NOMI",
-      "NOMI_PER_TEST",
       "RIGHE_NEL_TOOLTIP",
       "bloccoTooltip",
       "coppia",
@@ -1586,15 +1571,12 @@
       "vicino"
     ],
     "client/src/lib/selectionStyles.test.ts": [
-      "frazionari",
       "riga",
-      "risolvi",
-      "sezione"
+      "risolvi"
     ],
     "client/src/lib/selectionStyles.ts": [
       "CHROME_BAR_H_VAR",
-      "GLYPH_KBD_PADDING",
-      "riposo"
+      "GLYPH_KBD_PADDING"
     ],
     "client/src/lib/settings.ts": [
       "syncableSettings"
@@ -1689,9 +1671,6 @@
     "client/src/state/layout/goldenGeometry.test.ts": [
       "EPS"
     ],
-    "client/src/state/layout/legacyAdapters.test.ts": [
-      "approxGrid"
-    ],
     "client/src/state/messageStore.test.ts": [
       "lasciata",
       "primaDiLasciarla",
@@ -1724,8 +1703,7 @@
     ],
     "client/src/state/pane/adapters/projectLayoutSync.ts": [
       "__getUnackedProjectSyncKeys",
-      "unackedJsonByKey",
-      "unsubscribeProjectLayout"
+      "unackedJsonByKey"
     ],
     "client/src/state/pane/adapters/terminalLocator.test.ts": [
       "loc"
@@ -1740,8 +1718,7 @@
     ],
     "client/src/state/pane/middleware/serverHydrated.test.ts": [
       "applicato",
-      "ordine",
-      "unsubscribe"
+      "ordine"
     ],
     "client/src/state/pane/middleware/syncServer.ts": [
       "armaSpinta",
@@ -1790,7 +1767,6 @@
       "EVENTO_PAGINA_PROFILO",
       "apriProfilo",
       "dimenticaPaginaProfilo",
-      "paginaProfiloChiesta",
       "richiesta"
     ],
     "client/src/state/signals.ts": [
@@ -2009,9 +1985,6 @@
     "scripts/check-nul-bytes.ts": [
       "buf"
     ],
-    "scripts/check-push-clean.ts": [
-      "stdin"
-    ],
     "scripts/check-ref-callbacks.ts": [
       "chiamati",
       "corpo",
@@ -2047,7 +2020,6 @@
       "copiaAlbero",
       "elenco",
       "esegui",
-      "pem",
       "pulito",
       "ripristina",
       "sporco",
@@ -2347,7 +2319,6 @@
       "commBatch",
       "compressa",
       "libc",
-      "lsofTcpOut",
       "mio"
     ],
     "scripts/new-migration.ts": [
@@ -2430,6 +2401,19 @@
       "pezzi",
       "riga",
       "totale"
+    ],
+    "server/app-context/app-statements.ts": [
+      "stmts"
+    ],
+    "server/app-context/message-branches.ts": [
+      "deleteMessageSubtree",
+      "subtree"
+    ],
+    "server/app-context/message-thread-writes.ts": [
+      "riusabile"
+    ],
+    "server/app-context/stream-registry.ts": [
+      "eraPermesso"
     ],
     "server/boot-orphan-scan.test.ts": [
       "inCorso",
@@ -2949,16 +2933,12 @@
     "server/lib/grants-query.test.ts": [
       "RADICE",
       "esploso",
-      "principali",
-      "ragioni"
+      "principali"
     ],
     "server/lib/grants-query.ts": [
       "dentro",
-      "dirette",
       "fuori",
-      "lista",
       "negati",
-      "perTipo",
       "righe"
     ],
     "server/lib/grants.test.ts": [
@@ -2978,7 +2958,6 @@
       "aggiungi"
     ],
     "server/lib/identity.ts": [
-      "confinamentoDerivato",
       "riga"
     ],
     "server/lib/idle-gc.test.ts": [
@@ -3282,7 +3261,6 @@
       "FINESTRA_RIPRESA_MS",
       "RigaDaValutare",
       "candidati",
-      "chatDaRiprendere",
       "conTraccia",
       "messaggio",
       "righe",
@@ -3437,6 +3415,19 @@
       "verdetto",
       "verdettoDaApporre"
     ],
+    "server/mcp/agent-tools.ts": [
+      "buf"
+    ],
+    "server/mcp/board-tools.ts": [
+      "anteprima"
+    ],
+    "server/mcp/chat-tools.ts": [
+      "buf"
+    ],
+    "server/mcp/tool-catalog.ts": [
+      "MODIFICA",
+      "SOLA_LETTURA"
+    ],
     "server/mcp/topics-mcp-server.e2e.test.ts": [
       "buf",
       "dec"
@@ -3448,12 +3439,6 @@
       "gambe",
       "invisibile",
       "subito"
-    ],
-    "server/mcp/topics-mcp-server.ts": [
-      "MODIFICA",
-      "SOLA_LETTURA",
-      "anteprima",
-      "buf"
     ],
     "server/providers/acp-jcode-model.integration.test.ts": [
       "CHIESTI",
@@ -3552,9 +3537,7 @@
       "vicina"
     ],
     "server/providers/claude-code.ts": [
-      "ClaudeCliCompat",
-      "DEFAULT_ONESHOT_MODEL",
-      "oneshotKey"
+      "ClaudeCliCompat"
     ],
     "server/providers/claude-models.ts": [
       "buf"
@@ -3563,10 +3546,6 @@
       "agente",
       "lista",
       "spento"
-    ],
-    "server/providers/claude/args.ts": [
-      "ClaudeOneshotArgsOptions",
-      "buildClaudeOneshotArgs"
     ],
     "server/providers/claude/cli-compat.ts": [
       "ClaudeCliCompat",
@@ -3600,9 +3579,6 @@
       "errObj",
       "obj",
       "stderrBuf"
-    ],
-    "server/providers/codex/args.ts": [
-      "buildCodexOneshotArgs"
     ],
     "server/providers/default-preference-acp.test.ts": [
       "FAKE_ACP"
@@ -3715,10 +3691,6 @@
     ],
     "server/providers/prompt-cache.test.ts": [
       "dopoUna"
-    ],
-    "server/providers/prompt-cache.ts": [
-      "MAX_CACHE_BREAKPOINTS",
-      "countCacheBreakpoints"
     ],
     "server/providers/registry-acp.test.ts": [
       "acpConfig",
@@ -3880,9 +3852,6 @@
       "idempotencyKey",
       "idempotencySlot",
       "isWoken"
-    ],
-    "server/routes/claude-hooks.ts": [
-      "isLocalhost"
     ],
     "server/routes/context-preview.test.ts": [
       "pathnameParts"
@@ -4704,9 +4673,6 @@
       "nota",
       "perche"
     ],
-    "server/services/task-dispatcher-runs.ts": [
-      "unsubscribeHumanHold"
-    ],
     "server/services/task-dispatcher-tick.ts": [
       "fermi",
       "fila",
@@ -4932,53 +4898,79 @@
     ],
     "server/services/tasks.ts": [
       "Neighbour",
-      "PREVIEWABLE_MEDIA",
-      "SQL_MIA",
-      "SQL_PAROLA",
-      "ammessa",
-      "anche",
-      "anteprimaUtile",
-      "archiveSubtree",
-      "archiviati",
-      "attuale",
-      "candidati",
-      "cappello",
-      "chiave",
-      "chiesti",
-      "contorno",
-      "coperte",
-      "dalPiuRecente",
-      "dentro",
+      "ins",
+      "stmt"
+    ],
+    "server/services/tasks/comments.ts": [
       "detto",
+      "marcate",
+      "stmt",
+      "tagliata"
+    ],
+    "server/services/tasks/delivery.ts": [
+      "coperte",
       "domanda",
       "dopo",
-      "elenco",
-      "ereditati",
+      "nota",
+      "testo"
+    ],
+    "server/services/tasks/land.ts": [
+      "anche",
+      "dentro",
       "esclusi",
-      "figli",
+      "noRipunta",
+      "risalita"
+    ],
+    "server/services/tasks/shared-card-read.ts": [
+      "SQL_MIA",
+      "SQL_PAROLA",
+      "contorno",
+      "dalPiuRecente",
+      "primaDiNoi",
+      "scelta"
+    ],
+    "server/services/tasks/shared-children.ts": [
+      "elenco"
+    ],
+    "server/services/tasks/shared-core.ts": [
+      "archiveSubtree"
+    ],
+    "server/services/tasks/shared-delivery-claims.ts": [
+      "nonScavalcare",
+      "spegniDone"
+    ],
+    "server/services/tasks/shared-previews.ts": [
+      "PREVIEWABLE_MEDIA",
+      "anteprimaUtile",
+      "attuale",
+      "cappello",
+      "figli"
+    ],
+    "server/services/tasks/shared-task-mapping.ts": [
+      "mrows"
+    ],
+    "server/services/tasks/status.ts": [
+      "ammessa",
+      "candidati",
+      "chiave",
+      "chiesti",
+      "detto",
+      "elenco",
       "firma",
       "giaRimessi",
-      "ins",
       "lettura",
-      "marcate",
       "minuti",
-      "mrows",
-      "noRipunta",
-      "nonScavalcare",
       "nota",
       "opzioni",
-      "primaDiNoi",
       "quanto",
       "rimborso",
-      "risalita",
-      "scelta",
       "serieMs",
-      "spegniDone",
       "stessa",
-      "stmt",
-      "tagliata",
-      "testo",
-      "titolo",
+      "titolo"
+    ],
+    "server/services/tasks/worktree.ts": [
+      "archiviati",
+      "ereditati",
       "tok"
     ],
     "server/services/transcript-usage.ts": [
@@ -5006,7 +4998,6 @@
     "server/services/worktree-gc-runner.ts": [
       "annuncia",
       "avviata",
-      "csid",
       "inVolo",
       "qualcosaVivoDentro"
     ],
@@ -5064,9 +5055,6 @@
       "findPricing",
       "pricing"
     ],
-    "server/usage/token-sql.test.ts": [
-      "CASI"
-    ],
     "server/usage/turn-usage.test.ts": [
       "casi"
     ],
@@ -5095,14 +5083,9 @@
       "arr",
       "chiave",
       "chiuse",
-      "deleteMessageSubtree",
-      "eraPermesso",
       "fresche",
       "osservatori",
-      "riusabile",
-      "serializzati",
-      "stmts",
-      "subtree"
+      "serializzati"
     ],
     "server/utils/executable.ts": [
       "semver"
@@ -5127,6 +5110,12 @@
       "CodiceAuth",
       "isCodiceAuth"
     ],
+    "shared/board-base.ts": [
+      "MAX_FANOUT"
+    ],
+    "shared/board-parking.ts": [
+      "NOTE_UNQUEUED_BY_HUMAN"
+    ],
     "shared/board.test.ts": [
       "carico",
       "leggera",
@@ -5135,10 +5124,6 @@
       "spento",
       "tappo",
       "tutto"
-    ],
-    "shared/board.ts": [
-      "MAX_FANOUT",
-      "NOTE_UNQUEUED_BY_HUMAN"
     ],
     "shared/browser-snapshot-core.ts": [
       "acc",
@@ -5230,8 +5215,6 @@
       "prosa"
     ],
     "shared/relay-crypto.test.ts": [
-      "busta",
-      "letto",
       "parti",
       "testo"
     ],
@@ -5239,10 +5222,8 @@
       "BUSTA_V",
       "apri",
       "chiaro",
-      "chiave",
       "componiLink",
       "importa",
-      "leggiLink",
       "nuovaChiave",
       "parti",
       "sigilla"
@@ -5415,7 +5396,6 @@
       "dividiBinario",
       "dividiTesto",
       "emetti",
-      "haContenutoOpaco",
       "involucro",
       "latoDiStream",
       "leggiFrame",
@@ -5512,7 +5492,6 @@
       "daMessaggio"
     ],
     "shared/tool-call-detail.ts": [
-      "ZodInferredToolCallDetail",
       "lspSchema"
     ],
     "shared/tray-board.test.ts": [
@@ -7450,9 +7429,6 @@
       "testo",
       "trovato"
     ],
-    "tests/unit/ghost-script.test.ts": [
-      "WPATH"
-    ],
     "tests/unit/icon-only-buttons-have-a-name.test.ts": [
       "chiusura",
       "colpevoli",
@@ -7663,11 +7639,6 @@
       "sessione",
       "turno",
       "vecchia"
-    ],
-    "tests/unit/tool-call-detail-schema.test.ts": [
-      "ZodInferredToolCallDetail",
-      "_CheckTsAssignableToZod",
-      "_CheckZodAssignableToTs"
     ],
     "tests/unit/version-lockstep.test.ts": [
       "atteso",

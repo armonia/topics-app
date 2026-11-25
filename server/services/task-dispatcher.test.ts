@@ -13,10 +13,21 @@ import { join } from "node:path";
 import { commitIsIn } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, UNRESOLVED_PROJECT_PARK_REASON, REQUEUE_PARKED_LABEL, REVIEW_CARD_FIELDS, REVIEW_CARD_NO_DECISION, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
-import { createTaskDispatcher, longCommandsRule, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
+import { createTaskDispatcher, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
+import { longCommandsRule, rotateFrom } from "./task-dispatcher-support";
+
+/** Cuts the PREVIEW_RULE block out of a composed envelope by STRUCTURE (first line "REVIEW EVIDENCE", last "One single gate"), not by searching for the constant: a test that looks for the constant it just interpolated cannot fail. */
+function extractPreviewRule(envelope: string): string | null {
+  const lines = envelope.split(/\r?\n/);
+  const from = lines.findIndex((l) => l.startsWith('REVIEW EVIDENCE'));
+  if (from < 0) return null;
+  const to = lines.findIndex((l, i) => i >= from && l.startsWith('One single gate'));
+  if (to < 0) return null;
+  return lines.slice(from, to + 1).join("\n");
+}
 import type { ResourceFloorVerdict } from "./dispatch-capacity";
 
 /**
@@ -30,6 +41,7 @@ function asFloor(reason: string | null): ResourceFloorVerdict {
 
 import { currentDispatchBlock } from "./dispatch-block-signal";
 import { cancelled, type TurnEndInfo, describeTurnEnd } from "../providers/stop-reason";
+import { BOARD_HOLD_KEY, clearProviderHold, dispatchBrakes, isProviderHeld, providerHold } from "../lib/provider-hold";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
@@ -521,7 +533,7 @@ describe("task-dispatcher", () => {
     expect(finale.status).not.toBe("backlog");
   });
 
-  it("il secondo rimando dell'agente ferma la card e la chiede: nessun terzo turno parte", async () => {
+  it("a repeated agent wait stays in todo with a longer window: no park, no third-turn question", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
     h.svc.setGlobalCap({ auto: false, max: 2 });
@@ -529,29 +541,22 @@ describe("task-dispatcher", () => {
 
     await h.dispatcher.tick(PID);
     await flush();
-    expect(h.dispatcher.deferWait("t1", "il servizio X è giù", 30).status).toBe("todo");
+    const first = h.dispatcher.deferWait("t1", "il servizio X è giù", 15);
+    expect(first.status).toBe("todo");
     h.finishTurn();
     await flush();
     h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = 't1'", [new Date(Date.now() - 1000).toISOString()]);
 
     await h.dispatcher.tick(PID);
     await flush();
-    expect(h.task("t1")!.dispatchState).toBe("working"); // the second turn starts: the first wait was legitimate
-    const parked = h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
-    expect(parked.status).toBe("backlog");
-    expect(parked.dispatchState).toBe(PARKED_WAITED_OUT);
-    expect(h.events.filter((e) => e.type === "task:parked")).toHaveLength(1); // the question reaches the human
-    h.finishTurn();
-    await flush();
-
-    const turns = h.turns.length;
-    await h.dispatcher.tick(PID);
-    await flush();
-    const t = h.task("t1")!;
-    expect(t.status).toBe("backlog");
-    expect(t.dispatchState).toBe(PARKED_WAITED_OUT);
-    expect(h.dispatcher.isInFlight("t1")).toBe(false);
-    expect(h.turns.length).toBe(turns);
+    expect(h.task("t1")!.dispatchState).toBe("working");
+    const second = h.dispatcher.deferWait("t1", "il servizio X è giù", 15);
+    expect(second.status).toBe("todo");
+    expect(second.dispatchState).toBe("waiting");
+    expect(second.waitStreak).toBe(2);
+    const windowMin = (Date.parse(second.dispatchDeferredUntil!) - Date.now()) / 60_000;
+    expect(windowMin).toBeGreaterThan(55); // 15 -> 60
+    expect(h.events.filter((e) => e.type === "task:parked")).toHaveLength(0);
   });
 
   it("sfondato il tetto delle attese la card resta `waited_out`: onTurnEnd non la azzera", async () => {
@@ -571,7 +576,7 @@ describe("task-dispatcher", () => {
       WAIT_STREAK_CAP, "il servizio x è giù", new Date().toISOString(),
     ]);
 
-    const parked = h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+    const parked = h.dispatcher.deferWait("t1", "il servizio X è giù", 30, "machine");
     expect(parked.status).toBe("backlog");
     expect(parked.dispatchState).toBe(PARKED_WAITED_OUT);
     expect(parked.dispatchDeferredUntil).toBeNull();
@@ -606,7 +611,7 @@ describe("task-dispatcher", () => {
     h.db.run("UPDATE tasks SET wait_streak = ?, wait_reason = ?, wait_since = ? WHERE id = 't1'", [
       WAIT_STREAK_CAP, "la ci sta girando", new Date().toISOString(),
     ]);
-    h.dispatcher.deferWait("t1", "la CI sta girando", 30);
+    h.dispatcher.deferWait("t1", "la CI sta girando", 30, "machine");
 
     const parked = h.events.filter((e) => e.type === "task:parked");
     expect(parked).toHaveLength(1);
@@ -899,6 +904,50 @@ describe("task-dispatcher", () => {
     expect(ultimaLive(h, "t1")?.retry).toBeUndefined();
     h.finishTurn();
     await flush();
+  });
+
+  it("un errore che dichiara il reset del piano mette la card in ATTESA fino a quell'ora: niente tentativi, niente backlog", async () => {
+    // 19/11, card 8f2d0c9f: the account engine answered «Only the reserve is
+    // left ... (resets_at: ...)», the turn ended `provider-error`, four empty
+    // rounds and the card in backlog, where nobody picks it up. Here six turns in a row
+    // against the same wall with cap 3: the card stays queued, with the hour.
+    const h = harness({ retryBackoffMs: 20 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    clearProviderHold();
+    clearProviderHold(BOARD_HOLD_KEY);
+    try {
+      await h.dispatcher.tick(PID);
+      await flush();
+      const resetAt = Date.now() + 3_600_000;
+      const detail = `API Error: 400 Only the reserve is left: x@y.z (1% left). Every other account is out until 09:00. Confirm to continue on the reserve (POST /api/reserve-confirm), or wait. (resets_at: ${new Date(resetAt).toISOString().replace(/\.\d+Z$/, "Z")})`;
+      for (let i = 0; i < 6; i++) {
+        if (h.turns.length <= i) break;
+        h.finishTurnWith({ end: "error", cause: "provider-error", detail });
+        await flush();
+        await flush();
+      }
+      expect(h.task("t1")!.status).not.toBe("backlog");
+      expect(h.task("t1")!.dispatchState).not.toBe("failed");
+      expect(h.task("t1")!.dispatchAttempts ?? 0).toBe(1);
+      const hold = providerHold(Date.now(), BOARD_HOLD_KEY);
+      expect(hold?.untilMs).toBeGreaterThan(Date.now() + 3_000_000);
+      expect(hold?.untilMs).toBeLessThanOrEqual(resetAt);
+      // The board sees it (the «Frenato» chip)...
+      expect(dispatchBrakes().some((b) => b.provider === "claude" && b.untilMs === hold!.untilMs)).toBe(true);
+      // ...but a live chat does NOT: the reserve is Attilio's, who can confirm it from the button. What
+      // reads the provider wall for chats (send, wake, resume, banner) looks at the «claude» key and
+      // finds it free, so the turn starts and the stop arrives with the continue-on-reserve button.
+      expect(providerHold()).toBeNull();
+      expect(isProviderHeld("claude-code")).toBe(false);
+      // After the backoff it does NOT restart: it waits for the reset hour.
+      await new Promise((r) => setTimeout(r, 60));
+      await flush();
+      expect(h.turns.length).toBe(1);
+    } finally {
+      clearProviderHold();
+      clearProviderHold(BOARD_HOLD_KEY);
+    }
   });
 
   it("il chip vivo porta COSA sta facendo la sessione: il tool in corso, letto dal tracker", async () => {
@@ -2378,7 +2427,7 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.busySessionKeys()).toEqual([h.turns[0]!.sessionKey]);
     // The PAIR, for the gate that asks the checks registry by task id whether
     // that card's delivery is only waiting, and then has to take the same
-    // card's stream out of the chat sources (RGATE-07).
+    // card's stream out of the chat sources (RGATE-10).
     expect(h.dispatcher.busyTurns()).toEqual([{ taskId: "t1", sessionKey: h.turns[0]!.sessionKey }]);
     h.dispatcher.shutdown();
   });
@@ -2467,11 +2516,11 @@ describe("task-dispatcher", () => {
     const t = h.task("t1")!;
     expect(t.status).toBe("backlog");                       // parked, not stranded on "queued"
     expect(t.dispatchState).toBe("blocked");                // config issue, human must fix
-    expect(t.dispatchError).toContain("directory del progetto");
+    expect(t.dispatchError).toContain(UNRESOLVED_PROJECT_PARK_REASON);
     expect(h.turns.length).toBe(0);
     // The reason is also in the thread, so the human sees WHY from the card.
     const comments = h.svc.get("t1")!.comments;
-    expect(comments.some((c) => c.content.includes("directory del progetto"))).toBe(true);
+    expect(comments.some((c) => c.content.includes(UNRESOLVED_PROJECT_PARK_REASON))).toBe(true);
   });
 
   // dispatchIdleMin: the stall detector's silence threshold, wired next to
@@ -3518,7 +3567,7 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     expect(notes).toHaveLength(0);
   });
 
-  it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {
+  it("nessuna sesta copia: il testo dei rami esiste solo in shared/board-base.ts", () => {
     // Il marcatore è una riga della costante. Chi riscrive la regola a mano in
     // un altro file la ricopia quasi certamente da qui — e questo test lo vede.
     const MARK = "· DIAGRAM .svg";
@@ -3535,7 +3584,7 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
       }
     };
     for (const r of roots) walk(join(repo, r));
-    expect(hits.sort()).toEqual(["server/services/task-dispatcher.test.ts", "shared/board.ts"]);
+    expect(hits.sort()).toEqual(["server/services/task-dispatcher.test.ts", "shared/board-base.ts"]);
   });
 });
 
@@ -4161,7 +4210,7 @@ describe("il reconcile cronometra le attese, non solo il servizio", () => {
     const wake = new Date(Date.now() - 4 * 3_600_000).toISOString();
     h.db.run(
       `UPDATE tasks SET dispatch_state = 'waiting', dispatch_deferred_until = ?,
-         wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?
+         wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?, wait_source = 'machine'
        WHERE id = ?`,
       [wake, since, id],
     );
@@ -4198,7 +4247,7 @@ describe("il reconcile cronometra le attese, non solo il servizio", () => {
     expect(h.turns.length).toBe(1);
     const since = new Date(Date.now() - 5 * 3_600_000).toISOString();
     h.db.run(
-      `UPDATE tasks SET wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?
+      `UPDATE tasks SET wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?, wait_source = 'machine'
        WHERE id = ?`,
       [since, "t1"],
     );
@@ -4304,7 +4353,10 @@ describe("l'envelope non parla italiano", () => {
    */
   function withoutLabels(envelope: string): string {
     return [LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL,
-      REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, "Pubblica"]
+      REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, "Pubblica",
+      // The review-card headings are matched by exact text on the server (missingReviewCardFields),
+      // so the rule has to quote them verbatim, the same case as the action labels.
+      ...REVIEW_CARD_FIELDS, REVIEW_CARD_NO_DECISION]
       .reduce((testo, etichetta) => testo.split(etichetta).join("<label>"), envelope);
   }
 

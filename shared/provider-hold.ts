@@ -82,6 +82,22 @@ export interface DispatchBrake {
 export interface DispatchWork {
   held: Array<{ taskId: string; projectId: string; provider: 'claude' | 'codex' }>;
   working: Record<string, number>;
+  /** The 24h spend cap when it stops the whole queue; absent or `null` = it does not. */
+  spend?: DispatchSpendStop | null;
+}
+
+/**
+ * The 24h spend cap stopping the queue, whatever the provider: on 23/11 the
+ * board sat still for hours at 35.59 USD over a 30 USD cap and the chip said
+ * nothing, because it named only the providers' walls.
+ */
+export interface DispatchSpendStop {
+  spentCents: number;
+  capCents: number;
+  /** When the rolling 24h spend falls back under the cap if nothing new is spent; `null` = it cannot be said. */
+  untilMs: number | null;
+  /** The Todo cards it keeps waiting. */
+  taskIds: string[];
 }
 
 /**
@@ -100,4 +116,28 @@ export function providerHoldKey(provider: string): 'claude' | 'codex' | null {
 /** The name a person reads for a hold key, in logs and queue reasons. */
 export function providerHoldLabel(key: 'claude' | 'codex'): string {
   return key === 'codex' ? 'Codex' : 'Claude';
+}
+
+/**
+ * Whether a card's `dispatch_error` is the dispatcher's own "the provider's
+ * plan is spent / near its limit" reason. The dispatcher writes it as
+ * `<label>: <why>` (`task-dispatcher-hold.ts`, `taskPlanWait`), so the label
+ * is the marker; a wait an agent declared has another prefix and never matches.
+ */
+export function isPlanWaitReason(error: string | null | undefined): boolean {
+  if (!error) return false;
+  return error.startsWith(`${providerHoldLabel('claude')}: `) || error.startsWith(`${providerHoldLabel('codex')}: `);
+}
+
+/**
+ * The end an error declares for itself: `(resets_at: 2026-11-20T08:00:00Z)`, an ISO
+ * instant in UTC. A provider, or a proxy standing in front of one, that stops a request
+ * because the plan is spent can say WHEN it is worth asking again with that tail; the
+ * reader needs to know nothing about who wrote it. Ms epoch, or null when the text
+ * declares none.
+ */
+export function readDeclaredReset(text: string | null | undefined): number | null {
+  const m = /resets_at:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/.exec(text ?? "");
+  const at = m ? Date.parse(m[1]) : NaN;
+  return Number.isFinite(at) ? at : null;
 }

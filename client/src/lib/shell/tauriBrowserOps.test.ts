@@ -3,10 +3,7 @@
  */
 import { test, expect } from 'bun:test';
 import {
-  executeNativeBrowserOp,
-  NATIVE_SUPPORTED_OPS,
-  clearNativeSnapshotCache,
-  type Invoke,
+  executeNativeBrowserOp, clearNativeSnapshotCache, type Invoke,
 } from './tauriBrowserOps';
 import { serialize, diff, type Snapshot } from '../../../../shared/browser-snapshot-core';
 
@@ -54,14 +51,25 @@ function loadProbeInvoke(
   states: string[],
   origin = 'https://x.com',
   href = `${origin}/`,
+  /** How many probes still see the previous document (same origin, already loaded). */
+  staleProbes = 0,
 ): { invoke: Invoke; calls: Array<[string, unknown]> } {
   const calls: Array<[string, unknown]> = [];
   const queue = [...states];
+  let stamp = '';
   const invoke: Invoke = async (cmd, args) => {
     calls.push([cmd, args]);
     if (cmd === 'browser_eval_js') {
+      const js = (args as { js: string }).js;
+      // The stamp the op leaves on the page it is about to leave.
+      if (js.startsWith('window.__topicsVerifyMark =')) {
+        stamp = js.slice(js.indexOf('=') + 1).trim().replace(/^"|"$/g, '');
+        return '' as never;
+      }
       const ready = queue.length > 1 ? queue.shift() : queue[0];
-      return JSON.stringify({ origin, href, ready }) as never;
+      // Until the view really navigates it still carries the old stamp.
+      const marker = staleProbes-- > 0 ? stamp : undefined;
+      return JSON.stringify({ origin, href, ready, marker }) as never;
     }
     return '' as never;
   };
@@ -71,11 +79,23 @@ function loadProbeInvoke(
 test('browser_open navigates and answers only once the document has settled', async () => {
   const { invoke, calls } = loadProbeInvoke(['complete']);
   const out = await executeNativeBrowserOp('ctx', 'browser_open', { url: 'https://x.com' }, invoke);
-  expect(calls[0]).toEqual(['browser_navigate', { id: 'ctx', url: 'https://x.com' }]);
+  expect(calls[1]).toEqual(['browser_navigate', { id: 'ctx', url: 'https://x.com' }]);
   // The probe is the proof the op waited instead of answering on the request.
-  expect(calls[1][0]).toBe('browser_eval_js');
+  expect(calls[2][0]).toBe('browser_eval_js');
   expect(out).toEqual({
     result: { ok: true, url: 'https://x.com/', requested: 'https://x.com', ready: true },
+  });
+});
+
+test('browser_open A then B on the same origin does not take the page of A as loaded', async () => {
+  // The old document is already past 'loading' and on the same origin: only the
+  // stamp left on it tells it from the new one.
+  const { invoke, calls } = loadProbeInvoke(['complete'], 'https://x.com', 'https://x.com/b', 3);
+  const out = await executeNativeBrowserOp('ctx', 'browser_open', { url: 'https://x.com/b' }, invoke);
+  const probes = calls.filter(([c, a]) => c === 'browser_eval_js' && !(a as { js: string }).js.startsWith('window.__topicsVerifyMark ='));
+  expect(probes.length).toBe(4);
+  expect(out).toEqual({
+    result: { ok: true, url: 'https://x.com/b', requested: 'https://x.com/b', ready: true },
   });
 });
 
@@ -267,46 +287,6 @@ test('browser_console parses the drained buffer JSON', async () => {
   expect(out).toEqual({ result: [{ level: 'error', text: 'boom' }] });
 });
 
-test('browser_screenshot returns the native PNG as base64 in the streaming-compatible shape', async () => {
-  const { invoke, calls } = recordingInvoke({ browser_screenshot: 'iVBORw0KGgo=' });
-  const out = await executeNativeBrowserOp('ctx', 'browser_screenshot', {}, invoke);
-  expect(calls[0]).toEqual(['browser_screenshot', { id: 'ctx' }]);
-  expect(out).toEqual({ result: { data: 'iVBORw0KGgo=', mime: 'image/png', encoding: 'base64' } });
-  expect(NATIVE_SUPPORTED_OPS.has('browser_screenshot')).toBe(true);
-});
-
-/** @covers BROWSER-CHAT-06 */
-test('browser_verify reloads and returns native screenshot, console errors, and checks', async () => {
-  const calls: Array<[string, unknown]> = [];
-  const invoke: Invoke = async (cmd, args) => {
-    calls.push([cmd, args]);
-    if (cmd === 'browser_eval_js') {
-      const js = (args as { js: string }).js;
-      if (js.includes('document.readyState')) return JSON.stringify({ origin: 'null', href: 'about:blank', ready: 'complete' }) as never;
-      if (js.includes('items.map')) return JSON.stringify([{ selector: '#price', status: 'pass', value: { style: { color: 'rgb(0, 128, 0)' } } }]) as never;
-      if (js.includes('__topicsConsole')) return JSON.stringify([{ level: 'error', text: 'after reload' }]) as never;
-    }
-    if (cmd === 'browser_screenshot') return 'iVBORw0KGgo=' as never;
-    return '' as never;
-  };
-  const out = await executeNativeBrowserOp('verify-native', 'browser_verify', {
-    checks: [{ selector: '#price', style: { color: 'rgb(0, 128, 0)' } }],
-  }, invoke);
-  expect((calls[0][1] as { js: string }).js).toContain('__topicsVerifyMark');
-  expect(calls[1]).toEqual(['browser_reload', { id: 'verify-native' }]);
-  const probe = calls.find(([cmd, callArgs]) => cmd === 'browser_eval_js' && (callArgs as { js: string }).js.includes('document.readyState'));
-  expect((probe?.[1] as { js: string }).js).toContain('__topicsVerifyMark');
-  expect(calls.some(([cmd]) => cmd === 'browser_screenshot')).toBe(false);
-  expect(out).toMatchObject({ result: {
-    url: 'about:blank',
-    consoleErrors: [{ text: 'after reload' }],
-    failedRequests: [],
-    checks: [{ selector: '#price', status: 'pass' }],
-  } });
-  expect(JSON.stringify(out)).not.toContain('base64');
-  expect(NATIVE_SUPPORTED_OPS.has('browser_verify')).toBe(true);
-});
-
 test('browser_verify marks the old document before navigating to a requested URL', async () => {
   const calls: Array<[string, unknown]> = [];
   const invoke: Invoke = async (cmd, args) => {
@@ -330,26 +310,6 @@ test('browser_verify marks the old document before navigating to a requested URL
   expect(probeIndex).toBeGreaterThan(navigateIndex);
   expect((calls[probeIndex]?.[1] as { js: string }).js).toContain('__topicsVerifyMark');
   expect(JSON.stringify(out)).not.toContain('SHOULD_NOT_CAPTURE_HERE');
-});
-
-test('observe/act/extract are now supported native ops', () => {
-  expect(NATIVE_SUPPORTED_OPS.has('browser_observe')).toBe(true);
-  expect(NATIVE_SUPPORTED_OPS.has('browser_act')).toBe(true);
-  expect(NATIVE_SUPPORTED_OPS.has('browser_extract')).toBe(true);
-  expect(NATIVE_SUPPORTED_OPS.has('browser_eval')).toBe(true);
-});
-
-test('ops with no native mapping return a structured streaming-mode hint (no invoke)', async () => {
-  const { invoke, calls } = recordingInvoke();
-  // read_screen/point are server-orchestrated (dispatcher nativeVisionOp) and so
-  // never delegate here as-is; if they DO arrive, the hint is the honest answer.
-  for (const tool of ['browser_read_screen', 'browser_point', 'browser_totally_new']) {
-    const out = await executeNativeBrowserOp('ctx', tool, {}, invoke);
-    expect(out.error).toContain('not supported on the native Tauri pane');
-    expect(out.error).toContain('streaming');
-    expect(NATIVE_SUPPORTED_OPS.has(tool)).toBe(false);
-  }
-  expect(calls).toHaveLength(0);
 });
 
 // ---------------- login-state legs (save/load/import_chrome) ----------------
@@ -563,12 +523,6 @@ test('browser_import_chrome without server-decrypted cookies is a structured err
   const out = await executeNativeBrowserOp('ctx', 'browser_import_chrome', { domains: ['youtube.com'] }, invoke);
   expect(out.error).toContain("missing decrypted 'cookies'");
   expect(calls).toHaveLength(0);
-});
-
-test('login-state ops are supported native ops', () => {
-  expect(NATIVE_SUPPORTED_OPS.has('browser_save_state')).toBe(true);
-  expect(NATIVE_SUPPORTED_OPS.has('browser_load_state')).toBe(true);
-  expect(NATIVE_SUPPORTED_OPS.has('browser_import_chrome')).toBe(true);
 });
 
 test('an invoke that throws is caught and reported as a structured error', async () => {

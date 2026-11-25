@@ -53,27 +53,58 @@ const ENGINE_STATUS_TIMEOUT_MS = 3_000;
 const HOLD_CLOCK_SLACK_MS = 2_000;
 
 type EngineEvent = { type?: unknown; ts?: unknown; until?: unknown };
+type EngineProfile = { limited?: unknown; disabled?: unknown; expired?: unknown; cap?: { over?: unknown } | null };
 
 /**
- * The account engine's recent events (`GET /api/proxy-status`, `recentEvents`,
- * the last 20), or null when the base URL is not on this machine or the engine
- * cannot be read within 3 s (a silent engine is not holding anything worth
- * waiting for).
+ * One page of the account engine's dashboard, or null when the base URL is
+ * not on this machine or the engine cannot be read within 3 s.
  */
-async function engineEvents(): Promise<EngineEvent[] | null> {
+async function engineGet(path: string): Promise<Record<string, unknown> | null> {
   let host: string;
   try { host = new URL(anthropicBaseUrl()).hostname; } catch { return null; }
   if (host !== "127.0.0.1" && host !== "localhost" && host !== "[::1]") return null;
   if (process.env.TOPICS_E2E === "1" && !process.env.TOPICS_SWITCHBOARD_URL) return null;
   const base = (process.env.TOPICS_SWITCHBOARD_URL?.trim() || SWITCHBOARD_DASHBOARD_URL).replace(/\/+$/, "");
   try {
-    const res = await fetch(`${base}/api/proxy-status`, { signal: AbortSignal.timeout(ENGINE_STATUS_TIMEOUT_MS) });
+    const res = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(ENGINE_STATUS_TIMEOUT_MS) });
     if (!res.ok) return null;
-    const events = (await res.json() as { recentEvents?: unknown }).recentEvents;
-    return Array.isArray(events) ? events as EngineEvent[] : null;
+    const json = await res.json() as unknown;
+    return json && typeof json === "object" ? json as Record<string, unknown> : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * The engine's recent events (`GET /api/proxy-status`, `recentEvents`, the
+ * last 20), or null when it cannot be read (a silent engine is not holding
+ * anything worth waiting for).
+ */
+async function engineEvents(): Promise<EngineEvent[] | null> {
+  const events = (await engineGet("/api/proxy-status"))?.recentEvents;
+  return Array.isArray(events) ? events as EngineEvent[] : null;
+}
+
+/**
+ * Whether the account engine behind the base URL would pick an account for a
+ * request right now. Read from `GET /api/profiles`, the view of the engine's
+ * own selector: not limited (a spent window, the engine's threshold), not
+ * disabled, not over its cap, not expired. `/api/proxy-status` says
+ * `available` for an account at 99% of its week, so it is not asked.
+ * null when there is no local engine or it cannot be read.
+ *
+ * The plan hold is read off ONE account's windows (the token in the Keychain,
+ * or the account that served the CLI's last turn), while every request goes
+ * through the engine, which rotates past a spent account. On 18/11 one spent
+ * week (reset 22/11) held the whole server for four days with another account
+ * at 18%: no card dispatched, no sub-agent result woke its parent, and the
+ * usage endpoint that should have lifted it answered 429.
+ */
+export async function engineHasFreeAccount(): Promise<boolean | null> {
+  const profiles = (await engineGet("/api/profiles"))?.profiles;
+  if (!Array.isArray(profiles) || profiles.length === 0) return null;
+  return (profiles as EngineProfile[]).some((p) =>
+    p?.limited === false && p.disabled !== true && p.expired !== true && p.cap?.over !== true);
 }
 
 /**

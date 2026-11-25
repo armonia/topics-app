@@ -38,6 +38,7 @@ import { openUserMenuLevel } from "./helpers/user-menu";
 import { CAL_CTX_ID, CAL_PANE_ID, CAL_URL, calendarTile, navigateToSidebar, setPins } from "./helpers/pinned-calendar-tile";
 import { E2E_BASE } from "./helpers/test-server";
 import { splitViaContextMenu } from "./helpers/layout";
+import { VIDEO_ON } from "./video-evidence";
 
 const test = base.extend<{ bp: BrowserProcessPage }>({
   bp: async ({ page }, use) => {
@@ -45,7 +46,7 @@ const test = base.extend<{ bp: BrowserProcessPage }>({
   },
 });
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 type Snapshot = { providers: Array<Record<string, unknown> & { name: string }>; defaultProvider: string | null };
 

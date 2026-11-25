@@ -20,8 +20,8 @@ function subAgent(description: string): ToolCallDetail {
   return { type: 'sub_agent', subAgentType: 'Explore', description, actions: [] } as ToolCallDetail;
 }
 
-function render(detail: ToolCallDetail, summaryCut: boolean): string {
-  return renderToStaticMarkup(createElement(ToolCardBody, { detail, summaryCut }));
+function render(detail: ToolCallDetail, summaryCut: boolean, isError = false): string {
+  return renderToStaticMarkup(createElement(ToolCardBody, { detail, summaryCut, isError }));
 }
 
 describe('sub-agent card body', () => {
@@ -69,5 +69,11 @@ describe('sub-agent card body', () => {
     expect(band![1]).toContain('rounded-lg');
     expect(band![1]).not.toContain('dark:');
     expect(html.match(/\bbg-/g)?.length).toBe(1);
+  });
+
+  test('a failed call with no activity does not add «no activity» under its error', () => {
+    const detail = { type: 'sub_agent', actions: [] } as ToolCallDetail;
+    expect(render(detail, false, false)).toContain('italic');
+    expect(render(detail, false, true)).not.toContain('italic');
   });
 });

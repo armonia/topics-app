@@ -60,7 +60,7 @@ export function OrchestratorDrawer({ topic, onClose, onPopOut, children }: Props
       // overlay above the board's own topbar (z-40), from lg up an in-flow
       // SIBLING that shrinks the columns instead of covering them — so every
       // column stays reachable through the row's own horizontal scroll.
-      className={`pane-frost flex min-h-0 flex-col border-app-border absolute inset-0 z-40 w-full pb-[var(--mobile-band-own-h,0px)] lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
+      className={`pane-frost pane-sheet flex min-h-0 flex-col border-app-border absolute inset-0 z-40 w-full pb-[var(--mobile-band-own-h,0px)] lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
         wide ? 'lg:w-[min(64rem,72%)] lg:shadow-2xl' : 'lg:w-96 lg:max-w-[75%]'
       }`}
     >
@@ -68,7 +68,7 @@ export function OrchestratorDrawer({ topic, onClose, onPopOut, children }: Props
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
           <Music4 className="h-3.5 w-3.5 shrink-0 text-primary" />
           <span className="truncate text-compact leading-4 text-app-text-heading">{topic.name}</span>
-          <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">
+          <span className="shrink-0 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">
             {tr('topic.orchestrator.badge')}
           </span>
         </div>
@@ -78,7 +78,7 @@ export function OrchestratorDrawer({ topic, onClose, onPopOut, children }: Props
           onClick={onPopOut}
           title={tr('board.orchestrator.popOut')}
           aria-label={tr('board.orchestrator.popOut')}
-          className="grid h-6 w-6 shrink-0 place-items-center rounded text-app-text-secondary hover:bg-white/10 hover:text-app-text"
+          className="grid h-6 w-6 shrink-0 place-items-center rounded text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 hover:text-app-text"
         ><SquareArrowOutUpRight className="h-3.5 w-3.5" /></button>
         <button
           type="button"
@@ -87,7 +87,7 @@ export function OrchestratorDrawer({ topic, onClose, onPopOut, children }: Props
           onClick={toggleWide}
           title={wide ? tr('task.drawer.narrow') : tr('task.drawer.widen')}
           aria-label={wide ? tr('task.drawer.narrow') : tr('task.drawer.widen')}
-          className="hidden h-6 w-6 shrink-0 place-items-center rounded text-app-text-secondary hover:bg-white/10 hover:text-app-text lg:grid"
+          className="hidden h-6 w-6 shrink-0 place-items-center rounded text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 hover:text-app-text lg:grid"
         >{wide ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}</button>
         <button
           type="button"
@@ -95,7 +95,7 @@ export function OrchestratorDrawer({ topic, onClose, onPopOut, children }: Props
           onClick={onClose}
           title={tr('common.close')}
           aria-label={tr('common.close')}
-          className="grid h-6 w-6 shrink-0 place-items-center rounded text-app-text-secondary hover:bg-white/10 hover:text-app-text"
+          className="grid h-6 w-6 shrink-0 place-items-center rounded text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 hover:text-app-text"
         ><X className="h-3.5 w-3.5" /></button>
       </div>
       {/* `min-h-0` on both levels: without it the message list grows past the

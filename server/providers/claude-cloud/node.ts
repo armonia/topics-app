@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { BundleResult, CreateRunBody, NodeRunComment, NodeRunReport } from "../../services/node-client";
-import { CloudApi, CloudSetupError, cloudApiIsReal, type CloudEvent } from "./api";
+import { CloudApi, CloudRepoAccessError, CloudSetupError, cloudApiIsReal, type CloudEvent } from "./api";
 import { isPermissionAsk } from "./events";
 import { runBounded } from "../../lib/bounded-spawn";
 import { runGit } from "../../lib/run-git";
@@ -94,12 +94,6 @@ function parseOrigin(originUrl: string): ParsedOrigin | null {
   return m ? { host: host.toLowerCase(), slug: `${m[1]}/${m[2]}`, viaSsh } : null;
 }
 
-/** Only GitHub hosts written in full; an ssh alias is not one (see `resolveGithubSlug`). */
-export function githubSlug(originUrl: string): string | null {
-  const o = parseOrigin(originUrl);
-  return o && GITHUB_HOSTS.has(o.host) ? o.slug : null;
-}
-
 /** Like `githubSlug`, plus the ssh aliases that `ssh -G` resolves to GitHub. */
 export async function resolveGithubSlug(originUrl: string): Promise<string | null> {
   const o = parseOrigin(originUrl);
@@ -130,6 +124,13 @@ export interface CloudNodeDeps {
    * anything. A paired node is idempotent on `originTaskId`; this file is so thanks to this.
    */
   statePath?: string;
+  /**
+   * One owner-facing notice per cause (an account the cloud refuses, a repository it cannot reach):
+   * `key` names the cause, so the same one is never sent twice while it lasts.
+   */
+  notify?: (n: { key: string; title: string; body: string }) => void;
+  /** How long a refusal about one repository holds (default 6 h), after which one launch tries again. */
+  repoRefusalMs?: number;
 }
 
 interface CloudRun {
@@ -308,19 +309,72 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
   // or the last question got no answer (network): only a definite answer moves it.
   // The heartbeat reads it (`environmentReady`): without one the cloud row is not
   // online, and the overflow does not send cards there.
-  let envReady: { ok: boolean; reason: string } | null = null;
+  let envReady: { ok: boolean; reason: string; account: string | null } | null = null;
   let envAskedAt = -Infinity;
   let envAsking: Promise<void> | null = null;
+  // The account that would launch right now. Every answer below is about THIS one: when it
+  // changes, the old answers are dropped (`syncAccount`) and the next probe asks again.
+  let currentAccount: string | null = null;
+  let accountAskedAt = -Infinity;
+  /** Refusals about one repository, per «account + repository», each with its expiry. */
+  const repoRefusals = new Map<string, number>();
+  const repoRefusalMs = deps.repoRefusalMs ?? 6 * 3_600_000;
+  /** Causes already announced to the owner and still true. */
+  const announced = new Set<string>();
+  const refusalKey = (account: string | null, slug: string) => `${account ?? "?"}\n${slug}`;
+
+  function announce(key: string, title: string, body: string) {
+    if (announced.has(key)) return;
+    announced.add(key);
+    try { deps.notify?.({ key, title, body }); } catch { /* a notice that fails never blocks the lane */ }
+  }
+
+  /** A different account than the one the answers were given for: they no longer hold. */
+  function syncAccount(account: string | null) {
+    if (account == null || account === currentAccount) return;
+    const switched = currentAccount !== null;
+    currentAccount = account;
+    if (envReady && envReady.account !== account) { envReady = null; envAskedAt = -Infinity; }
+    // Learning the account for the first time is not a change: what was announced stays announced.
+    if (switched) announced.clear();
+  }
+  async function refreshAccount(everyMs = 60_000) {
+    if (now() - accountAskedAt < everyMs || !deps.api.accountKey) return;
+    accountAskedAt = now();
+    syncAccount(await deps.api.accountKey());
+  }
+
+  /** The cloud refuses the whole account: the answer is kept for it, and the owner hears once. */
+  function accountRefused(err: CloudSetupError) {
+    const account = err.account ?? currentAccount;
+    if (err.reason === "cloud_account") {
+      syncAccount(account);
+      envReady = { ok: false, reason: err.message, account };
+      announce(`account:${err.message}`, "Il cloud di Claude non può lavorare le card",
+        `${err.message}. Controlla il login di Claude Code su questa macchina${account ? ` (account ${account})` : ""} e che abbia un ambiente cloud attivo: finché non cambia, le card vanno su un'altra macchina.`);
+    }
+  }
+
   /** The environment id, or a `CloudSetupError` (the lane parks the card with its words). */
   async function environmentId(): Promise<string> {
     try {
       const id = await deps.api.defaultEnvironmentId();
-      envReady = { ok: true, reason: "" };
+      syncAccount(deps.api.lastAccount);
+      envReady = { ok: true, reason: "", account: currentAccount };
       return id;
     } catch (err) {
-      if (err instanceof CloudSetupError) envReady = { ok: false, reason: err.message };
+      if (err instanceof CloudSetupError) {
+        if (err.reason === "cloud_account") accountRefused(err);
+        else envReady = { ok: false, reason: err.message, account: err.account ?? currentAccount };
+      }
       throw err;
     } finally { envAskedAt = now(); }
+  }
+
+  /** Words for a person: the repository the account cannot reach, and what to do. */
+  function repoRefusedMessage(slug: string, account: string | null): string {
+    return `L'app GitHub di Claude non ha accesso al repository ${slug}${account ? ` per l'account ${account}` : ""}: ` +
+      "il cloud non può clonarlo. Dai all'app l'accesso al repository (impostazioni GitHub) o cambia account.";
   }
 
   const note = (id: string, content: string): NodeRunComment =>
@@ -329,13 +383,21 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
   return {
     /** The last definite answer on the account's cloud environment: `null` = none yet. */
     environmentReady(): { ok: boolean; reason: string } | null {
-      return envReady;
+      return envReady ? { ok: envReady.ok, reason: envReady.reason } : null;
+    },
+    /** Is this repository known to be refused by the account that would launch? (memory with expiry) */
+    repoRefused(slug: string): boolean {
+      const until = repoRefusals.get(refusalKey(currentAccount, slug));
+      return until !== undefined && until > now();
     },
     /** Ask again, at most every `everyMs`: the heartbeat calls it on every beat. */
     probeEnvironment(everyMs = 5 * 60_000): Promise<void> {
       if (envAsking) return envAsking;
-      if (now() - envAskedAt < everyMs) return Promise.resolve();
-      envAsking = environmentId().then(() => {}, () => {}).finally(() => { envAsking = null; });
+      envAsking = (async () => {
+        await refreshAccount().catch(() => {});
+        if (now() - envAskedAt < everyMs) return;
+        await environmentId().catch(() => {});
+      })().finally(() => { envAsking = null; });
       return envAsking;
     },
 
@@ -362,7 +424,8 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
       // delivery lacked that branch's commits and conflicted with them at the land (df5fd8c5).
       const revision = body.baseBranch?.trim() || await defaultBranch(body.originUrl);
       const branch = `claude/card-${body.originTaskId.slice(0, 8)}-${crypto.randomUUID().slice(0, 4)}`;
-      const sid = await deps.api.createSession({
+      let sid: string;
+      try { sid = await deps.api.createSession({
         title: body.text.slice(0, 60),
         prompt: prompt(body, branch, revision),
         source: { repo: slug ?? body.originUrl, revision },
@@ -370,7 +433,18 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
         model: cloudModelFor(body.model),
         effort: body.effort ?? undefined,
         environmentId: environment,
-      });
+      }); } catch (err) {
+        if (err instanceof CloudRepoAccessError && slug) {
+          const account = err.account ?? currentAccount;
+          syncAccount(account);
+          repoRefusals.set(refusalKey(account, slug), now() + repoRefusalMs);
+          const words = repoRefusedMessage(slug, account);
+          announce(`repo:${account ?? "?"}:${slug}`, "Il cloud di Claude non raggiunge un repository", words);
+          throw Object.assign(new Error(words), { reason: err.reason });
+        }
+        if (err instanceof CloudSetupError) accountRefused(err);
+        throw err;
+      }
       const p = { taskId: body.originTaskId, originUrl: body.originUrl, branch };
       runs.set(sid, newRun(p));
       persist(sid, p);

@@ -177,6 +177,19 @@ describe("global orchestrator task routes", () => {
     }
   });
 
+  test("refuses an idempotency key that forges the mirror-card sign", async () => {
+    registerGlobalOrchestrator(db);
+    const boardTwo = projectIdForPath(PROJECT_TWO);
+    const response = (await call(
+      router,
+      "POST",
+      `/api/orchestrator-sessions/${encodeURIComponent(GLOBAL_SESSION_KEY)}/tasks`,
+      { board_id: boardTwo, text: "Forged mirror", idempotency_key: "node-run:x" },
+    ))!;
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe("reserved_idempotency_key");
+  });
+
   /**
    * The global PATCH shares the session route's checks gate, so it must share
    * its self-completion too: a delivery answered 202 is remembered and the

@@ -64,6 +64,8 @@ import { buildTabSheetEntries, DEVICE_LABEL_KEY, type SheetEntry, type TabSheetM
 import { ControlRow, type ControlRenderers } from './tabSheetControls';
 import type { TabSheetDoor } from '../../state/tabSheet';
 import type { TabSheetTarget } from './tabSheetTypes';
+import { requestEqualize, requestSplit } from '../../lib/splitCommands';
+import { Spinner } from './Spinner';
 
 /** Past this an address stops being read and starts being scanned. */
 const MAX_WIDTH = 460;
@@ -264,7 +266,7 @@ export function TabSheetBody({
       <div className="px-2 pb-1.5 flex items-center gap-1">
         <NavButton icon={<ArrowLeft size={14} />} label={t('browser.tab.back')} onClick={c.back && chrome.canGoBack ? run(c.back) : undefined} disabled={!chrome.canGoBack} testId="browser-tab-back" />
         <NavButton icon={<ArrowRight size={14} />} label={t('browser.tab.forward')} onClick={c.forward && chrome.canGoForward ? run(c.forward) : undefined} disabled={!chrome.canGoForward} testId="browser-tab-forward" />
-        <NavButton icon={<RotateCw size={14} className={chrome.loading ? 'animate-spin' : ''} />} label={t('browser.tab.reload')} onClick={run(c.reload)} testId="tab-sheet-reload" />
+        <NavButton icon={chrome.loading ? <Spinner size="sm" box={14} tone="current" /> : <RotateCw size={14} />} label={t('browser.tab.reload')} onClick={run(c.reload)} testId="tab-sheet-reload" />
         <div className="flex-1" />
         {copyButton}
         <NavButton icon={<ExternalLink size={14} />} label={t('browser.openSystem')} onClick={c.openExternal ? run(c.openExternal) : undefined} testId="tab-sheet-open-external" />
@@ -508,8 +510,10 @@ function useTabSheetModel({ target, chrome, working, splitLayoutAvailable, space
       || (isBrowser && !!a.onRenameBrowser));
 
     // Layout: only where it has effect. Not on the phone (no splits are drawn
-    // there) and not in the topic window (it has none).
-    const withLayout = inBar;
+    // there) and not in the topic window (it has none). The title of a cell
+    // on a desktop with the tabs at the side has it: it hands the layout
+    // commands in, and it is the only door to them (StandaloneChatGroup).
+    const withLayout = inBar || (surface === 'title' && !!(a.onSplitRight || a.onToggleZoom || a.onResetLayout || a.canMoveToSpace));
     const zoomAvailable = withLayout && !!a.onToggleZoom && (!!a.isZoomed || !!a.canZoom) && !isDraftPaneId(id);
     const moveToGroup = withLayout && a.canMoveToSpace && !isDetachedWindow() ? (() => {
       // The AUTHORITATIVE store pane: the bar's `panes` are rebuilt from ids
@@ -579,6 +583,11 @@ function useTabSheetModel({ target, chrome, working, splitLayoutAvailable, space
         zoom: zoomAvailable ? { zoomed: !!a.isZoomed, toggle: (scope) => a.onToggleZoom?.(id, scope) } : undefined,
         splitRight: splitLayoutAvailable && a.onSplitRight ? () => a.onSplitRight?.(id) : undefined,
         splitDown: splitLayoutAvailable && a.onSplitDown ? () => a.onSplitDown?.(id) : undefined,
+        // Left and up go by the layout event: the surface that holds the pane
+        // acts, the same one that answers right and down here.
+        splitLeft: splitLayoutAvailable && a.onSplitRight ? () => requestSplit(id, 'left') : undefined,
+        splitUp: splitLayoutAvailable && a.onSplitDown ? () => requestSplit(id, 'up') : undefined,
+        equalize: splitLayoutAvailable && a.onResetLayout ? () => requestEqualize(id) : undefined,
         resetLayout: splitLayoutAvailable ? a.onResetLayout : undefined,
         moveToGroup,
         detach: a.onDetach ? () => a.onDetach?.(id) : undefined,

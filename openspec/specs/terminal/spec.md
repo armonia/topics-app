@@ -1000,3 +1000,51 @@ Monospace text SHALL show the real characters: ligatures SHALL stay off on `code
 - **THEN** `document.fonts` reports both JetBrains Mono faces as `loaded`
 - **AND** the rows xterm draws are 21 px tall, also when the face arrives after xterm has opened (xterm measures its cell again once the face is in)
 - **AND** the gap between the terminal box and xterm's screen is 12 px on the top and the left, and at least 12 px on the bottom and the right, at every pane height: the last row (the prompt) stays inside the pane
+
+### Requirement: TERM-SEND-01 — Long plain text sent to a Claude TUI SHALL arrive whole, as one paste
+
+Text over 1000 bytes sent through `/send` to a `claude-code` session SHALL go as one bracketed paste with the trailing Enter sent as its own key, because a raw write over 1022 bytes reaches the TUI without its head. Short text SHALL stay a raw write.
+
+#### Scenario: Long text becomes a paste
+- **GIVEN** a `claude-code` session
+- **WHEN** 3000 bytes of plain text followed by Enter are sent
+- **THEN** the route answers `pasted: true` with `enter: true`
+- **AND** a short text is not pasted
+
+### Requirement: TERM-FIND-01 — Il terminale cerca nello schermo e nelle righe che tiene
+
+La pane terminale SHALL registrare un cercatore basato su
+`@xterm/addon-search` (serie 0.16, per `@xterm/xterm` 6), caricato accanto a
+`FitAddon` in `SingleTerminalPane.tsx`.
+
+SHALL cercare nello schermo e nelle righe passate che xterm tiene
+(`scrollback: 5000`), SHALL evidenziare i risultati con le decorazioni
+dell'addon (il corrente con un colore suo) e SHALL prendere totale e indice da
+`onDidChangeResults`. Le righe uscite dallo scrollback NON SHALL essere
+promesse: il totale conta solo ciò che xterm ha.
+
+L'addon ha `highlightLimit` 1000 per default, e oltre quella soglia
+`resultIndex` vale -1 (`@xterm/addon-search` 0.16.0,
+`typings/addon-search.d.ts:83-101`). Oltre 1000 risultati il contatore SHALL
+dire «oltre 1000» senza la posizione, e Invio SHALL continuare a spostarsi sul
+risultato dopo. Il limite NON SHALL essere alzato senza una misura del costo
+delle decorazioni.
+
+Aprire la barra NON SHALL mandare byte al programma che gira nel terminale.
+Chiudere la barra SHALL togliere le decorazioni e rimettere il fuoco nel
+terminale.
+
+#### Scenario: una riga passata
+- **GIVEN** un terminale che ha stampato `seq 1 300`
+- **WHEN** apro la barra e cerco «150»
+- **THEN** il contatore dice almeno un risultato e la riga 150 è in vista
+
+#### Scenario: niente arriva al programma
+- **GIVEN** un terminale con `cat` in attesa
+- **WHEN** premo ⌘F, scrivo «abc» nella barra e premo Esc
+- **THEN** `cat` non ha ricevuto «abc»
+
+#### Scenario: oltre il limite dell'addon
+- **GIVEN** un terminale che ha stampato 1500 righe con «x» ciascuna
+- **WHEN** cerco «x»
+- **THEN** il contatore dice «oltre 1000»

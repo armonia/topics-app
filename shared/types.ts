@@ -380,9 +380,16 @@ export interface AskUserQuestionItem {
   question: string;
   /** Short label, ≤ 12 chars by SDK convention. */
   header: string;
+  /**
+   * Pictures the question is about: absolute paths (or `/api/media` refs) of
+   * files the agent already wrote. At most 4, shown above the options.
+   */
+  images?: string[];
   options: {
     label: string;
     description?: string;
+    /** One picture for this choice: tapping it picks the option. */
+    image?: string;
     /**
      * L'opzione che chi ha fatto la domanda CONSIGLIA.
      *
@@ -791,7 +798,7 @@ export type ToolCallDetail =
    *  `browser_open`), and it worked. Drawn as a marker that stays in sight and
    *  brings the page back (CHAT-BROWSER-01). `contextId` is absent on rows older
    *  than BROWSER-CHAT-05; `visible: false` = loaded but on no screen. */
-  | { type: 'browser'; url: string; contextId?: string; title?: string; name?: string; visible?: boolean; result?: string }
+  | { type: 'browser'; url: string; contextId?: string; title?: string; name?: string; visible?: boolean; media?: string; result?: string }
   /** `show_view`: the agent sent typed data (a comparison, ...) and Topics
    *  draws it in the chat and at `/v/<viewId>` (GENUI-01). `viewId` arrives
    *  with the result; a running call has only the spec. */
@@ -1098,6 +1105,21 @@ export type ContentBlock =
    */
   | { kind: 'goal-nudge'; attempt: number }
   /**
+   * A user's `turn-end` hook asked for this turn (HOOKS-04).
+   *
+   * The hook printed `{"decision":"block","reason":…}` and the server sent the
+   * reason to the chat as the next turn (`server/services/hook-continuation.ts`).
+   * Like `goal-nudge` the row is `user` (the only role a provider answers) and
+   * this block keeps the transcript from showing the person saying it: the
+   * client draws one compact service line with the first line of `content`.
+   * A client older than this block draws the row as a plain bubble with the
+   * hook's text, which is still the right words, just not the right author.
+   *
+   * `attempt` is the consecutive hook continuation (1 = the first), the number
+   * the ceiling of 3 counts.
+   */
+  | { kind: 'hook-nudge'; attempt: number }
+  /**
    * The auto-continuation stopped on its own, and says why.
    *
    * `capped` = the ceiling of consecutive continuations; `stalled` = two turns
@@ -1187,8 +1209,11 @@ export type ContentBlock =
    * typed (server/services/subagent-wake.ts). A `user` row when it wakes the
    * parent chat, an `assistant` row when the parent could not be woken; either
    * way the chat draws one card per result (SUBAGENT-12, SUBAGENT-16).
+   * `shown`: the cards are already a row of the chat, written while a provider
+   * hold kept the parent's turn back; this row is the late wake and draws one
+   * line, not the cards again.
    */
-  | { kind: 'subagent-result'; results: SubagentResultCard[] };
+  | { kind: 'subagent-result'; results: SubagentResultCard[]; shown?: true };
 
 /**
  * One turn of one sub-agent, as its card shows it. `reason.code` is one of the
@@ -1391,6 +1416,10 @@ export interface Project {
   ownerPersonId?: string | null;
   /** Marcato incognito: fuori dall'elenco dei compagni d'organizzazione. */
   incognito?: boolean;
+  /** `projects.id` of the parent project (one level deep), null for a top-level project. */
+  parentId?: string | null;
+  /** On a child: `accorpa` shares the parent's board and sidebar entry, `separa` keeps its own. */
+  mergeMode?: 'accorpa' | 'separa';
   createdAt: string;
   updatedAt: string;
 }
@@ -1417,7 +1446,14 @@ export interface Worktree {
   errorMessage?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Who made the checkout: Topics itself, or another tool that registered it. */
+  source?: WorktreeSource;
+  /** The creator's session (id or transcript path), when it said. */
+  sessionRef?: string | null;
 }
+
+/** The creators a worktree row can name (`worktrees.source`). */
+export type WorktreeSource = 'topics' | 'claude-code' | 'claude-desktop' | 'codex' | 'jcode' | 'muse' | 'workflow' | 'adopted';
 
 /** First-class Machine entity (Phase D · migration 020). */
 export interface Machine {
@@ -1440,6 +1476,8 @@ export interface Machine {
   baseUrl: string | null;
   /** Cards this node may run at once, as declared (1-8). `null` = the default of its kind. */
   slots: number | null;
+  /** Coding model ids the node last reported it can run (heartbeat probe); absent = not reported yet. */
+  models?: string[] | null;
   createdAt: string;
   updatedAt: string;
 }

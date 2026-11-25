@@ -42,6 +42,7 @@ export function getPtyBridgeRuntimeStatus(): PtyBridgeRuntimeStatus {
   return { ...activeBridge, connected: bridgeReady && !!bridgeSocket && !bridgeSocket.destroyed };
 }
 
+/** @internal Test seam: stops the bridge reconnect timer so a test owns the socket lifecycle. */
 export function _suppressPtyBridgeReconnectForTest(suppress: boolean): void {
   suppressBridgeReconnectForTest = suppress;
 }
@@ -98,6 +99,7 @@ registerFleetSocket("pty-bridge", SOCKET_PATH);
  * spawnare bridge veri su path nuovi): questa porta la muove solo su richiesta
  * esplicita, e in produzione nessuno la chiama — comportamento identico a prima.
  * `null` ripristina il path derivato dall'ambiente corrente.
+ * @internal
  */
 export function _setPtyBridgeSocketPath(p: string | null): void {
   SOCKET_PATH = p ?? getSocketPath();

@@ -97,9 +97,9 @@ async function armProbe(page: Page): Promise<void> {
             ? node.getAttribute("data-pane-shell") || "unattached"
             : owner(node.parentElement);
           if (node.tagName === "IFRAME" || node.querySelector("iframe")) bucket(key).iframeMounts += 1;
-          const spinner = node.classList.contains("animate-spin")
+          const spinner = node.hasAttribute("data-spinner")
             ? node
-            : node.querySelector(".animate-spin");
+            : node.querySelector("[data-spinner]");
           if (spinner && !coveredByFrame(spinner)) bucket(key).spinners += 1;
         }
       }

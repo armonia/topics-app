@@ -29,7 +29,8 @@ const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true
 const previousQuotaDir = process.env.TOPICS_JOB_QUOTA_DIR;
 process.env.TOPICS_JOB_QUOTA_DIR = join(ROOT, "job-quota");
 
-const { commandWakeState, createProcessesRouter, logPathOf, stopCommandWakesOf } = await import("../../server/routes/processes");
+const { commandWakeState, createProcessesRouter, stopCommandWakesOf } = await import("../../server/routes/processes");
+const { logPathOf } = await import("../../server/routes/processes-persist");
 const { startProcessExitWakes, processExitWakesIdle } = await import("../../server/lib/process-exit-wake");
 const { runningTaskOwnsTopic } = await import("../../server/lib/wake-adoption");
 const { createChatRouter } = await import("../../server/routes/chat");
@@ -378,6 +379,29 @@ describe("the end of a command reaches the topic that launched it", () => {
     await processExitWakesIdle();
     expect(exitRows(topic.sessionKey)).toHaveLength(0);
     expect(await scriptRow(processId)).toMatchObject({ status: "error", exitCode: 1 });
+  });
+
+  // The command's start is the launch the wake answers (`startedAt` in
+  // `requestWakeFor`): a chat a person archived BEFORE it started it is alive for
+  // this command. A chat born archived (`reconcile:registry`) is not.
+  test("a command started after a person archived the chat still wakes it", async () => {
+    const topic = newTopic({ archived: true });
+    bench.ctx.db.run("INSERT INTO retirements (kind, ref_id, retired_at, reason) VALUES ('topic', ?, ?, 'archive')", [topic.id, new Date(Date.now() - 3_600_000).toISOString()]);
+    const { processId } = await runCommand(topic, "echo archived-but-alive");
+    await until(async () => (await scriptRow(processId))?.status !== "running");
+    await until(() => exitRows(topic.sessionKey).length > 0);
+    expect(exitRows(topic.sessionKey)[0]!.content).toContain("archived-but-alive");
+    await finishTurn();
+    await processExitWakesIdle();
+  });
+
+  test("a chat that was born archived (reconcile:registry) gets nothing for a command it started", async () => {
+    const topic = newTopic({ archived: true });
+    bench.ctx.db.run("INSERT INTO retirements (kind, ref_id, retired_at, reason) VALUES ('topic', ?, ?, 'reconcile:registry')", [topic.id, new Date(Date.now() - 3_600_000).toISOString()]);
+    const { processId } = await runCommand(topic, "echo born-archived");
+    await until(async () => (await scriptRow(processId))?.status !== "running");
+    await processExitWakesIdle();
+    expect(exitRows(topic.sessionKey)).toHaveLength(0);
   });
 
   // The route refuses with a 409 that no turn clears: the chat is bound to the

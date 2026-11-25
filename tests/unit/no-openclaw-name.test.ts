@@ -12,9 +12,6 @@
  * (the proposal of that change, the closed list of exceptions):
  *   - CHANGELOG.md and its generated in-app copy, the archived changes, bench results, the SQL migrations
  *     already applied: history, never rewritten;
- *   - shared/legacy-data-dir.ts: the legacy app data root, a folder that still
- *     exists on the machines that used it and holds the agents' homes (moving
- *     it is a migration of its own); server and client import it from there;
  *   - this test and the change that removed the name.
  *
  * The name is spelled in pieces here so this file does not match itself by
@@ -38,7 +35,6 @@ const ALLOWED: readonly string[] = [
   "openspec/changes/archive/",
   "bench/results/",
   "server/db/migrations/",
-  "shared/legacy-data-dir.ts",
   `tests/unit/no-${NAME}-name.test.ts`,
   `openspec/changes/via-${NAME}/`,
 ];
@@ -66,11 +62,11 @@ describe("the old gateway's name", () => {
   });
 
   test("the list is a list of exact paths and folders, not a pattern that lets anything through", () => {
-    expect(isAllowed("shared/legacy-data-dir.ts")).toBe(true);
+    expect(isAllowed("CHANGELOG.md")).toBe(true);
     expect(isAllowed("server/db/migrations/20260101000000-x.sql")).toBe(true);
     expect(isAllowed("openspec/changes/archive/2026-01-01-x/proposal.md")).toBe(true);
     // A neighbour of an allowed file is not allowed.
-    expect(isAllowed("shared/legacy-data-dir.test.ts")).toBe(false);
+    expect(isAllowed("shared/agent-home.ts")).toBe(false);
     expect(isAllowed("server/lib/data-dir.ts")).toBe(false);
     expect(isAllowed("server/lib/other.ts")).toBe(false);
     expect(isAllowed("openspec/changes/other/proposal.md")).toBe(false);

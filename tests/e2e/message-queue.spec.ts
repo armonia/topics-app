@@ -5,6 +5,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -28,7 +29,7 @@ const BASE = E2E_BASE;
  * lives in `client/src/state/chatQueue.ts` with its own unit tests; what gets
  * checked here is that it really happens on the page.
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 test.describe.serial("Coda dei messaggi", () => {
   let topicId: string;
@@ -711,6 +712,74 @@ test.describe.serial("Coda dei messaggi", () => {
     inject!(JSON.stringify({ type: "stream:end", sessionKey, topicId }));
 
     // IL PUNTO: riparte da solo, con lo stesso testo, una volta sola.
+    await expect.poll(() => sent, { timeout: 20_000 }).toEqual([TESTO, TESTO]);
+    await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
+  });
+
+  /**
+   * THE REFUSAL ARRIVES AFTER THE TURN THAT REFUSED IT HAS ENDED.
+   *
+   * The 409 travels: the turn that issued it can finish while the response is
+   * still on the wire. Its close (`turn:state`, `open:false`) lands here with the
+   * queue still EMPTY (the message is in flight), the drain runs on nothing, and a
+   * moment later the message re-enters the queue waiting for a word already said.
+   * It sat there, unanswered in the chat, until the person typed again: the
+   * "Jarvis is silent, I write '?'" of eight threads (card e73d7a2d).
+   *
+   * Here the close is sent BEFORE the 409 and the 409 names the already-closed
+   * turn: the message must restart by itself, exactly once. It is the case the
+   * test above does not cover (there the 409 arrives before the end).
+   */
+  test("409 che arriva dopo la fine del turno che lo ha dato: il messaggio riparte da solo", async ({ page, chatPage }) => {
+    let inject: ((data: string) => void) | null = null;
+    await page.routeWebSocket(/\/ws/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => ws.send(m));
+      inject = (data: string) => ws.send(data);
+    });
+
+    const BOOT = "boot-prova-409-tardivo";
+    const sent: string[] = [];
+    let occupata = true;
+    await page.route("**/api/chat", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const body = route.request().postDataJSON() as { messages?: { content?: string }[] };
+      sent.push(body?.messages?.[body.messages.length - 1]?.content ?? "");
+      if (occupata) {
+        occupata = false;
+        // The other turn 7 ends WHILE the refusal is on the wire: the close
+        // (asOf 2) arrives before the response, which carries the earlier snapshot (asOf 1, open).
+        inject!(JSON.stringify({ type: "turn:state", sessionKey, boot: BOOT, asOf: 2, turnId: 7, open: false }));
+        await new Promise((r) => setTimeout(r, 400));
+        return route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: "a response is already streaming for this session",
+            code: "stream_in_flight",
+            messageId: "msg-di-qualcun-altro",
+            turn: { boot: BOOT, asOf: 1, turnId: 7, open: true },
+          }),
+        });
+      }
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: "data: [DONE]\n\n",
+      });
+    });
+
+    await openChat(page, chatPage);
+    expect(inject, "la rotta WS deve aver catturato la presa").not.toBeNull();
+    await clearQueue(page);
+    await expect(queuedBubbles(page)).toHaveCount(0);
+
+    const TESTO = "scrivo mentre l'altro turno sta finendo";
+    await chatPage.messageInput.fill(TESTO);
+    await chatPage.messageInput.press("Enter");
+
+    // THE POINT: no turn end will ever arrive, yet it restarts by itself, exactly once.
     await expect.poll(() => sent, { timeout: 20_000 }).toEqual([TESTO, TESTO]);
     await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
   });

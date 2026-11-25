@@ -142,4 +142,21 @@ describe("referencedByTheJudge: files that bunfig.toml, scripts/, package.json o
     const many = Array.from({ length: 120 }, (_, i) => `docs/pad-${i}.md`);
     expect(await referencedByTheJudge(dir, sha, [...many, "docs/board-protocol.md"])).toEqual(["docs/board-protocol.md"]);
   }, WITH_REAL_GIT);
+
+  // e8a0ce90 (15/11): one unit test, refused because `scripts/test-unit-durations.json` lists every test file.
+  test("a data list under scripts/ naming a test does not make it the judge, but editing the list itself does", async () => {
+    const dir = repo();
+    commit(dir, "scripts/test-unit-durations.json", '{"server/lib/block-persist-throttle.test.ts":1.2}\n', "durations");
+    commit(dir, "scripts/run.ts", 'const pinned = "server/lib/pinned.test.ts";\n', "script");
+    git(dir, "switch", "-q", "-c", "topics/x");
+    for (const f of ["server/lib/block-persist-throttle.test.ts", "server/lib/pinned.test.ts"]) commit(dir, f, "x\n", `ramo: ${f}`);
+    commit(dir, "scripts/test-unit-durations.json", '{"server/lib/block-persist-throttle.test.ts":0.1}\n', "ramo: durations");
+    const sha = git(dir, "rev-parse", "HEAD").trim();
+    git(dir, "switch", "-q", "main");
+    expect(await referencedByTheJudge(dir, sha, ["server/lib/block-persist-throttle.test.ts"])).toEqual([]);
+    expect(await referencedByTheJudge(dir, sha, ["server/lib/pinned.test.ts", "scripts/test-unit-durations.json"]))
+      .toEqual(["server/lib/pinned.test.ts", "scripts/test-unit-durations.json"]);
+    // Only data under scripts/ is the judge by being edited: a json elsewhere is judged by what names it.
+    expect(await referencedByTheJudge(dir, sha, ["docs/scripts/data.json", "scripts/data.json.bak"])).toEqual([]);
+  }, WITH_REAL_GIT);
 });

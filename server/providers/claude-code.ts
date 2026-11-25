@@ -6,16 +6,13 @@
  * maintaining long-lived processes per session with inactivity/lifetime timeouts.
  */
 
-import { childExited } from "./child-exit";
 import { permissionModeForAutonomy, PERMISSION_PROMPT_TOOL } from "../lib/autonomy-mode";
-import { spawn, ChildProcess } from "child_process";
-import { join } from "path";
+import { spawn } from "child_process";
 import { hasClaudeSessionSignal } from "./claude-session-signal";
-import { createInterface, Interface } from "readline";
+import { createInterface } from "readline";
 import { getAiBridgeClient, type AiBridgeClient, type SessionInfo } from "../lib/ai-bridge-client";
 import { createLineFolder } from "../lib/ndjson-lines";
-import { agentBaseEnv } from "../lib/agent-env";
-import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync } from "fs";
+import { unlinkSync, readFileSync } from "fs";
 import type {
   AIProvider,
   ChatMessage,
@@ -33,9 +30,9 @@ import { agentWorkspaceForSession } from "../lib/agent-workspace";
 import { demoteAgentCli } from "./agent-cli-priority";
 import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
-import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark, type RowTurns } from "./claude/row-turn";
-import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
-import { delegationHookPath, hookScriptPath } from "../lib/topics-hook-script";
+import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark } from "./claude/row-turn";
+import { buildClaudeArgs, resolveToolTrim } from "./claude/args";
+import { delegationHookPath, hookScriptPath, sessionWorktreeHookPath } from "../lib/topics-hook-script";
 import { nativeSubagentToolPolicy } from "../lib/subagent-tool-policy";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota } from "../services/agent-job-quota";
@@ -43,8 +40,6 @@ import { applyJobQuota } from "../services/agent-job-quota";
 // un'API pubblicata — vive in un modulo puro, provato su fixture registrate.
 import {
   classifyStreamLine,
-  decodePartialStreamEvent,
-  parseToolInputBuffer,
   readAssistantCallUsage,
   readAssistantContextTokens,
   readAssistantMessageId,
@@ -62,12 +57,12 @@ import {
   readSyntheticText,
 } from "./claude/events";
 import { abandonRewind, admitFrame, closeAfterTail } from "./claude/broker-cursor";
-import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
+import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver } from "./claude/woken-turn";
 import { resolveWakeSource } from "./claude/wake-source";
-import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, wakeQueuedUntil, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
+import { attentionBackgroundOf, type AttentionBackground, backgroundWorkKey, closedWork, type ClosedWork, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isWakeQueued, newBackgroundWork, noteBackgroundLine, wakeQueuedUntil, type BackgroundWorkDetail } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readClaudeSubscription, type ClaudeSubscription } from "./claude/subscription";
-import { noteApiHealth, silentTurnEnd, type ApiRetryMark } from "./claude/api-outage";
+import { noteApiHealth, silentTurnEnd } from "./claude/api-outage";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { getSnapshotManager } from "./snapshot-manager";
 import { skillBodyFromInjectedText } from "./claude/user-event-text";
@@ -76,12 +71,11 @@ import { recordCliSlashCommands } from "../lib/slash-command-source";
 import { toolResultText } from "../../shared/tool-result-text";
 import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveMcpOutputTokens } from "../lib/topics-agent-prompt";
 import { resolveClaudeCodeModel } from "../services/app-settings";
-import { detectUserInputRequest } from "./ask-user-detector";
-import { endAsk, ASK_TRANSPORT_CEILING_MS } from "../lib/ask-user-bridge";
+import { detectUserInputForTool, finalizeToolArgs, handlePartialStreamEvent } from "./claude/partial-input";
+import { endAsk } from "../lib/ask-user-bridge";
 // «Aspetta una persona» ha DUE sorgenti (una domanda, una richiesta di
 // permesso) e sei posti che devono saperlo. Porta unica: lib/human-hold.ts.
 import { isHumanHold, releaseHumanHold } from "../lib/human-hold";
-import { humanHoldReleasedAt } from "../lib/human-hold-events";
 import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
 import { cancelled, classifyResultEvent, type StopCause, type TurnEndInfo } from "./stop-reason";
 import { warnThrottled } from "../lib/warn-throttled";
@@ -92,21 +86,29 @@ import { lastMainAssistant, mainAssistantForText } from "../lib/chat-fork";
 import { consumeFork } from "../lib/chat-fork-store";
 import { findClaudeTranscript } from "../lib/claude-transcript-path";
 import { restoreSweptTranscript } from "../lib/transcript-keeper";
-import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "./partial-tool-input";
 import { handoffFromStore } from "./handoff";
 import { loadActiveBranchForReplay, renderRecapPrologue, renderReplayPrologue } from "./claude/history-replay";
+import {
+  KILL_CAUSE_TEXT, KILL_GRACE_MS, ProcessKilledError, WAKE_EXPIRY_SLACK_MS, CLI_TURN_RECHECK_MS,
+  backgroundAlive, brokerIO, cliBusyForSend, cliInOwnTurn, dateReplay, directIO, endKilledTurn,
+  quietSince, turnInFlight,
+  type BackgroundClosedObserver, type ClosedWhy, type KillCause, type OwedChange,
+  type PersistentProcess, type SessionIO, type WaitingSend,
+} from "./claude/persistent-process";
+// Re-exported because callers have always imported it from this module.
+export type { PersistentProcess } from "./claude/persistent-process";
 
 import {
-  MCP_CONFIG_DIR, forgetClaudeSessionId, getTopicSpawnOverridesForSession,
+  forgetClaudeSessionId, getTopicSpawnOverridesForSession,
   looksLikeFailedStart, peekClaudeSessionId, planClaudeSessionStart,
   writeMcpConfigForSession,
-  cleanupMcpConfigForSession, mcpConfigPathForSession,
+  cleanupMcpConfigForSession,
 } from "./claude-code-session";
+import { MESSAGE_TIMEOUT_MS, buildSafeEnv, resolveCliPath, runOneshotCompletion } from "./claude/cli-launch";
 
 // Re-exported because tests and callers have always imported these from this module.
 export {
-  cleanupMcpConfigForSession, getOrCreateClaudeSessionId, getTopicSpawnOverridesForSession,
-  planClaudeSessionStart, topicsAppBaseUrl, topicsMcpBridgeSpec, writeMcpConfigForSession,
+  cleanupMcpConfigForSession, topicsAppBaseUrl, topicsMcpBridgeSpec, writeMcpConfigForSession,
 } from "./claude-code-session";
 
 // ============ Config ============
@@ -172,7 +174,6 @@ const PARKED_SCAN_TTL_MS = 60_000;
 const LAG_PROBE_EVERY_MS = Number(process.env.TOPICS_STREAM_LAG_PROBE_MS) || 4_000;
 /** A re-attach that did not close its gap is tried again on the same gap only after this. */
 const LAG_RETRY_MS = 30_000;
-const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000;        // 30 min
 const RATE_LIMIT_GRACE_MS = 10_000;               // 10s grace after rate limit detection
 
 /**
@@ -201,7 +202,6 @@ export function turnWatchdogDecision(opts: {
   if (remaining <= 0) return { action: "reject" };
   return { action: "rearm", delayMs: remaining };
 }
-const KILL_GRACE_MS = 3_000;                       // 3s between SIGTERM and SIGKILL
 /** How long a send waits for a stopped child to exit before killing it. The
  *  CLI exits 0.3-0.7 s after SIGINT (measured 24/09, CLI 2.1.280). */
 const STOPPED_CHILD_EXIT_WAIT_MS = 5_000;
@@ -218,71 +218,6 @@ const HEARTBEAT_QUIET_MS = 30_000;                 // emit only after 30s silenc
 // percepiscono su una lista che si allunga, e tolgono il grosso dei fotogrammi
 // in una raffica di azioni.
 const SUBAGENT_COALESCE_MS = 150;
-
-// ============ CLI Path Resolution ============
-
-const CLI_VERSIONS_DIR = join(process.env.HOME || "", ".local/share/claude/versions");
-
-function resolveCliPath(): string {
-  // Explicit pin (operators / the ai-bridge restart-survival E2E, which points
-  // this at a fake stream-json CLI). Wins over version scanning when set.
-  const override = process.env.TOPICS_CLAUDE_CLI_PATH;
-  if (override) return override;
-  // Scan for latest installed version
-  try {
-    const versions = readdirSync(CLI_VERSIONS_DIR)
-      .filter((f) => /^\d/.test(f))
-      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
-    if (versions.length > 0) return `${CLI_VERSIONS_DIR}/${versions[0]}`;
-  } catch (err) {
-    // Load-bearing: a versions dir that EXISTS but can't be read (permissions /
-    // corruption) silently drops us to PATH `claude`, which may be the wrong or
-    // a missing binary. The normal "not installed" case (dir absent) stays quiet.
-    if (existsSync(CLI_VERSIONS_DIR)) {
-      warnThrottled("resolveCliPath:versions", `[ClaudeCode] Could not read CLI versions dir ${CLI_VERSIONS_DIR}, falling back:`, err);
-    }
-  }
-
-  // Fallback: stable launcher
-  const launcher = join(process.env.HOME || "", ".local/bin/claude");
-  try {
-    if (existsSync(launcher)) return launcher;
-  } catch { /* probe: a stat failure means the launcher is unusable, try the next fallback */ }
-
-  // Last resort: PATH
-  return "claude";
-}
-
-// ============ Env Sanitization ============
-
-export function buildSafeEnv(): Record<string, string> {
-  // The allowlist and the blocklist live in `lib/agent-env.ts`: a `run_command`
-  // process gets the same environment, so it runs as it would in this CLI's Bash.
-  const env = agentBaseEnv();
-
-  env.JARVIS_SPAWN = "1";
-
-  // The CLI's own patience with an MCP tool call. Its default (30 min) killed a
-  // question under a human who took a long lunch ("no response and no progress
-  // for 1800s"). The bridge emits `notifications/progress` on every poll leg,
-  // which resets this timer in a client that honours it; this is the belt for
-  // one that does not, and it costs nothing elsewhere: a tool really stuck is
-  // still reaped by the turn watchdog (30 min), which stops ONLY for a question
-  // on screen. A question has no lifetime, so the value is the largest delay a
-  // JS timer honours: one more millisecond overflows to 1 ms and kills every
-  // call at once (see `ASK_TRANSPORT_CEILING_MS`).
-  env.MCP_TOOL_TIMEOUT = String(ASK_TRANSPORT_CEILING_MS);
-
-  return env;
-}
-
-
-// ============ History Replay ============
-// The recap of a reset session lives in `claude/history-replay.ts`; re-exported
-// here because tests and callers have always imported it from this module.
-export {
-  loadActiveBranchForReplay, hasPriorMessagesInDB, renderReplayPrologue, type ReplayTurn,
-} from "./claude/history-replay";
 
 // ============ Persistent Process ============
 
@@ -307,517 +242,7 @@ export function aiBridgeEnabled(): boolean {
   return USE_AI_BRIDGE;
 }
 
-/**
- * The stdin/signal/kill surface of a session — the ONLY child-coupled operations
- * left after the pool state (streamHandler, pending promises, tool state, timers)
- * was made transport-agnostic. Direct mode drives the spawned child's pipes;
- * broker mode drives the daemon over the socket. Everything else (stdout parsing,
- * stderr scan, close handling) is shared via the extracted methods.
- */
-interface SessionIO {
-  writeStdin(data: string, mark?: string): void;
-  signal(sig: string): void;
-  kill(): void;
-  /** Direct mode only: settles when the child has exited after `kill()`. */
-  exited?(capMs: number): Promise<void>;
-}
-
-function directIO(proc: ChildProcess): SessionIO {
-  return {
-    writeStdin: (data) => { try { proc.stdin?.write(data); } catch { /* PROCESS_DEAD handled by callers */ } },
-    signal: (sig) => { try { proc.kill(sig as NodeJS.Signals); } catch { /* already gone */ } },
-    kill: () => {
-      try { proc.kill("SIGTERM"); } catch { /* already gone */ }
-      setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* already gone */ } }, KILL_GRACE_MS);
-    },
-    exited: (capMs) => childExited(proc, capMs),
-  };
-}
-
-function brokerIO(client: AiBridgeClient, sessionKey: string): SessionIO {
-  return {
-    writeStdin: (data, mark) => client.write(sessionKey, data, mark),
-    signal: (sig) => client.signal(sessionKey, sig),
-    kill: () => client.kill(sessionKey),
-  };
-}
-
-/** Who killed a child on purpose. Travels with the rejection of the send that
- *  was waiting on it, so the chat says what ended the turn. */
-type KillCause = "lifetime" | "idle" | "clear" | "config" | "watchdog" | "stopped-child" | "dead" | "shutdown";
-type ClosedWhy = "silent" | "stuck-turn" | "deadline" | "superseded";
-type BackgroundClosedObserver = (sessionKey: string, tasks: string[], why: ClosedWhy, cron?: true) => void;
-type OwedChange = "autonomy" | "model" | "effort";
-
-const KILL_CAUSE_TEXT: Record<KillCause, string> = {
-  lifetime: "the 2 hour lifetime cap",
-  idle: "the idle reaper",
-  clear: "/clear",
-  config: "a configuration change",
-  watchdog: "the turn watchdog",
-  "stopped-child": "a stop that did not complete",
-  dead: "the cleanup of a dead process",
-  shutdown: "the server shutting down",
-};
-
-/**
- * The rejection `killProcess` hands to the send waiting on the child. Its
- * message is the marker `sendChatInternal` switches on, like `ABORTED` or
- * `TIMEOUT`; the cause rides along for the text the chat shows.
- */
-class ProcessKilledError extends Error {
-  constructor(readonly killCause: KillCause) {
-    super("KILLED");
-  }
-  get notice(): string {
-    return `Turn ended: the Claude Code process was stopped by ${KILL_CAUSE_TEXT[this.killCause]}.`;
-  }
-}
-
-/**
- * How a turn whose child was killed ends on its handler. `/clear` is the person
- * throwing the turn away, the same gesture as Stop: a cancel by the user, so no
- * error notice and no error push. A shutdown says so. Any other kill is the
- * machine giving up on a turn: once the guards spare every turn in flight, the
- * one left is the lifetime cap on a turn silent past the watchdog window, a
- * stall. It ends with the cause the route's own watchdog writes, which the
- * resume reads as "the agent stopped answering" and acts on; a bare `onError`
- * carried no cause, so nothing resumed it.
- */
-function endKilledTurn(handler: StreamHandler, err: ProcessKilledError): void {
-  if (!handler.onAborted) { handler.onError(err.notice); return; }
-  if (err.killCause === "clear") handler.onAborted({ turnEnd: cancelled("user") });
-  else if (err.killCause === "shutdown") handler.onAborted({ turnEnd: cancelled("server-shutdown") });
-  else handler.onAborted({ turnEnd: cancelled("watchdog", err.notice) });
-}
-
-/**
- * A child in the middle of a turn: a stream handler (sent, woken or reattached
- * turn), a send still waiting on it (a turn the route stopped watching while
- * the CLI works on), or a spontaneous turn waiting for its adopter or declined
- * (both flags clear on the turn's own `result`). The one rule for every clock
- * that may kill the child: the lifetime cap, the idle reaper, a config change.
- */
-function turnInFlight(pp: PersistentProcess): boolean {
-  return !!pp.streamHandler || !!pp.pendingReject || pp.wokenBuffer != null || pp.declinedTurn === true;
-}
-
-/**
- * The CLI is busy with a turn that is not this send's: one it opened by itself
- * (between its `system/init` and its `result`), one waiting for its adopter, or
- * one declined and still running. A message written to stdin now is read by the
- * CLI in the middle of that turn and answered in it, with one `result` for
- * both (CLI 2.1.280): the send waits for the turn's end instead.
- */
-function cliBusyForSend(pp: PersistentProcess, handler: StreamHandler, now = Date.now()): boolean {
-  if (pp.streamHandler === handler) return false;
-  return cliInOwnTurn(pp) || wakeAboutToStart(pp, now);
-}
-
-/** The CLI is running a turn nobody's send wrote: opened by itself, held for its adopter, or declined and still going. */
-function cliInOwnTurn(pp: PersistentProcess): boolean {
-  return pp.cliTurnOpen === true || pp.wokenBuffer != null || pp.declinedTurn === true;
-}
-
-/** A send with no child to write to yet (`processForTurn`), or parked behind the CLI's own turn (`waitOutCliTurn`). */
-interface WaitingSend {
-  handler: StreamHandler;
-  cancelled: boolean;
-  wake?: () => void;
-  /** Parked behind a turn the CLI is running: a Stop stops that turn too. */
-  behindCliTurn?: boolean;
-}
-
-/**
- * The CLI has queued a turn of its own and its `system/init` has not come yet:
- * a background task reported (init 0.3 to 1.1 s later, recorded) or a cron
- * fired, which the CLI holds until the `result` of the turn before and then
- * starts 11 ms after it (init 182 ms later). A queue drained on that `result`
- * reached stdin in this gap, and the CLI took the message into the turn it was
- * starting. Bounded: a report the CLI folded into a running turn opens no new
- * one, and the send must not wait for it longer than the recorded gap.
- */
-function wakeAboutToStart(pp: PersistentProcess, now: number): boolean {
-  const at = pp.background?.wakeQueuedAt;
-  return at != null && now - at < WAKE_START_GRACE_MS;
-}
-
-/** The longest recorded gap between a queued wake and its `system/init` (1.1 s), with margin. */
-const WAKE_START_GRACE_MS = 2_000;
-
-/** Past the instant a queued wake stops counting, so the re-read finds it gone. */
-const WAKE_EXPIRY_SLACK_MS = 5;
-
-/** How often a send parked behind the CLI's own turn looks again, besides the wake at the turn's `result`. */
-const CLI_TURN_RECHECK_MS = 250;
-
-/**
- * A replay's background news, dated by the daemon's record of the child's last
- * write. A daemon older than that record (protocol 1, still holding the CLIs
- * of a server deployed before it) cannot date it: the replay's news then counts
- * from the reattach, so a job silent for hours gets two more hours after each
- * restart. Said once per server process, not per attach.
- */
-let oldDaemonDeclared = false;
-function dateReplay(pp: PersistentProcess, scan: { lastDataAt?: number; protocol?: number }): void {
-  if ((scan.protocol ?? 2) < 2 && !oldDaemonDeclared) {
-    oldDaemonDeclared = true;
-    console.warn(`[claude-code] the ai-bridge daemon speaks protocol ${scan.protocol}, before lastDataAt: background work found at a reattach is dated from the reattach, not from its last output. Restart the daemon when it holds no live CLI to date it exactly.`);
-  }
-  if (pp.background && typeof scan.lastDataAt === "number") datedByLastWrite(pp.background, scan.lastDataAt);
-}
-
-/** Killing this child would also kill the Agent, Bash or Monitor its last turn left running. */
-function backgroundAlive(pp: PersistentProcess): boolean {
-  return isBackgroundWorkAlive(pp.background, Date.now());
-}
-
-/**
- * Since when the child counts as quiet: its last event, its last retry of the
- * API, or the moment a person last answered it, whichever is later. The CLI
- * prints nothing while a permission prompt or a question is open, nor while the
- * command just approved runs, and a clock counting from the tool_use that asked
- * killed that command. Nor while it retries the API, and it gives up by itself.
- * Read by the lifetime cap and by the send watchdog.
- */
-function quietSince(pp: PersistentProcess, sessionKey: string): number {
-  return Math.max(pp.lastEventAt, pp.lastApiRetry?.at ?? 0, humanHoldReleasedAt(sessionKey) ?? 0);
-}
-
-export interface PersistentProcess {
-  /** Set in DIRECT mode only (the spawned child); null in broker mode. */
-  proc: ChildProcess | null;
-  /** stdout line parser — over proc.stdout (direct) or a PassThrough fed by the
-   *  broker's `data` frames (broker). null only transiently during construction. */
-  readline: Interface | null;
-  /** stdin/signal/kill surface — direct child pipes or broker socket RPCs. */
-  io: SessionIO;
-  /** Resolves when the child is up (broker: spawn ack; direct: immediately).
-   *  The first stdin write awaits this so a write never races ahead of spawn. */
-  ready: Promise<void>;
-  /** The topics sessionKey (also the broker session id). */
-  sessionKey: string;
-  /** Byte cursor consumed from the broker store (for reattach). Direct: unused. */
-  consumedOffset: number;
-  /** The re-attach in flight (`resyncStream`): a second caller joins it instead of sending its own. */
-  resyncing?: Promise<boolean>;
-  /** A gap the lag probe saw: the daemon held bytes past `from` that we had not folded (`probeStreamLag`). */
-  lag?: { from: number; seenAt: number; triedAt?: number };
-  /** True from a broker spawn until its ack, and for an adopted (`resumed`) child until
-   *  `attachLive` lands: `consumedOffset` (0) is not our place in the store yet, so no
-   *  resync may start from it. One from 0 replays the child's whole history, and folded
-   *  with the live attach's reply it became the new turn's answer (T18, verification). */
-  attachPending?: boolean;
-  rewindFrom?: number; // the one rewind below `consumedOffset` the reattach asked for, until it lands (`admitFrame`)
-  reattachLive?: boolean; // left by a scan cut short: the cursor is inside the history, the next resync is live unless a frame folds first
-  exitTail?: Promise<void>; // the tail of a child that exited while we were detached, until it is folded (`closeAfterTail`)
-  /** True while replaying buffered NDJSON on reattach — suppresses live-only
-   *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
-  replaySilent?: boolean;
-  /** True during reattach's SCAN pass: every handler emission is suppressed
-   *  and only the store's tail shape is recorded (see fields below). A broker
-   *  store spans the child's LIFETIME — multiple turns — so replaying it
-   *  unmuted from 0 both re-streams old turns into the fresh bubble AND lets
-   *  an OLD turn's `result` null the handler, misclassifying an open turn as
-   *  "completed" (observed live: the adopted turn kept running headless). */
-  replayMute?: boolean;
-  /** Scan outcome: true when meaningful events follow the last `result` in
-   *  the store — i.e. a turn is in flight. */
-  replayTailOpen?: boolean;
-  /** Scan outcome: the last replayed `result` event (delivered synthetically
-   *  through onDone when the turn completed while we were detached). */
-  replayLastResult?: unknown;
-  /** Scan outcome: consumed-store offset right after the last `result` —
-   *  where the LIVE second attach starts so old turns are never re-emitted. */
-  replayAfterLastResultOffset?: number;
-  /** Scan outcome: where each marked row's own turn lies in the store (`claude/row-turn.ts`). */
-  replayRowTurns?: RowTurns;
-  /** Offset assoluto appena DOPO l'ultima riga NDJSON piegata. Non è
-   *  `consumedOffset`, che si muove a CHUNK e per giunta solo a fold finito:
-   *  qui si è precisi alla riga, mentre la riga passa. È ciò che fa ripartire
-   *  la fase 2 esattamente dopo il `result`. Vedi `createLineFolder`. */
-  lineEndOffset?: number;
-  lineStartOffset?: number; // where that line began: a wake's turn starts there (`claude/woken-turn.ts`)
-  /** Accumulated stderr tail for the rate-limit / missing-session scan. */
-  stderrBuf: string;
-  /** Spawn-time facts the stderr scan + reattach need. */
-  spawnMeta: { claudeSessionId: string; isNewSession: boolean; forkFrom?: { sessionId: string; atUuid: string } | null };
-  /** A forking start's fork is consumed in `chat_forks` (its first `system/init`). `forkFrom` stays: the fork's refusals may come after. */
-  forkConsumed?: boolean;
-  createdAt: number;
-  lastActivity: number;
-  alive: boolean;
-  /** Set by abort() before it SIGINTs the child, so the subsequent process
-   *  exit is recognised as a user-requested stop (a clean end, NOT a crash) —
-   *  the CLI exits code 0 on SIGINT, and without this flag onSessionClosed
-   *  surfaced it as "⚠️ Process exited with code 0". */
-  aborting?: boolean;
-  /**
-   * Resolved when this child exits. Created by `abort()`: in stream-json mode
-   * the CLI does not survive a SIGINT (it prints the stopped turn's tail and
-   * exits 0 within a second, measured 24/09 with CLI 2.1.280), so a stopped
-   * child is never reused. `processForTurn` waits on this instead, and
-   * `handleStreamEvent` drops the tail while it is set.
-   */
-  stoppedExit?: { done: Promise<void>; resolve: () => void };
-  /** Who asked for the abort — "user" (default) or "watchdog" (stream
-   *  timeout). Only affects the exit log label so a watchdog kill is never
-   *  misread as the human pressing stop. */
-  abortReason?: AbortReason;
-  /** Set when a `--resume` failed because the session is gone (we've already
-   *  forgotten it, next spawn is fresh). The turn can't finish, but it's a
-   *  recoverable reset — onSessionClosed surfaces a clear "resend" note instead
-   *  of a raw "Process exited with code N". */
-  recovering?: boolean;
-  /** Current streaming handler (set during sendChat, null otherwise) */
-  streamHandler: StreamHandler | null;
-  /**
-   * Gli eventi di un turno che la CLI ha aperto DA SOLA, tenuti da parte finché
-   * non arriva un handler che li possa ricevere.
-   *
-   * Serve perché fra «la CLI ricomincia a parlare» e «il server ha aperto una
-   * riga e registrato un handler» passano un giro di event loop e una INSERT, e
-   * in quel buco ci passano i primi eventi del turno. Buttarli per una questione
-   * di tempistica sarebbe lo stesso difetto di prima, più piccolo e più
-   * difficile da vedere.
-   *
-   * `null` = non aspettiamo nessuno; un array = c'è un'adozione in volo e questi
-   * eventi vanno ripiegati appena arriva l'handler, NELL'ORDINE.
-   */
-  wokenBuffer?: HeldEvent[] | null;
-  /** See `WokenSlot` in `claude/woken-turn.ts`. */
-  declinedTurn?: boolean;
-  bufferedTurnEnded?: boolean;
-  wokenFrom?: number; // see `WokenSlot`
-  /** Pending promise resolvers for sendChat */
-  pendingResolve: ((result: { runId: string }) => void) | null;
-  pendingReject: ((err: Error) => void) | null;
-  /** Text already sent from `text_delta` partials, not yet matched by its snapshot. */
-  streamedText?: string;
-  /** Accumulated full text for onTextDelta */
-  fullText: string;
-  /** The command the message of this turn invokes (`/output-style` → `output-style`), or null. */
-  commandTurn?: string | null;
-  /** The `<synthetic>` text of a command turn, held until its `result` says whose it is (CMDUI-04). */
-  syntheticHeld?: string;
-  /** `/compact`'s outcome as the CLI reported it in this turn (`system/status`). */
-  commandOutcome?: { ok: boolean; error?: string };
-  /** Tool calls announced but not yet resulted. */
-  activeToolCalls: Set<string>;
-  /** Tool calls that have already had their result emitted — the Claude CLI
-   *  re-emits them on every cumulative `assistant` snapshot, so we need a
-   *  set to skip duplicates and prevent push-without-dedup downstream. */
-  settledToolCalls?: Set<string>;
-  /** I `message.id` delle chiamate API già FATTURATE in questo turno.
-   *
-   *  Stessa trappola di `settledToolCalls`, sull'altra grandezza: la CLI emette
-   *  un evento `assistant` per BLOCCO di contenuto e ognuno ripete la stessa
-   *  `message.usage`. `onCallUsage` accumula, quindi senza questo Set un turno
-   *  con 24 eventi su 4 chiamate fatturava 4.893.590 token invece di 925.774
-   *  (5,29×) e $22,80 invece di $3,66 — numeri misurati sul topic dec44329. */
-  billedCallIds?: Set<string>;
-  /** In-flight tool inputs from `--include-partial-messages` stream_events,
-   *  keyed by content-block index: id/name captured at content_block_start,
-   *  `buf` accumulates input_json_delta.partial_json until block stop.
-   *  `lastEmitAt`/`emittedPrimary` throttle the provisional filename/command
-   *  emit + timer keep-alive during a long input stream. */
-  streamingToolInputs?: Map<number, { id: string; name: string; buf: string; lastEmitAt?: number; emittedPrimary?: string }>;
-  /** Tool ids whose COMPLETE input has been delivered (onToolArgsUpdate fired
-   *  or announced directly with full args). Keeps the late-args path
-   *  idempotent across block stop + every cumulative snapshot re-emission. */
-  argsFinalized?: Set<string>;
-  /** Content-block indexes of the reasoning blocks open right now (partial
-   *  stream_events), so the block stop can close the right one. */
-  streamingThinking?: Set<number>;
-  /** Le chiamate al tool `Skill`, per nome. Serve a riconoscere, quando arriva
-   *  il loro `tool_result`, che il prossimo testo iniettato dalla CLI è il
-   *  corpo di QUELLA skill e non una risposta del modello. */
-  skillToolNames?: Map<string, string>;
-  /** Le `Skill` che hanno consegnato il risultato e aspettano il loro corpo,
-   *  in ordine di arrivo. Una coda e non uno slot perché il modello può
-   *  chiamarne due nello stesso messaggio. Si svuota al primo evento
-   *  `assistant`: se il modello ha ripreso a parlare, nessun corpo sta più
-   *  arrivando, e uno slot rimasto armato si mangerebbe il prossimo testo
-   *  iniettato (un `<system-reminder>` finito nella card di una skill). */
-  pendingSkillToolIds?: string[];
-  /** Tool ids that already received their per-action usage attribution
-   *  (`onToolUsage`). The CLI's `assistant` events are cumulative, so a
-   *  tool_use recurs on later snapshots; this set makes the attribution
-   *  exactly-once — the FIRST call whose snapshot carried it is the call that
-   *  decided it, and no action inherits an earlier action's cost. */
-  attributedToolCalls?: Set<string>;
-  inactivityTimer: ReturnType<typeof setTimeout> | null;
-  /**
-   * Tetto di vita del figlio. Non è un `setTimeout` nudo ma un
-   * `armTurnDeadline`, perché deve saper stare fermo mentre una domanda è a
-   * schermo: si spegne con `.clear()`, non con `clearTimeout`.
-   */
-  lifetimeTimer: TurnDeadline | null;
-  /**
-   * Per-stream heartbeat interval that re-emits `onSubAgentUpdate` snapshots
-   * for any pending Task() parents when no provider event has occurred for
-   * ≥ HEARTBEAT_INTERVAL_MS. Prevents the route's stream inactivity timer
-   * from firing during long sub-agent tool runs (Bash builds, WebFetch, etc.)
-   * where the SDK is silent for minutes by design.
-   *
-   * Idempotent: emits the LAST KNOWN snapshot, so a client that already
-   * rendered the same actions sees no change beyond the keep-alive bump.
-   * Cleared on every stream finalization path (done/error/aborted/exit).
-   */
-  heartbeatInterval: ReturnType<typeof setInterval> | null;
-  /**
-   * Accorpamento degli aggiornamenti di sub-agent, per parent tool_use_id.
-   *
-   * Ogni azione di un sub-agent faceva partire tre operazioni O(n) sull'INTERO
-   * elenco delle azioni: la copia profonda in `sidechain.snapshot()`, una
-   * scrittura su DB del `detail` completo e un broadcast del medesimo. Con il
-   * tetto di 200 azioni sono ~20.100 elementi copiati, riscritti e spediti per
-   * una sola invocazione di Task() — quadratico in qualcosa che l'utente vede
-   * come una lista che si allunga.
-   *
-   * Il contenuto e' uno SNAPSHOT, non un delta: il renderer collassa per
-   * `callId` e mostra sempre l'ultimo stato, quindi i fotogrammi intermedi sono
-   * scartabili per costruzione. Qui se ne emette al piu' uno ogni
-   * SUBAGENT_COALESCE_MS, con il bordo di CODA — se un aggiornamento viene
-   * saltato, un timer garantisce che l'ultimo stato arrivi comunque entro la
-   * finestra, invece di restare fermo fino al prossimo evento (o ai 30s del
-   * heartbeat).
-   */
-  subAgentEmit: Map<string, { lastAt: number; timer: ReturnType<typeof setTimeout> | null }>;
-  /** Wall-clock time of the last event emitted to the StreamHandler (text,
-   *  tool, sub-agent). Used by the heartbeat to decide whether to fire. */
-  lastEventAt: number;
-  /**
-   * Che COSA era l'ultimo evento arrivato (`assistant`, `system/compact_boundary`,
-   * `tool_result`…). Non serve al watchdog: serve a chi legge il log quando il
-   * watchdog uccide. «Nessuna attività per 30 minuti» non dice se il figlio era
-   * piantato o stava compattando — e i due casi vogliono due risposte opposte
-   * (uccidere è giusto nel primo, è un turno sano buttato via nel secondo).
-   * Misurato il 03/08: 7 turni troncati in un giorno su 5 topic, 4 dei quali con
-   * questo messaggio, uno subito dopo un `/compact`.
-   */
-  lastEventKind?: string;
-  /** The CLI's last `system/api_retry` (`claude/api-outage.ts`): the child
-   *  working, not silence, for `quietSince`; its last word, for the watchdog. */
-  lastApiRetry?: ApiRetryMark;
-  /** Which ai-bridge daemon holds this child (`AiBridgeClient.daemonPid`):
-   *  missing under another one at a resync is a daemon death, not a child's. */
-  daemonPid?: number | null;
-  /**
-   * A `system/task_notification` arrived and its turn has not ended yet: the
-   * next empty `result` with no model turn in it is the notification's answer,
-   * not the end of the turn the person is waiting on. See the `noise` branch
-   * of `handleStreamEvent`.
-   */
-  notificationTurnPending?: boolean;
-  /** What the CLI last said about the work a closed turn left running (see `claude/background-work.ts`). */
-  background?: BackgroundWork;
-  /** The re-read at the instant a queued wake stops counting (`armWakeExpiry`), and that instant. */
-  wakeExpiryTimer?: ReturnType<typeof setTimeout> | null;
-  wakeExpiryAt?: number | null;
-  /** A config change this child was too busy to take: the next send that finds it idle, its background work over, respawns it. */
-  configStale?: boolean;
-  /** The chat was already told this child's background work is closed. */
-  backgroundClosedSaid?: boolean;
-  /** Config changes owed by a turn in flight, said in the chat if that turn leaves background work. */
-  owedChanges?: Set<OwedChange>;
-  /** The topic's choices this child was spawned with: a change back to one of them is owed by nobody. */
-  spawnedWith?: Record<OwedChange, string | null>;
-  /** Scan outcome: the tail is open only because a `system/init` started a turn with nothing after it yet. */
-  replayTailInitOnly?: boolean;
-  /**
-   * The CLI is in a turn: from its live `system/init` (or the first line of a
-   * turn it opened by itself) to that turn's `result`, or its exit. Whoever
-   * started the turn. Read by `cliBusyForSend` and reported to the turn ledger
-   * (`observeCliTurns`).
-   */
-  cliTurnOpen?: boolean;
-  /** Wakes the one send parked behind the CLI's own turn (`waitOutCliTurn`). */
-  cliIdleWake?: () => void;
-  /** The handler the route registered for a message not written yet (`registerStreamHandler`): it owns no turn until its send writes. */
-  preRegistered?: StreamHandler | null;
-  /**
-   * Set when this process was spawned with `--session-id` because the prior
-   * `claude_session_id` was either missing on disk or never existed, but the
-   * topics-app DB *does* contain prior user/assistant turns for this
-   * sessionKey. The next sendChat will prepend a markdown recap so the model
-   * doesn't lose the conversation thread. Cleared after one use.
-   */
-  needsHistoryReplay: boolean;
-  /**
-   * Sidechain (Task tool sub-agent) tracker. The Claude Code CLI emits
-   * sub-agent events with a `parent_tool_use_id` field on the same NDJSON
-   * stream as the parent. We intercept those events and aggregate them into
-   * the parent Task call's `detail.sub_agent.actions[]` log instead of
-   * letting them be silently routed to the parent agent's text/tool
-   * handlers. One tracker per process — sub-agents are scoped to a single
-   * topic/session so this is the right granularity.
-   */
-  sidechain: SidechainTracker;
-  /**
-   * Tool calls that asked the user for input via `AskUserQuestion` /
-   * MCP elicitation. Keyed by `tool_use.id`. Each entry pins the
-   * sessionKey (for cross-stream lookup from the route handler) and the
-   * resolved schema so we can rebuild the WS broadcast if a client
-   * reconnects mid-pause. The heartbeat treats these the same as a
-   * running Task() parent — keeps the soft timer suspended while we
-   * wait for the human.
-   *
-   * The provider is the source of truth; the route handler queries this
-   * map via `resumeWithToolResponse` to validate that a submission
-   * matches a still-pending request, then drops the entry once the
-   * `tool_result` line is written to stdin.
-   */
-  pendingInputs: Map<string, { sessionKey: string; schema: import("../types").UserInputSchema; awaitingSince: number }>;
-}
-
 // ============ Provider ============
-
-/**
- * Parse the stdout of a `claude --print --output-format json` one-shot into a
- * CompletionResult. Handles BOTH shapes: the single result object, and the
- * full event ARRAY that `--verbose` used to switch on (the result then lives
- * in the final `{type:"result"}` event). NEVER falls back to the raw JSON as
- * "the completion": that poisoned every downstream parser — the model-picker
- * read `haiku` out of the init event's model id and routed real tasks to
- * haiku. Missing result ⇒ empty content, so callers engage their own
- * fallbacks (the picker's is opus). Non-JSON stdout is passed through as
- * plain text (the CLI answered without the json wrapper).
- */
-export function parseCompletionStdout(stdout: string): CompletionResult {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    return { content: stdout.trim() };
-  }
-  const resultEvent: any = Array.isArray(parsed)
-    ? parsed.find((e: any) => e?.type === "result")
-    : parsed;
-  const content = typeof resultEvent?.result === "string" ? resultEvent.result : "";
-  if (!content) {
-    console.warn(`[claude-code] complete(): no result text in CLI json output (${stdout.slice(0, 80)}…)`);
-  }
-  const usage = resultEvent?.usage;
-  // The shares and the CLI's own price go back too: the side-call ledger
-  // (`usage/side-calls.ts`) needs them to say what a title cost. Without them
-  // 1102 card titles on Sonnet (9-12/10, 14.1M tokens written to the one-hour
-  // cache) left no trace outside the CLI transcripts.
-  const n = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
-  const models = resultEvent?.modelUsage && typeof resultEvent.modelUsage === "object" ? Object.keys(resultEvent.modelUsage) : [];
-  return {
-    content,
-    usage: usage ? {
-      promptTokens: n(usage.input_tokens) + n(usage.cache_creation_input_tokens) + n(usage.cache_read_input_tokens),
-      completionTokens: n(usage.output_tokens),
-      cacheReadTokens: n(usage.cache_read_input_tokens),
-      cacheCreationTokens: n(usage.cache_creation_input_tokens),
-      cacheCreation1hTokens: n(usage.cache_creation?.ephemeral_1h_input_tokens),
-      ...(models.length === 1 ? { model: models[0] } : {}),
-      ...(typeof resultEvent?.total_cost_usd === "number" ? { costUsd: resultEvent.total_cost_usd } : {}),
-    } : undefined,
-  };
-}
 
 export class ClaudeCodeProvider implements AIProvider {
   readonly name = "claude-code";
@@ -1662,101 +1087,11 @@ export class ClaudeCodeProvider implements AIProvider {
   // --- Non-streaming Completion ---
 
   async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<CompletionResult> {
-    // (stdout parsing lives in parseCompletionStdout, exported for tests)
-    // Build a single prompt from all messages
-    const prompt = messages
-      .map((m) => {
-        if (m.role === "system") return `[System]\n${m.content}`;
-        if (m.role === "assistant") return `[Assistant]\n${m.content}`;
-        return m.content;
-      })
-      .join("\n\n");
-
-    const model = this.completionModel(options);
-    const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
-    const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
-
-    // One-shot completions (auto-naming, daily digest, SSE fallback) need NO
-    // MCP tools — but `claude` otherwise auto-loads the user's entire global
-    // ~/.claude.json fleet (incl chrome-devtools' ~1.2GB Chrome) for a single
-    // text completion. Pin an EMPTY strict MCP config so this hot path spawns
-    // zero servers. Falls back to legacy (no scoping) only if the temp write
-    // fails; the file is removed when the process exits (cleanup below).
-    const oneshotKey = `oneshot-${crypto.randomUUID()}`;
-    let emptyMcpConfigPath: string | null = null;
-    try {
-      mkdirSync(MCP_CONFIG_DIR, { recursive: true });
-      const p = mcpConfigPathForSession(oneshotKey);
-      writeFileSync(p, JSON.stringify({ mcpServers: {} }, null, 2), { encoding: "utf-8", mode: 0o600 });
-      emptyMcpConfigPath = p;
-    } catch { /* fall back to no scoping */ }
-
-    // Le flag (e il perché di ognuna) stanno in `claude/args.ts`, sotto snapshot.
-    const args = buildClaudeOneshotArgs({
-      permissionMode, model, emptyMcpConfigPath, effort: options?.reasoningEffort, userFacing: options?.userFacing,
-    });
-
-    const env = buildSafeEnv();
-
-    return new Promise((resolve, reject) => {
-      const ownedGroup = process.platform !== "win32";
-      const proc = spawn(resolveCliPath(), args, {
-        detached: ownedGroup,
-        cwd: workspace,
-        stdio: ["pipe", "pipe", "pipe"],
-        env,
-      });
-
-      let stdout = "";
-      let stderr = "";
-
-      proc.stdout!.on("data", (d: Buffer) => { stdout += d.toString(); });
-      proc.stderr!.on("data", (d: Buffer) => { stderr += d.toString(); });
-
-      let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        try {
-          if (ownedGroup && proc.pid) process.kill(-proc.pid, "SIGKILL");
-          else proc.kill("SIGKILL");
-        } catch { /* Already closed. */ }
-      }, Math.min(MESSAGE_TIMEOUT_MS, Math.max(1, options?.timeoutMs ?? MESSAGE_TIMEOUT_MS)));
-
-      proc.on("close", (code) => {
-        clearTimeout(timer);
-        cleanupMcpConfigForSession(oneshotKey);
-        if (timedOut) { reject(new Error("Completion timed out")); return; }
-        if (code !== 0) {
-          console.warn(`[claude-code] complete() exited with code ${code}: ${stderr.slice(0, 200)}`);
-          // Still an answer to the caller (they read the notice), but a failed
-          // one for the ledger: the CLI may have spent tokens before dying.
-          resolve({ content: `Error: CLI exited with code ${code}`, error: `exit ${code}` });
-          return;
-        }
-        resolve(parseCompletionStdout(stdout));
-      });
-
-      proc.on("error", (err) => {
-        clearTimeout(timer);
-        cleanupMcpConfigForSession(oneshotKey);
-        reject(err);
-      });
-
-      // A CLI that exits BEFORE reading the prompt leaves us writing into a
-      // closed pipe, and the EPIPE surfaces ASYNCHRONOUSLY as the stream tears
-      // down: it is raised inside `end()`, not inside `write()`, so no
-      // try/catch around the write can ever see it. With no listener on this
-      // stream it becomes an unhandled exception and Bun kills the WHOLE
-      // server process.
-      //
-      // Observed in CI (run 33030011608): the test server died mid-run and
-      // took ~200 never-started tests down with it. A CLI exiting early is
-      // ordinary (startup crash, wrong binary, --version), not a test-bench
-      // quirk, so this belongs here and not in the harness. The turn still
-      // ends through `close`, which reports the non-zero exit.
-      proc.stdin!.on("error", () => { /* CLI is gone; `close` reports it */ });
-      proc.stdin!.write(prompt);
-      proc.stdin!.end();
+    // The spawn, the timeout and the stdout parse live in `claude/cli-launch.ts`.
+    return runOneshotCompletion(messages, options, {
+      model: this.completionModel(options),
+      permissionMode: this.config.permissionMode ?? DEFAULT_PERMISSION_MODE,
+      workspace: this.config.defaultWorkspace || process.env.HOME || "/tmp",
     });
   }
 
@@ -2325,6 +1660,9 @@ export class ClaudeCodeProvider implements AIProvider {
       // file: phase, tool label and foreground command list for EVERY session
       // launched from here, and for no other.
       hooksScriptPath: hookScriptPath(),
+      // Where a worktree of this session is born: under the worktree root, marked
+      // and registered (`claude_worktree_hooks`, default on).
+      worktreeHooksScriptPath: sessionWorktreeHookPath(),
       // The nudge toward spawn_agent after a long run of inline calls (the
       // policy itself rides `appendSystemPrompt`). `TOPICS_DELEGATION_NUDGE=off`
       // turns it off without a release.
@@ -2619,7 +1957,10 @@ export class ClaudeCodeProvider implements AIProvider {
     // So is a child that exited while detached, until its tail lands: `exitTail`, waiting behind the backlog.
     // A fresh idle child that took the key after a kill is alive too, and answering yes for it kept a dead
     // stream on the extend path for hours (2026-09-03, topic ada7e7db): the turn's child was gone.
-    return !!pp && (pp.exitTail !== undefined || (pp.alive && (pp.streamHandler !== null || pp.replayMute === true)));
+    // A child that exited with nothing left past our cursor (its whole store already folded by the scan) is `alive`
+    // false at once, while the re-adoption can still wait behind another session's backlog for the rewind that
+    // closes the row. Read «dead» there, the route's grace closed that row as a timeout with its answer in the store.
+    return !!pp && (pp.exitTail !== undefined || pp.readopting === true || (pp.alive && (pp.streamHandler !== null || pp.replayMute === true)));
   }
 
   /**
@@ -3104,10 +2445,13 @@ export class ClaudeCodeProvider implements AIProvider {
     // questa via il danno era totale, perché la riga è già stata svuotata per
     // essere riusata e la rifusione dello snapshot vive dentro `finalizeStream`,
     // che quel `.catch` non chiama mai. Vedi `finalizeFailedReattach`.
+    pp.readopting = true;
     try {
       return await this.reattachDrive(sessionKey, handler, pp, parked !== null, opts.rowId);
     } catch (err) {
       return this.finalizeFailedReattach(sessionKey, pp, handler, err);
+    } finally {
+      pp.readopting = false;
     }
   }
 
@@ -4078,98 +3422,15 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   // ── Partial-input streaming (below) ──────────────────────────────────────
+  // The partial-input handling and the user-input detection live in
+  // `claude/partial-input.ts`; these stay as methods because tests drive them
+  // on a provider instance.
+  private readonly sessionKeyOf = (pp: PersistentProcess): string | null => this.findSessionKeyForProcess(pp);
 
-  /**
-   * `--include-partial-messages` stream_event handling. ONLY the tool_use
-   * lifecycle is consumed here: `content_block_start` announces the tool the
-   * moment the model STARTS writing its input (so the UI's running window
-   * covers input generation + execution — the tool's real usage window),
-   * `input_json_delta` accumulates the input, and `content_block_stop`
-   * parses the complete input and upserts it via onToolArgsUpdate.
-   * Text/thinking deltas are ignored — the cumulative snapshots remain their
-   * single source, so nothing double-counts. Only the START and STOP of a
-   * reasoning block are surfaced (no text), so the UI can show it live. Sidechain (sub-agent) partials
-   * are skipped: child tools aggregate from the sidechain's own snapshots.
-   */
   private handlePartialStreamEvent(pp: PersistentProcess, event: any, handler: StreamHandler | null): void {
-    // La forma sul filo (`stream_event` → `content_block_*`) la decodifica
-    // `claude/events.ts`: qui resta l'applicazione allo stato del processo.
-    const partial = decodePartialStreamEvent(event);
-    if (!partial) return;
-    const index = partial.index;
-    if (partial.kind === "text_delta") {
-      // The CLI's assistant snapshot carries a text block only once it is
-      // COMPLETE, so text used to land in one lump per block. The piece goes
-      // out now and is remembered in `streamedText`, so the snapshot that
-      // follows adds only what was not streamed.
-      if (!handler || pp.replaySilent || pp.commandTurn) return;
-      pp.streamedText = (pp.streamedText ?? "") + partial.text;
-      pp.fullText += partial.text;
-      handler.onTextDelta(partial.text, pp.fullText);
-      return;
-    }
-    if (partial.kind === "thinking_start") {
-      // The cumulative snapshot skips a thinking block whose text is empty, which
-      // is how the CLI delivers it live: this event is the only live sign that
-      // the model is reasoning.
-      (pp.streamingThinking ??= new Set()).add(index);
-      if (!pp.replaySilent) handler?.onThinkingStart?.();
-    } else if (partial.kind === "tool_start") {
-      const toolName = partial.name;
-      (pp.streamingToolInputs ??= new Map()).set(index, { id: partial.id, name: toolName, buf: "" });
-      if (pp.activeToolCalls.has(partial.id) || pp.settledToolCalls?.has(partial.id)) return;
-      pp.activeToolCalls.add(partial.id);
-      // Task parents register immediately (empty input, back-filled by
-      // finalizeToolArgs) so early sidechain child events find their parent.
-      if (isSubAgentToolName(toolName)) pp.sidechain.registerParent(partial.id, {});
-      handler?.onToolStart(partial.id, toolName, {});
-    } else if (partial.kind === "input_delta") {
-      const entry = pp.streamingToolInputs?.get(index);
-      if (!entry) return;
-      entry.buf += partial.chunk;
-      // The input is actively streaming — the turn is NOT stalled. Two things,
-      // throttled: (1) keep the ROUTE's stream timer alive so a minutes-long
-      // Write/Edit input doesn't trip the false "stream slow" annotation
-      // (input_json_delta reaches only the provider, not the route callbacks),
-      // and (2) surface the primary field (filename / command / url) the moment
-      // it's fully in the buffer, so the row reads `Write(App.tsx)` instead of a
-      // blank running row for the whole (possibly 4-min) input generation.
-      if (handler && !pp.replaySilent && !pp.settledToolCalls?.has(entry.id) && !pp.argsFinalized?.has(entry.id)) {
-        const now = Date.now();
-        if (!entry.lastEmitAt || now - entry.lastEmitAt >= PARTIAL_ARGS_EMIT_MS) {
-          entry.lastEmitAt = now;
-          handler.onToolActivity?.(entry.id);
-          // Open values count: the command is written into the row as it arrives.
-          const primary = extractPrimaryToolArg(entry.buf, { open: true });
-          if (primary && primary.value !== entry.emittedPrimary) {
-            entry.emittedPrimary = primary.value;
-            handler.onToolArgsUpdate?.(entry.id, { [primary.key]: primary.value }, { partial: true });
-          }
-        }
-      }
-    } else if (partial.kind === "block_stop") {
-      if (pp.streamingThinking?.delete(index)) {
-        if (!pp.replaySilent) handler?.onThinkingEnd?.();
-        return;
-      }
-      const entry = pp.streamingToolInputs?.get(index);
-      if (!entry) return;
-      pp.streamingToolInputs?.delete(index);
-      // Buffer vuoto = input DAVVERO vuoto (i tool senza argomenti non emettono
-      // delta). Buffer che non si legge come oggetto = flusso troncato/strano:
-      // null, e finalizza lo snapshot cumulativo.
-      const args = parseToolInputBuffer(entry.buf);
-      if (args) this.finalizeToolArgs(pp, handler, entry.id, entry.name, args);
-    }
+    handlePartialStreamEvent(pp, event, handler, this.sessionKeyOf);
   }
 
-  /**
-   * Deliver a tool's COMPLETE input for a call that was announced early with
-   * partial args. Idempotent (argsFinalized guard): fires from
-   * content_block_stop AND from every cumulative snapshot re-emission —
-   * whichever lands first wins. Back-fills Task parents and runs user-input
-   * detection, both of which need the full input.
-   */
   private finalizeToolArgs(
     pp: PersistentProcess,
     handler: StreamHandler | null,
@@ -4177,25 +3438,9 @@ export class ClaudeCodeProvider implements AIProvider {
     toolName: string,
     args: Record<string, unknown>,
   ): void {
-    const finalized = (pp.argsFinalized ??= new Set<string>());
-    if (finalized.has(toolId) || pp.settledToolCalls?.has(toolId)) return;
-    finalized.add(toolId);
-    if (isSubAgentToolName(toolName)) pp.sidechain.updateParentInput(toolId, args);
-    handler?.onToolArgsUpdate?.(toolId, args);
-    this.detectUserInputForTool(pp, handler, toolId, toolName, args);
+    finalizeToolArgs(pp, handler, toolId, toolName, args, this.sessionKeyOf);
   }
 
-  /**
-   * Detect "I am asking the user a question" tools (AskUserQuestion, MCP
-   * elicitation) — requires the COMPLETE input, so it runs at announce time
-   * only when the full args are already in hand, otherwise at args-finalize.
-   * When matched, the CLI is sitting on stdin waiting for a `tool_result`
-   * line; the route handler must pause the soft inactivity timer, broadcast
-   * the form schema, and wait for `POST /api/chat/tool-response`. During a
-   * reattach REPLAY we rebuild pendingInputs but do NOT re-surface the form
-   * live — reattach() re-fires onUserInputRequired once, after replay, for
-   * the entries that are STILL unanswered.
-   */
   private detectUserInputForTool(
     pp: PersistentProcess,
     handler: StreamHandler | null,
@@ -4203,13 +3448,7 @@ export class ClaudeCodeProvider implements AIProvider {
     toolName: string,
     input: unknown,
   ): void {
-    const schema = detectUserInputRequest({ name: toolName, input });
-    if (!schema) return;
-    const sessionKey = this.findSessionKeyForProcess(pp);
-    if (sessionKey) {
-      pp.pendingInputs.set(toolId, { sessionKey, schema, awaitingSince: Date.now() });
-    }
-    if (!pp.replaySilent) handler?.onUserInputRequired?.(toolId, toolName, schema);
+    detectUserInputForTool(pp, handler, toolId, toolName, input, this.sessionKeyOf);
   }
 
   // --- Timer Management ---

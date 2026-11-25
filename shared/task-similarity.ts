@@ -62,9 +62,28 @@
 export interface SimilarTask {
   id: string;
   text: string;
+  /**
+   * Secondary signal: only the first `DESCRIPTION_CHARS` characters enter the
+   * comparison (see `prepare`). Missing or too short, the title decides alone.
+   */
+  description?: string | null;
   /** Usata solo per scegliere la superstite: la più vecchia vince. */
   createdAt?: string | null;
 }
+
+/**
+ * How much description enters the comparison. Short on purpose: past the
+ * first lines a card describes the HOW (steps, logs, commands), which tells
+ * two jobs apart less than it confuses them. The first lines say the WHAT.
+ */
+const DESCRIPTION_CHARS = 400;
+
+/**
+ * Below this token count the description has no surface to count on (same
+ * argument as the title's `too-short`): a couple of words is not a signal,
+ * it is noise that Dice would inflate.
+ */
+const MIN_DESCRIPTION_CONTENT = 3;
 
 /**
  * Soglia di Dice sopra la quale due testi con le stesse àncore sono doppioni.
@@ -99,10 +118,20 @@ const STOPWORDS = new Set([
   'were', 'with',
 ]);
 
-/** Un token che porta identità: nome di simbolo, path, versione, numero. */
+/**
+ * A short commit hash: 7-12 hex characters with at least one digit. The digit
+ * is required to not catch plain words that happen to be all a-f letters
+ * (`deed`, `cafe`): a real hash almost always carries one.
+ */
+function isCommitHash(token: string): boolean {
+  return token.length >= 7 && token.length <= 12 && /^[0-9a-f]+$/.test(token) && /\d/.test(token);
+}
+
+/** A token that carries identity: symbol name, path, version, number, hash. */
 function isAnchor(token: string): boolean {
   if (/^\d/.test(token)) return true; // numeri e versioni: 2.2.112, 088, 5
-  return /[_/.]/.test(token); // browser_eval_js, /api/memory, store.update
+  if (/[_/.]/.test(token)) return true; // browser_eval_js, /api/memory, store.update
+  return isCommitHash(token); // f8807ccc: two different commits are not the same card
 }
 
 /**
@@ -220,22 +249,35 @@ interface Prepared {
   norm: string;
   content: string[];
   anchors: string[];
+  /** `null` when the description is missing or too short to count. */
+  descriptionContent: string[] | null;
 }
 
-function prepare(raw: string): Prepared {
+function prepare(raw: string, description?: string | null): Prepared {
   const { content, anchors } = tokenizeTaskText(raw);
-  return { norm: normalizeTaskText(raw), content, anchors };
+  const descriptionTokens = description ? tokenizeTaskText(description.slice(0, DESCRIPTION_CHARS)).content : [];
+  const descriptionContent = descriptionTokens.length >= MIN_DESCRIPTION_CONTENT ? descriptionTokens : null;
+  return { norm: normalizeTaskText(raw), content, anchors, descriptionContent };
 }
 
+/**
+ * The title decides; the description can only PUSH the score UP, never down,
+ * and only when both cards have one past `MIN_DESCRIPTION_CONTENT` words. A
+ * pair of siblings without a description (or with too short a one) behaves
+ * exactly as before: the new signal never touches a case the title already
+ * judged on its own.
+ */
 function verdict(a: Prepared, b: Prepared, threshold: number): DuplicateVerdict {
   if (a.norm && a.norm === b.norm) return { score: 1, duplicate: true, reason: 'identical' };
-  const score = dice(a.content, b.content);
+  const titleScore = dice(a.content, b.content);
   if (a.content.length < 3 || b.content.length < 3) {
-    return { score, duplicate: false, reason: 'too-short' };
+    return { score: titleScore, duplicate: false, reason: 'too-short' };
   }
   if (!anchorsCompatible(a.anchors, b.anchors)) {
-    return { score, duplicate: false, reason: 'anchors-differ' };
+    return { score: titleScore, duplicate: false, reason: 'anchors-differ' };
   }
+  const descriptionScore = a.descriptionContent && b.descriptionContent ? dice(a.descriptionContent, b.descriptionContent) : 0;
+  const score = Math.max(titleScore, descriptionScore);
   if (score < threshold) return { score, duplicate: false, reason: 'below-threshold' };
   return { score, duplicate: true, reason: 'near' };
 }
@@ -247,8 +289,14 @@ function verdict(a: Prepared, b: Prepared, threshold: number): DuplicateVerdict 
  * abbastanza superficie perché Dice significhi qualcosa: lì l'unico doppione
  * che accettiamo è l'identità esatta.
  */
-export function compareTasks(a: string, b: string, threshold = DUPLICATE_THRESHOLD): DuplicateVerdict {
-  return verdict(prepare(a), prepare(b), threshold);
+export function compareTasks(
+  a: string,
+  b: string,
+  threshold = DUPLICATE_THRESHOLD,
+  descriptionA?: string | null,
+  descriptionB?: string | null,
+): DuplicateVerdict {
+  return verdict(prepare(a, descriptionA), prepare(b, descriptionB), threshold);
 }
 
 /** Una card vicina a un testo, col suo punteggio. */
@@ -269,12 +317,12 @@ export interface Neighbour {
 export function findNeighbours(
   text: string,
   candidates: SimilarTask[],
-  opts: { limit?: number; minScore?: number } = {},
+  opts: { limit?: number; minScore?: number; description?: string | null } = {},
 ): Neighbour[] {
   const min = opts.minScore ?? NEIGHBOUR_THRESHOLD;
   const out: Neighbour[] = [];
   for (const task of candidates) {
-    const v = compareTasks(text, task.text);
+    const v = compareTasks(text, task.text, DUPLICATE_THRESHOLD, opts.description, task.description);
     if (v.score < min && !v.duplicate) continue;
     out.push({ task, score: v.score, duplicate: v.duplicate });
   }
@@ -314,7 +362,7 @@ export function findDuplicateGroups(tasks: SimilarTask[]): DuplicateGroup[] {
   );
   // Preparati una volta sola: il confronto è O(n²) e ri-tokenizzare a ogni
   // coppia costava 10s sulla board vera, contro meno di uno così.
-  const prep = ordered.map((t) => prepare(t.text));
+  const prep = ordered.map((t) => prepare(t.text, t.description));
   const taken = new Array<boolean>(ordered.length).fill(false);
   const groups: DuplicateGroup[] = [];
 

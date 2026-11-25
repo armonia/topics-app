@@ -961,3 +961,40 @@ A process belongs to the nearest session head above it. A process several sessio
 - **WHEN** its drawer opens on the details
 - **THEN** it SHALL show the same row, from the same answer
 
+### Requirement: USAGE-27 — Who spent the weekly quota is read per person, from the sender each channel declares
+
+A message that reaches Topics from a channel (Discord, WhatsApp, any bridge) SHALL carry its sender (`channel`, external id, display name, owner flag). The pair (channel, external id) SHALL map to exactly one person, created the first time and reused after; the owner flag SHALL map to the default person and create no one. Only the owner's token may declare a sender. A missing or malformed sender SHALL leave the previous attribution untouched. WhatsApp ids written as `+number`, `@s.whatsapp.net` or `@c.us` SHALL be the same person.
+
+`GET /api/usage/people?days=N` SHALL say, per person, the share of ONE weekly account they spent: each hour's rise in the weekly percentage of every account (a drop is a reset and counts the new value) is split across that hour's calls by weighted tokens, and every call belongs to the author of the turn that caused it. A subagent SHALL inherit the author its parent had when it was born, recursively. Work done outside Topics SHALL enter through `POST /api/usage/records`, idempotent on the caller's id, refused to a guest.
+
+The senders already written in the text of past messages (`<messaggio da="…">`) SHALL be recoverable by a backfill that overwrites only messages with no author or the owner as author, ignores the system tag, and has a dry run that writes nothing.
+
+#### Scenario: A channel sender becomes a person once
+- **GIVEN** two messages from the same Discord id
+- **WHEN** both reach the chat route with their sender
+- **THEN** one person SHALL exist and both messages SHALL carry it as author
+
+#### Scenario: The weekly points follow the hours
+- **GIVEN** two accounts whose weekly percentage rises in the same hour, and calls by two people in that hour
+- **WHEN** the people's usage is read
+- **THEN** each person SHALL get the hour's points in proportion to the weight of their calls, and a subagent's calls SHALL count for its parent's author
+
+#### Scenario: A record sent twice counts once
+- **GIVEN** a usage record already posted with an id
+- **WHEN** the same id is posted again
+- **THEN** one row SHALL exist, with its author
+
+#### Scenario: One human on two channels becomes one person
+- **GIVEN** the same human known as a Discord person and as a WhatsApp person, both born from a channel
+- **WHEN** the owner merges one into the other from the Dashboard
+- **THEN** identities, messages, usage records and started tasks SHALL follow, the list SHALL show one row at once, and a person with a device, an organisation or an account SHALL NOT be mergeable
+
+
+### Requirement: USAGE-28 — An account's quota percentage is read from the quota history, the same file the hub's pacing reads
+
+`GET /api/quota-readings` SHALL answer, per provider and account, the last 7-day and 5-hour percentage found in the quota history file (newest sample wins, whatever the line order), and the Dashboard SHALL draw those numbers for the accounts it lists, so the figure shown equals the one the hub's pace report prints. Without a history file the route SHALL answer 404 and the Dashboard SHALL keep the proxy's number.
+
+#### Scenario: The newest sample wins
+- **GIVEN** a history with several samples of the same account and window, out of order
+- **WHEN** the readings are read
+- **THEN** each account and window SHALL carry the sample with the greatest timestamp

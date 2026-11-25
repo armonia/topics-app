@@ -139,3 +139,15 @@ giusto non è una sonda.
 #### Scenario: l'anomalia presente
 - **GIVEN** lo stato in cui l'anomalia c'era
 - **THEN** la sonda SHALL restituire il numero esatto
+
+### Requirement: REVIEWPR-01 — The open-PR review command prepares prompts and fails loudly
+
+`bun run review:open-prs` SHALL read the open pull requests with `gh`, keep a bare mirror that is only ever fetched, and write one review prompt per PR. It SHALL call the model only when `--run-haiku` is passed, and it SHALL exit non-zero when `gh`, `git`, a PR or the arguments fail.
+
+#### Scenario: a tool fails
+- **GIVEN** `gh` is missing or an argument is unknown
+- **THEN** the command SHALL exit with code 1
+
+#### Scenario: no model call by default
+- **WHEN** the command runs without `--run-haiku`
+- **THEN** it SHALL write the prompts and SHALL NOT call the model

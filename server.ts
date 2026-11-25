@@ -12,6 +12,7 @@
  * Order matters: each stage may depend on the side effects of the ones above it.
  */
 import { acquireLock, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv } from "./server/services/daemon-state";
+import { readOwnerMarker } from "./server/services/worktree-owner";
 import { homedir } from "os";
 import { loadProcessRegistry } from "./server/routes/processes";
 import { bootCore } from "./server/boot/core";
@@ -124,7 +125,7 @@ process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
 // context reads PORT and before acquireLock reads TOPICS_HOME. Opt out with
 // TOPICS_ALLOW_WORKTREE_PROD=1 (deliberately running prod from a worktree).
 if (!process.env.TOPICS_ALLOW_WORKTREE_PROD) {
-  const isoHome = worktreeIsolationHome(import.meta.dir, homedir());
+  const isoHome = worktreeIsolationHome(import.meta.dir, homedir(), readOwnerMarker(import.meta.dir) !== null);
   if (isoHome) {
     // La decisione sta in `services/daemon-state.ts` (`worktreeIsolationEnv`),
     // dove un test la raggiunge: qui viveva dentro `server.ts` ed era rimasta

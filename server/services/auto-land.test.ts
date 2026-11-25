@@ -83,8 +83,14 @@ describe("autoLandVerdict", () => {
     expect(verdict(card(), BOARD, [delivery]).ok).toBe(true);
   });
 
-  test("a card in AI review is closed by its opener", () => {
-    expect(verdict(card({ stage: "ai_review" })).ok).toBe(false);
+  // 0d6384ff, 17/11: "Landa su main (consigliata)" is the land action with a courtesy, not a choice.
+  test("a fence or a human_ask that only asks 'ok?' is a delivery; one with a doubt in it is a question", () => {
+    const courtesy = { author: "agent:t1", kind: "comment", content: "```question\nBarra verde.\n- Landa su main (consigliata)\n- Da rivedere\n```" };
+    expect(verdict(card(), BOARD, [courtesy]).ok).toBe(true);
+    expect(verdict(card({ humanAsk: "Landa su main a CI verde (consigliata)?" })).ok).toBe(true);
+    // 25f0e2a5, 15/11: the ask left by the round before the red bounce.
+    const doubt = "Ho toccato anche .github/workflows/ci.yml (runner a ubuntu-24.04) perché la CI era rotta per tutti: ti va bene dentro questa PR?";
+    expect(verdict(card({ humanAsk: doubt }))).toEqual({ ok: false, reason: "the card asks the person something" });
   });
 
   test("open steps keep the parent in review", () => {
@@ -294,19 +300,11 @@ describe("createAutoLander", () => {
       author: "agent:r1", kind: "comment", createdAt: "2026-11-09T11:00:00.000Z",
       content: `AI-REVIEW approved ${sha}\nLetto il diff: nessun effetto fuori dai test.`,
     };
-    const delivered = (stage: string | null) => card({ stage, deliveryCommit: sha, checksCommit: sha });
+    const delivered = () => card({ deliveryCommit: sha, checksCommit: sha });
     // Control: the same card and the same line, with text, lands: the refusals below come from the paths.
-    const control = base({ files: ["docs/a.md"], card: delivered(null), thread: [approval] });
+    const control = base({ files: ["docs/a.md"], card: delivered(), thread: [approval] });
     expect(await control.lander.tryLand("p1", "t1")).toBe("queued");
-    for (const stage of ["ai_review", "human_review", null]) {
-      const { state, lander } = base({ files: ["server/push-triggers.ts"], card: delivered(stage), thread: [approval] });
-      expect(await lander.tryLand("p1", "t1")).toBe("refused");
-      expect(state.lands).toBe(0);
-    }
-  });
-
-  test("text in a card sitting in AI review is still closed by its opener", async () => {
-    const { state, lander } = base({ files: ["docs/note.md"], card: card({ stage: "ai_review" }) });
+    const { state, lander } = base({ files: ["server/push-triggers.ts"], card: delivered(), thread: [approval] });
     expect(await lander.tryLand("p1", "t1")).toBe("refused");
     expect(state.lands).toBe(0);
   });

@@ -59,10 +59,10 @@ describe("runDeploy: the outcome on the card", () => {
   });
 
   test("deadline: failed, exit 124, what arrived before it", async () => {
-    // The 300 ms ceiling belongs to this test only: applied file-wide, a login
+    // The 2 s ceiling (long enough for a slow shell start to print first) belongs to this test only: applied file-wide, a login
     // shell that starts slowly under CI load hits it before the other commands
     // finish, and their outcome reads as exit 124.
-    process.env.TOPICS_SPAWN_TIMEOUT_CAP_MS = "300";
+    process.env.TOPICS_SPAWN_TIMEOUT_CAP_MS = "2000";
     try {
       const cmd = "printf partial; exec sleep 30";
       expect(await deploy(cmd, root)).toEqual({ state: "failed", comment: `Deploy fallito.\n\n\`${cmd}\` (exit 124)${fence("partial")}` });

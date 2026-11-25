@@ -26,8 +26,6 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { NativeProvider, DEFAULT_MODEL } from "./provider";
 import { splitLongWindow } from "./long-window";
-import { topicsRoutingAvailable } from "../../../shared/task-coding-models";
-import type { ProvidersSnapshot } from "../../../shared/types";
 
 const provider = new NativeProvider({ type: "native" });
 
@@ -83,39 +81,6 @@ describe("catalogo dei modelli del runtime nativo", () => {
     const oldCatalogue = ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
     const lunghi = oldCatalogue.filter((m) => splitLongWindow(m).longWindow);
     expect(lunghi.length, "il catalogo 4-6 non aveva nessuna finestra lunga: è esattamente il caso da bocciare").toBe(0);
-  });
-});
-
-/** The Claude models the live Claude Code catalog offered on 2026-09-28. */
-const CLAUDE_CODE_OFFER = [
-  "claude-opus-5-5", "claude-opus-5-5[1m]", "claude-opus-4-8", "claude-opus-4-8[1m]",
-  "claude-sonnet-5-5", "claude-sonnet-5-5[1m]", "claude-sonnet-4-6", "claude-sonnet-4-6[1m]",
-  "claude-haiku-4-5", "claude-haiku-3-55", "claude-fable-5-1",
-  // Added to the offer and probed 200 on 2026-10-11 (see MODELS).
-  "claude-haiku-5-5",
-];
-/** The ids of that offer that did NOT answer 200 on the 2026-09-28 probe (see MODELS). */
-const NOT_SERVED = ["claude-sonnet-4-6[1m]", "claude-haiku-3-55"];
-
-function routingSnapshot(nativeModels: string[]): ProvidersSnapshot {
-  const entry = (name: string, models: string[]) =>
-    ({ name, models, status: "ready" as const, isDefault: false, requirements: [], fetchedAt: "2026-09-28T00:00:00Z" });
-  return {
-    providers: [entry("topics", nativeModels), entry("claude-code", CLAUDE_CODE_OFFER)],
-    defaultProvider: "claude-code",
-    generatedAt: "2026-09-28T00:00:00Z",
-  };
-}
-
-describe("the routing switch reads this catalog", () => {
-  test("every Claude Code model the engine answered 200 for can be routed through Topics", async () => {
-    // The switch was disabled for Fable 5.1, Opus 4.8 and Haiku 4.5 by its
-    // short name: the catalog lacked the first two, and knew Haiku only by
-    // its dated id.
-    const snapshot = routingSnapshot(await provider.listModels());
-    for (const model of CLAUDE_CODE_OFFER) {
-      expect(topicsRoutingAvailable("claude-code", model, snapshot), model).toBe(!NOT_SERVED.includes(model));
-    }
   });
 });
 

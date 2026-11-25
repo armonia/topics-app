@@ -25,7 +25,7 @@
  *     where the floor is the only memory brake: what counts as "our work" (a
  *     card waiting on GitHub's CI counts), what the log says happened, and
  *     where the verdict declares it. The disk never gets one.
- * @covers KANBAN-75
+ * @covers KANBAN-75, BOARD-POLICY-02
  */
 import { describe, it, expect, setSystemTime, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";

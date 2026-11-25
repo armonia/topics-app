@@ -16,18 +16,18 @@
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 import { startVisibleInterval } from '../../state/documentVisibility';
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CircleCheck, CircleDot, Circle, Check, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { SpawnAgentCard } from './SubAgentResultCard';
 import { TaskToolCard } from './TaskToolCard';
-import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 import { AgentMessageCard, AgentControlCard, ArtifactCard, AskUserCard } from './ToolCardsFleet';
 import { ViewBlock } from '../Views/ViewBlock';
 import type { ToolCallDetail } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
-import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
+import { detectResultSyntax, langFromPath } from '../../lib/syntaxHighlight';
+import { HighlightedPre } from './HighlightedPre';
 import { clampBody, formatBytes } from './clampBody';
 import { useFindExpandsClamp } from '../../state/chatFindFocus';
 import { useDisclosureToggle } from './transcriptDisclosure';
@@ -39,37 +39,6 @@ import { LaunchedProcessTail, LiveShellTail } from './LiveShellTail';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { liveShellTail } from './runningShellTail';
 import { subAgentBodyDescription } from './toolDetail';
-
-/**
- * Monospace block with lazy syntax highlighting. hljs ESCAPES the source and
- * only wraps tokens in class-only <span>s, so the injected HTML is safe by
- * construction (same posture as MessageContent's CodeBlock). Until the
- * tokenizers land — or for unknown languages / oversize payloads — it renders
- * the plain text exactly like the previous raw <pre>.
- */
-function HighlightedPre({ code, lang, className, testId, prefix }: {
-  code: string; lang: string; className: string; testId?: string;
-  /** Literal chrome rendered before the code, outside highlighting ("$ "). */
-  prefix?: ReactNode;
-}) {
-  // Third argument = same getter: nothing changes in the browser, and the
-  // static render of unit tests (renderToStaticMarkup) stops throwing here.
-  const ready = useSyncExternalStore(subscribeHighlighter, highlighterReady, highlighterReady);
-  const html = useMemo(
-    () => (lang ? highlightCode(code, lang) : null),
-    // `ready` re-runs the memo once the lazy tokenizers land.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [code, lang, ready],
-  );
-  return (
-    // `tool-card-code` scopes the theme-aware hljs palette (index.css) —
-    // tool card surfaces follow the app theme, unlike always-dark fences.
-    <pre data-testid={testId} className={`tool-card-code ${className}`}>
-      {prefix}
-      {html ? <code dangerouslySetInnerHTML={{ __html: html }} /> : code}
-    </pre>
-  );
-}
 
 // ── Shell ───────────────────────────────────────────────────────────────────
 
@@ -114,9 +83,12 @@ export function ShellCard({ command, cwd, output, exitCode, isError, background,
           {typeof exitCode === 'number' && exitCode !== 0 && (
             <div className="text-mini font-mono text-red-500 mb-0.5">exit {exitCode}</div>
           )}
-          <pre data-testid="tool-call-result" className={`tool-card-code text-mini font-mono whitespace-pre-wrap overflow-auto max-h-72 rounded px-2 py-1.5 ${isError ? 'text-red-500 bg-red-500/5' : 'text-app-text-secondary bg-app-hover/40'}`}>
-            {output}
-          </pre>
+          <HighlightedPre
+            testId="tool-call-result"
+            className={`text-mini font-mono whitespace-pre-wrap overflow-auto max-h-72 rounded px-2 py-1.5 ${isError ? 'text-red-500 bg-red-500/5' : 'text-app-text-secondary bg-app-hover/40'}`}
+            code={output}
+            lang={isError ? '' : detectResultSyntax(output)}
+          />
         </div>
       )}
       <LiveShellTail live={live} />
@@ -311,7 +283,7 @@ export function TodoCard({ items }: { items: Array<{ content: string; status: 'p
 
 // ── Sub-agent (Task) ────────────────────────────────────────────────────────
 
-export function SubAgentCard({ actions, result, isRunning, description }: {
+export function SubAgentCard({ actions, result, isRunning, isError, description }: {
   actions: Array<{ index: number; toolName: string; summary?: string; status?: 'running' | 'success' | 'error' }>;
   result?: string;
   /** Full task description: the row shows it cut to one line. */
@@ -325,6 +297,8 @@ export function SubAgentCard({ actions, result, isRunning, description }: {
    * is false, so the card doesn't look stuck.
    */
   isRunning?: boolean;
+  /** A failed call says so with its error: «no activity» under it would be a second, emptier line. */
+  isError?: boolean;
 }) {
   const tr = useT();
   return (
@@ -335,9 +309,12 @@ export function SubAgentCard({ actions, result, isRunning, description }: {
         <div data-testid="sub-agent-description" className="text-compact text-app-text whitespace-pre-wrap break-words">{description}</div>
       )}
       {actions.length === 0 ? (
-        <div className="text-mini italic text-app-text-muted">
-          {isRunning ? tr('chat.tool.subAgentStarting') : (result ? null : tr('chat.tool.noActivity'))}
-        </div>
+        // Nothing to say, no line: an empty div would still take its gap.
+        (isRunning || !(result || isError)) && (
+          <div className="text-mini italic text-app-text-muted">
+            {isRunning ? tr('chat.tool.subAgentStarting') : tr('chat.tool.noActivity')}
+          </div>
+        )
       ) : (
         <div>
           <div className="text-mini uppercase tracking-wide text-app-text-muted mb-0.5">
@@ -466,10 +443,19 @@ export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max
   if (findExpands && oversized && !expanded) setExpanded(true);
   return (
     <div className="space-y-1">
-      <pre data-testid={testId} className={`tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}>
-        {expanded ? text : shown}
-        {oversized && !expanded && <span className="text-app-text-muted">…</span>}
-      </pre>
+      {oversized && !expanded ? (
+        <pre data-testid={testId} className={`tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}>
+          {shown}
+          <span className="text-app-text-muted">…</span>
+        </pre>
+      ) : (
+        <HighlightedPre
+          testId={testId}
+          className={`text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}
+          code={text}
+          lang={detectResultSyntax(text)}
+        />
+      )}
       {oversized && (
         <button type="button" aria-expanded={expanded} data-testid={`${testId}-toggle`} className="text-mini text-blue-500 hover:underline"
           onClick={(e) => { disclose(e.currentTarget); setExpanded((v) => !v); }}>
@@ -744,7 +730,7 @@ function ToolCardBodyDetail({ detail, isError, error, isRunning, sessionKey, liv
     case 'sub_agent':
       // Topics' `spawn_agent`: a child with a pane, a live state and results of its own.
       if (detail.via === 'spawn_agent') return <SpawnAgentCard detail={detail} sessionKey={sessionKey} isRunning={isRunning} isError={isError} error={error} />;
-      return <SubAgentCard actions={detail.actions} result={detail.result} isRunning={isRunning} description={subAgentBodyDescription(detail, !!summaryCut)} />;
+      return <SubAgentCard actions={detail.actions} result={detail.result} isRunning={isRunning} isError={isError} description={subAgentBodyDescription(detail, !!summaryCut)} />;
     case 'task_card':
       return <TaskToolCard detail={detail} isRunning={isRunning} isError={isError} error={error} />;
     case 'plan':

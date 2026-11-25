@@ -22,6 +22,11 @@ import { getSessionConsumption } from "../services/session-consumption-wiring";
 // annotation is what makes a field renamed in `shared/` a compile error here
 // instead of a number that quietly stops arriving.
 import type { SessionUsageResponse } from "../../shared/usage-shapes";
+import type { Database } from "bun:sqlite";
+import { computeCalls, peopleUsage, personDetail, type Computed } from "../usage/person-usage";
+import { projectQuota, withLimits } from "../usage/project-quota";
+import type { ProjectQuotaResponse, ProjectQuotaResult } from "../../shared/usage-shapes";
+import { authorForSender, mergeChannelPerson, parseSender, senderAllowed, type Sender } from "../lib/person-identities";
 
 /**
  * The per-project aggregate is a GROUP BY over the whole `messages` table, and
@@ -38,10 +43,15 @@ import type { SessionUsageResponse } from "../../shared/usage-shapes";
  */
 const PROJECT_TTL_MS = 60_000;
 
+/** A transcript scan costs enough that every reader shares one reading; a minute keeps the meter within a minute of the truth. */
+const PROJECT_QUOTA_TTL_MS = 60_000;
+
 export function createUsageRouter(ctx: AppContext): RouteHandler {
   const { db, json } = ctx;
 
   let cached: { at: number; days: number | null; data: ProjectUsageResult } | null = null;
+  let peopleCache: { at: number; days: number; data: Computed } | null = null;
+  let projectQuotaCache: { at: number; data: ProjectQuotaResult } | null = null;
 
   return async function usageRouter(
     _req: Request,
@@ -114,6 +124,129 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // POST /api/usage/people/merge {from, into}: the same human seen on two channels becomes one person.
+    // Owner only, like the senders: it rewrites who did the work.
+    if (method === "POST" && pathname === "/api/usage/people/merge") {
+      if (!senderAllowed(ctx.requestIdentity?.(_req) ?? null)) return json({ error: "owner only" }, 403);
+      let body: Record<string, unknown> | null = null;
+      try { body = (await _req.json()) as Record<string, unknown>; } catch { /* malformed */ }
+      const from = typeof body?.from === "string" ? body.from : "";
+      const into = typeof body?.into === "string" ? body.into : "";
+      try {
+        const r = mergeChannelPerson(db, from, into);
+        if (!r.ok) return json({ error: r.error }, r.status);
+        peopleCache = null;
+        return json({ into, moved: r.moved });
+      } catch (err) {
+        console.error("[Usage] people merge failed:", err);
+        return ctx.errorResponse(500, err instanceof Error ? err.message : "Failed to merge people");
+      }
+    }
+
+    // GET /api/usage/people?days=7: who spent the quota; /api/usage/people/:personId: per request.
+    // `:personId` = `none` for the calls with no author.
+    if (method === "GET" && (pathname === "/api/usage/people" || pathname.startsWith("/api/usage/people/"))) {
+      const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || 7));
+      try {
+        const now = Date.now();
+        if (!peopleCache || peopleCache.days !== days || now - peopleCache.at >= PROJECT_TTL_MS) {
+          peopleCache = { at: now, days, data: computeCalls(db, { days, now }) };
+        }
+        const cachedAt = new Date(peopleCache.at).toISOString();
+        if (pathname === "/api/usage/people") return json({ cachedAt, ...peopleUsage(peopleCache.data, db) });
+        const raw = decodeURIComponent(pathname.slice("/api/usage/people/".length));
+        return json({ cachedAt, ...personDetail(peopleCache.data, db, raw === "none" ? null : raw) });
+      } catch (err) {
+        console.error("[Usage] people aggregate failed:", err);
+        return ctx.errorResponse(500, err instanceof Error ? err.message : "Failed to compute people usage");
+      }
+    }
+
+    // POST /api/usage/records: a call made outside the engine (sandboxed channels), with its author.
+    if (method === "POST" && pathname === "/api/usage/records") {
+      if (!senderAllowed(ctx.requestIdentity?.(_req) ?? null)) return json({ error: "owner only" }, 403);
+      let body: Record<string, unknown> | null = null;
+      try { body = (await _req.json()) as Record<string, unknown>; } catch { /* malformed */ }
+      const parsed = parseUsageRecord(body);
+      if (typeof parsed === "string") return json({ error: parsed }, 400);
+      try {
+        const r = insertUsageRecord(db, parsed);
+        peopleCache = null;
+        return json(r, r.duplicate ? 200 : 201);
+      } catch (err) {
+        console.error("[Usage] record insert failed:", err);
+        return ctx.errorResponse(500, err instanceof Error ? err.message : "Failed to store usage record");
+      }
+    }
+
+    // GET /api/usage/projects/quota: every project's share of the weekly Claude
+    // quota (project quota, USAGE-28), not to be confused with
+    // `/api/usage/projects` (`projectUsage`, dollar/token cost: a different
+    // question, see the header of this file).
+    if (method === "GET" && pathname === "/api/usage/projects/quota") {
+      try {
+        const now = Date.now();
+        if (!projectQuotaCache || now - projectQuotaCache.at >= PROJECT_QUOTA_TTL_MS) {
+          projectQuotaCache = { at: now, data: projectQuota(db, { now }) };
+        }
+        const body: ProjectQuotaResponse = { cachedAt: new Date(projectQuotaCache.at).toISOString(), ...withLimits(db, projectQuotaCache.data) };
+        return json(body);
+      } catch (err) {
+        console.error("[Usage] project quota failed:", err);
+        return ctx.errorResponse(500, err instanceof Error ? err.message : "Failed to compute project quota");
+      }
+    }
+
     return null;
   };
+}
+
+/** The body of `POST /api/usage/records`, validated; a string = why it was refused. */
+export function parseUsageRecord(b: Record<string, unknown> | null): UsageRecordInput | string {
+  if (!b) return "body required";
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
+  const ts = typeof b.ts === "number" ? b.ts : typeof b.ts === "string" ? Date.parse(b.ts) : NaN;
+  if (!Number.isFinite(ts)) return "ts required (epoch ms or ISO)";
+  if (typeof b.model !== "string" || !b.model.trim()) return "model required";
+  if (typeof b.purpose !== "string" || !b.purpose.trim()) return "purpose required";
+  const sender = parseSender(b.sender);
+  if (!sender) return "sender required";
+  const id = typeof b.id === "string" && b.id.trim() ? b.id.trim().slice(0, 200) : null;
+  return {
+    id, ts, model: b.model.trim().slice(0, 200), purpose: b.purpose.trim().slice(0, 64),
+    label: typeof b.label === "string" ? b.label.slice(0, 200) : null,
+    sessionKey: typeof b.sessionKey === "string" && b.sessionKey.trim() ? b.sessionKey.trim() : null,
+    inputTokens: num(b.inputTokens) ?? 0, outputTokens: num(b.outputTokens) ?? 0,
+    cacheReadTokens: num(b.cacheReadTokens) ?? 0, cacheCreationTokens: num(b.cacheCreationTokens) ?? 0,
+    costUsd: typeof b.costUsd === "number" && Number.isFinite(b.costUsd) ? b.costUsd : null,
+    sender,
+    projectPath: typeof b.projectPath === "string" && b.projectPath.trim() ? b.projectPath.trim().slice(0, 500) : null,
+  };
+}
+
+export interface UsageRecordInput {
+  id: string | null; ts: number; model: string; purpose: string; label: string | null; sessionKey: string | null;
+  inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; costUsd: number | null;
+  sender: Sender;
+  /** Where a delegated job ran; it has no topic, so the project comes from here. */
+  projectPath: string | null;
+}
+
+/**
+ * Writes a call made outside the engine, with its author. Idempotent on the
+ * caller's `id`: the same call sent again after a network error stays one row.
+ */
+export function insertUsageRecord(db: Database, r: UsageRecordInput): { id: string; duplicate: boolean } {
+  const { authorPersonId } = authorForSender(db, r.sender);
+  const id = r.id ?? crypto.randomUUID();
+  const res = db.query(
+    `INSERT OR IGNORE INTO usage_records (id, timestamp, session_key, topic_id, model, input_tokens, output_tokens, total_tokens, cost_usd,
+       purpose, provider, cache_read_tokens, cache_creation_tokens, measured, label, author_person_id, project_path)
+     VALUES (?, ?, ?, (SELECT id FROM topics WHERE session_key = ?), ?, ?, ?, ?, ?, ?, 'external', ?, ?, 1, ?, ?, ?)`,
+  ).run(
+    id, r.ts, r.sessionKey ?? "external", r.sessionKey, r.model, r.inputTokens, r.outputTokens,
+    r.inputTokens + r.outputTokens, r.costUsd, r.purpose, r.cacheReadTokens, r.cacheCreationTokens,
+    r.label, authorPersonId, r.projectPath,
+  );
+  return { id, duplicate: res.changes === 0 };
 }

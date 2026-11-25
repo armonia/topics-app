@@ -6,7 +6,7 @@
  * l'implementazione vecchia (`while (busyCount() > 0)`) per costruzione — con
  * `cards: 0` quel predicato usciva subito, cioè `null`, cioè «riavvia pure».
  *
- * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03, RGATE-04, RGATE-07, RGATE-09
+ * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03, RGATE-04, RGATE-09, RGATE-10
  */
 import { test, expect, describe } from "bun:test";
 import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, turnSurvivesRestart, quiescenceVerdict, reloadHeldNotice, unrecoverableHolders } from "./quiescence";
@@ -649,7 +649,7 @@ describe("sharedWait — chiedere due volte non aspetta due volte", () => {
 });
 
 /**
- * RGATE-07 - THE 2026-09-15 WAIT: TWO WAITS HOLDING EACH OTHER.
+ * RGATE-10 - THE 2026-09-15 WAIT: TWO WAITS HOLDING EACH OTHER.
  *
  * 23:10 to 23:45. Card cdc9f39b had delivered; its `update_task` was parked on
  * our pre-review checks, and the checks were parked in the memory waiter
@@ -669,7 +669,7 @@ describe("sharedWait — chiedere due volte non aspetta due volte", () => {
  * it. Red before `cardTurnsHoldingReload` existed: with the card counted,
  * `unrecoverable` is 1 and the verdict is "rinvia" at every instant.
  */
-describe("cardTurnsHoldingReload: a delivery that is only WAITING holds nothing (RGATE-07)", () => {
+describe("cardTurnsHoldingReload: a delivery that is only WAITING holds nothing (RGATE-10)", () => {
   const CHAT = 60_000;
   const card = { taskId: "cdc9f39b", sessionKey: "topic:cdc9f39b" };
   /** The wait as the gate sees it: sources in, verdict out. */

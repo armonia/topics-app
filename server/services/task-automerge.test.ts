@@ -156,11 +156,12 @@ describe("task-automerge", () => {
     expect(git.calls.some((c) => c[0] === "worktree" && c[1] === "remove")).toBe(true);
   });
 
-  test("il branch porta commit di UN'ALTRA sessione → landa SOLO i suoi, senza mergiare il branch", async () => {
-    // La prima versione si rifiutava e basta: main restava pulito e la consegna
-    // finiva in un limbo. Misurato: 12 consegne accettate vivevano solo sul loro
-    // branch, fra cui uno scorporo da 800 righe. «Accettata» deve voler dire
-    // «atterrata», quindi si prendono i suoi commit e si lascia il resto.
+  test("a branch carrying another branch's commit NOT on main is refused whole: nothing picked, committed or merged", async () => {
+    // The land used to cherry-pick the card's own commits alone. "Foreign" only
+    // means "reachable from another local branch": on 17/11 (card 76d3e2ff)
+    // those branches were the card's own earlier node rounds, the pick left
+    // the fix out and the card closed as landed. Worktree path (shared
+    // checkout on a dev branch).
     const calls: string[][] = [];
     const run = async (_cwd: string, args: string[]) => {
       calls.push(args);
@@ -169,22 +170,29 @@ describe("task-automerge", () => {
       if (key === "for-each-ref --format=%(refname)") {
         return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra-sessione\nrefs/heads/topics/t1\n", stderr: "" };
       }
-      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "13\n", stderr: "" };
-      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\n", stderr: "" };
-      // Codice 1 = c'e' roba in stage, cioe' quel commit porta davvero qualcosa.
-      // Senza questa riga il pick verrebbe saltato come «gia' applicato» e il
-      // test passerebbe per il motivo sbagliato.
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "2\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "fff111\naaa111\n", stderr: "" };
+      if (key === "rev-list --no-merges") return { code: 0, stdout: args.includes("--not") ? "aaa111\n" : "", stderr: "" };
+      if (key === "show --format=") return { code: 0, stdout: `diff --git a/${args[args.length - 1]} b/x\n+x\n`, stderr: "" };
+      // Exit 1 = something staged: main lacks the foreign commit's content.
       if (key === "diff --cached") return { code: 1, stdout: "", stderr: "" };
+      if (key === "log -1") return { code: 0, stdout: `${args[args.length - 1]}0 work of another round\n`, stderr: "" };
       if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     };
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
     const res = await am.tryMerge("t1", "x");
-    expect(res.status).toBe("merged");
-    // Il suo commit e' stato raccolto e COMMITTATO; il branch NON e' stato mergiato.
-    expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("aaa111"))).toBe(true);
-    expect(calls.some((c) => c[0] === "commit" && c.includes("-C") && c.includes("aaa111"))).toBe(true);
-    expect(calls.some((c) => c[0] === "merge" && !c.includes("origin/main"))).toBe(false);
+    if (res.status !== "skipped") throw new Error(`expected skipped, got ${res.status}`);
+    expect(res.code).toBe("foreign-commits");
+    // The reason names the commit that would have been left out.
+    expect(res.reason).toContain("fff1110 work of another round");
+    expect(res.reason).toContain("1 non sono su 'main'");
+    // Only the foreign commit was probed; the own one was never picked.
+    expect(calls.filter((c) => c[0] === "cherry-pick" && c[1] === "-n").map((c) => c[c.length - 1])).toEqual(["fff111"]);
+    expect(calls.some((c) => c[0] === "commit")).toBe(false);
+    expect(calls.some((c) => c[0] === "merge" && c.includes("--no-ff"))).toBe(false);
+    // The throwaway worktree is still removed.
+    expect(calls.some((c) => c[0] === "worktree" && c[1] === "remove")).toBe(true);
   });
 
   test("foreign commits already on main by content: the branch is not mixed, it is MERGED, not picked", async () => {
@@ -235,7 +243,7 @@ describe("task-automerge", () => {
     expect(calls.filter((c) => c[0] === "reset" && c.includes("--hard")).length).toBe(1);
   });
 
-  test("a foreign commit that DOES bring content keeps the selective pick", async () => {
+  test("in-place land: foreign commits that DO bring content are all named, and the branch is not landed", async () => {
     const calls: string[][] = [];
     const run = async (_cwd: string, args: string[]) => {
       calls.push(args);
@@ -246,24 +254,51 @@ describe("task-automerge", () => {
         return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
       }
       if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "3\n", stderr: "" };
-      // The probe (no --not) lists all; the selective pick (with --not) lists the own one.
-      if (key === "rev-list --reverse") return { code: 0, stdout: args.includes("--not") ? "aaa111\n" : "fff111\nfff222\naaa111\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "fff111\nfff222\naaa111\n", stderr: "" };
       if (key === "rev-list --no-merges") return { code: 0, stdout: args.includes("--not") ? "aaa111\n" : "", stderr: "" };
       if (key === "show --format=") return { code: 0, stdout: `diff --git a/${args[args.length - 1]} b/x\n+x\n`, stderr: "" };
       if (args[0] === "cherry-pick" && args[1] === "-n") return { code: 0, stdout: "", stderr: "" };
-      // fff111 stages something: main lacks it, the branch IS mixed.
+      // Both foreign commits stage something: main lacks them, the branch IS mixed.
       if (key === "diff --cached") return { code: 1, stdout: "", stderr: "" };
+      if (key === "log -1") return { code: 0, stdout: `${args[args.length - 1]}0 subject ${args[args.length - 1]}\n`, stderr: "" };
       if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     };
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
     const res = await am.tryMerge("t1", "x");
-    expect(res.status).toBe("merged");
-    // The probe stopped at the first foreign commit that brought content...
-    expect(calls.filter((c) => c[0] === "cherry-pick" && c[1] === "-n").map((c) => c[c.length - 1])).toEqual(["fff111", "aaa111"]);
-    // ...and the own commit was picked and committed, the branch never merged.
-    expect(calls.some((c) => c[0] === "commit" && c.includes("-C") && c.includes("aaa111"))).toBe(true);
-    expect(calls.some((c) => c[0] === "merge" && !c.includes("origin/main"))).toBe(false);
+    if (res.status !== "skipped") throw new Error(`expected skipped, got ${res.status}`);
+    expect(res.code).toBe("foreign-commits");
+    expect(res.reason).toContain("2 non sono su 'main'");
+    expect(res.reason).toContain("fff1110 subject fff111");
+    expect(res.reason).toContain("fff2220 subject fff222");
+    // Every foreign commit is probed (no early stop), the own one never is.
+    expect(calls.filter((c) => c[0] === "cherry-pick" && c[1] === "-n").map((c) => c[c.length - 1])).toEqual(["fff111", "fff222"]);
+    // The probe leaves the shared checkout as it found it after each pick.
+    expect(calls.filter((c) => c[0] === "reset" && c.includes("--hard")).length).toBe(2);
+    expect(calls.some((c) => c[0] === "commit")).toBe(false);
+    expect(calls.some((c) => c[0] === "merge" && c.includes("--no-ff"))).toBe(false);
+  });
+
+  test("git cannot list the foreign commits: refused as foreign-commits, never a blind merge", async () => {
+    const calls: string[][] = [];
+    const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
+      const key = args.slice(0, 2).join(" ");
+      if (key === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (key === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (key === "for-each-ref --format=%(refname)") {
+        return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
+      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "3\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 128, stdout: "", stderr: "fatal: bad revision" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
+    const res = await am.tryMerge("t1", "x");
+    if (res.status !== "skipped") throw new Error(`expected skipped, got ${res.status}`);
+    expect(res.code).toBe("foreign-commits");
+    expect(res.reason).toContain("git non ha saputo dire");
+    expect(calls.some((c) => c[0] === "merge" && c.includes("--no-ff"))).toBe(false);
   });
 
   test("normalizePatch: blob ids and hunk line numbers do not count, the change does", () => {
@@ -280,14 +315,9 @@ describe("task-automerge", () => {
     expect(normalizePatch(baseline)).toBeNull();
   });
 
-  test("un commit che non porta NIENTE in stage è già landato: si salta, niente commit vuoto", async () => {
-    // Il land RICOPIA invece di fondere, quindi la copia atterrata ha un altro
-    // sha e il commit resta nel range: rilandare la stessa card lasciava un
-    // commit VUOTO su main. Misurato il 10/08: lo stesso lavoro QUATTRO volte.
-    // Ne' il patch-id (`git cherry`) ne' la patch a rovescio lo riconoscono —
-    // il pick adatta il commit, e appena altri toccano quei file il contorno non
-    // combacia piu'. Solo il merge di git sa rispondere: applica e guarda se
-    // resta qualcosa.
+  test("worktree land: a foreign commit that stages NOTHING is on main, the branch is merged whole", async () => {
+    // Twin of the in-place test above on the throwaway-worktree path: mixed by
+    // ancestry, not by content, so a plain merge and no copied commit.
     const calls: string[][] = [];
     const run = async (_cwd: string, args: string[]) => {
       calls.push(args);
@@ -296,69 +326,74 @@ describe("task-automerge", () => {
       if (key === "for-each-ref --format=%(refname)") {
         return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
       }
-      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "13\n", stderr: "" };
-      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\n", stderr: "" };
-      if (key === "diff --cached") return { code: 0, stdout: "", stderr: "" }; // niente da portare
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "2\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "fff111\naaa111\n", stderr: "" };
+      if (key === "rev-list --no-merges") return { code: 0, stdout: args.includes("--not") ? "aaa111\n" : "", stderr: "" };
+      if (key === "show --format=") return { code: 0, stdout: `diff --git a/${args[args.length - 1]} b/x\n+x\n`, stderr: "" };
+      if (key === "diff --cached") return { code: 0, stdout: "", stderr: "" }; // nothing staged
       if (key === "rev-parse --short") return { code: 0, stdout: "abc1234\n", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     };
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
-    // Il lavoro E' su main: consegna riuscita, non un fallimento da rimandare.
     expect((await am.tryMerge("t1", "x")).status).toBe("merged");
+    expect(calls.filter((c) => c[0] === "cherry-pick" && c[1] === "-n").map((c) => c[c.length - 1])).toEqual(["fff111"]);
+    expect(calls.some((c) => c[0] === "merge" && c.includes("--no-ff"))).toBe(true);
     expect(calls.some((c) => c[0] === "commit")).toBe(false);
-    // E l'albero non resta a metà: il pick a vuoto viene ripulito.
+    // The empty probe pick is cleaned up, the tree is not left half-applied.
     expect(calls.some((c) => c[0] === "cherry-pick" && c.includes("--quit"))).toBe(true);
   });
 
-  test("il pick fallisce perché MANCA un pezzo sotto: si dice quello, non «conflitto»", async () => {
-    // Il worktree della card nasce dall'HEAD del checkout condiviso, quindi il
-    // suo lavoro può poggiare su commit di un'altra sessione — che il pick
-    // selettivo esclude apposta, per non pubblicarli. Il pick allora fallisce su
-    // un file che su main non esiste ancora: non c'è niente da riconciliare, e
-    // rimandarlo all'agente come «conflitto» lo manda a cercare una cosa che non
-    // c'è. Misurato il 10/08 su 473da2db (02fd8bac modifica browserPaneFault.ts,
-    // creato da un commit di un'altra sessione mai landato).
+  test("a foreign commit whose probe pick FAILS is not on main: refused, not reported as a conflict", async () => {
+    // A pick that fails (modify/delete on a file main lacks, or a content
+    // clash) proves nothing is on main: the branch cannot be merged whole
+    // without publishing that commit, so it is named instead.
+    const calls: string[][] = [];
     const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
       const key = args.slice(0, 2).join(" ");
       if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
       if (key === "for-each-ref --format=%(refname)") {
         return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
       }
-      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "2\n" : "9\n", stderr: "" };
-      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\nbbb222\n", stderr: "" };
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "2\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "fff111\naaa111\n", stderr: "" };
+      if (key === "rev-list --no-merges") return { code: 0, stdout: args.includes("--not") ? "aaa111\n" : "", stderr: "" };
+      if (key === "show --format=") return { code: 0, stdout: `diff --git a/${args[args.length - 1]} b/x\n+x\n`, stderr: "" };
       if (args[0] === "cherry-pick" && args[1] === "-n") return { code: 1, stdout: "", stderr: "CONFLICT (modify/delete): browserPaneFault.ts deleted in HEAD" };
       return { code: 0, stdout: "", stderr: "" };
     };
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
     const res = await am.tryMerge("t1", "x");
-    expect(res.status).toBe("skipped");
-    // 9 sul branch, 2 suoi → 7 sotto di lui che non sono su main.
-    if (res.status === "skipped") {
-      expect(res.reason).toContain("7 commit");
-      expect(res.reason).toContain("manca un pezzo sotto");
-    }
+    if (res.status !== "skipped") throw new Error(`expected skipped, got ${res.status}`);
+    expect(res.code).toBe("foreign-commits");
+    // No `log` answer: the reason falls back to the short sha.
+    expect(res.reason).toContain("fff111");
+    expect(calls.some((c) => c[0] === "merge" && c.includes("--no-ff"))).toBe(false);
+    expect(calls.some((c) => c[0] === "reset" && c.includes("--hard"))).toBe(true);
   });
 
-  test("pick fallito SENZA dipendenze estranee resta un conflitto vero", async () => {
-    // Il controllo del test qui sopra: la diagnosi nuova non deve mangiarsi il
-    // caso normale, o un conflitto vero non tornerebbe più all'agente.
+  test("mixed by ancestry only, but the merge itself conflicts: a real conflict, aborted", async () => {
+    // Control of the test above: the refusal must not swallow a genuine merge
+    // conflict, which still goes back to the agent as `conflict`.
+    const calls: string[][] = [];
     const run = async (_cwd: string, args: string[]) => {
+      calls.push(args);
       const key = args.slice(0, 2).join(" ");
       if (key === "symbolic-ref --short") return { code: 0, stdout: "feature/x\n", stderr: "" };
       if (key === "for-each-ref --format=%(refname)") {
         return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
       }
-      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "2\n" : "9\n", stderr: "" };
-      if (key === "rev-list --reverse") return { code: 0, stdout: "aaa111\nbbb222\n", stderr: "" };
-      // Stessi 7 commit estranei del test sopra, ma il fallimento e' di
-      // CONTENUTO: due modifiche che si pestano, non un file che manca.
-      if (args[0] === "cherry-pick" && args[1] === "-n") {
-        return { code: 1, stdout: "", stderr: "CONFLICT (content): Merge conflict in src/a.ts" };
-      }
+      if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "2\n", stderr: "" };
+      if (key === "rev-list --reverse") return { code: 0, stdout: "fff111\naaa111\n", stderr: "" };
+      if (key === "rev-list --no-merges") return { code: 0, stdout: args.includes("--not") ? "aaa111\n" : "", stderr: "" };
+      if (key === "show --format=") return { code: 0, stdout: `diff --git a/${args[args.length - 1]} b/x\n+x\n`, stderr: "" };
+      if (key === "diff --cached") return { code: 0, stdout: "", stderr: "" };
+      if (key === "merge --no-ff") return { code: 1, stdout: "", stderr: "CONFLICT (content): Merge conflict in src/a.ts" };
       return { code: 0, stdout: "", stderr: "" };
     };
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run });
     expect((await am.tryMerge("t1", "x")).status).toBe("conflict");
+    expect(calls.some((c) => c[0] === "merge" && c.includes("--abort"))).toBe(true);
   });
 
   test("due migration con lo STESSO numero: il land si ferma prima di rompere il DB in silenzio", async () => {

@@ -469,6 +469,24 @@ describe("reuseOrCreatePartialForReattach — reload-survival (no duplicate turn
     expect((after.toolCalls?.[0] as { userInputSchema?: unknown })?.userInputSchema).toBeTruthy();
   });
 
+  test("a question with pictures is read back, pictures included, after the row is saved", () => {
+    const sk = "topic:ask-images-reload";
+    const row = ctx.createPartialMessage(sk, "assistant");
+    const questions = [{
+      question: "Quale?",
+      header: "Scelta",
+      images: ["/m/a.png"],
+      options: [{ label: "A", image: "/m/a.png", recommended: true }, { label: "B", image: "/m/b.png" }],
+    }];
+    ctx.addToolCallToLastMessage(sk, tool("ask-img", {
+      name: "mcp__topics__ask_user_question",
+      status: "waiting_for_input",
+      userInputSchema: { kind: "questions", questions },
+    }));
+    const back = ctx.getMessageById(row.id)!;
+    expect((back.toolCalls?.[0] as { userInputSchema?: unknown })?.userInputSchema).toEqual({ kind: "questions", questions });
+  });
+
   test("creates a FRESH row when nothing survived (last message really finished, latency_ms set)", () => {
     // `finalizeLastMessage` alone is not enough to represent a turn that
     // REALLY finished: only the legitimate completion in routes/chat.ts

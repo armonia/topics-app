@@ -13,8 +13,20 @@ describe('tabSlotSignal', () => {
   });
 
   test('working carries the attention count, so the ring turns around the number', () => {
-    expect(tabSlotSignal({ frozen: false, working: true, attention: 13 })).toEqual({ kind: 'working', count: 13 });
-    expect(tabSlotSignal({ frozen: false, working: true, attention: 0 })).toEqual({ kind: 'working', count: 0 });
+    expect(tabSlotSignal({ frozen: false, working: true, attention: 13 })).toEqual({ kind: 'working', count: 13, agents: 0 });
+    expect(tabSlotSignal({ frozen: false, working: true, attention: 0 })).toEqual({ kind: 'working', count: 0, agents: 0 });
+  });
+
+  test('working with agents at work and nothing for you: the ring turns around how many work', () => {
+    expect(tabSlotSignal({ frozen: false, working: true, attention: 0, agents: 3 })).toEqual({ kind: 'working', count: 0, agents: 3 });
+  });
+
+  test('what asks for you outranks the agents: the slot has room for one number', () => {
+    expect(tabSlotSignal({ frozen: false, working: true, attention: 2, agents: 3 })).toEqual({ kind: 'working', count: 2, agents: 0 });
+  });
+
+  test('agents without work do not light the slot', () => {
+    expect(tabSlotSignal({ frozen: false, working: false, attention: 0, agents: 3 })).toEqual({ kind: 'none' });
   });
 
   test('attention alone is the number', () => {

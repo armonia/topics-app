@@ -35,7 +35,7 @@ describe('checklistWindow', () => {
     const rows = [
       ...Array.from({ length: 5 }, (_, i) => ({ id: `w${i}`, subtaskWork: 'unattended' })),
       { id: 'rv', status: 'review' },
-      { id: 'ai', status: 'review', stage: 'ai_review' },
+      { id: 'ci', status: 'review', stage: 'ci' },
     ];
     const { shown } = checklistWindow(rows);
     expect(shown.map((r) => r.id)).toEqual(['w0', 'w1', 'w2', 'w3', 'rv']);

@@ -48,12 +48,15 @@ PAYLOAD="$(cat)"
 # Single POST attempt against a given base. `-k`/--insecure accepts the
 # self-signed localhost cert; harmless against a plain-HTTP base. 2s hard
 # timeout, no retry, body discarded — we don't care about the response.
+# The token goes in on stdin (`--header @-`, printf is a builtin): in an
+# argument it would be readable by every user of the machine through ps or
+# /proc/<pid>/cmdline, the same way scripts/claude-hooks/worktree-hook.sh sends it.
 post() {
-  curl --silent --show-error --insecure --output /dev/null \
+  printf 'Authorization: Bearer %s\n' "${TOKEN}" | curl --silent --show-error --insecure --output /dev/null \
     --max-time 2 \
     --retry 0 \
     --request POST \
-    --header "Authorization: Bearer ${TOKEN}" \
+    --header @- \
     --header "Content-Type: application/json" \
     --header "X-Topics-Hook-Fired-At: ${FIRED_AT}" \
     --data "${PAYLOAD}" \

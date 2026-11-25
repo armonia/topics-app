@@ -143,7 +143,7 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
     // Reasoning row is present (collapsed by default).
     const reasoning = assistant.locator('[data-testid="reasoning-row"]');
     await expect(reasoning).toBeVisible();
-    await expect(reasoning).toContainText("Reasoning");
+    await expect(reasoning).toContainText("Thinking");
 
     // Both tool-call rows are present, each labelled with the tool name.
     const bashRow = assistant.locator('[data-testid="tool-call-row-tc-bash-1"]');

@@ -202,7 +202,7 @@ The system SHALL support splitting the panel grid horizontally and vertically, r
 
 ### Requirement: LAYOUT-02 — Sidebar, Pane Tabs, Add-Pane Menu & Mobile
 
-The system SHALL support sidebar toggle, pane tab bar interactions including close and context menu, add-pane menu for inserting new pane types, project window sub-panels, tab drag reorder, connection status display, and mobile responsive layout.
+The system SHALL support sidebar toggle, pane tab bar interactions including close and the tab sheet (`TABSHEET-01`), add-pane menu for inserting new pane types, project window sub-panels, tab drag reorder, connection status display, and mobile responsive layout.
 
 #### Scenario: Sidebar toggle via keyboard shortcut
 - **GIVEN** the sidebar is currently visible
@@ -223,16 +223,16 @@ The system SHALL support sidebar toggle, pane tab bar interactions including clo
 #### Scenario: Right-click tab opens context menu with Close and Split options
 - **GIVEN** a chat pane tab is visible in the tab bar
 - **WHEN** the user right-clicks the tab
-- **THEN** a context menu appears
-- **AND** the menu includes a Close option
-- **AND** the menu includes a Split Right option
-- **AND** the menu includes a Split Down option
+- **THEN** the tab sheet opens from the tab
+- **AND** its first level includes a Close option
+- **AND** its Disposizione level includes a Split Right option
+- **AND** its Disposizione level includes a Split Down option
 
 #### Scenario: Close tab via context menu
-- **GIVEN** a tab's context menu is open
+- **GIVEN** the sheet of a closable tab is open
 - **WHEN** the user clicks the Close option
-- **THEN** the tab is removed from the tab bar
-- **AND** the context menu is dismissed
+- **THEN** the tab is removed from the tab bar without a countdown
+- **AND** the tab sheet is dismissed
 
 #### Scenario: Add pane button opens dropdown menu
 - **GIVEN** a panel group has a tab bar with an add pane button
@@ -301,7 +301,7 @@ The system SHALL support sidebar toggle, pane tab bar interactions including clo
 
 #### Scenario: Close Others removes all other tabs at once
 - **GIVEN** three or more tabs are open in the tab bar
-- **WHEN** the user right-clicks a tab and selects Close Others from the context menu
+- **WHEN** the user right-clicks a tab and selects Close Others from the tab sheet
 - **THEN** all other tabs are removed
 - **AND** only the right-clicked tab remains
 
@@ -779,6 +779,24 @@ SHALL restare in uno stato di attesa perpetua.
 #### Scenario: l'elenco dei file
 - **GIVEN** l'elenco chiuso
 - **THEN** SHALL mostrare il conteggio, e aprirlo NON SHALL aprire il pannello
+
+### Requirement: PREVIEW-02 — La prova di consegna si vede aperta e a schermo intero, con il cursore prima/dopo
+
+Nel dettaglio della card la prova SHALL stare in cima alla Conversazione, larga
+quanto il pannello e già aperta, senza clic. Un clic sulla prova, dal dettaglio o
+dall'anteprima sulla card, SHALL aprirla a schermo intero: fondo scuro, immagine
+alla risoluzione vera, zoom con rotella e pizzico, frecce se le prove sono più di
+una, chiusura con Esc o con la X.
+
+Se la prova è un prima/dopo (due file, o un affiancato con le etichette
+prima/dopo o reference/dopo) lo schermo intero SHALL mostrare un cursore che scorre
+fra Prima e Dopo sulla STESSA immagine, con le etichette; sul telefono il cursore
+SHALL trascinarsi col dito.
+
+#### Scenario: prima e dopo dalla card
+- **GIVEN** una card con un file prima e un file dopo
+- **WHEN** si clicca l'anteprima, si sposta il cursore e si preme Esc
+- **THEN** SHALL aprirsi la vista con le due etichette, il cursore SHALL muoversi e Esc SHALL chiuderla
 
 ### Requirement: TYPO-01 — Nessun glifo viene tagliato dalla propria riga
 
@@ -2748,7 +2766,6 @@ suo lavoro.
 - **GIVEN** un avvio in cui il guscio NON ha concluso lo stato degradato
 - **THEN** il comando SHALL non eliminare niente e non rilanciare
 
-
 ### Requirement: CHROME-11 — Al ricarico si torna sulla tab su cui si era, e l'indirizzo del drawer segue il fuoco della board
 
 Il fuoco di una tab e' dell'apparecchio (`pane-store-focused-id`), e un ricarico
@@ -3574,3 +3591,1003 @@ sulla board.
 - **THEN** la barra ha una sola tab in più, B, in corsivo, e A non c'è più
 - **AND** dopo un clic dentro B, aprire C aggiunge una tab e B resta
 - **AND** una chat creata da un agente nel progetto non compare nella barra
+
+### Requirement: LAYOUT-34 — «Ingrandisci» ha tre inneschi, e nessuno dei tre ruba un gesto gia' assegnato
+
+Una conversazione SHALL poter riempire la superficie di tiling con un gesto, e
+tornare indietro con lo stesso gesto. Gli inneschi SHALL essere tre: il doppio
+clic sulla linguetta della tab, la voce «Ingrandisci» / «Riduci» nel menu
+contestuale della tab (nella sezione degli split, dietro lo stesso cancello di
+«Dividi a destra»), e ⌘E. NON SHALL esserci un bottone nuovo nella barra tab:
+un'icona permanente su ogni barra e' chrome che si paga per sempre per un gesto
+che si impara una volta. I tre inneschi GEMELLI che ingrandiscono la sola cella,
+col modificatore, stanno in LAYOUT-40: sono lo stesso comando con un ambito piu'
+piccolo, non un secondo comando.
+
+Il doppio clic SHALL essere **stratificato sotto** il fissaggio dell'anteprima
+che quel gesto ha gia': su una tab in anteprima fissa e basta, e solo su una tab
+gia' fissata ingrandisce. Il significato dichiarato del gesto non cambia, scala:
+la fissi, poi la isoli.
+
+Una BOZZA non e' un'anteprima. E' aperta permanente, quindi `preview` e' falso, e
+senza una regola esplicita cadrebbe nel ramo dell'ingrandimento mentre oggi il
+doppio clic la marca soltanto. Una pane bozza NON SHALL essere ingrandibile.
+
+Su una tab NON attiva il gesto fa DUE cose, e vanno dichiarate entrambe perche'
+una prova che ne veda una sola e' verde per la ragione sbagliata: il primo dei
+due clic attiva la pane e azzera il badge delle notifiche, e solo dopo la cella
+si ingrandisce.
+
+Il predicato di disponibilita' SHALL essere strutturale e valutato su CELLE, non
+su pane, cosi' una chat che condivide la cella con la propria browser resta
+ingrandibile. Ma il metro NON SHALL essere il set derivato: SHALL essere la CELLA
+DELL'ANCORA, cioe' «esiste almeno una cella viva fuori dalla cella che ospita la
+tab». Col metro sul set derivato il comando sparirebbe proprio dove serve di piu':
+una chat con due browser e il terminale di un sotto-agente in una griglia a quattro
+celle copre gia' tutto, e la funzione si spegnerebbe da sola nel suo caso migliore.
+
+Quando il set derivato copre gia' tutte le celle vive il comando NON SHALL
+sparire: DEGRADA. Il doppio clic semplice e la voce «Ingrandisci» fanno allora
+quello che farebbe il modificatore di LAYOUT-40, cioe' ingrandiscono la sola cella
+dell'ancora. L'innesco non e' mai un no-op silenzioso: o restringe la superficie a
+qualcosa di piu' piccolo di quello che si vede adesso, o non c'e' proprio niente da
+restringere, e allora il comando non compare.
+
+Le due voci di menu di LAYOUT-40 SHALL restare ENTRAMBE offerte ogni volta che il
+comando esiste, caso degradato compreso, dove fanno la stessa identica cosa.
+Farne sparire una proprio li' rimetterebbe il contenuto del menu a dipendere dal
+set derivato, cioe' dall'unico insieme che nessuna banda mostra: e' il difetto che
+la degradazione toglie, rimesso dentro in piccolo.
+
+Resta un caso solo in cui non si offre, ed e' quello in cui non esiste nessuna
+cella da togliere: una superficie a cella sola. Li' il comando NON SHALL essere
+offerto in nessuno dei suoi inneschi, col modificatore o senza. «Non offerto» NON
+vuol dire «gesto inerte»: il doppio clic sulla linguetta SHALL continuare a fare
+quello che fa oggi, cioe' fissare una tab in anteprima (TAB-SYNC-03) e marcare una
+bozza come toccata. Quello e' il livello sotto, non e' mai stato dello zoom, ed e'
+gia' coperto da contratti vivi che una superficie a cella sola esercita per
+costruzione.
+
+Sotto i 768px il comando NON SHALL esistere: li' una cella sola e' gia' la vista
+di default, e il ramo desktop non viene nemmeno reso. Il predicato e' lo stesso
+di LAYOUT-PRED-01.
+
+#### Scenario: il gesto stratificato non ruba il fissaggio
+- **GIVEN** una tab in ANTEPRIMA
+- **WHEN** si fa doppio clic sulla sua linguetta
+- **THEN** la tab SHALL essere fissata
+- **AND** NON SHALL ingrandirsi
+
+#### Scenario: una tab gia' fissata
+- **GIVEN** una tab fissata e non-bozza in un layout a piu' celle
+- **WHEN** si fa doppio clic sulla sua linguetta
+- **THEN** la cella che la ospita SHALL riempire la superficie meno la cornice
+- **AND** ripetendo il gesto SHALL tornare la griglia di prima
+
+#### Scenario: una BOZZA non e' un'anteprima
+- **GIVEN** una tab bozza, aperta permanente, con `preview` falso
+- **WHEN** si fa doppio clic sulla sua linguetta
+- **THEN** la bozza SHALL essere marcata come toccata, come oggi
+- **AND** NON SHALL ingrandirsi, e il testo nel campo SHALL restare
+
+#### Scenario: doppio clic su una tab di un'ALTRA cella
+- **GIVEN** il fuoco su una cella diversa e un badge non letto sulla tab bersaglio
+- **WHEN** si fa doppio clic su quella linguetta
+- **THEN** la pane SHALL diventare attiva
+- **AND** il badge SHALL sparire
+- **AND** solo dopo la sua cella SHALL ingrandirsi
+
+#### Scenario: il gesto non si offre solo quando non c'e' niente da togliere
+- **GIVEN** una superficie a cella sola
+- **THEN** ne' «Ingrandisci» ne' «Ingrandisci solo questa» SHALL comparire nel menu della tab
+- **AND** ⌘E e ⌥⌘E NON SHALL ingrandire niente: la superficie SHALL restare senza cornice
+- **AND** il doppio clic sulla linguetta, col modificatore o senza, SHALL fare quello che fa oggi: fissare una tab in anteprima, marcare una bozza come toccata
+
+#### Scenario: il set copre gia' tutte le celle vive, e il gesto DEGRADA
+- **GIVEN** una griglia a quattro celle vive dove una chat, le sue due browser e il terminale di un suo sotto-agente le occupano tutte
+- **THEN** la voce «Ingrandisci» SHALL comparire nel menu della tab della chat
+- **AND** accanto a lei SHALL comparire anche «Ingrandisci solo questa», che qui fa la stessa cosa
+- **WHEN** si fa doppio clic su quella linguetta
+- **THEN** SHALL restare visibile la SOLA cella che ospita la chat
+- **AND** SHALL sparire le altre tre
+- **AND** ripetendo il gesto SHALL tornare la griglia di prima
+
+#### Scenario: sotto i 768px
+- **GIVEN** una finestra sotto la soglia delle colonne
+- **THEN** il comando NON SHALL esistere in nessuno dei suoi inneschi, col modificatore o senza
+- **AND** il doppio clic sulla linguetta SHALL fare quello che fa oggi
+
+### Requirement: LAYOUT-35 — Ingrandire cambia i PESI, non la forma dell'albero
+
+L'ingrandimento SHALL essere ottenuto portando a peso zero e a `display:none` le
+celle che non ospitano il set, lasciando che la cella superstite riempia la
+superficie. NON SHALL usare un portale, `position: fixed`, `role="dialog"`, ne'
+spostare nodi nell'albero React. L'albero delle righe, dei gruppi, delle pile e
+dei pesi persistiti NON SHALL essere toccato: nessuna riconciliazione, nessuna
+scrittura di persistenza, nessun tombstone.
+
+Ne consegue l'invariante che va provato per primo: **entrare e uscire dallo zoom
+NON SHALL rimontare nulla**. Un terminale non perde il suo PTY, una pagina non si
+ricarica, una bozza non si svuota.
+
+Le celle fuori zoom SHALL ricevere tre segnali e non uno: peso zero (cosi' il
+divisore adiacente sparisce da solo), `display:none` sul wrapper di cella (cosi'
+al ritorno scatta il ripristino dell'ancora di lettura della chat, che e' legato
+al passaggio di `clientHeight` da 0 a un'altezza, e cosi' quelle celle escono da
+tab-order e dall'albero di accessibilita'), e l'assenza di box propagata alle
+pane che contengono (cosi' un xterm a viewport zero smette di misurare).
+
+La cornice SHALL avere una misura dichiarata, non «un po' di margine»:
+`--pane-zoom-inset`, mai sotto i 20px, ed e' il numero che una prova legge invece
+di scegliere un punto a occhio. La banda SHALL avere un fondo dipinto, uguale con
+i pannelli fluttuanti accesi e spenti; e la card ingrandita SHALL avere spigoli
+quadri, perche' la maschera nativa non arrotonda nessun angolo che non sia a filo
+finestra e una card tonda mostrerebbe una pagina squadrata dentro l'angolo.
+
+Il velo SHALL essere l'unico elemento che copre la banda, SHALL essere fuori dal
+percorso di tabulazione e nascosto all'albero di accessibilita', e SHALL portare
+i propri attributi di NON-trascinamento: la prima banda in alto occupa il posto
+che a riposo e' barra del titolo, e senza quegli attributi il «clic fuori»
+diventerebbe un trascinamento della finestra.
+
+Nessuna geometria SHALL essere animata. La sola opacita' del velo puo' esserlo, e
+NON SHALL esserlo per chi ha chiesto meno movimento.
+
+Mentre lo zoom e' attivo i divisori NON SHALL essere maniglie: ridimensionare
+committerebbe pesi calcolati contro una banda che nel modello include anche le
+celle a peso zero. E qualunque comando che RIORGANIZZI la griglia (dividere,
+reimpostare, disporre, annullare un cambio di layout, iniziare a trascinare una
+tab) SHALL uscire dallo zoom prima di applicarsi, cosi' la griglia che si vede e'
+sempre quella su cui il comando agisce.
+
+La cella ingrandita NON SHALL riservare lo spazio delle pastiglie native ne'
+cambiare l'altezza della propria barra: non e' a filo finestra, le luci di sistema
+stanno sopra la cornice. Il comando per riaprire la colonna SHALL vivere dentro
+la cornice, cosi' resta raggiungibile anche ingrandendo una cella che non e'
+quella in alto a sinistra.
+
+#### Scenario: le celle fuori zoom non si rimontano
+- **GIVEN** un terminale con un marcatore scritto, e una chat con una bozza nel campo, in una cella diversa
+- **WHEN** si entra e si esce dallo zoom
+- **THEN** l'elenco delle foglie e dei gusci di pane SHALL essere identico a prima
+- **AND** il marcatore SHALL essere ancora leggibile e la bozza ancora nel campo
+- **AND** i divisori SHALL essere tanti quanti prima
+
+#### Scenario: uscita dalla cornice
+- **GIVEN** lo zoom attivo e la misura dichiarata della cornice
+- **WHEN** si clicca a meta' della banda
+- **THEN** lo zoom SHALL chiudersi
+- **AND** quel clic NON SHALL raggiungere la griglia sotto
+
+#### Scenario: la cornice non trascina la finestra
+- **GIVEN** lo zoom attivo su desktop
+- **WHEN** si preme e si trascina sulla banda superiore
+- **THEN** la finestra NON SHALL muoversi
+- **AND** nessun elemento della cornice SHALL restare senza il proprio attributo di zona di trascinamento
+
+#### Scenario: le celle collassate escono dalla tastiera
+- **GIVEN** lo zoom attivo
+- **WHEN** si tabula dall'inizio della superficie
+- **THEN** nessun elemento delle celle fuori zoom SHALL ricevere il fuoco
+
+#### Scenario: chi ha chiesto meno movimento
+- **GIVEN** la preferenza di movimento ridotto
+- **WHEN** si entra nello zoom
+- **THEN** nulla SHALL essere animato
+
+#### Scenario: geometria e trascinamento durante lo zoom
+- **GIVEN** lo zoom attivo
+- **WHEN** si prova a trascinare un divisore
+- **THEN** la geometria NON SHALL cambiare, e uscendo lo zoom la griglia SHALL essere quella di prima
+- **WHEN** invece si inizia a trascinare una tab, o si sceglie «Dividi», «Reimposta pannelli» o «Disponi»
+- **THEN** lo zoom SHALL chiudersi PRIMA che il comando si applichi
+
+#### Scenario: il comando per riaprire la colonna resta raggiungibile
+- **GIVEN** la colonna chiusa e una cella che non e' quella in alto a sinistra
+- **WHEN** la si ingrandisce
+- **THEN** il comando di riapertura SHALL essere visibile dentro la cornice
+- **AND** la cella ingrandita NON SHALL riservare lo spazio delle pastiglie native
+
+#### Scenario: pannelli fluttuanti accesi
+- **GIVEN** la modalita' fluttuante
+- **WHEN** si ingrandisce
+- **THEN** la cornice SHALL avere la larghezza dichiarata e un fondo dipinto, non un buco sul materiale nativo
+- **AND** gli angoli della card SHALL essere quadri, come con il fluttuante spento
+
+### Requirement: LAYOUT-36 — Si ingrandisce una CONVERSAZIONE, non una cella
+
+L'ambito dell'ingrandimento SHALL essere la conversazione ancorata piu' le tab
+che quella conversazione ha aperto: le pane browser che portano il suo contesto,
+e i terminali dei suoi sotto-agenti. Ingrandire la sola cella lascerebbe fuori
+proprio la meta' che l'agente ha appena prodotto, visto che l'auto-split manda la
+browser in un gruppo accanto alla chat.
+
+L'insieme SHALL essere derivato da identita' che gia' esistono e sono durevoli:
+l'uguaglianza fra l'id della pane browser e il contesto della topic, il contesto
+registrato sulla topic, e la sessione padre dei terminali. NON SHALL essere
+introdotto nessun campo nuovo sulla pane: uscirebbe dallo snapshot e rientrerebbe
+cancellato dalla whitelist di sanificazione, che e' un'asimmetria gia' pagata due
+volte in questo repo.
+
+Se la tab ancorata non e' una chat, l'ancora SHALL essere quella pane sola: il
+maximize classico e' il caso degenere, non una funzione a parte.
+
+L'insieme SHALL essere VIVO, ricalcolato a ogni render: una tab che l'agente apre
+mentre si guarda entra da sola, che e' precisamente il momento in cui uno
+snapshot congelato mentirebbe.
+
+Il registro delle aperture che vive solo nella sessione della finestra SHALL
+entrare in UNIONE e mai in sottrazione: dopo un riavvio dell'app l'insieme puo'
+essere piu' piccolo, e il caso piu' piccolo e' comunque lo zoom della sola cella,
+che e' una risposta sensata. Il prezzo va dichiarato qui perche' l'utente non ha
+modo di vederlo: non esiste nessuna banda che elenchi le pane del set.
+
+Una pane NUOVA non SHALL mai nascere invisibile. E' la regola, ed e' una sola:
+copre tutte le vie di apertura, il «+», ⌘T, ⌘N, ⇧⌘T e il `browser:force-open` del
+server, comprese quelle che non toccano il fuoco, perche' si misura sulle pane
+COMPARSE e non su chi ha il fuoco. L'uscita ne discende, e ne discende con un «se
+e solo se»: lo zoom SHALL chiudersi quando, e soltanto quando, accogliere la pane
+nuova la lascerebbe dentro una cella collassata.
+
+La prima stesura diceva «aprire una pane NUOVA che non appartiene al set SHALL
+far uscire dallo zoom», ed era piu' larga dello scopo che protegge. Non
+appartenere al set e cadere in una cella collassata non sono la stessa
+condizione, e la regola vive sulla seconda: una bozza aperta con ⌘T non
+appartiene a nessun set e nasce nella cella a fuoco, che a zoom attivo E' quella
+ingrandita, quindi e' gia' visibile. Farla uscire sarebbe un'uscita gratuita, che
+getta via il layout rivelato senza che nessuno ci guadagni. Si guarda quindi la
+CELLA in cui la pane nuova atterra, mai la sua appartenenza al set. Le due
+letture coincidono ovunque la pane nuova cada fuori dalla cella ingrandita
+(⇧⌘T la rimette nella cella da cui era uscita, un `browser:force-open` la porta
+nella propria) e si separano nel solo caso in cui nasce dentro di essa.
+
+Lo zoom RIVELA, non riorganizza. Se due pane del set stanno nella stessa cella si
+vede una cella con due tab, e i vicini di pila di una cella ingrandita vengono
+con lei anche se non sono del set: spostare una pane fra celle sarebbe un cambio
+di genitore React, cioe' un remount, cioe' PTY resettata e pagina ricaricata.
+
+#### Scenario: la conversazione porta con se' cio' che ha aperto
+- **GIVEN** una chat che ha fatto aprire all'agente una pane browser in una cella accanto
+- **WHEN** si ingrandisce la chat
+- **THEN** SHALL restare visibili la cella della chat e quella della browser
+- **AND** SHALL sparire tutte le altre
+
+#### Scenario: una tab che nasce mentre si guarda
+- **GIVEN** lo zoom attivo su una conversazione
+- **WHEN** l'agente apre una nuova browser per quella conversazione
+- **THEN** la sua cella SHALL comparire dentro lo zoom
+- **AND** lo zoom NON SHALL chiudersi
+
+#### Scenario: una pane nuova che atterrerebbe in una cella collassata
+- **GIVEN** lo zoom attivo
+- **WHEN** si apre una pane nuova che, per la via da cui arriva, atterra in una cella fuori dal set
+- **THEN** lo zoom SHALL chiudersi
+- **AND** in nessun caso la pane nuova SHALL restare dentro una cella collassata
+
+#### Scenario: una pane nuova che nasce DENTRO la cella ingrandita
+- **GIVEN** lo zoom attivo su una conversazione
+- **WHEN** si apre una bozza con ⌘T, che nasce nella cella a fuoco, cioe' quella ingrandita
+- **THEN** lo zoom NON SHALL chiudersi
+- **AND** la bozza SHALL essere visibile, come una tab in piu' della cella ingrandita
+
+#### Scenario: riaprire una tab chiusa
+- **GIVEN** lo zoom attivo e, chiusa poco prima senza avere il fuoco, una tab che non appartiene al set
+- **WHEN** la si riapre con la scorciatoia
+- **THEN** lo zoom SHALL chiudersi
+- **AND** la pane riaperta SHALL essere visibile nella griglia tornata intera
+
+### Requirement: LAYOUT-37 — Si esce da quattro vie, e lo stato di riposo e' «non ingrandito»
+
+L'uscita SHALL essere possibile dal clic sulla cornice, dal gesto ripetuto, da
+Escape, e automaticamente quando l'ingrandimento non ha piu' senso. Uscire SHALL
+essere sempre senza perdita: e' azzerare un id, non ricostruire un layout.
+
+**Escape resta dell'agente.** Il contenitore dello zoom NON SHALL essere una
+superficie modale, quindi Escape SHALL prima interrompere un turno in streaming e
+solo dopo chiudere lo zoom. Chi ingrandisce una chat lo fa per guardare l'agente
+lavorare: togliergli il tasto che lo ferma e' il contrario dello scopo. Con un
+turno vivo restano le altre tre vie, tutte a un clic. Un dialogo o una tavolozza
+aperta SHALL avere la precedenza su entrambi.
+
+Lo stato SHALL essere effimero, in memoria, per finestra, e uno per superficie:
+uno zoom dentro un progetto annidato non cancella quello della griglia esterna.
+NON SHALL essere persistito ne' sincronizzato. Lo stato dei pannelli e' condiviso
+per chiave e trasmesso a tutti i dispositivi: uno zoom sincronizzato sarebbe una
+modale che si apre da sola sul telefono perche' hai fatto doppio clic sul Mac. E
+ogni scrittura armerebbe un invio dell'intero snapshot per un toggle.
+
+L'uscita al cambio di Spazio e' VOLUTA e va scritta come tale, non scoperta: la
+superficie si rimonta con la chiave dello Spazio, e sollevare lo stato piu' in
+alto per «aggiustarla» farebbe attraversare lo zoom fra gruppi diversi.
+
+Il set di celle SHALL essere potato a ogni render contro le celle vive: se
+sparisce una pane del corredo il set si restringe, se sparisce l'ANCORA si esce.
+
+#### Scenario: Escape resta dell'agente
+- **GIVEN** una conversazione ingrandita con un turno in streaming
+- **WHEN** si preme Escape
+- **THEN** il turno SHALL essere interrotto
+- **AND** lo zoom SHALL restare aperto
+
+#### Scenario: Escape senza turno vivo
+- **GIVEN** lo zoom attivo, nessun turno in streaming e nessun dialogo aperto
+- **WHEN** si preme Escape
+- **THEN** lo zoom SHALL chiudersi
+
+#### Scenario: un modale sopra lo zoom
+- **GIVEN** lo zoom attivo e la tavolozza dei comandi aperta
+- **WHEN** si preme Escape
+- **THEN** SHALL chiudersi la tavolozza
+- **AND** lo zoom SHALL restare aperto
+
+#### Scenario: l'ancora sparisce
+- **GIVEN** lo zoom attivo
+- **WHEN** la conversazione ancorata viene chiusa da qui, da un altro dispositivo, o spostata in un altro Spazio o in un'altra finestra
+- **THEN** lo zoom SHALL chiudersi
+
+#### Scenario: il fuoco va altrove
+- **GIVEN** lo zoom attivo
+- **WHEN** il fuoco si sposta su una pane che sta in una CELLA fuori dal set
+- **THEN** lo zoom SHALL chiudersi
+- **WHEN** invece si cambia tab DENTRO una cella del set
+- **THEN** lo zoom NON SHALL chiudersi
+
+#### Scenario: cambio di Spazio
+- **GIVEN** lo zoom attivo
+- **WHEN** si passa a un altro Spazio e si torna
+- **THEN** nessuno dei due SHALL risultare ingrandito
+
+#### Scenario: ricaricamento
+- **GIVEN** lo zoom attivo
+- **WHEN** si ricarica
+- **THEN** lo stato di riposo SHALL essere «non ingrandito»
+- **AND** nessuna cornice SHALL comparire sulla griglia non ancora idratata
+
+#### Scenario: lo zoom non viaggia
+- **GIVEN** due dispositivi sullo stesso account con la stessa griglia
+- **WHEN** si ingrandisce su uno
+- **THEN** sull'altro NON SHALL cambiare niente
+- **AND** NON SHALL partire nessuna scrittura dello stato dei pannelli
+
+### Requirement: LAYOUT-38 — Lo zoom non e' una superficie modale, e le viste di sistema lo sanno
+
+Il contenitore dello zoom e il suo velo NON SHALL soddisfare il selettore delle
+superfici modali ne' quello delle coperture native, attributi di ruolo compresi.
+Non e' una preferenza di stile: qualunque contenitore che intersechi una pane
+browser nativa la congela in una fotografia, e una modale vera mostrerebbe un
+fermo-immagine della pagina che dice di ingrandire. Un test SHALL fallire il
+giorno in cui qualcuno aggiunge un marcatore modale a uno dei due, e SHALL essere
+scritto in una forma che veda anche gli ATTRIBUTI, non i soli nomi di classe.
+
+Dentro lo zoom la vista nativa SHALL restare viva e interattiva, e SHALL seguire
+il nuovo rettangolo. Il congelamento resta GEOMETRICO e va dichiarato per quello
+che e': la pane ingrandita occupa quasi tutta la superficie, quindi ogni menu,
+dropdown o suggerimento aperto la interseca e la congela, e la scongela
+chiudendosi. Il menu contestuale della tab e' uno dei tre inneschi: il ciclo
+congela, clic su «Ingrandisci», scongela e' il percorso NORMALE.
+
+Fuori dallo zoom quello che la superficie di tiling DICE e' una cosa sola, ed e'
+l'unica di sua competenza: una cella collassata non ha box. Il segnale SHALL
+essere emesso come tale, cioe' nessun rettangolo positivo per quella cella e
+l'assenza di box propagata alle pane che ospita, e sopra la cornice NON SHALL
+comparire nessuna vista nativa di una cella collassata.
+
+Che cosa la vista nativa FA con quel «niente box» sta in `NATIVEPARK-01` e
+`NATIVEPARK-02`, nel delta di `remote-browser`, e non si riscrive qui: il
+parcheggio come chiavistello, le cinque vie di ritorno che restano no-op, la
+decisione di congelamento presa senza rettangolo invece che su una geometria
+stantia, lo spegnimento dietro un guscio antenato nascosto, l'eccezione della pane
+che un agente sta guidando, e il ritorno senza rimontaggio. Vive li' perche' vale
+anche dove lo zoom non arriva (una tab di sfondo, una riga nascosta sotto i
+768px, il tiling dentro il cassetto di un task), e perche' la stessa regola
+raccontata in due spec approvate diverge al primo emendamento.
+
+Il cassetto di un task monta lo stesso tiling e NON SHALL offrire lo zoom: e' gia'
+una superficie sovrapposta, e due «fuori» annidati non sono un'interfaccia. Il suo
+tiling SHALL pero' propagare l'assenza di box come ogni altra superficie, gusci
+ANTENATI compresi e non solo la tab attiva del proprio gruppo: e' il segnale che
+oggi non arriva, ed e' la sola meta' di quel cambio che il layout decide.
+
+#### Scenario: lo zoom NON e' una superficie modale
+- **GIVEN** il contenitore dello zoom e il suo velo
+- **THEN** nessuno dei due SHALL soddisfare il selettore delle superfici modali ne' quello delle coperture native
+- **AND** il controllo SHALL leggere anche gli attributi di ruolo, non i soli nomi di classe
+
+#### Scenario: una vista di sistema DENTRO lo zoom
+- **GIVEN** una pane browser nativa nella cella ingrandita
+- **WHEN** lo zoom si apre
+- **THEN** la vista SHALL seguire il nuovo rettangolo e restare interattiva
+- **WHEN** un menu o un suggerimento la copre
+- **THEN** il congelamento SHALL avvenire, e SHALL rientrare alla chiusura
+
+#### Scenario: una cella collassata dichiara di non avere box
+- **GIVEN** lo zoom attivo e una pane browser nativa in una cella collassata
+- **THEN** il wrapper di quella cella SHALL essere fuori dal layout e la sua pane SHALL ricevere l'assenza di box
+- **AND** per quella cella la superficie NON SHALL emettere nessun rettangolo positivo
+- **AND** nessuna vista nativa SHALL comparire sopra la cornice
+
+#### Scenario: dentro il cassetto di un task il comando non esiste, ma l'assenza di box si propaga
+- **GIVEN** il cassetto di un task aperto con il suo tiling, e una sua browser dietro un guscio antenato nascosto
+- **THEN** il comando «Ingrandisci» NON SHALL esistere li' dentro, in nessuno dei suoi inneschi
+- **AND** il guscio nascosto SHALL propagare l'assenza di box fino a quella pane, invece di fermarsi alla tab attiva del proprio gruppo
+
+### Requirement: LAYOUT-39 — Chi resta montato mentre una cella e' collassata, e chi no
+
+Collassare una cella NON SHALL azzerare l'elenco delle pane visibili della
+superficie: quell'elenco e' il pavimento del tetto di residenza, e senza pavimento
+dopo pochi secondi le celle nascoste verrebbero davvero smontate, cosi' che
+uscire dallo zoom troverebbe celle da ricostruire. L'assenza di box SHALL essere
+un asse SEPARATO dalla residenza, propagato al solo strato che tiene vive le pane.
+
+La garanzia va scritta nella forma vera, perche' quella comoda promette piu' di
+quanto il codice dia: **la tab ATTIVA di ogni cella collassata resta montata**.
+Le tab di sfondo oltre il tetto della loro classe restano sfrattabili, esattamente
+come oggi quando la loro cella e' visibile, e uscendo dallo zoom si rimontano. E'
+il tetto che funziona come sempre, non una regressione dello zoom.
+
+Una pane di progetto in cella collassata riceve l'assenza di box come oggi la
+riceve una pane di progetto su una tab di sfondo, e le sue pane interne perdono il
+pavimento: e' identico in tipo a un comportamento in produzione da mesi.
+
+Il segnale «questa pane ha un box» NON SHALL essere confuso con «nessun guscio
+antenato e' nascosto»: e' un'implicazione a senso unico. Il contratto SHALL essere
+scritto come «se non e' viva allora non ha box», mai come uguaglianza. E dove una
+superficie nasconde righe e celle con il solo `display:none` senza propagare
+niente, il segnale SHALL essere propagato anche li': altrimenti sotto i 768px
+una pane con box zero resta pavimento del tetto di residenza, sul dispositivo
+con meno memoria. Che poi la sua vista nativa vada SPENTA e non soltanto
+parcheggiata lo dichiara `NATIVEPARK-02`, e qui non si riscrive: di quel cambio
+questo requisito risponde della sola propagazione del segnale.
+
+Una prova che conti i gusci in aggregato NON SHALL essere considerata copertura:
+con una sola cella non esiste nessuna cella collassata e il conteggio e' identico
+con e senza zoom. La prova SHALL avere almeno tre celle, piu' tab per cella e piu'
+pane di sfondo di quante il tetto ne ammetta, e SHALL asserire per id.
+
+#### Scenario: le celle collassate non ci ricascano
+- **GIVEN** lo zoom tenuto per dieci secondi, con almeno tre celle e piu' tab di sfondo di quante il tetto ne ammetta
+- **THEN** la tab ATTIVA di ogni cella collassata SHALL essere ancora montata
+- **AND** l'asserzione SHALL essere per id, non un conteggio aggregato
+
+#### Scenario: le tab di sfondo oltre il tetto
+- **GIVEN** lo stesso scenario
+- **WHEN** si esce dallo zoom
+- **THEN** le tab di sfondo sfrattate SHALL rimontarsi, e questo NON SHALL essere trattato come un difetto dello zoom
+
+#### Scenario: una cella nascosta sotto i 768px
+- **GIVEN** una finestra sotto la soglia delle colonne, con una pane browser nativa in una cella che non e' quella visibile
+- **THEN** quella cella SHALL propagare l'assenza di box fino alla pane
+- **AND** quella pane NON SHALL essere pavimento del tetto di residenza
+
+### Requirement: LAYOUT-40 — Ingrandimento della sola cella: un modificatore, e un solo stato di zoom
+
+Un modificatore sul gesto SHALL ingrandire la SOLA cella che ospita la tab,
+ignorando il set derivato di LAYOUT-36. Gli inneschi SHALL essere tre, gemelli di
+quelli di LAYOUT-34: ⌥ tenuto durante il doppio clic sulla linguetta, ⌥⌘E da
+tastiera, e una voce di menu contestuale DISTINTA, «Ingrandisci solo questa»,
+accanto a «Ingrandisci».
+
+La ragione sta nella richiesta, che dice «soltanto per quella chat, EVENTUALMENTE
+delle tab che ha aperto»: «eventualmente» non e' «sempre e senza scampo». Il set
+derivato e' un'ottima risposta di default e una pessima unica risposta: senza il
+modificatore si potrebbe scegliere QUALE conversazione isolare, mai QUANTO, e chi
+vuole leggere la sola chat con la browser dell'agente fuori dai piedi non avrebbe
+nessun modo di chiederlo.
+
+NON SHALL esistere due modalita' di zoom. Esiste UNO stato di zoom, quello di
+LAYOUT-37, con un insieme di celle diverso: lo stato SHALL portare, accanto
+all'ancora, l'AMBITO scelto dal gesto. Tutto il resto vale identico e non si
+sdoppia: stessa cornice e stesso velo (LAYOUT-35), stesse quattro vie di uscita e
+stessa potatura (LAYOUT-37), stesse regole per le viste native (LAYOUT-38), stessa
+residenza (LAYOUT-39). Non c'e' un secondo velo, un secondo Escape, un secondo
+predicato.
+
+L'ambito SHALL essere fissato all'INGRESSO e NON SHALL cambiare da solo mentre lo
+zoom e' aperto. Il set di celle resta derivato e potato a ogni render, ma la
+SCELTA fra i due ambiti no: e' quella che rende leggibile un insieme che nessuna
+banda di chip mostra. Ne segue una differenza osservabile che va scritta, o il
+primo che la incontra la chiama difetto: una browser che l'agente apre mentre si
+guarda entra da sola nello zoom di conversazione (LAYOUT-36) e NON entra in quello
+di sola cella; li' e' una pane nuova fuori dal set, quindi vale la regola
+universale e lo zoom si chiude. E' il prezzo dichiarato di aver chiesto «solo
+questa».
+
+Mentre lo zoom e' attivo tutti gli inneschi RIDUCONO, col modificatore o senza, e
+il menu SHALL offrire la sola voce «Riduci». Due voci che fanno la stessa cosa sono
+rumore, e un innesco che RI-AMBITA senza uscire sarebbe un terzo stato che nessuno
+legge dallo schermo: si tornerebbe indietro con un gesto diverso da quello con cui
+si e' entrati. Chi vuole cambiare ambito esce e rientra col gesto che vuole: due
+gesti, nessuno stato nascosto.
+
+Il modificatore NON SHALL scavalcare nessuno dei cancelli di LAYOUT-34. La
+stratificazione sul fissaggio dell'anteprima viene prima: su una tab in anteprima
+anche ⌥ + doppio clic FISSA e basta. Una bozza NON SHALL essere ingrandibile
+nemmeno col modificatore. Sotto i 768px il comando non esiste. Su una superficie a
+cella sola non si offre, e li' ⌥ + doppio clic fa quello che farebbe il doppio
+clic da solo: il livello sotto, cioe' fissare un'anteprima o marcare una bozza.
+
+Il modificatore SHALL restare distinguibile su OGNI percorso che consegna la
+chord, compreso il monitor nativo che la inoltra oltre una pane browser a fuoco,
+cioe' esattamente la situazione «chat piu' browser aperta dall'agente» per cui
+questa funzione esiste. In nessun caso una chord col modificatore SHALL arrivare
+come quella SENZA: chiedere la sola cella e ottenere l'ambito intero, in silenzio,
+e' peggio di un tasto morto, ed e' l'unica forma VIETATA.
+
+Un percorso che non sappia portare il modificatore NON SHALL per questo far
+sparire l'innesco da tastiera. La chord col modificatore SHALL restare dichiarata
+nel registro delle scorciatoie e nella finestra che le elenca su tutte le
+piattaforme: e' li' che si impara, e sulla sponda macOS arriva. Resta un'asimmetria,
+e SHALL essere ammessa per iscritto invece di essere corretta a spese d'altro:
+sulla sponda Windows la decisione di inoltro scarta OGNI chord con Alt prima
+ancora di guardare la propria tabella, perche' Alt e' del sistema e del menu, e
+allargare quel varco per una scorciatoia di comodo costerebbe piu' di quanto renda.
+Li', con una pane browser NATIVA a fuoco, ⌥⌘E non raggiunge il renderer e non
+ingrandisce niente: la chord passa alla pagina, com'e' sempre stato. L'ambito di
+sola cella si chiede allora col ⌥ + doppio clic o con la voce di menu, che valgono
+su ogni piattaforma e non passano da nessuna tabella nativa. E' una delle ragioni
+per cui il modificatore ha tre inneschi e non uno.
+
+#### Scenario: il modificatore ingrandisce la sola cella
+- **GIVEN** una chat che ha fatto aprire all'agente una pane browser in una cella accanto, in una griglia a piu' celle
+- **WHEN** si fa doppio clic sulla linguetta della chat tenendo ⌥
+- **THEN** SHALL restare visibile la sola cella che ospita la chat
+- **AND** SHALL sparire anche la cella della browser
+- **AND** ripetendo il gesto, col modificatore o senza, SHALL tornare la griglia di prima
+
+#### Scenario: ⌘E e ⌥⌘E non sono la stessa cosa
+- **GIVEN** la stessa griglia, con il fuoco sulla chat
+- **WHEN** arriva ⌘E
+- **THEN** SHALL restare visibili la cella della chat e quella della sua browser
+- **WHEN** invece, dalla stessa griglia, arriva ⌥⌘E
+- **THEN** SHALL restare visibile la sola cella della chat
+
+#### Scenario: due voci distinte per entrare, una sola per uscire
+- **GIVEN** una tab fissata e non-bozza in una griglia a piu' celle
+- **THEN** il menu contestuale SHALL offrire «Ingrandisci» e «Ingrandisci solo questa» come due voci DISTINTE
+- **WHEN** si sceglie una qualunque delle due
+- **THEN** il menu SHALL offrire la sola voce «Riduci»
+
+#### Scenario: il modificatore non ruba il fissaggio e non tocca le bozze
+- **GIVEN** una tab in ANTEPRIMA e, nella stessa barra, una tab bozza
+- **WHEN** si fa ⌥ + doppio clic sulla linguetta dell'anteprima
+- **THEN** la tab SHALL essere fissata e NON SHALL ingrandirsi
+- **WHEN** si fa ⌥ + doppio clic sulla linguetta della bozza
+- **THEN** la bozza SHALL essere marcata come toccata, NON SHALL ingrandirsi, e il testo nel campo SHALL restare
+
+#### Scenario: una tab che nasce mentre si guarda la sola cella
+- **GIVEN** lo zoom di sola cella attivo su una chat
+- **WHEN** l'agente apre per quella conversazione una nuova browser, che atterra in un'altra cella
+- **THEN** lo zoom SHALL chiudersi
+- **AND** la pane nuova NON SHALL nascere dentro una cella collassata
+
+#### Scenario: l'ambito non cambia sotto le mani
+- **GIVEN** lo zoom di conversazione attivo, con la cella della chat e quella della sua browser
+- **WHEN** la browser viene chiusa e la sua cella sparisce
+- **THEN** lo zoom SHALL restare aperto sull'ambito di CONVERSAZIONE, potato alla sola cella superstite
+- **AND** una browser riaperta per quella stessa conversazione SHALL rientrare nel set
+
+#### Scenario: la chord col modificatore non arriva degradata
+- **GIVEN** la decisione di inoltro delle chord verso la webview della UI, interrogata con il modificatore di Opzione premuto
+- **THEN** NON SHALL produrre l'evento della chord SENZA modificatore
+- **AND** la decisione SHALL essere una funzione pura interrogabile da un test sulle DUE sponde native, non solo su quella che ha gia' la tabella
+
+#### Scenario: sulla sponda Windows la chord col modificatore non arriva, e si dice
+- **GIVEN** la decisione di inoltro della sponda Windows, interrogata sulla chord dello zoom con Alt premuto
+- **THEN** SHALL lasciare la chord alla pagina, senza inoltrarla e senza ingoiarla
+- **AND** la chord col modificatore SHALL comunque risultare dichiarata nel registro delle scorciatoie
+- **AND** il ⌥ + doppio clic e la voce «Ingrandisci solo questa» SHALL restare disponibili
+
+### Requirement: LAYOUT-41 — La chord dello zoom SHALL attraversare una pane browser nativa, e l'elenco che lo decide e' UNO
+
+Il comando che ingrandisce una conversazione esiste soprattutto per il layout
+«chat piu' browser aperta dall'agente», che e' anche l'unico in cui il fuoco puo'
+stare DENTRO una pane browser nativa, dove la tastiera e' della pagina e non del
+renderer. La chord SENZA modificatore SHALL quindi essere dichiarata inoltrabile,
+cosi' che il percorso nativo la consegni alla webview della UI invece di lasciarla
+alla pagina. Non e' un dettaglio del registro: una scorciatoia che si spegne
+dentro il proprio caso d'uso e' una scorciatoia che non c'e', e il resto di
+LAYOUT-34 resterebbe vero con due inneschi su tre. La gemella col modificatore, e
+il limite che la sponda Windows le impone, stanno in LAYOUT-40.
+
+La dichiarazione SHALL essere UNA SOLA, letta da tutte e due le sponde native: non
+esiste un elenco per il Mac e uno per Windows. Ne segue su Windows un effetto che
+e' VOLUTO e va scritto invece che scoperto: da quel momento la stessa chord,
+digitata con una pagina a fuoco, viene inoltrata alla UI e INGOIATA invece di
+raggiungere la pagina, cioe' li' ingrandisce esattamente come sul Mac. E' il
+genere di cambio che le prove della tabella dei chord devono AFFERMARE invece di
+mancare per omissione: quella che elenca i char che il registro fa inoltrare e
+ingoiare SHALL nominare la chord dello zoom, o resterebbe verde solo perche' non
+la cita.
+
+Il cancello che confronta registro e allowlist generata prova la COERENZA fra i
+due, mai la COPERTURA: una riga priva della dichiarazione di inoltro non emette
+niente, il file committato combacia e il cancello resta verde. La prova di questo
+requisito SHALL quindi stare sulle due sponde e in una passata a mano col fuoco
+dentro una pane browser nativa, e SHALL essere dichiarata per quello che e'.
+
+#### Scenario: la chord senza modificatore attraversa una pagina a fuoco
+- **GIVEN** la decisione di inoltro nativa, interrogata sulla chord dello zoom senza modificatore
+- **THEN** SHALL inoltrarla alla webview della UI e ingoiare l'originale
+- **AND** la chord SHALL risultare nell'elenco delle inoltrate generato dal registro
+
+#### Scenario: le prove della tabella dei chord nominano quella dello zoom
+- **GIVEN** le prove della tabella dei chord: quella che elenca i char che il registro fa inoltrare e ingoiare, e quella che afferma che con Alt nessuna chord e' della app
+- **THEN** la chord dello zoom SHALL comparire fra le INOLTRATE, non fra quelle che restano
+- **AND** quella che le elenca SHALL diventare rossa il giorno in cui quella chord torna a raggiungere la pagina
+
+### Requirement: TABSHEET-01 — Una tab ha UNA superficie di comandi, ed è la tab che si espande
+
+Ogni tab della barra delle pane (`PaneTabBar`), ogni scheda della finestrella
+del browser della topic e il titolo sul telefono (`TABSHEET-04`) SHALL avere una
+sola superficie di comandi: il **foglio della tab**. Il tasto destro, la
+pressione lunga col dito, Shift+F10 e il tasto menu su una di queste tab SHALL
+aprire il foglio di quella tab. Nessuna di queste tab SHALL aprire un menu a
+tendina o un menu al cursore. Le tab dell'editor di file, dentro la pane dei
+file, restano fuori: il loro menu è il menu al cursore condiviso di `CTXMENU-01`.
+
+**La forma.** Mentre il foglio è aperto la tab e il foglio SHALL essere una sola
+superficie: la tab SHALL essere dipinta con lo stesso fondo del foglio e portare
+`data-sheet-open`, il foglio SHALL partire dal bordo inferiore della tab, allineato
+al suo bordo sinistro (al destro quando a destra non c'è posto), e fra i due NON
+SHALL esserci un bordo. Se la tab si sposta o cambia larghezza col foglio aperto,
+il foglio SHALL riposarsi su di lei.
+
+**Da dove si parte.** Le porte dell'indirizzo di una tab browser (clic sulla tab
+attiva, tre puntini, ⌘L) SHALL aprire il foglio con il campo indirizzo a fuoco, il
+testo selezionato e i suggerimenti sotto. La porta dei comandi (tasto destro,
+pressione lunga, Shift+F10, tasto menu) SHALL aprire lo stesso foglio con il fuoco
+sulla prima voce del primo livello, l'indirizzo visibile ma senza fuoco e nessun
+suggerimento.
+
+Un tasto destro sulla tab il cui foglio è aperto SHALL chiuderlo; un tasto destro
+su un'altra tab SHALL chiudere questo foglio e aprire quello. Esc e un clic fuori
+SHALL chiuderlo, e il clic fuori SHALL arrivare comunque a ciò che ha colpito.
+Alla chiusura il fuoco SHALL tornare sulla tab.
+
+#### Scenario: tasto destro su una tab browser
+- **GIVEN** una pane browser su `https://example.com/a`, la sua tab nella barra
+- **WHEN** l'utente fa clic col tasto destro sulla tab
+- **THEN** il foglio `tab-sheet` della tab è aperto e nessun menu `role="menu"` al cursore è nel DOM
+- **AND** il fuoco è sulla prima voce del primo livello e il campo indirizzo non ha il fuoco
+- **AND** non c'è nessun suggerimento
+
+#### Scenario: clic sulla tab browser attiva
+- **GIVEN** la stessa pane, la sua tab attiva
+- **WHEN** l'utente fa clic sull'etichetta della tab
+- **THEN** il foglio è aperto, il campo indirizzo ha il fuoco e tutto il testo è selezionato
+- **AND** sotto l'indirizzo ci sono i suggerimenti, e sotto i suggerimenti le stesse voci che apre il tasto destro
+
+#### Scenario: la tab e il foglio sono una superficie
+- **GIVEN** il foglio aperto su una tab, da una qualunque porta
+- **THEN** la tab porta `data-sheet-open`
+- **AND** il bordo superiore del foglio sta a 1 px dal bordo inferiore della tab, e il suo bordo sinistro coincide con quello della tab
+- **AND** il colore di fondo della tab e quello del foglio sono lo stesso
+
+#### Scenario: la porta si richiude
+- **GIVEN** il foglio aperto dal tasto destro su una tab
+- **WHEN** l'utente fa di nuovo tasto destro sulla stessa tab
+- **THEN** il foglio è chiuso e non si riapre
+- **WHEN** l'utente fa tasto destro su un'altra tab
+- **THEN** è aperto solo il foglio di quella tab
+
+#### Scenario: col dito
+- **GIVEN** un dispositivo touch, una tab nella barra
+- **WHEN** l'utente tiene premuta la tab
+- **THEN** si apre lo stesso foglio del tasto destro
+
+### Requirement: TABSHEET-02 — I comandi stanno su due livelli, e il primo si legge in un colpo
+
+Il foglio della tab SHALL avere un primo livello e dei livelli che si aprono di
+lato dalla loro riga. Il primo livello SHALL contenere, in quest'ordine: le voci
+contestuali che esistono per quella tab in quel momento, Cerca, le righe dei
+livelli nell'ordine Pagina, Strumenti, Sessione, Tab, Disposizione, e le
+chiusure. Sotto la testata il primo livello NON SHALL superare 11 righe.
+
+Una riga di livello SHALL portare la freccia e, quando il livello ha uno stato,
+SHALL dirlo in coda senza aprirlo (lo zoom e il dispositivo della pagina, il
+numero di errori e di download, lo stato della condivisione). Un livello con una
+sola voce NON SHALL esistere: la voce SHALL stare al primo livello. Un livello
+senza voci NON SHALL essere disegnato.
+
+I livelli SHALL essere il sottomenu condiviso (`SubmenuItem`): si aprono di lato
+con ribaltamento al bordo, al passaggio del puntatore e al clic, uno per
+profondità; un livello aperto con un clic resta finché qualcosa di esplicito non
+lo chiude. Le frecce su e giù, Home ed End SHALL muovere il fuoco nel livello;
+freccia destra, Invio e Spazio su una riga di livello SHALL aprirlo e portarci il
+fuoco; freccia sinistra SHALL chiuderlo e rendere il fuoco alla sua riga; Esc
+SHALL chiudere un livello per pressione, e il foglio quando non ne resta nessuno.
+Sotto i 768 px un livello SHALL aprirsi come foglio dal basso.
+
+Un clic su zoom o dispositivo della pagina NON SHALL chiudere il livello: sono
+comandi che si premono due volte di seguito. Un clic su una voce d'azione SHALL
+chiudere il foglio ed eseguirla.
+
+#### Scenario: il primo livello di una tab browser
+- **GIVEN** una tab browser di primo livello, in un gruppo con tre tab, con split disponibili e un agente che non guida
+- **WHEN** l'utente apre il foglio col tasto destro
+- **THEN** sotto la testata ci sono al più 11 righe
+- **AND** ci sono le righe di livello Pagina, Strumenti, Sessione, Tab e Disposizione, in quest'ordine
+- **AND** la riga Pagina dice in coda lo zoom e il dispositivo
+
+#### Scenario: tutto da tastiera
+- **GIVEN** una tab col fuoco
+- **WHEN** l'utente preme Shift+F10, scende con le frecce fino a Disposizione e preme freccia destra
+- **THEN** il livello Disposizione è aperto di lato e il fuoco è sulla sua prima voce
+- **WHEN** preme Esc
+- **THEN** il livello è chiuso, il foglio è aperto e il fuoco è sulla riga Disposizione
+- **WHEN** preme di nuovo Esc
+- **THEN** il foglio è chiuso e il fuoco è sulla tab
+
+#### Scenario: un livello con una voce sola
+- **GIVEN** una tab il cui livello Tab avrebbe una sola voce
+- **WHEN** l'utente apre il foglio
+- **THEN** quella voce sta al primo livello e non c'è nessuna riga di livello Tab
+
+#### Scenario: zoom due volte di seguito
+- **GIVEN** il livello Pagina aperto, zoom al 100%
+- **WHEN** l'utente preme due volte «+»
+- **THEN** lo zoom è al gradino dopo il successivo e il livello è ancora aperto
+
+### Requirement: TABSHEET-03 — Ogni voce di oggi ha UN posto, e nessuna è scritta due volte
+
+Il foglio della tab SHALL offrire, per ogni tipo di tab, tutti i comandi che
+offrivano il menu a tendina della tab e il foglio della tab browser prima di
+questa modifica, ciascuno in un posto solo:
+
+| Tipo | Testata | Primo livello | Livelli |
+|------|---------|---------------|---------|
+| browser | indirizzo; Indietro, Avanti, Ricarica, Copia indirizzo, Apri nel browser di sistema; suggerimenti solo dalle porte dell'indirizzo | Riprendi il controllo, Riporta nella chat, Apri nel progetto, Torna alla chat che ha aperto questo browser (ognuna solo dove esiste); Cerca nella pagina; Chiudi (solo sulle tab chiudibili, come la X); Chiudi le altre (con più di una tab) | Pagina: Zoom della pagina, Dispositivo, Dimentica questo sito… · Strumenti: Console, Download, DevTools · Sessione: Condivisione, Motore, Resa · Tab: Rinomina, Fissa, Copia link alla tab · Disposizione |
+| chat | nome e stato | Interrompi il turno (solo mentre lavora), Cerca nella chat, Impostazioni della chat, Chiudi (solo sulle tab chiudibili, come la X), Chiudi le altre (con più di una tab) | Tab · Disposizione, con in più Sposta in una nuova finestra |
+| terminale | nome | Ricarica, Cerca, Chiudi (solo sulle tab chiudibili, come la X), Chiudi le altre (con più di una tab) | Tab · Disposizione |
+| progetto e utilità | nome | Cerca (se la pane ha un cercatore), Chiudi (solo sulle tab chiudibili, come la X), Chiudi le altre (con più di una tab) | Tab: Fissa il progetto, Fissa questa tab, Copia link · Disposizione |
+
+Disposizione SHALL contenere, dove hanno effetto: Ingrandisci o Riduci,
+Ingrandisci solo questa, Dividi a destra, Dividi in basso, Reimposta pannelli,
+Sposta nel gruppo (un livello con i gruppi e Nuovo gruppo), Sposta in una cella
+separata o Riporta nel pannello principale, Stacca il gruppo in una nuova
+finestra.
+
+«Copia indirizzo» SHALL essere l'unico comando che copia l'indirizzo della
+pagina. «Chiudi» SHALL chiudere subito; la chiusura con il conto alla rovescia
+SHALL restare solo sulla X della tab. «Chiudi» SHALL comparire solo sulle tab
+chiudibili, con lo stesso cancello della X: una pane strutturale, che la barra
+riceve fra le non chiudibili (`nonClosablePaneIds`) e che non ha la X, NON SHALL
+offrire «Chiudi» nel foglio. Lo zoom della pagina SHALL chiamarsi «Zoom
+della pagina» e quello della cella «Ingrandisci».
+
+Ogni parola del foglio SHALL venire dai cataloghi delle due lingue, compresi i
+nomi dei livelli e le code di stato.
+
+#### Scenario: niente si perde su una tab browser
+- **GIVEN** una tab browser di primo livello con split disponibili e più tab nel gruppo
+- **WHEN** l'utente apre il foglio col tasto destro e apre un livello alla volta
+- **THEN** Fissa, Cerca, Rinomina, Copia link alla tab, Copia indirizzo, Chiudi, Chiudi le altre, Ingrandisci, Dividi a destra, Dividi in basso, Reimposta pannelli, Sposta nel gruppo, Indietro, Avanti, Ricarica, Console, Zoom della pagina, Dispositivo e Dimentica questo sito… sono ciascuno raggiungibile
+- **AND** nessuna voce che copia l'indirizzo della pagina compare due volte
+
+#### Scenario: una chat che lavora
+- **GIVEN** una tab di chat il cui turno è in corso
+- **WHEN** l'utente apre il foglio col tasto destro
+- **THEN** «Interrompi il turno» è al primo livello
+- **WHEN** il turno finisce e l'utente riapre il foglio
+- **THEN** «Interrompi il turno» non c'è
+
+#### Scenario: chiudere dal foglio
+- **GIVEN** il foglio aperto su una tab chiudibile
+- **WHEN** l'utente sceglie «Chiudi»
+- **THEN** la tab sparisce dalla barra senza conto alla rovescia e il foglio è chiuso
+- **AND** il foglio non offre nessuna voce di chiusura col conto alla rovescia
+
+#### Scenario: una tab che non si chiude
+- **GIVEN** una pane strutturale fra le non chiudibili della sua barra, la cui tab non ha la X
+- **WHEN** l'utente apre il foglio di quella tab col tasto destro
+- **THEN** il foglio non offre «Chiudi»
+- **AND** la tab è ancora nella barra dopo che il foglio si è chiuso
+
+#### Scenario: in inglese
+- **GIVEN** la lingua dell'app è l'inglese
+- **WHEN** l'utente apre il foglio di una tab chat e il livello Tab
+- **THEN** nessuna voce, nome di livello o coda è in italiano
+
+### Requirement: TABSHEET-04 — La finestrella della topic e il titolo sul telefono aprono lo stesso foglio
+
+Le schede della barra della finestra browser della topic (`TOPIC-BROWSER-01`)
+SHALL aprire il foglio della tab browser: un clic sulla scheda attiva dalle porte
+dell'indirizzo, il tasto destro e la pressione lunga dalla porta dei comandi. In
+quel foglio «Apri come tab» SHALL stare al primo livello al posto di «Riporta
+nella chat», e i livelli Tab e Disposizione NON SHALL esserci. «Chiudi» SHALL
+chiudere la scheda.
+
+Sotto i 768 px la pressione lunga e il tasto destro sul titolo della superficie
+in primo piano SHALL aprire il foglio di quella superficie come foglio dal basso,
+con le voci del suo tipo tranne Disposizione, e bersagli di almeno 44 px.
+
+#### Scenario: una scheda della finestrella
+- **GIVEN** una topic con la finestra browser minimizzata su due schede
+- **WHEN** l'utente fa tasto destro sulla seconda scheda
+- **THEN** il foglio della tab di quella scheda è aperto, con «Apri come tab» al primo livello e senza Disposizione
+- **WHEN** sceglie «Apri come tab»
+- **THEN** compare una pane `[data-browser-pane]` nel layout con lo stesso `contextId` e la finestra elenca solo la prima scheda
+
+#### Scenario: il titolo sul telefono
+- **GIVEN** un viewport largo 390 px con una chat in primo piano
+- **WHEN** l'utente tiene premuto il titolo
+- **THEN** il foglio della chat si apre dal basso a tutta larghezza, con Chiudi, Impostazioni della chat e il livello Tab
+- **AND** nessun bersaglio è più basso di 44 px e non c'è Disposizione
+
+### Requirement: TABPOS-01 — Le tab stanno in un posto solo, sopra o di lato
+
+Le tab di primo livello SHALL comparire in UN posto solo: nella colonna (default)
+o nella barra in alto, a scelta dal menu Vista. Con le tab di lato la barra in
+alto NON SHALL esserci, nemmeno a colonna chiusa (25/11: «è o una o l'altra»), e
+ciò che serviva della barra SHALL restare raggiungibile dalla riga del titolo: il
+foglio della tab con Disposizione, il «+» che aggiunge nella cella, la chiusura.
+A colonna chiusa la riga del titolo SHALL tenere la superficie davanti e il
+bottone che riapre la colonna.
+
+#### Scenario: il default
+- **GIVEN** un client che non ha mai toccato il menu Vista e due chat aperte
+- **THEN** nessun `panel-tab-bar` è visibile e le due chat sono righe della colonna con lo sfondo delle tab aperte
+- **WHEN** la colonna si chiude
+- **THEN** nessun `panel-tab-bar` compare e la riga del titolo tiene la tab davanti
+
+### Requirement: TABPOS-02 — Ogni tab ha tre stati: aperta, chiusa, archiviata
+
+Chiudere una tab di primo livello (chat, progetto, terminale, browser, pagina di
+utilità) SHALL lasciarne la riga nella colonna senza sfondo, con UN gesto solo.
+Un clic sulla riga chiusa SHALL riaprire la tab al suo posto; il cerchio della
+riga chiusa SHALL archiviarla, e la riga SHALL uscire dalla colonna. Con
+«Chiudere una tab la archivia» acceso dal menu Vista, chiudere SHALL archiviare
+come prima. Una chat chiusa DENTRO una finestra di progetto SHALL restare sotto
+il suo progetto come riga chiusa, non archiviata. Una chat chiusa il cui record
+esce dalla pila delle chiuse (50) SHALL essere archiviata, così sta
+nell'archivio e non sparisce fra i due.
+Le tab di una finestra di progetto, nell'albero e nella fascia di una fissata,
+SHALL avere gli stessi due aspetti: aperta con lo sfondo, chiusa senza; la
+fascia SHALL NOT dipingere un riquadro sotto le sue righe, e le sue righe SHALL
+avere lo stesso passo di quelle dell'albero.
+Una riga chiusa SHALL restare senza sfondo anche sotto il puntatore: lo
+sfondo dice «aperta», e nessuno stato della riga chiusa lo prende in prestito.
+
+#### Scenario: una chat di progetto chiusa resta sotto il progetto
+- **GIVEN** una chat aperta dentro la finestra del suo progetto, con le opzioni di default
+- **WHEN** l'utente preme il cerchio della sua riga
+- **THEN** la riga resta sotto il progetto con il cerchio che archivia, e la chat non è archiviata
+
+#### Scenario: dentro una fissata, solo le tab aperte hanno lo sfondo
+- **GIVEN** un progetto fissato con due chat aperte, la sua fascia aperta
+- **THEN** la fascia non ha sfondo, le due righe sono `open` con lo sfondo e distano 6px
+- **WHEN** l'utente preme il cerchio della seconda
+- **THEN** la riga diventa `closed` senza sfondo, la prima resta con lo sfondo e la chat non è archiviata
+
+#### Scenario: chiudi, riapri, archivia
+- **GIVEN** due chat aperte, con le opzioni di default
+- **WHEN** l'utente preme il cerchio della seconda riga
+- **THEN** la riga resta con `data-tab-state="closed"`, la tab non è più aperta e la chat non è archiviata
+- **WHEN** clicca la riga
+- **THEN** la riga torna `open`
+- **WHEN** la chiude di nuovo e preme il cerchio della riga chiusa
+- **THEN** la riga esce dalla colonna e la chat è archiviata
+
+#### Scenario: la riga chiusa sotto il puntatore
+- **GIVEN** due chat aperte, la seconda chiusa dal cerchio
+- **WHEN** il puntatore sta sulla riga chiusa
+- **THEN** la riga non ha sfondo, mentre quella aperta sotto il puntatore lo ha
+
+### Requirement: TABPOS-03 — Le fissate si aprono da sole e non si chiudono
+
+Una tab fissata SHALL essere aperta al caricamento, e NON SHALL chiudersi: il suo
+foglio NON SHALL offrire Chiudi (resta «Rimuovi dai Fissati»), e ⌘W nella app
+SHALL lasciarla aperta con un avviso che dice di rimuoverla dai Fissati. Con
+«Le fissate si possono chiudere» acceso dal menu Vista, si chiudono come le
+altre e non si riaprono da sole.
+
+#### Scenario: chiudere una fissata
+- **GIVEN** una chat fissata e nessuna tab aperta
+- **WHEN** l'app si carica
+- **THEN** la chat fissata è aperta
+- **WHEN** l'utente la mette in primo piano e apre il foglio del titolo
+- **THEN** il foglio non ha Chiudi in nessun livello, ha «Rimuovi dai Fissati», e la tab resta aperta
+
+### Requirement: TABPOS-04 — Le righe stanno nell'ordine dato a mano
+
+Le righe della colonna SHALL stare nell'ordine in cui l'utente le trascina, e
+l'ordine SHALL sopravvivere a un ricaricamento e viaggiare fra i dispositivi con
+lo stato della sidebar. Una riga che l'ordine non conosce ancora (una tab appena
+aperta) SHALL andare in cima. Una riga che chiede attenzione NON SHALL saltare
+in cima: si accende dove sta.
+
+#### Scenario: trascina e ricarica
+- **GIVEN** tre chat aperte, in colonna nell'ordine A, B, C
+- **WHEN** l'utente trascina C sul bordo alto di A
+- **THEN** la colonna mostra C, A, B
+- **WHEN** ricarica la pagina
+- **THEN** la colonna mostra ancora C, A, B
+
+### Requirement: SPLIT-01 — Un trascinamento divide da qualunque sorgente
+
+The grid and the project window SHALL read one intent from the drop zone, whatever the source (column row, tab, pinned tile, cell header): a cell edge splits on that side, the cell centre shows the pane there, the surface edge inserts a full row or column. A drag that starts in the column SHALL split on an edge exactly like a tab does, opening the pane first when it is closed. No drop SHALL close a pane.
+
+#### Scenario: dalla colonna al bordo destro
+- **GIVEN** three open chats, tabs on the side, one cell
+- **WHEN** the user drags the row of Beta onto the right edge of the grid
+- **THEN** the grid has two cells side by side with Beta on the right and one divider
+
+### Requirement: SPLIT-02 — L'anteprima è l'impronta della pane, con il suo nome
+
+During a drag exactly one indicator SHALL be painted: on an edge, the area the pane will occupy, carrying the icon and name of the dragged item; on the centre, an outline of the cell without a fill. An edge that would exceed the column, row or stack cap (`constants.ts`) SHALL NOT be offered.
+
+#### Scenario: impronta sul bordo destro
+- **GIVEN** a grid with one cell
+- **WHEN** the user holds a dragged row over the right edge
+- **THEN** the preview covers the right half of the cell and shows the row's name
+
+### Requirement: SPLIT-03 — Una cella divisa dice cosa contiene e chi ha il fuoco
+
+When a surface holds more than one cell and the tabs are on the side, every cell SHALL carry a header with the pane's icon and name, the header of the focused cell SHALL be lit, a click on a header SHALL focus its cell, and the header SHALL drag like a tab. With one cell the header SHALL be lit for no cell and carry no cell commands. Cells SHALL be counted on screen: a cell the saved layout keeps for a closed pane SHALL NOT make a lone pane a split cell.
+
+With the tabs on the side the title of the pane in front SHALL be its tab, in a split or alone: the same tab the strip draws, alone, so everything a tab shows comes with it (a browser's icon and commands, the countdown of a close, the loaders and badges); at rest it SHALL read as a title with no fill, under the pointer it SHALL take the tab's fill, and it SHALL drag into a split. A project's window SHALL then draw no bar of its own while it holds one group: its tabs are rows of the column, the project's commands SHALL sit on the title row with the column open or closed, with no "+" (the project's row in the column has it) and with their badges whole, and its body SHALL start under the title with no empty band. The column's sections SHALL be islands: each a card of its own, the column with no ground or edge of its own.
+
+#### Scenario: due celle, due testate
+- **GIVEN** a grid split in two with tabs on the side
+- **THEN** each cell shows a header with its pane's name and only the focused one is lit
+
+#### Scenario: a cell kept for a closed pane
+- **GIVEN** one open chat and a saved layout that still names a cell for a closed one
+- **THEN** no title is lit and none carries the cell commands
+
+#### Scenario: a project's window has only its title
+- **GIVEN** the tabs on the side and a project in front, with a chat open inside and its column closed
+- **THEN** the window shows no tab of its own, the project's commands sit on the title row and no "+" does
+- **WHEN** the pointer is on the title
+- **THEN** the title takes the tab's fill
+- **WHEN** the title is dragged to the right edge of a chat beside it
+- **THEN** the project lands on the right of that chat
+
+#### Scenario: the column open keeps the commands on the title
+- **GIVEN** the tabs on the side and a project in front with its column open
+- **THEN** the project's commands sit on the title row, the toggle says the column is open, and each section of the column is a rounded card
+- **WHEN** a section's command is pressed
+- **THEN** that section opens or closes
+
+#### Scenario: the title is the real tab
+- **GIVEN** the tabs on the side and a browser in front
+- **THEN** its title carries the browser tab's menu and commands
+- **WHEN** a chat is in front and its close is pressed on the title
+- **THEN** the title keeps that chat and shows the countdown, and a second press cancels it
+- **WHEN** the countdown runs out
+- **THEN** the title moves to the tab left
+
+### Requirement: SPLIT-04 — I divisori si usano da tastiera
+
+Every split divider SHALL be focusable, expose its position as `aria-valuenow` (percent of the band), move by 5% per arrow key (1% with Shift) and even out its band on Enter, as it does on double-click.
+
+#### Scenario: freccia destra
+- **GIVEN** two cells side by side at 50%
+- **WHEN** the divider has focus and the user presses ArrowRight
+- **THEN** the left cell is at 55% and the divider reports 55
+
+### Requirement: SPLIT-05 — Disposizione sta in ogni foglio
+
+The sheet of a column row, a tab, the title and a cell header SHALL offer Split right, left, down and up, Zoom, Even out and Remove from split whenever the action applies; a row whose pane is not open SHALL offer Open on the right and Open below.
+
+#### Scenario: foglio della riga
+- **GIVEN** tabs on the side and an open chat that shares its cell
+- **WHEN** the user opens the sheet of its row
+- **THEN** the Layout level lists the four split directions, Zoom, Even out and Remove from split
+
+### Requirement: SPLIT-06 — Il fuoco passa fra le celle da tastiera
+
+Cmd+Option+Arrow SHALL move the focus to the nearest cell in that direction, measured on the cells' geometry; with no cell in that direction nothing SHALL change.
+
+#### Scenario: a destra e poi sotto
+- **GIVEN** two cells side by side and one below
+- **WHEN** the user presses Cmd+Option+ArrowRight then Cmd+Option+ArrowDown
+- **THEN** the focus moves to the right cell and then to the one below
+
+### Requirement: SPLIT-07 — Gli split di un progetto hanno la loro mini mappa
+
+A project row in the column SHALL show the mini map of the splits inside its project window, with the active cell lit, whenever that window holds more than one cell.
+
+#### Scenario: progetto diviso in due
+- **GIVEN** a project window split in two
+- **THEN** the project's row shows a two-cell mini map with the active cell lit

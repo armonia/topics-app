@@ -11,6 +11,7 @@ const FILL = {
  * How far a piece of work has gone: an optional line of words (what, and how
  * much in the caller's terms) over a thin bar. `value` runs from 0 to 1 and is
  * clamped, so a job that overshoots never draws past the end.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
  */
 export function ProgressBar({ value, tone = 'blue', label, detail, className }: {
   value: number;

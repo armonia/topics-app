@@ -94,7 +94,7 @@ for (const device of [
         await resetProjectPanes(request, projectPath);
         await seedProjectPane(request, projectPath);
         await request.put('/api/ui-state/settings', { data: { language: device.locale } });
-        await page.addInitScript((language) => localStorage.setItem('app-settings', JSON.stringify({ language })), device.locale);
+        await page.addInitScript((language) => localStorage.setItem('app-settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('app-settings') ?? '{}'), language })), device.locale);
         await mockModels(page);
         await page.goto(`/task/${task.id}`);
         const drawer = page.getByTestId('task-detail-drawer');

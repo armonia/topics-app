@@ -19,6 +19,7 @@
  * can say "hub down" instead of keeping numbers that stopped being true.
  */
 
+import type { WaitingStore } from "../attention/waiting-items";
 import { HUB_LIVE_TOPICS, type HubLiveTopic, type HubLiveEntry } from "../../shared/hub-live";
 export { HUB_LIVE_TOPICS };
 export type { HubLiveTopic, HubLiveEntry };
@@ -207,6 +208,8 @@ export interface HubLiveDeps {
   intervalMs?: number;
   timeoutMs?: number;
   now?: () => number;
+  /** Topics' own «waiting for you» inbox: the hub's list is ingested into it and the bell shows its list. */
+  waiting?: WaitingStore;
 }
 
 export const HUB_LIVE_INTERVAL_MS = 15_000;
@@ -229,6 +232,11 @@ export function createHubLive(deps: HubLiveDeps) {
       if (!resp.ok) return { error: `hub answered ${resp.status} on /api/${path}` };
       const raw = await resp.text();
       const parsed: unknown = JSON.parse(raw); // a non-JSON 200 is a broken hub, not data
+      if (topic === "attesa" && deps.waiting) {
+        const hubItems = (parsed as { items?: unknown } | null)?.items;
+        if (Array.isArray(hubItems)) deps.waiting.ingestHubItems(hubItems);
+        return { body: JSON.stringify({ ...(parsed as object), items: deps.waiting.list() }) };
+      }
       const shape = HUB_LIVE_SHAPES[topic];
       return { body: shape ? JSON.stringify(shape(parsed)) : raw };
     } catch (err) {

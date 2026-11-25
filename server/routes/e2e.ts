@@ -134,9 +134,12 @@ import { partialTurnRows } from "../lib/partial-turn-fixture";
 import { setInjectedSwapFreezeViews } from "../lib/swap-freeze-hold";
 import { setBenchStaleTimeout, setBenchStaleTick } from "../lib/stale-stream-sweep";
 import { setBenchEndedTtl } from "../lib/live-work";
+import { setChildPhase, type SubAgentPhase } from "../lib/subagent-runtime";
+import { broadcastTerminalSessions } from "./terminal-shared";
 import { __resetPendingForTests } from "./auth";
 import { reloadAttentionTable } from "../attention/store";
 import type { SwapFreezeView } from "../../shared/swap-freeze";
+import { setReasoningHelperOverride } from "../reasoning-translation/default";
 
 /** The `sleep` children `POST /api/test/session-usage` spawned (a bun process holding memory), by session key. */
 const e2eSessionChildren = new Map<string, { pid: number; kill: () => void }>();
@@ -508,6 +511,26 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
       return json({ ok: true, ttlMs: ms });
     }
 
+    // POST /api/test/subagent-phase {id, phase} - a running native child's phase,
+    // as its own code sets it (`setChildPhase`).
+    //
+    // `waiting-results` is the strip's `awaiting`: a child whose turn closed and
+    // that waits on a grandchild or a command. Reaching it for real takes a
+    // model that delegates and a grandchild that outlives the turn, which a
+    // fake Anthropic can script but a spec about the STRIP would then depend
+    // on. The state is the thing under test, so it is staged here, through the
+    // same function the runtime calls. The windows read the strip again on the
+    // frame that follows a phase (`terminal:sessions`; in life the turn's own end
+    // carries it), so the verb sends it: a phase alone moves no window.
+    if (method === "POST" && pathname === "/api/test/subagent-phase") {
+      const body = (await req.json().catch(() => null)) as { id?: string; phase?: SubAgentPhase } | null;
+      const phases: SubAgentPhase[] = ["waiting-prompt", "working", "waiting-results", "finished"];
+      if (!body?.id || !body.phase || !phases.includes(body.phase)) return json({ error: "id and a known phase required" }, 400);
+      setChildPhase(body.id, body.phase);
+      broadcastTerminalSessions();
+      return json({ ok: true });
+    }
+
     // POST /api/test/dispatch-hold {ms} — holds the periodic reconcile.
     //
     // The necessary twin of `bind-topic`: that verb stages a task with an agent
@@ -540,6 +563,19 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
       }
       removeProvider("topics");
       return json({ ok: true, connected: false });
+    }
+
+    // POST /api/test/reasoning-helper {path} | {path: null}
+    //
+    // Points the reasoning translation at a fake helper executable, so a spec
+    // exercises the real server (segmentation, cache, frames) with a translator
+    // that answers the same on every machine. The fake sits at the process
+    // boundary, where the Swift helper would; `{path: null}` puts the real
+    // adapter back so the specs after it see the bench as it booted.
+    if (method === "POST" && pathname === "/api/test/reasoning-helper") {
+      const body = (await req.json().catch(() => null)) as { path?: string | null } | null;
+      setReasoningHelperOverride(typeof body?.path === "string" ? body.path : null);
+      return json({ ok: true });
     }
 
     // POST /api/test/plan-usage {fiveHour, sevenDay} | {clear: true}

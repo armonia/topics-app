@@ -1,4 +1,3 @@
-import { TASK_STATUSES, type TaskStatus } from "./board";
 import { awaitsHuman } from "./workflow";
 
 /** Il minimo che serve alla tray: il contratto della card sta in `board.ts`,
@@ -8,7 +7,7 @@ export interface TrayTaskInput {
   text: string;
   status: string;
   projectId: string;
-  /** The workflow column (`shared/workflow.ts`): AI review is not a person's. */
+  /** The workflow column (`shared/workflow.ts`): the CI column is not a person's. */
   stage?: string | null;
   /** Agent time so far, subtask progress: what a card in progress says about its countdown. */
   agentMs?: number;
@@ -113,8 +112,8 @@ export function trayBoardGroups(
   const out: TrayGroup[] = opts.lit ? trayLitGroups(opts.lit, { rowsPerGroup: perGroup }) : [];
   for (const status of TRAY_GROUP_ORDER) {
     if (opts.lit && status === "review") continue;
-    // The review group is what waits on a PERSON: a card in AI review goes back
-    // to whoever opened it, so it is not in the menu (`awaitsHuman`).
+    // The review group is what waits on a PERSON: a card in the CI column waits
+    // on the integration queue, so it is not in the menu (`awaitsHuman`).
     const miei = tasks.filter((t) => (status === "review" ? awaitsHuman(t) : t.status === status));
     if (miei.length === 0) continue;
     out.push({
@@ -152,17 +151,6 @@ export function trayLitGroups(
   }
   return out;
 }
-
-/** Il totale che va sul glifo: le righe che chiedono qualcosa a un umano. */
-export function trayBoardAttention(groups: readonly TrayGroup[]): number {
-  return groups
-    .filter((g) => (TRAY_LIT_REASONS as readonly string[]).includes(g.status))
-    .reduce((n, g) => n + g.count, 0);
-}
-
-/** Gli stati che la tray NON mostra, dichiarati invece che dedotti dal filtro. */
-export const TRAY_HIDDEN_STATUSES: readonly TaskStatus[] =
-  TASK_STATUSES.filter((s): s is TaskStatus => !(TRAY_GROUP_ORDER as readonly string[]).includes(s));
 
 /** The agents of the menu-bar strip, counted by state (card 066276b6). */
 export interface TrayAgentStates {

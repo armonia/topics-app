@@ -26,10 +26,15 @@ import IT from './i18n-it';
 import EN from './i18n-en';
 import { PERMISSION_HINT_KEY, PERMISSION_LABEL_KEY } from '../../../shared/permission-decision';
 import { INPUT_LOSS_MESSAGE_KEY } from '../components/Terminal/inputQueue';
-import { QUEUE_REASON_KINDS, queueReasonKeys } from '../../../shared/board';
+import { QUEUE_REASON_MESSAGE_KEYS, type QueueReasonKind } from '../../../shared/board';
+
 import { DISPATCH_CHIP } from '../components/Board/constants';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+const queueReasonKeys = (kind: QueueReasonKind): string[] =>
+  QUEUE_REASON_MESSAGE_KEYS[kind].flatMap((base) => [`${base}.head`, `${base}.detail`, `${base}.title`]);
+const QUEUE_REASON_KINDS = Object.keys(QUEUE_REASON_MESSAGE_KEYS) as QueueReasonKind[];
 
 const both = (key: string): { it: string | undefined; en: string | undefined } => ({
   it: IT[key],
@@ -145,8 +150,8 @@ describe('browser pane context menu: nine entries, two languages', () => {
 
 describe('queue reason chip: every branch the server can pick is writable', () => {
   it('each kind has head, detail and title in both catalogues', () => {
-    // The list is exhaustive by construction (`QUEUE_REASON_KINDS` is the same
-    // union the dispatcher switches on), so a new branch cannot land with a
+    // The list is exhaustive by construction (the keys of `QUEUE_REASON_MESSAGE_KEYS`, a
+    // Record over the union the dispatcher switches on), so a new branch cannot land with a
     // chip nobody can read.
     for (const kind of QUEUE_REASON_KINDS) {
       for (const key of queueReasonKeys(kind)) {

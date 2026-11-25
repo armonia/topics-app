@@ -35,6 +35,7 @@ import {
 } from './closedTabRecord';
 import { tracePaneAttach } from '../../../lib/paneAttachTrace';
 import { apiFetch } from '../../../lib/shell/net';
+import { isNestedInTopicsPane } from '../../../lib/shell/nestedPane';
 
 // Only a close within this window drives a LIVE eviction (mirrors the tombstone
 // store's own TTL). Bounds the blast radius: a stale marker can't reach across
@@ -112,6 +113,8 @@ function parseEntries(value: unknown): TombstoneEntry[] | null {
 }
 
 async function putWithRetry(uiKey: string, json: string): Promise<void> {
+  // Nested in a Topics pane: a read-only mirror, never writes tombstones.
+  if (isNestedInTopicsPane()) return;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const res = await apiFetch(`/api/ui-state/${encodeURIComponent(uiKey)}`, {
@@ -139,7 +142,7 @@ async function putWithRetry(uiKey: string, json: string): Promise<void> {
 
 /** Debounced publish of the current local set for `kind`. No-op mid-merge. */
 function publish(kind: TombstoneKind): void {
-  if (applyingRemote) return;
+  if (applyingRemote || isNestedInTopicsPane()) return;
   const uiKey = UI_KEY[kind];
   const json = serializeKind(kind);
   if (json === lastSyncedJson.get(uiKey)) return;
@@ -163,6 +166,7 @@ function publish(kind: TombstoneKind): void {
  * same durability idiom as projectChannelSync's pagehide flush.
  */
 function flushPendingOnTeardown(): void {
+  if (isNestedInTopicsPane()) return;
   for (const [uiKey, timer] of [...debounceTimers]) {
     clearTimeout(timer);
     debounceTimers.delete(uiKey);
@@ -295,7 +299,9 @@ export function __getUnackedTombstoneSyncKeys(): string[] {
 }
 /** Test-only: the live cross-device browser-close eviction (see the function's
  *  own docstring). Exposed so a unit test can drive it against the pane store
- *  singleton without reconstructing the WS frame path. */
+ *  singleton without reconstructing the WS frame path.
+ * @internal
+ */
 export function __evictRemotelyClosedBrowserPanesForTests(entries: TombstoneEntry[]): void {
   evictRemotelyClosedBrowserPanes(entries);
 }

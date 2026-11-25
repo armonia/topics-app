@@ -21,6 +21,12 @@ const TASKS: BoardTask[] = [
 ];
 
 describe('boardTabCounts', () => {
+  test('a parent board with merged projects (accorpa) counts the family, not the others', () => {
+    expect(boardTabCounts(TASKS, ['topics-a1b2', 'quadra-c3d4'])).toEqual([{ status: 'review', n: 3 }, { status: 'in_progress', n: 1 }]);
+    expect(boardTabCounts(TASKS, ['quadra-c3d4'])).toEqual([{ status: 'review', n: 1 }]);
+    expect(boardTabCounts(TASKS, 'quadra-c3d4')).toEqual([{ status: 'review', n: 1 }]);
+  });
+
   test('conta gli stati riassunti su tutti i progetti', () => {
     expect(boardTabCounts(TASKS)).toEqual([
       { status: 'review', n: 3 },
@@ -63,7 +69,7 @@ describe('boardTabCounts', () => {
   test('review counts what waits on a PERSON, steps included: a parent in backlog says its steps', () => {
     const tasks = [
       { projectId: 'p', status: 'review' } as BoardTask,
-      { projectId: 'p', status: 'review', stage: 'ai_review' } as BoardTask,
+      { projectId: 'p', status: 'review', stage: 'ci' } as BoardTask,
       { projectId: 'p', status: 'backlog', subtaskReviewCount: 3 } as BoardTask,
     ];
     expect(boardTabCounts(tasks)).toEqual([{ status: 'review', n: 4 }]);

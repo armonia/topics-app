@@ -458,6 +458,7 @@ function applyRemote(taskId: string, value: unknown, seq?: number | null): boole
  *
  * `forgetTaskTabs` da solo non basta: pulisce un task per volta, e per pulire
  * bisognerebbe sapere quali task ha creato qualcun altro.
+ * @internal
  */
 export function __resetTaskTabs(): void {
   writes.cancelAll();

@@ -10,30 +10,10 @@
  * @covers STATUSLINE-01
  */
 import { describe, expect, test } from 'bun:test';
-import { CHIP_TARGET_PX, ORG_MARKS_IN_CHIP, chipClass } from './identityChip';
-import { ROW_H } from '../../lib/selectionStyles';
+import { ORG_MARKS_IN_CHIP, chipClass, meRowClass } from './identityChip';
+import { ROW_GAP, ROW_H, ROW_PX, sidebarRowCard } from '../../lib/selectionStyles';
 
 describe('the chip box', () => {
-  // THE HEIGHT COMES FROM THE ROW FAMILY, the one the pinned tiles above the
-  // band use. This is the test that fails when somebody gives the band a
-  // measure of its own again, which is how it drifted ten pixels under the
-  // tiles the first time.
-  test('a chip is as tall as a row, on both pointer families', () => {
-    for (const filled of [true, false]) {
-      expect(chipClass(filled)).toContain(ROW_H);
-    }
-    // The mouse half of that constant is the number the e2e measures, so the
-    // two have to be the same 34 and not two numbers that happen to agree.
-    expect(ROW_H).toContain(`${CHIP_TARGET_PX}px`);
-  });
-
-  // Tailwind reads the SOURCE, so the width floor is a literal in the class
-  // string and the constant is a second copy of it. Same drift, same net.
-  test('the width floor is in the class', () => {
-    for (const filled of [true, false]) {
-      expect(chipClass(filled)).toContain(`min-w-[${CHIP_TARGET_PX}px]`);
-    }
-  });
 
   test('full and empty are the same box: only the fill changes', () => {
     const box = (cls: string) => cls.split(' ').filter((c) => !c.includes('bg-') && !c.includes('border-'));
@@ -58,6 +38,23 @@ describe('the chip box', () => {
     // sidebar hover token unusable here.
     expect(chipClass(true)).toContain('hover:bg-black/[0.10]');
     expect(chipClass(true)).not.toContain('hover:bg-black/[0.05]');
+  });
+});
+
+describe('your own card is a row', () => {
+  // 25/11: the user button with the Sistema row's height and spacing, and no
+  // ground unless it is active. Sistema is `sidebarRowCard({ focused: open })`.
+  const resting = (cls: string) => cls.split(' ').filter((c) => /(^|:)bg-/.test(c) && !c.includes('hover:'));
+
+  test("the row's box: height, padding, gap, no border", () => {
+    for (const token of [ROW_H, ROW_PX, ROW_GAP]) expect(meRowClass(false)).toContain(token);
+    expect(meRowClass(false)).not.toMatch(/(?:^|\s)border(?:\s|$)/);
+  });
+
+  test('no ground at rest, the selected row\'s while its menu is open', () => {
+    expect(resting(meRowClass(false))).toEqual([]);
+    expect(resting(meRowClass(true))).toEqual(resting(sidebarRowCard({ focused: true })));
+    expect(meRowClass(true)).toContain('edge-lit');
   });
 });
 

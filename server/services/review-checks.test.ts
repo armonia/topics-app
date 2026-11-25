@@ -16,7 +16,6 @@ import {
   runReviewChecks,
   serializeReviewChecks,
   failureTail,
-  tailOf,
   MAX_CHECKS,
   NOT_MEASURED_EXIT,
   type CheckRun,
@@ -86,18 +85,6 @@ describe("serializeReviewChecks", () => {
   test("lista vuota = NULL, cioè gate spento", () => {
     expect(serializeReviewChecks([])).toBeNull();
     expect(serializeReviewChecks([{ name: "x", cmd: "  " }])).toBeNull();
-  });
-});
-
-describe("tailOf", () => {
-  test("tiene la coda, che è dove sta l'errore", () => {
-    const text = Array.from({ length: 100 }, (_, i) => `riga ${i}`).join("\n");
-    const tail = tailOf(text, 3);
-    expect(tail).toBe("riga 97\nriga 98\nriga 99");
-  });
-
-  test("output corto resta intero", () => {
-    expect(tailOf("solo questa\n", 10)).toBe("solo questa");
   });
 });
 
@@ -185,10 +172,6 @@ describe("failureTail", () => {
     expect(failureTail(once, 6)).toBe(once);
   });
 
-  test("with no noise it behaves exactly like the plain tail", () => {
-    const text = Array.from({ length: 100 }, (_, i) => `riga ${i}`).join("\n");
-    expect(failureTail(text, 3)).toBe(tailOf(text, 3));
-  });
 });
 
 describe("runReviewChecks", () => {
@@ -494,6 +477,14 @@ describe("formatChecksComment", () => {
 
   test("nessun comando dichiarato non è un verde", () => {
     expect(formatChecksComment([])).not.toContain("verdi");
+  });
+
+  test("un SALTATO e' verde (non blocca la review) ma non si spaccia per una misura", () => {
+    const skipped: CheckRun = { name: "unit-ci", cmd: "github-ci:unit", ok: true, code: 0, ms: 0, timedOut: false, skipped: true, tail: "SKIPPED: no commit of its own" };
+    const out = formatChecksComment([green, skipped]);
+    expect(out).toContain("verdi");
+    expect(out).toContain("saltato");
+    expect(out).not.toContain("0ms");
   });
 });
 

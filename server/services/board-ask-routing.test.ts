@@ -10,6 +10,7 @@
 // arrivare al rendez-vous DELLA FIGLIA. Il test guarda entrambe le sponde: se la
 // risposta tornasse al coordinatore invece che alla figlia, il thread sarebbe
 // giusto e la sessione resterebbe ferma per sempre.
+import { join } from "node:path";
 import { test, expect, describe, beforeEach } from "bun:test";
 import { AskWaitError, beginAsk, cancelAsk, endAsk, waitForAnswer } from "../lib/ask-user-bridge";
 import { Database } from "bun:sqlite";
@@ -54,10 +55,10 @@ function harness(db: Database, svc: TaskService) {
     delivered,
     deps: {
       db,
-      comment: (a: { taskId: string; projectId: string; content: string; options: string[] }) => {
+      comment: (a: { taskId: string; projectId: string; content: string; options: string[]; media?: string[] }) => {
         const written = svc.addComment({
           taskId: a.taskId, author: "agent", content: a.content,
-          projectId: a.projectId, questionOptions: a.options,
+          projectId: a.projectId, questionOptions: a.options, media: a.media,
         });
         return written?.id ?? null;
       },
@@ -72,7 +73,7 @@ function harness(db: Database, svc: TaskService) {
 describe("normalizeAsk", () => {
   test("prende testo, chiave e opzioni, sia stringhe che oggetti con label", () => {
     expect(normalizeAsk([{ key: "scelta", question: "A o B?", options: ["A", { label: "B" }] }]))
-      .toEqual({ key: "scelta", text: "A o B?", options: ["A", "B"] });
+      .toEqual({ key: "scelta", text: "A o B?", options: ["A", "B"], images: [], optionImages: [] });
   });
   test("senza chiave ripiega sull'header, poi su 'answer'", () => {
     expect(normalizeAsk([{ header: "Rotta", question: "Dove?" }])?.key).toBe("Rotta");
@@ -116,6 +117,25 @@ describe("la domanda di una figlia esce nel thread del task", () => {
     // Le opzioni ci sono, nella forma che la card rende come tasti.
     expect(last.content).toContain("Rifare");
     expect(last.content).toContain("Rattoppare");
+  });
+
+  test("le immagini della domanda e delle opzioni escono come allegati del commento", () => {
+    // The service keeps only attachments that exist on disk: real files.
+    const overview = import.meta.path;
+    const calm = join(import.meta.dir, "board-ask-routing.ts");
+    routeAskToTaskThread(h.deps, {
+      sessionKey: KID,
+      questions: [{
+        question: "Quale delle due?",
+        images: [overview],
+        options: [{ label: "Calma", image: calm }, { label: "Netta", image: overview }, { label: "Altro" }],
+      }],
+    });
+    const comments = svc.get(taskId)?.comments ?? [];
+    const last = comments[comments.length - 1];
+    expect(last.media).toEqual([overview, calm]);
+    expect(last.content).toContain("Calma = n. 2");
+    expect(last.content).toContain("Netta = n. 1");
   });
 
   test("la risposta dal thread torna ALLA FIGLIA, non al coordinatore", () => {

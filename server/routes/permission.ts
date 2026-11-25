@@ -3,6 +3,7 @@ import { waitForAnswer, beginAsk, endAsk, deliverAnswer, forgetBufferedAnswer, A
 import { answerRecordedOnRow, questionTexts } from "../lib/question-outlives-asker";
 import { createTaskService } from "../services/tasks";
 import { routeAskToTaskThread, clearRoutedAsk, closeRoutedAsk, ENDED_LINE } from "../services/board-ask-routing";
+import { spawnedChildOf } from "../lib/subagent-tool-policy";
 import { outboundHoldOfSession } from "../lib/outbound-gate";
 import {
   beginPermission,
@@ -102,7 +103,7 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
   // la stessa vista.
   const askRouting = {
     db: ctx.db,
-    comment: options.comment ?? ((a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
+    comment: options.comment ?? ((a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string; media?: string[] }) => {
       try {
         const svc = createTaskService(ctx.db);
         const written = svc.addComment({
@@ -111,6 +112,9 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           content: a.content,
           projectId: a.projectId,
           questionOptions: a.options,
+          // Only paths the media route serves: the allowlist of
+          // `comment_task media`.
+          media: a.media?.filter((m) => { try { return ctx.isPathAllowed(m); } catch { return false; } }),
           // The question is asked DURING a turn: anchor it to the row it was
           // asked in, so the thread can draw it under that step instead of
           // beside the tool call that produced it.
@@ -159,6 +163,17 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         const sk = decodeURIComponent(bySession.sessionKey);
         const denied = denyGlobalCoordinatorHumanBridge(sk);
         if (denied) return denied;
+        // SUBAGENT-23, extended to the CLI runtime: a spawn_agent child's
+        // question would sit on screen in a chat nobody watches (its own topic,
+        // not the one the person who spawned it is looking at). A native child
+        // never reaches here (its tool list has no `ask_user_question` to call);
+        // a CLI child's does, so this is the one place both runtimes share.
+        if (spawnedChildOf(ctx.db, sk)) {
+          return json({
+            cancelled: true,
+            reason: "ask_user_question: a sub-agent cannot put a question on screen. Put the choices in your result, whoever spawned you will carry them to the person",
+          });
+        }
         const body = (await readJSON(req)) as { questions?: unknown; legMs?: unknown } | null;
         if (!Array.isArray(body?.questions) || body.questions.length === 0) {
           return json({ error: "questions (non-empty array) is required" }, 400);
@@ -172,7 +187,11 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         // No expiry branch here any more: this route answered "the question
         // expired with no answer" after 24 hours, which ended a question nobody
         // had cancelled. A question waits for its human (29/09).
-        beginAsk(sk);
+        // The text of the question travels with the wait, so that after a
+        // server restart the attention store can compare it with the saved
+        // one (ATTN-07).
+        const firstQuestion = (body.questions[0] as { question?: unknown } | undefined)?.question;
+        beginAsk(sk, Date.now(), typeof firstQuestion === "string" ? firstQuestion.trim().slice(0, 200) : null);
         // THE ANSWER MAY ALREADY BE ON THE ROW. Given before a restart, it sat
         // in a buffer the restart emptied, while this child kept polling. The
         // row is the durable record, so the leg collects it there instead of
@@ -277,6 +296,11 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           // written IN the thread (`answerRoutedAsk`, which deletes its own
           // entry).
           if (askId) clearRoutedAsk(askId);
+          // The leg opened the ask above (`beginAsk`, every leg) and the answer
+          // came out of the buffer: it was given between two legs, after
+          // `deliverAnswer` had already closed the ask, so this leg re-opened a
+          // question that is over. Nothing else would close it.
+          endAsk(sk);
           return json({ answers });
         } catch (err: any) {
           // A leg expiring is the NORMAL case — the human is still reading.

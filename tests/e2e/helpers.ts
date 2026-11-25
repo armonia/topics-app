@@ -107,7 +107,13 @@ export async function ensureTopicVisible(page: Page, name: string | RegExp): Pro
 
     // Reload so the client hydrates the freshly-opened tab from the pane store.
     await page.goto("/");
-    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    // On a phone the sidebar is a sheet that starts closed after every reload: open it.
+    const sidebar = page.locator('[aria-label="Topics sidebar"]');
+    await sidebar.waitFor({ state: "attached", timeout: 15000 });
+    if (!(await sidebar.isVisible()) && (await sidebar.getAttribute("data-drawer")) === "closed") {
+      await page.keyboard.press("ControlOrMeta+b");
+    }
+    await sidebar.waitFor({ state: "visible", timeout: 15000 });
     const shown = await item
       .first()
       .waitFor({ state: "visible", timeout: 6000 })

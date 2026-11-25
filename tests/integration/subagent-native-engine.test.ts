@@ -7,7 +7,7 @@
  * Every test here was a repro that pinned a defect, inverted.
  * @covers SUBAGENT-11, SUBAGENT-12, SUBAGENT-14, SUBAGENT-19, SUBAGENT-22
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir, installDaemonToken } from "./helpers";
@@ -133,10 +133,13 @@ beforeAll(async () => {
   route = async (req, url, pathname, method) => (await topics(req, url, pathname, method)) ?? null;
 
   const terminal = await import("../../server/routes/terminal");
+  const childrenMod = await import("../../server/routes/terminal-children");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
+  const sharedMod = await import("../../server/routes/terminal-shared");
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(SOCKET_PATH);
-  terminal._setAgentProfilesHome(AGENTS_HOME);
-  terminal._setTerminalTrackerForTests(null);
+  bridgeSocketMod._setPtyBridgeSocketPath(SOCKET_PATH);
+  childrenMod._setAgentProfilesHome(AGENTS_HOME);
+  sharedMod._setTerminalTrackerForTests(null);
   // The parent's wake as server.ts starts it, with its verdict.
   const { startSubagentWakes } = await import("../../server/services/subagent-wake");
   const { subAgentResultOf } = await import("../../server/routes/subagent-exit");
@@ -182,7 +185,7 @@ beforeAll(async () => {
   await until("the reconcile list", () => bridge.received.some((m) => m.type === "list"), 5_000);
 }, 30_000);
 
-afterEach(() => { busyBackground.clear(); for (const m of [...held.keys()]) release(m); });
+afterEach(() => { setSystemTime(); busyBackground.clear(); for (const m of [...held.keys()]) release(m); });
 
 afterAll(async () => {
   for (const m of [...held.keys()]) release(m);
@@ -191,11 +194,13 @@ afterAll(async () => {
   const { _resetSubagentWakes } = await import("../../server/services/subagent-wake");
   _resetSubagentWakes();
   const terminal = await import("../../server/routes/terminal");
+  const childrenMod = await import("../../server/routes/terminal-children");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
   terminal.setSubAgentExitHandler(null);
-  terminal._setAgentProfilesHome(null);
+  childrenMod._setAgentProfilesHome(null);
   process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(null);
+  bridgeSocketMod._setPtyBridgeSocketPath(null);
   const { removeProvider } = await import("../../server/providers");
   try { removeProvider("topics"); } catch { /* already gone */ }
   await bridge?.close();
@@ -395,5 +400,113 @@ describe("native sub-agents on the real engine", () => {
     await until("closed by the re-check", () => rowOf(id)?.state === "retired");
     expect(reportsFor(id)).toHaveLength(1);
     expect(ctx.getTopicBySessionKey(sk)?.archived).toBe(true);
+  }, 30_000);
+});
+
+// A child whose turn is over and that waits on its own work is `waiting-results`
+// (not `working`), and it is closed after SUBAGENT_WAIT_DEADLINE_MS without news,
+// its parent told what it was waiting for.
+describe("a child that waits on its own work", () => {
+  const HOUR = 3_600_000;
+  /** Polls on the real clock: `setSystemTime` freezes `Date`, so `until`'s deadline would never pass. */
+  async function untilReal<T>(what: string, probe: () => T | undefined | false | null, ms = 8_000): Promise<T> {
+    const t0 = performance.now();
+    for (;;) {
+      const v = probe(); if (v) return v;
+      if (performance.now() - t0 > ms) throw new Error(`timed out waiting for ${what}`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+  const liveChild = async (id: string) => {
+    const { liveNativeChildren } = await import("../../server/lib/native-subagents");
+    return liveNativeChildren(ROOT_KEY).find((c) => c.agentId === id);
+  };
+
+  test("after its report it is `waiting-results`, not busy; before 6 h it stays running, after 6 h it is closed with a partial `wait-expired` result", async () => {
+    hold("TASK-WAIT-BG");
+    const c = await spawn(ROOT_KEY, { name: "wait-bg", prompt: "TASK-WAIT-BG" });
+    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
+    busyBackground.add(sk);
+    release("TASK-WAIT-BG");
+    await until("turn 1 reported", () => reportsFor(id)[0]);
+    expect(rowOf(id)?.state).toBe("running");
+    // Its turn is over: the strip must not draw it at work.
+    const live = await liveChild(id);
+    expect(live?.phase).toBe("waiting-results");
+    expect(live?.busy).toBe(false);
+
+    // Negative: 5 h 59 min without news is still inside the deadline (several 100 ms polls pass).
+    const base = Date.now();
+    setSystemTime(new Date(base + 6 * HOUR - 60_000));
+    await sleep(600);
+    expect(rowOf(id)?.state).toBe("running");
+    expect(reportsFor(id)).toHaveLength(1);
+
+    // Past the deadline: closed, and the parent hears it once.
+    setSystemTime(new Date(base + 6 * HOUR + 1_000));
+    await untilReal("the expiry result", () => reportsFor(id)[1]);
+    await untilReal("child closed", () => rowOf(id)?.state !== "running");
+    expect(rowOf(id)?.state).toBe("retired");
+    const outcome = reportsFor(id)[1]!.outcome;
+    expect(outcome.status).toBe("stopped");
+    expect(outcome.partial).toBe(true);
+    expect(outcome.reason?.code).toBe("wait-expired");
+    expect((outcome.reason as { detail: string }).detail).toContain("background commands of its own");
+    expect((outcome.reason as { detail: string }).detail).toContain("6 h");
+    await sleep(400);
+    expect(reportsFor(id)).toHaveLength(2);
+    expect((await liveChild(id))).toBeUndefined();
+  }, 30_000);
+
+  test("waiting on a running grandchild: the expiry result names it", async () => {
+    hold("TASK-WAIT-PARENT");
+    const c = await spawn(ROOT_KEY, { name: "wait-gp", prompt: "TASK-WAIT-PARENT" });
+    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
+    await until("child turn open", () => busy(sk));
+    hold("TASK-WAIT-GRAND");
+    const g = await spawn(sk, { name: "slow-grand", prompt: "TASK-WAIT-GRAND" });
+    const gid = g.body.agentId as string;
+    await until("grandchild turn open", () => modelCalls.some((b) => b.includes("TASK-WAIT-GRAND")));
+    release("TASK-WAIT-PARENT");
+    await until("turn 1 reported", () => reportsFor(id)[0]);
+    expect(rowOf(id)?.state).toBe("running");
+    expect((await liveChild(id))?.phase).toBe("waiting-results");
+
+    setSystemTime(new Date(Date.now() + 6 * HOUR + 1_000));
+    await untilReal("the expiry result", () => reportsFor(id).find((r) => r.outcome.reason?.code === "wait-expired"));
+    const outcome = reportsFor(id).find((r) => r.outcome.reason?.code === "wait-expired")!.outcome;
+    expect(outcome.status).toBe("stopped");
+    expect(outcome.partial).toBe(true);
+    expect((outcome.reason as { detail: string }).detail).toContain(`sub-agent "slow-grand" (${gid})`);
+    expect(rowOf(id)?.state).not.toBe("running");
+  }, 30_000);
+
+  test("a turn that wakes it puts it back to `working` (busy) while the turn is open", async () => {
+    hold("TASK-WAKE-PHASE");
+    const c = await spawn(ROOT_KEY, { name: "wake-phase", prompt: "TASK-WAKE-PHASE" });
+    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
+    busyBackground.add(sk);
+    release("TASK-WAKE-PHASE");
+    await until("turn 1 reported", () => reportsFor(id)[0]);
+    expect((await liveChild(id))?.phase).toBe("waiting-results");
+
+    // A grandchild's result wakes it: a turn the server starts on the child's own chat.
+    hold("WAKE-PHASE-HELD");
+    const url = new URL("http://localhost/api/chat");
+    const resp = await route(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionKey: sk, messages: [{ role: "user", content: "<subagent-result>WAKE-PHASE-HELD</subagent-result>" }] }) }), url, "/api/chat", "POST");
+    expect(resp?.status).toBe(200);
+    const drained = (async () => { const r = resp!.body!.getReader(); while (!(await r.read()).done) { /* drain */ } })();
+    await until("the wake turn is open", () => busy(sk));
+    // The wake's turn is open: the strip draws it at work again.
+    const { liveNativeChildren } = await import("../../server/lib/native-subagents");
+    await until("phase working", () => liveNativeChildren(ROOT_KEY).find((x) => x.agentId === id)?.phase === "working");
+    const live = await liveChild(id);
+    expect(live?.phase).toBe("working");
+    expect(live?.busy).toBe(true);
+
+    release("WAKE-PHASE-HELD");
+    await drained;
+    busyBackground.delete(sk);
+    await until("the wake turn reported", () => reportsFor(id)[1]);
   }, 30_000);
 });

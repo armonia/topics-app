@@ -4,9 +4,9 @@
  * a question to answer says more than «to approve».
  *
  * - question: an open question block in the thread, not answered yet;
- * - human_ask: what the workflow asked when it moved the card to human review;
+ * - human_ask: what the delivery asked the person;
  * - waits: a "waits for <person>" line in the description;
- * - review: in review and not in AI review (`awaitsHuman`);
+ * - review: in review and not in the CI column (`awaitsHuman`);
  * - parked: in backlog with a stop chip (failed, blocked, waited out), the
  *   same set the attention light reads (server/attention/boot-reader.ts).
  */

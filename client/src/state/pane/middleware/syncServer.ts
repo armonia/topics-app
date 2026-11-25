@@ -20,6 +20,7 @@ import { rememberLocalAck } from './selfEcho';
 import { getTabId } from './syncCrossTab';
 import { hasReceivedServerHydrate } from './serverHydrated';
 import { apiFetch } from '../../../lib/shell/net';
+import { isNestedInTopicsPane } from '../../../lib/shell/nestedPane';
 
 const REMOTE_KEY = 'pane-store-v2';
 const DEBOUNCE_MS = 500;
@@ -123,6 +124,8 @@ async function pushSnapshot(
   snapshotSeq: number,
   baseSeq?: number,
 ): Promise<void> {
+  // Nested in a Topics pane: a read-only mirror, it never writes the shared layout.
+  if (isNestedInTopicsPane()) return;
   const prior = inflight.get(key);
   if (prior) prior.controller.abort();
 
@@ -274,7 +277,7 @@ function flushNowKeepalive(): void {
   // closes before the WS `ui-state:init` lands — would otherwise PUT that
   // empty snapshot and clobber the server's good copy (the exact reload-storm
   // pathology the debounce guard fixed, minus this path). Skip the flush.
-  if (!hasReceivedServerHydrate()) return;
+  if (isNestedInTopicsPane() || !hasReceivedServerHydrate()) return;
   const state = usePaneStore.getState();
   const snap = selectSyncableSnapshot(state);
   void (async () => {
@@ -317,7 +320,7 @@ function flushNowBeacon(): void {
   }
   // Same boot-time hydrate guard as flushNowKeepalive — a pre-hydrate pagehide
   // must not beacon the empty default store over the server's authoritative copy.
-  if (!hasReceivedServerHydrate()) return;
+  if (isNestedInTopicsPane() || !hasReceivedServerHydrate()) return;
   const state = usePaneStore.getState();
   const snap = selectSyncableSnapshot(state);
   if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
@@ -341,6 +344,8 @@ function flushNowBeacon(): void {
 export function initServerSync(): void {
   if (started) return;
   started = true;
+  // Mirror mode: no debounce subscription and no teardown flush are wired at all.
+  if (isNestedInTopicsPane()) return;
 
   // SI OSSERVA `localSeq`, NON `lastSeq` — ed e' la riga che chiude il ciclo.
   //
@@ -532,8 +537,6 @@ export function initServerSync(): void {
   }
 }
 
-export const PANE_STORE_REMOTE_KEY = REMOTE_KEY;
-
 /**
  * Force-flush the current pane-store snapshot to the server, bypassing the
  * 500 ms debounce. Use sparingly — only when a state mutation MUST be
@@ -555,14 +558,14 @@ export function flushPaneStoreNow(): Promise<void> {
     clearTimeout(timer);
     timer = null;
   }
-  if (!hasReceivedServerHydrate()) return Promise.resolve();
+  if (isNestedInTopicsPane() || !hasReceivedServerHydrate()) return Promise.resolve();
   const state = usePaneStore.getState();
   const snap = selectSyncableSnapshot(state);
   return pushSnapshot(REMOTE_KEY, snap, state.lastSeq);
 }
 
 // ─── test-only exports ────────────────────────────────────────────────────
-/** Test/diagnostic — returns the inflight entries keyed by remote key. */
+/** @internal Test/diagnostic — returns the inflight entries keyed by remote key. */
 export function __getInflightKeys(): string[] {
   return [...inflight.keys()];
 }
@@ -573,6 +576,7 @@ export function __getInflightKeys(): string[] {
  * subscription and a possibly-armed debounce behind for every later file of
  * the same `bun test` process (one process per run), where a store dispatch
  * would fire a stray PUT against whatever fetch stub is installed then.
+ * @internal
  */
 export function __stopServerSyncForTests(): void {
   stopLocalSeqSubscription?.();
@@ -586,12 +590,12 @@ export function __stopServerSyncForTests(): void {
   pendingAfterClose = false;
   started = false;
 }
-/** Test-only — resets the inflight Map. */
+/** @internal Test-only — resets the inflight Map. */
 export function __resetInflightForTests(): void {
   for (const entry of inflight.values()) entry.controller.abort();
   inflight.clear();
 }
-/** Test-only — directly invoke the inflight-aware PUT (bypasses debounce). */
+/** @internal Test-only — directly invoke the inflight-aware PUT (bypasses debounce). */
 export function __pushSnapshotForTests(
   key: string,
   snapshot: unknown,
@@ -600,7 +604,7 @@ export function __pushSnapshotForTests(
 ): Promise<void> {
   return pushSnapshot(key, snapshot, snapshotSeq, baseSeq);
 }
-/** Test-only — the URL a teardown flush would PUT to for a given base seq. */
+/** @internal Test-only — the URL a teardown flush would PUT to for a given base seq. */
 export function __teardownFlushUrlForTests(baseServerSeq: number): string {
   return teardownFlushUrl(baseServerSeq);
 }
