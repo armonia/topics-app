@@ -56,7 +56,7 @@ let childCards: string[] = [];
 let parentCard = "";
 
 async function addCard(request: APIRequestContext, board: string, text: string, status: string): Promise<string> {
-  const res = await request.post(`${BASE}/api/boards/${board}/tasks`, { data: { text, status } });
+  const res = await request.post(`${BASE}/api/boards/${board}/tasks`, { data: { text, status, allowDuplicate: true } });
   expect(res.ok(), await res.text()).toBe(true);
   const { id } = (await res.json()) as { id: string };
   created.push({ board, id });

@@ -37,7 +37,7 @@ test.describe("Board: a frame's field reaches the card", () => {
 
   async function seed(page: Page, text: string): Promise<string> {
     const res = await page.request.post(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks`, {
-      data: { text, status: "backlog" },
+      data: { text, status: "backlog", allowDuplicate: true },
     });
     expect(res.ok(), `the board API refused to seed "${text}"`).toBe(true);
     const { id } = (await res.json()) as { id: string };
