@@ -614,7 +614,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
             subjectDeviceId: policy.initiatorDeviceId,
           } : undefined,
         }); }
-        catch (err) { log(`nodo: la corsa ${previous} non si è cancellata`, err); }
+        catch (err) {
+          // 404 = the node no longer has that run: it is already dead, which is the point.
+          if (!(isNodeError(err) && err.status === 404)) log(`nodo: la corsa ${previous} non si è cancellata`, err);
+        }
         lastNodeRun.delete(task.id);
       }
       const runInput: Parameters<typeof node.createRun>[0] = {
