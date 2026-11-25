@@ -4,6 +4,7 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -27,7 +28,7 @@ const BASE = E2E_BASE;
  * Video acceso: è un COMPORTAMENTO (una bolla che viene sostituita da un'altra
  * sotto gli occhi), e uno screenshot non lo mostra.
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const TURN_ID = "9a1c7d24-55e6-4f10-8b3c-7e2d9f0a1b22";
 const REPORT_ID = "c0ffee00-1111-2222-3333-444455556666";

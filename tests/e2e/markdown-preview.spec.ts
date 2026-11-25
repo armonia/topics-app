@@ -4,6 +4,7 @@ import { test } from "./fixtures/file-explorer.fixture";
 import { resetPaneStore } from "./helpers/api-fixtures";
 import { seedFileProject, cleanupFileProject, type FileProject } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -26,7 +27,7 @@ hermetic(test);
  *
  * @covers FILE-01
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const README_WITH_HTML = [
   "# Preview me",

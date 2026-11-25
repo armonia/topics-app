@@ -20,9 +20,10 @@ import { hermetic } from "./fixtures/hermetic";
 import { createTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
+import { videoAt } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on", viewport: { width: 1440, height: 900 } });
+test.use({ video: videoAt("on", { width: 1440, height: 900 }), viewport: { width: 1440, height: 900 } });
 
 /** Where the evidence goes: the card's screenshots and the clip of the live transition. */
 const EVIDENCE_DIR = process.env.CHAT_TASK_CARD_EVIDENCE_DIR ?? join(homedir(), ".topics", "media", "card-in-chat-214ac2a7");

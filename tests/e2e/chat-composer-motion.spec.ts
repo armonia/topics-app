@@ -5,6 +5,7 @@ import { createTopic, deleteTopic, resetPaneStore, unarchiveTopic } from "./help
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -39,7 +40,7 @@ hermetic(test);
  *
  * @covers CHAT-01
  */
-test.use({ video: "on", contextOptions: { reducedMotion: "no-preference" } });
+test.use({ video: VIDEO_ON, contextOptions: { reducedMotion: "no-preference" } });
 
 type Box = { x: number; y: number; w: number; h: number; o: number; id: number } | null;
 type Frame = {

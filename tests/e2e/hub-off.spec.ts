@@ -27,9 +27,10 @@ import { goToApp } from "./helpers";
 import { startFakeHub } from "./helpers/fake-hub";
 import { canonicalTmpRoot, E2E_BASE } from "./helpers/test-server";
 import { openMainChat, seedScene, type Scene } from "./helpers/shot-scene";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ mode: "serial", timeout: 120_000 });
 
 // The words the retired surfaces used to say: none of them may be on screen.
