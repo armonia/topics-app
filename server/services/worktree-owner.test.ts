@@ -10,11 +10,11 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultRunGit } from "./own-commits";
+import { defaultRunGit, type GitRunner } from "./own-commits";
 import {
   OWNER_MARKER_FILE, claudeCodeLockVerdict, listRepoWorktrees, lockLiftRule, lockOwned, lockedByTopics, parseOwnerMarker,
   parseWorktreeList, readOwnerMarker, unlockOwned, worktreeAdminDir, writeOwnerMarker,
-  type ClaudeCodeLockFacts,
+  type ClaudeCodeLockFacts, type ListedWorktree,
 } from "./worktree-owner";
 import { alreadyArchived } from "./worktree-archive";
 import { classifyRootEntry, type RootFacts } from "./worktree-root-gc";
@@ -168,6 +168,58 @@ describe("the claude-code: lock rule (WORKTREE-STD-09)", () => {
     ["a prefix nobody registered", { lockReason: "codex:s1" }],
   ] as const)("kept with %s", (_label, over) => {
     expect(claudeCodeLockVerdict({ ...ok, ...over } as ClaudeCodeLockFacts).lift).toBe(false);
+  });
+});
+
+describe("the lock rule reads the files first and asks git last (WORKTREE-STD-09)", () => {
+  const DAY = 24 * 3600_000;
+  let dir: string;
+  beforeAll(() => { dir = realpathSync(mkdtempSync(join(tmpdir(), "wt-lockrule-fake-"))); });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  /** A folder whose `.git` file points at an admin folder holding a claude-code marker: no repository, no git process. */
+  function markedFolder(name: string, session: string, transcriptAgeDays: number): string {
+    const abs = join(dir, name);
+    const admin = join(dir, "admin", name);
+    mkdirSync(abs, { recursive: true });
+    mkdirSync(admin, { recursive: true });
+    writeFileSync(join(abs, ".git"), `gitdir: ${admin}\n`);
+    const transcript = join(dir, `${session}.jsonl`);
+    writeFileSync(transcript, "{}\n");
+    const t = (Date.now() - transcriptAgeDays * DAY) / 1000;
+    utimesSync(transcript, t, t);
+    writeFileSync(join(admin, OWNER_MARKER_FILE), JSON.stringify({
+      worktreeId: name, projectId: "p", createdAt: new Date(Date.now() - 3 * DAY).toISOString(),
+      creator: "claude-code", session: { id: session, transcript },
+    }));
+    return abs;
+  }
+  /** A git that answers «clean, nothing ahead» and records every call. */
+  function recordingGit(): { calls: string[][]; git: GitRunner } {
+    const calls: string[][] = [];
+    return { calls, git: async (_cwd, args) => { calls.push(args); return { code: 0, stdout: args.includes("rev-list") ? "0\n" : "", stderr: "" }; } };
+  }
+  const locked = (path: string, lockReason: string): ListedWorktree =>
+    ({ path, head: null, branch: null, detached: false, bare: false, locked: true, lockReason, prunable: false });
+
+  test("a lock with a foreign prefix is refused without a single git call", async () => {
+    const { calls, git } = recordingGit();
+    const abs = markedFolder("foreign", "s-foreign", 30);
+    expect(await lockLiftRule(git, () => 7)(locked(abs, "someone-else:abc"))).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  test("a claude-code lock whose marker names another session, or whose transcript still moves, makes no git call", async () => {
+    const { calls, git } = recordingGit();
+    expect(await lockLiftRule(git, () => 7)(locked(markedFolder("other", "s-other", 30), "claude-code:s-not-this-one"))).toBe(false);
+    expect(await lockLiftRule(git, () => 7)(locked(markedFolder("moving", "s-moving", 0), "claude-code:s-moving"))).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  test("when the files allow a lift, git status runs without taking the optional index lock", async () => {
+    const { calls, git } = recordingGit();
+    expect(await lockLiftRule(git, () => 7)(locked(markedFolder("over", "s-over", 30), "claude-code:s-over"))).toBe(true);
+    expect(calls).toEqual([["--no-optional-locks", "status", "--porcelain"], ["rev-list", "--count", "HEAD", "--not", "--remotes"]]);
   });
 });
 

@@ -36,6 +36,8 @@ export interface StoredWorktree {
   branchName: string | null;
   status?: string;
   createdAt?: string;
+  /** Who made the checkout (the store's `source`); absent = Topics. */
+  source?: string;
 }
 
 export interface RootPassDeps {

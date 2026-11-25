@@ -32,7 +32,7 @@ import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker
 import { parseCompactBoundary } from "./claude/compaction";
 import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark } from "./claude/row-turn";
 import { buildClaudeArgs, resolveToolTrim } from "./claude/args";
-import { delegationHookPath, hookScriptPath, worktreeHookPath } from "../lib/topics-hook-script";
+import { delegationHookPath, hookScriptPath, sessionWorktreeHookPath } from "../lib/topics-hook-script";
 import { nativeSubagentToolPolicy } from "../lib/subagent-tool-policy";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota } from "../services/agent-job-quota";
@@ -70,7 +70,7 @@ import { buildUserTurnContent } from "./claude/user-turn";
 import { recordCliSlashCommands } from "../lib/slash-command-source";
 import { toolResultText } from "../../shared/tool-result-text";
 import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveMcpOutputTokens } from "../lib/topics-agent-prompt";
-import { resolveClaudeCodeModel, resolveClaudeWorktreeHooks } from "../services/app-settings";
+import { resolveClaudeCodeModel } from "../services/app-settings";
 import { detectUserInputForTool, finalizeToolArgs, handlePartialStreamEvent } from "./claude/partial-input";
 import { endAsk } from "../lib/ask-user-bridge";
 // «Aspetta una persona» ha DUE sorgenti (una domanda, una richiesta di
@@ -1662,7 +1662,7 @@ export class ClaudeCodeProvider implements AIProvider {
       hooksScriptPath: hookScriptPath(),
       // Where a worktree of this session is born: under the worktree root, marked
       // and registered (`claude_worktree_hooks`, default on).
-      worktreeHooksScriptPath: resolveClaudeWorktreeHooks() === "off" ? null : worktreeHookPath(),
+      worktreeHooksScriptPath: sessionWorktreeHookPath(),
       // The nudge toward spawn_agent after a long run of inline calls (the
       // policy itself rides `appendSystemPrompt`). `TOPICS_DELEGATION_NUDGE=off`
       // turns it off without a release.

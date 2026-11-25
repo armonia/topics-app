@@ -189,4 +189,32 @@ describe("the node's summary", () => {
     expect(measures).toBe(2);
     release();
   });
+
+  test("a measure started before invalidate() never lands over the state after it", async () => {
+    const plans: WorktreePlanPayload[] = [];
+    const releases: Array<() => void> = [];
+    const source = createWorktreeSummarySource({
+      plan: async () => {
+        const i = releases.length;
+        await new Promise<void>((resolve) => { releases.push(resolve); });
+        return plans[i]!;
+      },
+      root: () => "/srv/wt",
+      freeGb: () => 10,
+      now: () => 0,
+    });
+    // The heartbeat starts a measure; a cleanup pass ends while it reads the folders.
+    plans.push(PLAN);
+    expect(source.current()).toBeNull();
+    source.invalidate();
+    releases[0]!();
+    await source.refresh();
+    // The old count is not the answer for the next 10 minutes: a new measure starts.
+    expect(source.current()).toBeNull();
+    expect(releases).toHaveLength(2);
+    plans.push({ ...PLAN, entries: PLAN.entries.filter((e) => e.cls !== "tracked") });
+    releases[1]!();
+    await source.refresh();
+    expect(source.current()?.count).toBe(PLAN.entries.filter((e) => e.cls === "orphan").length);
+  });
 });

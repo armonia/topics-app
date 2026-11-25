@@ -99,6 +99,20 @@ describe("headStatusOfCheckout on real git", () => {
     expect(await headStatusOfCheckout(reuse, repo, defaultRunGit)).toBe("unmerged");
   });
 
+  test("a detached HEAD held only by the hook's archive/wt-* tag is merged; a tag outside that convention keeps it unmerged", async () => {
+    const kept = join(base, "kept-by-tag");
+    expect(git(repo, "worktree", "add", "-q", "--detach", kept, "main").code).toBe(0);
+    writeFileSync(join(kept, "archived.txt"), "work\n");
+    git(kept, "add", "-A");
+    expect(git(kept, "commit", "-q", "-m", "archived by the hook").code).toBe(0);
+    const sha = git(kept, "rev-parse", "HEAD").out;
+    expect(await headStatusOfCheckout(row(kept), repo, defaultRunGit)).toBe("unmerged");
+    git(repo, "tag", "archive/other-kept", sha);
+    expect(await headStatusOfCheckout(row(kept), repo, defaultRunGit)).toBe("unmerged");
+    git(repo, "tag", "archive/wt-kept", sha);
+    expect(await headStatusOfCheckout(row(kept), repo, defaultRunGit)).toBe("merged");
+  });
+
   test("a worktree whose admin folder is gone is unmerged, with its files where they were", async () => {
     const lost = join(base, "lost");
     expect(git(repo, "worktree", "add", "-q", "--detach", lost, "main").code).toBe(0);

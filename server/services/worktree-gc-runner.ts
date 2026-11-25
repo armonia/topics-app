@@ -372,9 +372,8 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       }
       out.push(w);
     }
-    return out.map((w) => ({
-      id: w.id, projectId: w.projectId, absPath: w.absPath, branchName: w.branchName, mode: w.mode,
-    }));
+    // Creator and birth travel with the row, or `registeredLately` reads another tool's fresh checkout as Topics' own.
+    return out.map((w) => ({ id: w.id, projectId: w.projectId, absPath: w.absPath, branchName: w.branchName, mode: w.mode, source: w.source, createdAt: w.createdAt }));
   }
 
   /**

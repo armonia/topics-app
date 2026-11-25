@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorktreeGcRunner, type WorktreeGcDeps } from "./worktree-gc-runner";
 import type { StoredWorktree } from "./worktree-gc-root-pass";
-import { lockOwned } from "./worktree-owner";
+import { lockOwned, writeOwnerMarker } from "./worktree-owner";
 import { folderOwned, markFolderOwned, OWNED_DIR, QUARANTINE_DIR, listQuarantine } from "./worktree-root-ledger";
 import { defaultRunGit } from "./own-commits";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
@@ -145,6 +145,19 @@ describe("the root pass of the worktree GC, on real git", () => {
     expect(summary!.root).toMatchObject({ registered: 1 });
     expect(deleted).toHaveLength(1);
     expect(git(repo, "rev-parse", "--verify", `refs/topics/archive/wt-${deleted[0]}`).out).toBe(tip);
+  });
+
+  test("a branch tip the hook's archive tag already holds is not pinned again: the checkout is freed, no second ref", async () => {
+    const abs = mountAt("tagged-one");
+    rows.push({ id: "tagged", projectId: "p1", absPath: abs, branchName: "topics/tagged-one", mode: "branch", status: "ready", createdAt: new Date(Date.now() - 3 * DAY).toISOString() });
+    writeFileSync(join(abs, "work.txt"), "the work\n");
+    git(abs, "add", "-A");
+    expect(git(abs, "commit", "-q", "-m", "work").code).toBe(0);
+    git(repo, "tag", "archive/wt-tagged-one", git(abs, "rev-parse", "HEAD").out);
+    age(abs, 3 * DAY);
+    await runner().runWorktreeGc();
+    expect(deleted).toEqual(["tagged"]);
+    expect(git(repo, "rev-parse", "--verify", "--quiet", "refs/topics/archive/wt-tagged").code).not.toBe(0);
   });
 
   test("an orphan on a detached HEAD with a commit not on main is never reaped: the folder is the only ref", async () => {
@@ -276,6 +289,26 @@ describe("the root pass of the worktree GC, on real git", () => {
     const summary = await runner().runWorktreeGc();
     expect(summary!.root).toMatchObject({ registered: 0 });
     expect(rows).toHaveLength(0);
+  });
+
+  test("a minute-old folder with a v2 marker naming codex is registered at once, with its creator and session, and the sweep keeps it", async () => {
+    // What `topics-worktree add` leaves when Topics is down: the ledger entry and a
+    // v2 marker, no lock, no row. Registered on this pass, never reaped the same day.
+    const abs = mountAt("codex-made", 60_000);
+    const transcript = join(base, "codex-session.jsonl");
+    writeFileSync(transcript, "{}\n");
+    expect(writeOwnerMarker(abs, {
+      worktreeId: "codex-made", projectId: "p1", createdAt: new Date().toISOString(),
+      creator: "codex", session: { id: "s-codex", transcript },
+    })).toBe(true);
+    age(abs, 60_000);
+    const summary = await runner().runWorktreeGc();
+    expect(summary!.root).toMatchObject({ registered: 1 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ source: "codex", sessionRef: transcript });
+    expect(summary!.keptReasons["made by another tool less than N h ago"]).toBe(1);
+    expect(deleted).toEqual([]);
+    expect(existsSync(abs)).toBe(true);
   });
 
   test("a ghost Topics made, a day old, goes to quarantine intact; a young one and one with a session inside stay", async () => {
@@ -482,6 +515,47 @@ describe("the root pass of the worktree GC, on real git", () => {
     expect(git(repo, "worktree", "list", "--porcelain").out).not.toContain("vanished-one");
   });
 
+  test("the hook's claude-code lock on a folder that went without its remove hook is lifted: the name is free again, the branch keeps its commit", async () => {
+    const abs = join(root, "proj", "hook-made");
+    mkdirSync(join(root, "proj"), { recursive: true });
+    expect(git(repo, "worktree", "add", "-q", "-b", "worktree-hook-made", abs, "main").code).toBe(0);
+    writeFileSync(join(abs, "work.txt"), "work\n");
+    git(abs, "add", "-A");
+    expect(git(abs, "commit", "-q", "-m", "work on the branch").code).toBe(0);
+    const tip = git(abs, "rev-parse", "HEAD").out;
+    expect(git(repo, "worktree", "lock", "--reason", "claude-code:sess-a", abs).code).toBe(0);
+    // Somebody else's lock on a vanished folder is not ours to lift.
+    const foreign = join(root, "proj", "other-tool");
+    expect(git(repo, "worktree", "add", "-q", "--detach", foreign, "main").code).toBe(0);
+    expect(git(repo, "worktree", "lock", "--reason", "codex:x", foreign).code).toBe(0);
+    rmSync(abs, { recursive: true, force: true });
+    rmSync(foreign, { recursive: true, force: true });
+    const summary = await runner().runWorktreeGc();
+    expect(summary!.root!.pruned).toBe(1);
+    const listed = git(repo, "worktree", "list", "--porcelain").out;
+    expect(listed).not.toContain("hook-made");
+    expect(listed).toContain("other-tool");
+    expect(git(repo, "rev-parse", "refs/heads/worktree-hook-made").out).toBe(tip);
+    // The next `claude -w hook-made` can make it again.
+    expect(git(repo, "worktree", "add", "-q", abs, "worktree-hook-made").code).toBe(0);
+  });
+
+  test("a vanished claude-code checkout on a detached HEAD has its commit pinned before git forgets it", async () => {
+    const abs = join(root, "proj", "hook-detached");
+    mkdirSync(join(root, "proj"), { recursive: true });
+    expect(git(repo, "worktree", "add", "-q", "--detach", abs, "main").code).toBe(0);
+    writeFileSync(join(abs, "only-here.txt"), "work\n");
+    git(abs, "add", "-A");
+    expect(git(abs, "commit", "-q", "-m", "only on this HEAD").code).toBe(0);
+    const head = git(abs, "rev-parse", "HEAD").out;
+    expect(git(repo, "worktree", "lock", "--reason", "claude-code:sess-b", abs).code).toBe(0);
+    rmSync(abs, { recursive: true, force: true });
+    const summary = await runner().runWorktreeGc();
+    expect(summary!.root!.pruned).toBe(1);
+    expect(git(repo, "worktree", "list", "--porcelain").out).not.toContain("hook-detached");
+    expect(git(repo, "rev-parse", `refs/topics/archive/lost-${head}`).out).toBe(head);
+  });
+
   test("the preview writes nothing and says what each folder is", async () => {
     mountAt("p-orphan");
     ghost("p-ghost");
@@ -508,6 +582,20 @@ describe("the root pass of the worktree GC, on real git", () => {
     expect(e).toMatchObject({ cls: "tracked" });
     expect(e.planned).toMatchObject({ action: "reap" });
     expect(deleted).toEqual([]);
+  });
+
+  test("a clean, merged, task-less row another tool registered minutes ago survives the real pass, and the preview says why", async () => {
+    // What `topics-worktree add` or the post-checkout hook leaves for codex: a row with
+    // its creator and its birth, no lock, no task, level with main.
+    const abs = mountAt("codex-fresh");
+    rows.push({ id: "codex-row", projectId: "p1", absPath: abs, branchName: "topics/codex-fresh", mode: "branch", status: "ready", createdAt: new Date(Date.now() - 5 * 60_000).toISOString(), source: "codex" });
+    const gc = runner();
+    const plan = await gc.planWorktreeGc();
+    expect(plan!.entries.find((e) => e.rowId === "codex-row")!.planned).toMatchObject({ action: "keep", reason: "made by another tool less than N h ago" });
+    const summary = await gc.runWorktreeGc();
+    expect(deleted).toEqual([]);
+    expect(summary!.keptReasons["made by another tool less than N h ago"]).toBe(1);
+    expect(existsSync(abs)).toBe(true);
   });
 
   test("a row that fails three passes in a row is left alone from the fourth", async () => {

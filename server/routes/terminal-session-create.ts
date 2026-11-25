@@ -7,9 +7,7 @@ import { isAgentWorkspace, lowerPriority } from "../lib/low-priority";
 import { augmentPath, realHome } from "../utils/path-env";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveClaudeBin } from "../lib/claude-bin";
-import { mergeHooks, topicsHooksSettings, topicsWorktreeHooksSettings } from "../lib/topics-hooks";
-import { hookScriptPath, worktreeHookPath } from "../lib/topics-hook-script";
-import { resolveClaudeWorktreeHooks } from "../services/app-settings";
+import { claudePaneSettings } from "../lib/topics-hook-script";
 import { resolveKimiBin } from "../lib/kimi-bin";
 import { resolveMuseBin } from "../lib/muse-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
@@ -76,12 +74,7 @@ export async function createSession(id: string, name: string, cwd: string, comma
     // the CLI would keep just the last one.
     // The worktree pair rides the same object (`claude_worktree_hooks`, default on):
     // a `--worktree` or `EnterWorktree` of this pane lands under the worktree root.
-    args.push('--settings', JSON.stringify({
-      hooks: mergeHooks(
-        topicsHooksSettings(hookScriptPath()).hooks,
-        resolveClaudeWorktreeHooks() === "off" ? undefined : topicsWorktreeHooksSettings(worktreeHookPath()).hooks,
-      ),
-    }));
+    args.push('--settings', JSON.stringify(claudePaneSettings()));
     // Start the interactive session at the same effort tier a Warp shell would
     // ("ultracode" = xhigh). The server runs under launchd with no CLAUDE_EFFORT
     // in its env, and the user's global effortLevel defaults to low, so without

@@ -61,12 +61,17 @@ export function createWorktreeSummarySource(deps: WorktreeSummaryDeps): Worktree
   const ttl = deps.ttlMs ?? WORKTREE_SUMMARY_TTL_MS;
   let last: { summary: WorktreeSummary; entries: WorktreePlanEntryPayload[]; atMs: number } | null = null;
   let running: Promise<WorktreeSummary | null> | null = null;
+  // Bumped by `invalidate()`: a measure started before it read the folders as
+  // they were before the cleanup or the policy change, and must not land over
+  // the fresh state for a whole TTL.
+  let generation = 0;
 
   function refresh(): Promise<WorktreeSummary | null> {
     if (running) return running;
+    const startedAt = generation;
     const run = (async () => {
       const plan = await deps.plan({ weigh: true });
-      if (!plan) return last?.summary ?? null;
+      if (!plan || startedAt !== generation) return last?.summary ?? null;
       const root = deps.root();
       const atMs = now();
       const summary = summarizePlan(plan, root, deps.freeGb(root), new Date(atMs));
@@ -93,6 +98,6 @@ export function createWorktreeSummarySource(deps: WorktreeSummaryDeps): Worktree
       return last?.entries ?? null;
     },
     refresh,
-    invalidate() { last = null; },
+    invalidate() { generation++; last = null; },
   };
 }

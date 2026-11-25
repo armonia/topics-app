@@ -30,9 +30,10 @@ import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import { join, relative, isAbsolute, sep, basename, dirname } from "node:path";
 import type { GitRunner } from "./own-commits";
 import {
-  canonicalPath, listRepoWorktrees, lockedByTopics, readOwnerMarker, unlockOwned, worktreeAdminDir,
+  canonicalPath, isClaudeCodeLock, listRepoWorktrees, lockedByTopics, readOwnerMarker, unlockOwned, worktreeAdminDir,
   type ListedWorktree, type WorktreeCreator,
 } from "./worktree-owner";
+import { ARCHIVE_REF_PREFIX } from "./worktree-archive";
 import { folderOwned, quarantineFolder, surelyAbsent, type QuarantinedFolder } from "./worktree-root-ledger";
 import { isInsideDir } from "../lib/path-containment";
 
@@ -376,9 +377,12 @@ export function hasCreatorMarker(entry: RootEntry, projects: readonly KnownProje
 }
 
 /**
- * Unlock-and-prune: git forgets the worktrees whose folder is gone. A lock Topics
- * took stops `git worktree prune` from forgetting one, so when no row claims the
- * entry its own lock is lifted first; a foreign lock is left alone.
+ * Unlock-and-prune: git forgets the worktrees whose folder is gone. A lock stops
+ * `git worktree prune` from forgetting one, so when no row claims the entry the
+ * lock is lifted first: Topics' own, and the Claude Code hook's `claude-code:`
+ * one whose folder went without the remove hook (else git keeps a «missing but
+ * locked» entry forever and the same name can never be created again). Any
+ * other lock is left alone.
  */
 export async function pruneKnownRepos(
   git: GitRunner,
@@ -388,13 +392,30 @@ export async function pruneKnownRepos(
   let pruned = 0;
   for (const [repo, list] of byRepo) {
     for (const w of list) {
+      if (rowPaths.has(canonicalPath(w.path))) continue;
       // git never flags a LOCKED worktree as prunable, so a vanished folder is read off the disk.
-      if (!lockedByTopics(w) || !(w.prunable || !existsSync(w.path)) || rowPaths.has(canonicalPath(w.path))) continue;
-      if (await unlockOwned(git, repo, w.path).catch(() => false)) pruned++;
+      if (lockedByTopics(w) && (w.prunable || !existsSync(w.path))) {
+        if (await unlockOwned(git, repo, w.path).catch(() => false)) pruned++;
+      } else if (isClaudeCodeLock(w) && surelyAbsent(w.path)) {
+        if (await liftVanishedClaudeCodeLock(git, repo, w).catch(() => false)) pruned++;
+      }
     }
     await git(repo, ["worktree", "prune"]).catch(() => undefined);
   }
   return pruned;
+}
+
+/**
+ * The folder is gone, so there is no tree to lose: the commits stay on the
+ * branch. A detached HEAD has no branch, and pruning drops the only ref to it:
+ * its commit is pinned under the archive ref first, or the lock stays.
+ */
+async function liftVanishedClaudeCodeLock(git: GitRunner, repo: string, w: ListedWorktree): Promise<boolean> {
+  if (w.detached && w.head) {
+    const pin = await git(repo, ["update-ref", `${ARCHIVE_REF_PREFIX}lost-${w.head}`, w.head]);
+    if (pin.code !== 0) return false;
+  }
+  return unlockOwned(git, repo, w.path, isClaudeCodeLock);
 }
 
 /**

@@ -238,7 +238,16 @@ export function claudeCodeLockVerdict(f: ClaudeCodeLockFacts): { lift: boolean; 
   return { lift: true, reason: "the claude-code session is over and nothing would be lost" };
 }
 
-/** Reads the facts of the `claude-code:` rule for one checkout. */
+/**
+ * Reads the facts of the `claude-code:` rule for one checkout.
+ *
+ * The files first (marker, transcript, age), git last, and git only when those
+ * already allow a lift: the rule runs on every pass and every preview over every
+ * locked worktree, and most of them are live sessions. When git is not asked,
+ * `dirty` and `mergedOrPushed` hold the refusing values (unknown is a no).
+ * `git status` runs with `--no-optional-locks`: it never takes the `index.lock`
+ * a live session's `git add` or `git commit` needs.
+ */
 export async function readClaudeCodeLockFacts(
   git: GitRunner,
   absPath: string,
@@ -249,16 +258,19 @@ export async function readClaudeCodeLockFacts(
   const marker = readOwnerMarker(absPath);
   let transcriptIdleMs: number | null = null;
   try { if (marker?.session?.transcript) transcriptIdleMs = Math.max(0, now - statSync(marker.session.transcript).mtimeMs); } catch { /* unreadable: unknown */ }
-  const status = await git(absPath, ["status", "--porcelain"]).catch(() => null);
-  const dirty = !status || status.code !== 0 || status.stdout.trim() !== "";
-  const ahead = await git(absPath, ["rev-list", "--count", "HEAD", "--not", "--remotes"]).catch(() => null);
-  const mergedOrPushed = !!ahead && ahead.code === 0 && ahead.stdout.trim() === "0";
   const born = Date.parse(marker?.createdAt ?? "");
-  return {
-    lockReason, marker, transcriptIdleMs, dirty, mergedOrPushed,
+  const facts: ClaudeCodeLockFacts = {
+    lockReason, marker, transcriptIdleMs, dirty: true, mergedOrPushed: false,
     ageMs: Number.isFinite(born) ? Math.max(0, now - born) : null,
     abandonMs: abandonDays * 24 * 3600_000,
   };
+  // Even a clean, pushed tree would not lift it: git has nothing to add.
+  if (!claudeCodeLockVerdict({ ...facts, dirty: false, mergedOrPushed: true }).lift) return facts;
+  const status = await git(absPath, ["--no-optional-locks", "status", "--porcelain"]).catch(() => null);
+  facts.dirty = !status || status.code !== 0 || status.stdout.trim() !== "";
+  const ahead = await git(absPath, ["rev-list", "--count", "HEAD", "--not", "--remotes"]).catch(() => null);
+  facts.mergedOrPushed = !!ahead && ahead.code === 0 && ahead.stdout.trim() === "0";
+  return facts;
 }
 
 /**
@@ -269,9 +281,15 @@ export function lockLiftRule(git: GitRunner, abandonDays: () => number): (w: Lis
   return async (w) => {
     if (!w.locked) return true;
     if (lockedByTopics(w)) return true;
-    // Any other prefix is refused by the verdict's first line, before git is asked anything heavy.
+    // A foreign prefix, or a marker that does not name the session, is refused
+    // off the files alone: `readClaudeCodeLockFacts` never asks git for those.
     return claudeCodeLockVerdict(await readClaudeCodeLockFacts(git, w.path, w.lockReason ?? "", abandonDays())).lift;
   };
+}
+
+/** The lock is the one the Claude Code worktree hook took (`claude-code:<session>`). */
+export function isClaudeCodeLock(w: Pick<ListedWorktree, "locked" | "lockReason">): boolean {
+  return w.locked && (w.lockReason ?? "").startsWith(CLAUDE_CODE_LOCK_PREFIX);
 }
 
 /** Takes Topics' lock on a worktree. Already locked counts as done. */
