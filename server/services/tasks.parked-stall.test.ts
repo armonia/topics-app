@@ -677,11 +677,11 @@ describe("un contenitore resta contenitore anche dopo la domanda del rastrello",
   test("la domanda posta dal rastrello non toglie la qualifica: rimesso in backlog, non viene richiesto", () => {
     const padre = s.create({ projectId: PID, text: "Raggruppa i doppioni" }).id;
     s.create({ projectId: PID, text: "Card A", parentTaskId: padre });
-    // The parent had a real turn and the rake asks it: review + system signature.
+    // The parent had a real turn, the rake asks it: review plus the system signature.
     hadATurn(db, padre);
     expect(s.sweepParkedChildren({ eligible: () => true }).map((t) => t.id)).toEqual([padre]);
     expect(riga(padre)).toMatchObject({ status: "review", delivered_by: "system", delivered_reason: "parked_children" });
-    // Where the two parents were: no turn ever started, and a person puts them back in backlog.
+    // The state the two mothers were in: no turn ever started, and a person puts them back in backlog.
     db.run("UPDATE tasks SET dispatch_attempts = 0, in_progress_at = NULL WHERE id = ?", [padre]);
     s.update({ taskId: padre, actor: "human", by: "attilio", patch: { status: "backlog" } });
     expect(riga(padre).status).toBe("backlog");
