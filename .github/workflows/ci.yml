@@ -1842,8 +1842,15 @@ jobs:
   # this job by name.
   tauri:
     timeout-minutes: 45
-    needs: changes
-    if: ${{ needs.changes.outputs.tauri != 'false' }}
+    # `needs: process-groups` on top of `changes`: both jobs put a macos-latest
+    # leg in their matrix and both used to start together on `changes`, so they
+    # queued for the same scarce macOS runner pool and the loser sat at 0 steps
+    # until its own 15-minute timeout cancelled it (ci-audit, 23/11). The `if`
+    # below ignores process-groups' result (skipped, failed or green): the implicit
+    # success() of a plain `if` would skip tauri whenever process-groups is skipped
+    # or red, so the status is spelled out here, and only a cancelled run stops it.
+    needs: [changes, process-groups]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.tauri != 'false' }}
     strategy:
       fail-fast: false
       matrix:
