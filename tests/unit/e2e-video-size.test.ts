@@ -33,7 +33,7 @@ function readConfig(env: Record<string, string>): Probe {
     "  name: p.name, viewport: (p.use && p.use.viewport) ?? top.viewport, video: (p.use && p.use.video) ?? top.video }));",
     "console.log(JSON.stringify({ topViewport: top.viewport, topVideo: top.video, projects }));",
   ].join(" ");
-  const r = Bun.spawnSync(["bun", "-e", script], {
+  const r = Bun.spawnSync([process.execPath, "-e", script], {
     cwd: REPO_ROOT,
     env: { ...process.env, E2E_PORT: "", TOPICS_E2E_LIST_ONLY: "1", E2E_EVIDENCE: "", E2E_VIDEO: "", E2E_NO_VIDEO: "", ...env },
     stdout: "pipe",
