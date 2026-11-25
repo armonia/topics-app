@@ -7,8 +7,10 @@
  */
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { checkConstraintBody } from "./task-patch";
+import { checkConstraintBody, parseTaskPatch } from "./task-patch";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL } from "../db/test-schema";
+
+const noPreview = () => ({ ok: false as const, reason: "not used in this test" });
 
 /** Esegue la scrittura e restituisce l'errore che il DB ha alzato. */
 function violazione(run: (db: Database) => void): unknown {
@@ -64,5 +66,28 @@ describe("checkConstraintBody: la regola a parole al posto dell'SQL", () => {
     // Una FK violata non è un dominio chiuso: qui la traduzione non entra.
     const fk = violazione(inserisci("blocked_by_task_id", ["non-esiste"]));
     expect(checkConstraintBody(fk)).toBeNull();
+  });
+});
+
+describe("autoMergeIntent: human-only, same treatment as stayLocal", () => {
+  test("a human caller can set it (camelCase and snake_case)", () => {
+    const camel = parseTaskPatch({ autoMergeIntent: "yes" }, "human", noPreview);
+    expect(camel).toEqual({ ok: true, patch: { autoMergeIntent: "yes" } });
+    const snake = parseTaskPatch({ auto_merge_intent: "no" }, "human", noPreview);
+    expect(snake).toEqual({ ok: true, patch: { autoMergeIntent: "no" } });
+  });
+
+  test("a value outside board/yes/no is a named 400, not a silent drop", () => {
+    const out = parseTaskPatch({ autoMergeIntent: "sometimes" }, "human", noPreview);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.errors).toEqual([{ field: "autoMergeIntent", reason: expect.stringContaining("board, yes, no") }]);
+  });
+
+  test("an agent's own update cannot touch it: same outcome as stayLocal in agent scope", () => {
+    const agentIntent = parseTaskPatch({ autoMergeIntent: "yes" }, "agent", noPreview);
+    const agentStayLocal = parseTaskPatch({ stayLocal: true }, "agent", noPreview);
+    expect(agentIntent.ok).toBe(false);
+    expect(agentStayLocal.ok).toBe(false);
   });
 });

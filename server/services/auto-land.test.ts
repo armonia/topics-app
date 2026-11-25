@@ -72,6 +72,31 @@ describe("autoLandVerdict", () => {
     expect(verdict(card(), { autoMerge: false, declaredChecks: 2 }).ok).toBe(false);
   });
 
+  describe("per-card autoMergeIntent", () => {
+    test("'yes' lands on its own even with the board's switch off, as long as the board declares its own bar", () => {
+      expect(verdict(card({ autoMergeIntent: "yes" }), { autoMerge: false, declaredChecks: 2 })).toEqual({ ok: true });
+    });
+
+    test("'yes' still needs a bar: a board with none does not land", () => {
+      expect(verdict(card({ autoMergeIntent: "yes", checks: [] }), { autoMerge: false, declaredChecks: 0 }).ok).toBe(false);
+    });
+
+    test("'no' stays in review even with the board's switch on", () => {
+      expect(verdict(card({ autoMergeIntent: "no" }), { autoMerge: true, declaredChecks: 2 })).toEqual({
+        ok: false, reason: "the card's own auto-merge intent is off",
+      });
+    });
+
+    test("'yes' on a card labelled `decisione` stays a person's: the label always wins", () => {
+      expect(verdict(card({ autoMergeIntent: "yes", labels: [{ label: "decisione" }] }), { autoMerge: false, declaredChecks: 2 }).ok).toBe(false);
+    });
+
+    test("absent intent reads as 'board': same verdict as before the field existed", () => {
+      expect(verdict(card({ autoMergeIntent: undefined }), { autoMerge: false, declaredChecks: 2 }).ok).toBe(false);
+      expect(verdict(card({ autoMergeIntent: undefined }), BOARD)).toEqual({ ok: true });
+    });
+  });
+
   test("a human_ask, or the agent's last word being a question", () => {
     expect(verdict(card({ humanAsk: "guarda il testo" })).ok).toBe(false);
     const question = { author: "claude", kind: "comment", content: "```question\nLo tengo?\n- Si\n- No\n```" };

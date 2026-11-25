@@ -602,6 +602,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             // A card born in review: the question for the person.
             humanAsk: typeof body?.human_ask === "string" ? body.human_ask
               : typeof body?.humanAsk === "string" ? body.humanAsk : undefined,
+            // "Follow the board" / "yes" / "no" at birth; anything else = the
+            // default ("board") the service already falls back to.
+            autoMergeIntent: (() => {
+              const v = body?.autoMergeIntent ?? body?.auto_merge_intent;
+              return v === "yes" || v === "no" ? v : undefined;
+            })(),
           });
           // THE BIRTH ATTACHMENTS, BEFORE THE DISPATCH.
           //

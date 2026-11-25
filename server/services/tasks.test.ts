@@ -160,6 +160,19 @@ describe("create", () => {
     expect(s.update({ taskId: t.id, actor: "human", by: "u", patch: { planFirst: false } }).planFirst).toBe(false);
   });
 
+  test("autoMergeIntent defaults to 'board' and is settable at birth by any caller", () => {
+    expect(s.create({ projectId: PID, text: "default" }).autoMergeIntent).toBe("board");
+    const t = s.create({ projectId: PID, text: "opted in", autoMergeIntent: "yes" });
+    expect(t.autoMergeIntent).toBe("yes");
+    expect(s.get(t.id)!.task.autoMergeIntent).toBe("yes");
+  });
+
+  test("autoMergeIntent is updatable, and only to one of board/yes/no", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    expect(s.update({ taskId: t.id, actor: "human", by: "u", patch: { autoMergeIntent: "no" } }).autoMergeIntent).toBe("no");
+    expect(() => s.update({ taskId: t.id, actor: "human", by: "u", patch: { autoMergeIntent: "sometimes" as any } })).toThrow(TaskServiceError);
+  });
+
   test("rejects empty text and create-done", () => {
     expect(() => s.create({ projectId: PID, text: "  " })).toThrow(TaskServiceError);
     expect(() => s.create({ projectId: PID, text: "y", status: "done" })).toThrow(/done/);
@@ -1964,6 +1977,9 @@ describe("il costo di una lista non cresce con le righe", () => {
    * migration 20260816174500) hanno aggiunto ~53 byte per task: misurato 1.653.
    * Rialzato a 1.750 il 18/08, quando `urlProbeStatus` e `urlProbeCheckedAt`
    * (migration 20260818164410) hanno aggiunto ~40 byte per task: misurato 1.716.
+   * Raised to 1.800 on 26/11, when `autoMergeIntent` (always present, like
+   * `stayLocal`; migration 20261126000000) added ~23 bytes per task: measured
+   * 1.773.
    * Alzarlo è legittimo SOLO perché il pavimento è cresciuto per una ragione
    * dichiarata — due campi che la card in review usa per decidere se mostrare
    * il link all'anteprima viva — e non perché il payload si è ingrassato di
@@ -1986,7 +2002,7 @@ describe("il costo di una lista non cresce con le righe", () => {
     const magra = s.list({ scope: "all", rootsOnly: true });
     expect(magra.length).toBe(300);
     const testo = JSON.stringify({ tasks: magra });
-    expect(testo.length / magra.length).toBeLessThan(1750);
+    expect(testo.length / magra.length).toBeLessThan(1800);
     // Strutturale: i due pesi che questo cambio toglie non sono nel payload.
     expect(testo).not.toContain("d".repeat(300));  // la descrizione intera
     expect(testo).not.toContain("x".repeat(300));  // la coda dei check

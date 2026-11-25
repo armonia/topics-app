@@ -822,6 +822,14 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     catch (e) { showError(e); }
     finally { setBusy(false); }
   };
+  // Per-card auto-merge override ("follow the board" / "yes" / "no"), human-only.
+  const changeAutoMergeIntent = async (next: 'board' | 'yes' | 'no') => {
+    if (!task || busy || (task.autoMergeIntent ?? 'board') === next) return;
+    setBusy(true);
+    try { await boardApi.update(projectId, taskId, { autoMergeIntent: next }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
 
   // Project selector (header chip): move the task to another board, open the
   // current project's window, or scaffold a new workspace project. The list is
@@ -1394,6 +1402,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                   )}
                   <TaskDetailsPanel addSubtask={addSubtask} addingSub={addingSub} boardDispatchModel={boardDispatchModel} busy={busy}
                     cancelKey={cancelKey} changeModel={changeModel} changeNode={changeNode} changePriority={changePriority}
+                    changeAutoMergeIntent={changeAutoMergeIntent}
                     changeTopicsRouting={changeTopicsRouting} children={children} descDraft={descDraft} descOpen={descOpen} detailsOpen={detailsOpen}
                     doneCount={doneCount} drawerRouting={drawerRouting} editingDesc={editingDesc} labelBtnRef={labelBtnRef}
                     labelMenuOpen={labelMenuOpen} locale={locale} machines={machines} modelBtnRef={modelBtnRef} modelMenuOpen={modelMenuOpen}

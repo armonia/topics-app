@@ -65,7 +65,7 @@
  * never throws.
  */
 import { spawn } from "node:child_process";
-import { GATES_CI_CHECK, NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
+import { ciEvidenceJobName, E2E_CI_CHECK, GATES_CI_CHECK, NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
 import { lowPriorityArgv } from "../lib/low-priority";
 import { ChecksInterruptedError } from "./checks-gate";
 import { cardTag, supersedePreviousDelivery } from "./ci-supersede";
@@ -362,10 +362,37 @@ function contradictedByItsRun(row: CheckRun, why: string): CheckRun {
 const isUnitRow = (check: ReviewCheck): boolean => check.cmd.trim() === UNIT_CI_CHECK.cmd;
 const isGatesRow = (check: ReviewCheck): boolean => check.cmd.trim() === GATES_CI_CHECK.cmd;
 
+/**
+ * The job-level outcome of ANY GitHub Actions job by name — the board's
+ * configuration for a repo that is not topics-app, which has its own CI and its
+ * own job names (a board whose repo has its own GitHub CI). Coarser than the three
+ * special readers above on purpose: it has no step of its own to look inside,
+ * only `job.conclusion`.
+ */
+export function readGenericJobEvidence(jobName: string, sha: string, runs: GithubRun[], jobs: GithubJob[]): CiEvidence {
+  const run = latestCiRun(sha, runs);
+  if (!run) return { kind: "pending", run: null };
+  if (run.status === "completed" && run.conclusion === "cancelled") {
+    return { kind: "notMeasured", run, reason: "the latest CI run for this commit was cancelled or superseded" };
+  }
+  const job = jobs.find((j) => j.name === jobName);
+  if (!job) {
+    return run.status === "completed"
+      ? { kind: "notMeasured", run, reason: `the CI run finished without the job "${jobName}"` }
+      : { kind: "pending", run };
+  }
+  if (job.status !== "completed") return { kind: "pending", run };
+  if (job.conclusion === "success") return { kind: "pass", run, jobs: [job] };
+  if (job.conclusion === "failure") return { kind: "fail", run, jobs: [job], failed: [job] };
+  return { kind: "notMeasured", run, reason: `the job "${jobName}" concluded ${job.conclusion ?? "without a conclusion"}` };
+}
+
 /** The outcome a declared CI row reads from the same run. */
 export function readCiEvidence(check: ReviewCheck, sha: string, runs: GithubRun[], jobs: GithubJob[]): CiEvidence {
   if (isUnitRow(check)) return readUnitEvidence(sha, runs, jobs);
   if (isGatesRow(check)) return readGatesEvidence(sha, runs, jobs);
+  const genericJob = check.cmd.trim() === E2E_CI_CHECK.cmd ? null : ciEvidenceJobName(check);
+  if (genericJob) return readGenericJobEvidence(genericJob, sha, runs, jobs);
   return readE2eEvidence(sha, runs, jobs);
 }
 
@@ -427,7 +454,8 @@ export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { ki
   if (outcome.kind === "notMeasured") return ciNotMeasured(check, outcome.reason, { ...ctx, ms, run: outcome.run });
   const unit = isUnitRow(check);
   const gates = isGatesRow(check);
-  const label = unit ? "unit tests" : gates ? "typecheck, lint and static guard rails" : "e2e";
+  const genericJob = unit || gates || check.cmd.trim() === E2E_CI_CHECK.cmd ? null : ciEvidenceJobName(check);
+  const label = unit ? "unit tests" : gates ? "typecheck, lint and static guard rails" : genericJob ? `job ${genericJob}` : "e2e";
   const gateSteps = gates ? Object.values(GATES_STEPS).map((name) => {
     const step = outcome.jobs.find((job) => job.name === GATES_JOB)?.steps?.find((candidate) => candidate.name === name);
     return `${name} ${step?.conclusion ?? "without a conclusion"}`;

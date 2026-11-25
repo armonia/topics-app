@@ -51,6 +51,15 @@ export interface AutoLandCard {
   status: string;
   archived?: boolean;
   labels: ReadonlyArray<{ label: string }>;
+  /**
+   * Per-card override of the board's switch (`board` is the default, follow
+   * it). `yes` lands even with the board's switch off, as long as the board
+   * declares its own bar; `no` stays in review even with the switch on. Either
+   * way everything below (the `invisibile` label, the whole bar green,
+   * `classifyDelivery`'s file-based reading in `decide()`) still applies —
+   * this only replaces the one line that reads the board's switch.
+   */
+  autoMergeIntent?: "board" | "yes" | "no";
   checksState: "running" | "pass" | "fail" | "unknown" | null;
   checksCommit: string | null;
   checks: ReadonlyArray<Pick<CheckRun, "ok"> & Partial<Pick<CheckRun, "cmd">>> | null;
@@ -107,7 +116,9 @@ export function autoLandVerdict(
 ): AutoLandVerdict {
   const no = (reason: string): AutoLandVerdict => ({ ok: false, reason });
   if (card.status !== "review" || card.archived) return no("the card is not in review");
-  if (!board.autoMerge) return no("the board's automatic merge is off");
+  const intent = card.autoMergeIntent ?? "board";
+  if (intent === "no") return no("the card's own auto-merge intent is off");
+  if (intent === "board" && !board.autoMerge) return no("the board's automatic merge is off");
   // A board with no bar has nothing that could be green: `null` is not a pass.
   if (board.declaredChecks < 1) return no("the board declares no bar");
   const labels = card.labels.map((l) => l.label);

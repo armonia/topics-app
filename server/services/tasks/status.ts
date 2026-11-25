@@ -547,6 +547,15 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
         put("overflowed_at", null);
       }
       if (patch.stayLocal !== undefined) put("stay_local", patch.stayLocal ? 1 : 0);
+      // Per-card override of the board's auto-merge switch; human-only at the
+      // route (server/routes/task-patch.ts keeps it out of AGENT_FIELDS), and
+      // validated again here for any other caller.
+      if (patch.autoMergeIntent !== undefined) {
+        if (!["board", "yes", "no"].includes(patch.autoMergeIntent)) {
+          throw new TaskServiceError("invalid_input", `autoMergeIntent ammette uno di: board, yes, no, ricevuto "${patch.autoMergeIntent}"`);
+        }
+        put("auto_merge_intent", patch.autoMergeIntent);
+      }
       // A person's mark holds for good: it clears any deadline the dispatcher set.
       if (patch.stayLocalUntil !== undefined) put("stay_local_until", patch.stayLocalUntil);
       else if (patch.stayLocal !== undefined) put("stay_local_until", null);

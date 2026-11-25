@@ -163,9 +163,24 @@ export const UNIT_CI_CHECK: ReviewCheck = { name: "unit-ci", cmd: "github-ci:uni
 /** The typecheck, lint and static guard-rail evidence row from the `gates` CI job. */
 export const GATES_CI_CHECK: ReviewCheck = { name: "gates-ci", cmd: "github-ci:gates" };
 
+/**
+ * Any prefix, not just the three fixed values: a board other than topics-app
+ * declares its OWN GitHub job name as the check's `cmd` (`github-ci:<job>`),
+ * read generically by `readCiEvidence` (server/services/ci-evidence.ts). The
+ * three constants above stay the well-known ones topics-app's own CI reads in
+ * detail (job + step); every other `github-ci:` cmd is still CI evidence, read
+ * at the coarser job-level pass/fail.
+ */
+const CI_EVIDENCE_PREFIX = "github-ci:";
+
 export function isCiEvidenceCheck(check: { cmd: string }): boolean {
+  return check.cmd.trim().startsWith(CI_EVIDENCE_PREFIX);
+}
+
+/** The GitHub Actions job name a `github-ci:<job>` check declares, or `null` when it isn't one. */
+export function ciEvidenceJobName(check: { cmd: string }): string | null {
   const cmd = check.cmd.trim();
-  return cmd === E2E_CI_CHECK.cmd || cmd === UNIT_CI_CHECK.cmd || cmd === GATES_CI_CHECK.cmd;
+  return cmd.startsWith(CI_EVIDENCE_PREFIX) ? cmd.slice(CI_EVIDENCE_PREFIX.length) : null;
 }
 
 /**
