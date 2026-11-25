@@ -10,6 +10,7 @@ import { closeRegistryRun } from "../lib/command-runs";
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
 import { agentBaseEnv } from "../lib/agent-env";
+import { getSubagentBySessionKey } from "../lib/subagent-store";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { commandLabel, commandWorkOver, pushBackgroundChanged } from "../lib/command-background";
 import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, SERVICE_WATCH_MIN_MS, type ServiceRowLike } from "../lib/command-services";
@@ -290,16 +291,35 @@ export function settleWakeReadInTurn(sp: ScriptProcess, sessionKey: string, db: 
 }
 
 /**
+ * A sub-agent that stops its parent's service and relaunches it without a wake
+ * is replacing it, not starting something of its own: the archive of the child
+ * at the end of its turn would otherwise stop the parent's server with it.
+ * The replacement is matched by name (the same label) against a stopped command
+ * of the parent's session; it then belongs to the parent's session and topic.
+ */
+export function adoptedByParent<T extends { command: string; description?: unknown; sessionKey: string; topicId: string | null; wake: boolean; db: AppContext["db"] }>(o: T): T {
+  if (o.wake) return o;
+  const parentKey = getSubagentBySessionKey(o.db as never, o.sessionKey)?.parentSessionKey;
+  if (!parentKey) return o;
+  const label = commandLabel(o.command, o.description);
+  const replaced = [...runningScripts.values(), ...recentScripts].find((sp) =>
+    sp.cmd?.stopped && sp.cmd.sessionKey === parentKey && sp.scriptName === label);
+  if (!replaced?.cmd) return o;
+  return { ...o, sessionKey: parentKey, topicId: replaced.cmd.topicId };
+}
+
+/**
  * `run_command`: an arbitrary command, spawned by the server (so a restart of
  * the CLI does not touch it) in its own process group (so Stop reaches every
  * child), with its output going straight into its log file (so a reload of
  * the server does not lose it).
  */
-export function startCommandProcess(o: {
+export function startCommandProcess(input: {
   projectPath: string; cwd: string; command: string; description?: unknown;
   sessionKey: string; topicId: string | null; wake: boolean; db: AppContext["db"];
   origin?: "person";
 }): { processId: string; scriptName: string; pid: number | null; startedAt: string; wake: boolean } | null {
+  const o = adoptedByParent(input);
   const processId = crypto.randomUUID();
   const argv = commandArgv(o.command, exitPathOf(processId), commandProcessGroupStopPath(processId));
   if (!argv) return null; // no POSIX shell here (Windows)
