@@ -32,7 +32,13 @@
 # `claude-code:<session id>`. Remove writes the tag `archive/wt-<name>` on HEAD
 # first (with any uncommitted change on top of it) and removes nothing when the
 # tag does not read back, when HEAD has no commit yet but the folder holds
-# something, or when the lock names another session.
+# something, when it holds a repository of its own (a nested clone, a
+# submodule), or when the lock names another session. That last check reads the
+# payload's session id, so after a `/clear` (Claude Code gives the conversation a
+# new id) or from Claude Desktop's delete (its own process, its own id) the
+# remove is refused: the folder stays until its session removes it or the GC's
+# `claude-code:` rule lifts it (abandoned, clean, pushed). Refusing loses
+# nothing; accepting would let any session exit with another one's folder.
 #
 # ONE FOLDER, ONE SESSION. A name is claimed with `mkdir`, which is atomic: two
 # creates asking for the same name at once get two folders. A folder already
@@ -106,7 +112,7 @@ wt_token() {
 # every user of the machine through ps or /proc/<pid>/cmdline.
 wt_curl_once() {
   _cb="$1"; _cmethod="$2"; _cpath="$3"; shift 3
-  printf 'Authorization: Bearer %s\n' "$WT_TOKEN" | curl --silent --insecure --fail --max-time 2 --retry 0 \
+  printf 'Authorization: Bearer %s\n' "$WT_TOKEN" | curl --silent --insecure --fail --connect-timeout 1 --max-time 2 --retry 0 \
     --request "$_cmethod" \
     --header @- \
     --header "Content-Type: application/json" \
@@ -115,12 +121,15 @@ wt_curl_once() {
 
 # A call to Topics: HTTPS first (the server is TLS-only on its port), then the
 # other scheme, like the post hook. Fails when there is no token or no server.
+# A port that refused or never answered (curl 7, 28) is not tried again with the
+# other scheme: on Windows a refused loopback connect costs 2 s, four per create.
 wt_http() {
   WT_TOKEN="$(wt_token)" || return 1
   [ -n "$WT_TOKEN" ] || return 1
   command -v curl >/dev/null 2>&1 || return 1
   _url="${TOPICS_APP_URL:-https://127.0.0.1:3333}"
   wt_curl_once "$_url" "$@" && return 0
+  case $? in 7|28) return 1 ;; esac
   case "$_url" in
     https://*) wt_curl_once "http://${_url#https://}" "$@" ;;
     http://*) wt_curl_once "https://${_url#http://}" "$@" ;;
@@ -345,13 +354,17 @@ wt_add() { # cwd path branch
   fi
 }
 
-# A worktree of this hook's whose folder vanished without the remove hook (rm,
-# Finder) stays "missing but locked" for git, and its name with it, forever.
-# Its folder holds nothing left to lose, the commits stay on its branch: the
-# lock is lifted and the entry pruned, so the name can be made again. Only for
-# a `claude-code:` lock in an admin folder whose marker says claude-code; fails,
-# touching nothing, for anything else. $3 is the empty folder just claimed, so
-# the registered path resolves (git may store it relative to the admin folder).
+# A worktree made through Topics' doors whose folder vanished without the
+# remove hook (rm, Finder) stays registered for git, "missing" or "missing but
+# locked", and its name with it, forever. Its folder holds nothing left to lose,
+# the commits stay on its branch: the entry is pruned (its lock lifted first) so
+# the name can be made again. Only an admin folder with Topics' owner marker,
+# unlocked or under the hook's own `claude-code:` lock with a claude-code marker;
+# fails, touching nothing, for anything else. A detached HEAD has no branch, and
+# pruning drops the only ref to its commit: it is pinned under
+# `refs/topics/archive/lost-<sha>` first, as the GC does, or nothing is pruned.
+# $3 is the empty folder just claimed, so the registered path resolves (git may
+# store it relative to the admin folder).
 wt_lift_vanished() { # cwd common path
   [ -e "$3/.git" ] && return 1
   for _vg in "$2"/worktrees/*/gitdir; do
@@ -359,15 +372,32 @@ wt_lift_vanished() { # cwd common path
     _va="$(dirname "$_vg")"
     _vt="$(cd "$_va" 2>/dev/null && cd "$(dirname "$(tr -d '\r\n' < "$_vg")")" 2>/dev/null && pwd -P)" || continue
     [ "$_vt" = "$3" ] || continue
-    [ -f "$_va/locked" ] && [ -r "$_va/topics-owner" ] || return 1
-    case "$(wt_lock_reason "$_va")" in claude-code:*) ;; *) return 1 ;; esac
-    [ "$(wt_json_field "$(cat "$_va/topics-owner")" creator)" = claude-code ] || return 1
-    wt_log "the claude-code worktree registered at $3 vanished: unlocking and pruning it"
-    git -C "$1" worktree unlock "$3" >/dev/null 2>&1 || return 1
+    [ -r "$_va/topics-owner" ] || return 1
+    if [ -f "$_va/locked" ]; then
+      case "$(wt_lock_reason "$_va")" in claude-code:*) ;; *) return 1 ;; esac
+      [ "$(wt_json_field "$(cat "$_va/topics-owner")" creator)" = claude-code ] || return 1
+    fi
+    _vh="$(tr -d '\r\n' < "$_va/HEAD" 2>/dev/null)"
+    case "$_vh" in
+      ref:*) ;;
+      *[!0-9a-f]*|'') return 1 ;;
+      *) wt_git_repo "$2" update-ref "refs/topics/archive/lost-$_vh" "$_vh" >/dev/null 2>&1 || return 1 ;;
+    esac
+    wt_log "the worktree registered at $3 vanished: pruning it"
+    if [ -f "$_va/locked" ]; then git -C "$1" worktree unlock "$3" >/dev/null 2>&1 || return 1; fi
     git -C "$1" worktree prune >/dev/null 2>&1
     return 0
   done
   return 1
+}
+
+# The name of the folder $2 (branch $3) is held in git by something this run may
+# not clear: the path is still registered, or the branch is checked out in a
+# worktree (another checkout of the repository, a worktree Claude Code made
+# before the hook). The next suffix is free of both.
+wt_name_held() { # common path branch
+  _wl="$(wt_git_repo "$1" worktree list --porcelain 2>/dev/null)" || return 1
+  printf '%s\n' "$_wl" | grep -Fxq -e "worktree $2" -e "worktree $(wt_native "$2")" -e "branch refs/heads/$3"
 }
 
 # $1 cwd, $2 wanted name, $3 creator, $4 session id, $5 transcript. Prints the path.
@@ -398,7 +428,8 @@ wt_create() {
 
   # The name, claimed with `mkdir` (see the header): git takes the empty folder
   # as its target. A folder already there goes back only to the Claude Code
-  # session its lock names; anything else takes the next free suffix.
+  # session its lock names; anything else takes the next free suffix, and so
+  # does a name git still holds (`wt_name_held`).
   _base="$_name"; _i=2
   while :; do
     _path="$_parent/$_name"
@@ -406,12 +437,13 @@ wt_create() {
       wt_add "$_cwd" "$_path" "worktree-$_name" && break
       wt_lift_vanished "$_cwd" "$_common" "$_path" && wt_add "$_cwd" "$_path" "worktree-$_name" && break
       rmdir "$_path" 2>/dev/null
-      wt_die "git worktree add failed for $_path"
-    fi
-    [ -e "$_path" ] || wt_die "cannot create $_path"
-    if [ "$_creator" = claude-code ] && wt_held_by_session "$_path" "$_common" "$_sid"; then
-      wt_print_path "$_path"
-      return 0
+      wt_name_held "$_common" "$_path" "worktree-$_name" || wt_die "git worktree add failed for $_path"
+    else
+      [ -e "$_path" ] || wt_die "cannot create $_path"
+      if [ "$_creator" = claude-code ] && wt_held_by_session "$_path" "$_common" "$_sid"; then
+        wt_print_path "$_path"
+        return 0
+      fi
     fi
     _name="$_base-$_i"; _i=$((_i + 1))
   done
@@ -454,19 +486,43 @@ wt_archive_tag() { # common name head
   printf '%s' "$_t"
 }
 
+# `git status --porcelain` as a safety check: every untracked file and every
+# submodule change shown, whatever `status.showUntrackedFiles` or
+# `status.ignoreSubmodules` the user set (with `no`, a dirty tree read as clean).
+wt_status() { _wsp="$1"; shift; git -C "$_wsp" status --porcelain --untracked-files=normal --ignore-submodules=none "$@" 2>/dev/null; }
+
+# The first gitlink of the index (the worktree's own, or the scratch one at $2)
+# whose folder holds a repository of its own: a nested clone or an initialized
+# submodule. Its commits live in that repository, so neither the tag nor the
+# snapshot can keep them (`add -A` records only the gitlink).
+wt_nested_repo() { # path [index]
+  if [ -n "${2:-}" ]; then _ls="$(GIT_INDEX_FILE="$2" git -C "$1" ls-files -s 2>/dev/null)"; else _ls="$(git -C "$1" ls-files -s 2>/dev/null)"; fi
+  printf '%s\n' "$_ls" | grep '^160000 ' | while read -r _mode _obj _stage _f; do
+    if [ "$_mode" = 160000 ] && [ -e "$1/$_f/.git" ]; then printf '%s' "$_f"; break; fi
+  done
+}
+
 # The commit to archive: HEAD when the tree is clean, otherwise a commit on top
 # of HEAD holding the tree as it is (modified and untracked files; ignored ones
 # stay out, as in any commit). Built in a scratch index, so neither the
-# worktree's index nor any branch moves. Fails when the snapshot cannot be made.
+# worktree's index nor any branch moves. Fails (1) when the state cannot be read
+# or the snapshot cannot be made, and (2) when the tree holds a repository of
+# its own: then nothing can archive it.
 wt_snapshot() { # path head
-  [ -z "$(git -C "$1" status --porcelain 2>/dev/null)" ] && { printf '%s' "$2"; return 0; }
+  _ss="$(wt_status "$1")" || return 1
+  if [ -z "$_ss" ]; then
+    [ -z "$(wt_nested_repo "$1")" ] || return 2
+    printf '%s' "$2"; return 0
+  fi
   _sd="$(mktemp -d 2>/dev/null)" || return 1
   _si="$_sd/index"
   _st="$(GIT_INDEX_FILE="$_si" git -C "$1" read-tree "$2" 2>/dev/null \
     && GIT_INDEX_FILE="$_si" git -C "$1" add -A 2>/dev/null \
     && GIT_INDEX_FILE="$_si" git -C "$1" write-tree 2>/dev/null)"
+  _sn=""; [ -n "$_st" ] && _sn="$(wt_nested_repo "$1" "$_si")"
   rm -rf "$_sd"
   [ -n "$_st" ] || return 1
+  [ -z "$_sn" ] || return 2
   _un="$(git -C "$1" config user.name 2>/dev/null)"; _ue="$(git -C "$1" config user.email 2>/dev/null)"
   git -C "$1" -c user.name="${_un:-topics-worktree}" -c user.email="${_ue:-topics-worktree@localhost}" \
     commit-tree "$_st" -p "$2" -m "worktree removed with uncommitted changes" 2>/dev/null
@@ -500,15 +556,17 @@ wt_remove() { # path session_id
   _branch="$(git -C "$_p" symbolic-ref --quiet --short HEAD 2>/dev/null)"
   if [ -n "$_head" ]; then
     # Uncommitted work goes into the archive too: `remove --force` below drops it.
-    _keep="$(wt_snapshot "$_p" "$_head")" && [ -n "$_keep" ] \
-      || wt_die "uncommitted changes in $_p could not be archived: nothing removed"
+    _keep="$(wt_snapshot "$_p" "$_head")"; _src=$?
+    [ "$_src" -ne 2 ] || wt_die "$_p holds a git repository of its own (a nested clone or a submodule) whose commits no archive can keep: nothing removed"
+    [ "$_src" -eq 0 ] && [ -n "$_keep" ] \
+      || wt_die "the state of $_p could not be read, or its uncommitted changes archived: nothing removed"
     _tag="$(wt_archive_tag "$_common" "$(wt_sanitize_name "$(basename "$_p")")" "$_keep")" \
       || wt_die "archive tag not written for $_p: nothing removed"
     wt_log "archived $_keep as $_tag"
   else
     # No commit yet (`git checkout --orphan`): nothing to archive on, so anything
     # in the index or the folder, ignored files included, would go unarchived.
-    _unborn="$(git -C "$_p" status --porcelain --ignored 2>/dev/null)" \
+    _unborn="$(wt_status "$_p" --ignored)" \
       || wt_die "cannot read the state of $_p: nothing removed"
     [ -z "$_unborn" ] || wt_die "$_p has no commit yet and holds files that cannot be archived: nothing removed"
   fi

@@ -1314,7 +1314,6 @@
     "server/routes/terminal-children.ts": 15,
     "server/routes/terminal-queries.ts": 36,
     "server/routes/terminal-registry.ts": 65,
-    "server/routes/terminal-session-create.ts": 5,
     "server/routes/terminal-shared.ts": 18,
     "server/routes/terminal-state.ts": 1,
     "server/routes/terminal.resume-id.test.ts": 8,

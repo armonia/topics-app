@@ -117,6 +117,25 @@ describe("marker and lock on a real repository", () => {
     expect(await unlockOwned(defaultRunGit, repo, join(root, "never-existed"))).toBe(true);
   });
 
+  // git older than 2.36 has no `worktree list -z`: the list fails, and that must
+  // never read as "nothing is locked" (the manager then rm -rf'd a live session's folder).
+  test("when git cannot list the worktrees the lock is read off the disk, and a foreign one still refuses", async () => {
+    const noListZ: GitRunner = async (cwd, args, opts) =>
+      args[0] === "worktree" && args[1] === "list" && args.includes("-z")
+        ? { code: 129, stdout: "", stderr: "error: unknown switch `z'" }
+        : defaultRunGit(cwd, args, opts);
+    const held = mount("old-git-held");
+    expect(git(repo, "worktree", "lock", "--reason", "claude-code:live-sess", held).code).toBe(0);
+    expect(await unlockOwned(noListZ, repo, held)).toBe(false);
+    expect((await listRepoWorktrees(defaultRunGit, repo))!.find((w) => w.path.endsWith("/old-git-held"))!.locked).toBe(true);
+    // Topics' own lock is still lifted, and an unlocked checkout is still nothing to do.
+    const own = mount("old-git-own");
+    await lockOwned(defaultRunGit, repo, own, "old-git-own");
+    expect(await unlockOwned(noListZ, repo, own)).toBe(true);
+    expect((await listRepoWorktrees(defaultRunGit, repo))!.find((w) => w.path.endsWith("/old-git-own"))!.locked).toBe(false);
+    expect(await unlockOwned(noListZ, repo, mount("old-git-plain"))).toBe(true);
+  });
+
   test("a worktree whose folder is gone can still be unlocked and then pruned", async () => {
     const abs = mount("vanished");
     await lockOwned(defaultRunGit, repo, abs, "vanished");

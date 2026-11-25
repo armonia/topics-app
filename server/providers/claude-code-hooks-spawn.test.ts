@@ -17,7 +17,7 @@
  * @covers WORKTREE-STD-13
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TOPICS_HOOK_EVENTS, topicsHookCommand } from "../lib/topics-hooks";
@@ -93,7 +93,7 @@ test("the spawned argv has ONE --settings, with the seven hooks on the script un
 test("the worktree pair follows claude_worktree_hooks on both spawn paths: off leaves it out, the default puts it in", async () => {
   const { ClaudeCodeProvider } = await import("./claude-code");
   const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
-  const { claudePaneSettings } = await import("../lib/topics-hook-script");
+  const { claudePaneArgs } = await import("../routes/claude-pane-args");
   const { updateAppSettings } = await import("../services/app-settings");
   const { WORKTREE_HOOK_EVENTS } = await import("../lib/topics-hooks");
 
@@ -105,8 +105,12 @@ test("the worktree pair follows claude_worktree_hooks on both spawn paths: off l
     clearTimeout(pp.lifetimeTimer);
     return Object.keys(JSON.parse(argv[argv.indexOf("--settings") + 1]!).hooks);
   };
-  /** The same for a terminal pane, whose `--settings` is this object. */
-  const paneEvents = (): string[] => Object.keys(claudePaneSettings().hooks);
+  /** The same for a terminal pane: the one `--settings` of the argv `createSession` spawns. */
+  const paneEvents = (): string[] => {
+    const argv = claudePaneArgs({ sessionId: "pane-session", skipPermissions: true });
+    expect(argv.filter((a) => a === "--settings")).toHaveLength(1);
+    return Object.keys(JSON.parse(argv[argv.indexOf("--settings") + 1]!).hooks);
+  };
 
   try {
     updateAppSettings({ claudeWorktreeHooks: "off" });
@@ -121,4 +125,11 @@ test("the worktree pair follows claude_worktree_hooks on both spawn paths: off l
   } finally {
     updateAppSettings({ claudeWorktreeHooks: null });
   }
+});
+
+test("the terminal pane spawns the argv of claudePaneArgs, and builds no `--settings` of its own", () => {
+  const route = readFileSync(join(REPO_ROOT, "server", "routes", "terminal-session-create.ts"), "utf8");
+  expect(route).toContain("args = claudePaneArgs(");
+  expect(route).not.toMatch(/['"]--settings['"]/);
+  expect(route).not.toContain("claudePaneSettings");
 });

@@ -704,9 +704,9 @@ export function createWorktreeManager(
       }
       // The lock Topics took at creation would make git refuse both the remove
       // and the prune below; a lock with a foreign reason stays and git refuses.
-      // A `claude-code:` lock is lifted only when its rule says the session is over (B4).
-      if (project && !(await unlockOwned(defaultRunGit, project.path, wt.absPath, lockLiftRule(defaultRunGit, () => resolveWorktreeAbandonDays())).catch(() => true))) {
-        throw new WorktreeOperationError(`worktree is locked by someone else: ${wt.absPath}`, "git worktree lock with a foreign reason", null);
+      // A `claude-code:` lock is lifted only when its rule says the session is over (B4); a check that throws protects.
+      if (project && !(await unlockOwned(defaultRunGit, project.path, wt.absPath, lockLiftRule(defaultRunGit, () => resolveWorktreeAbandonDays())).catch(() => false))) {
+        throw new WorktreeOperationError(`worktree is locked by someone else: ${wt.absPath}`, "git worktree lock with a foreign reason, or a lock nobody could read", null);
       }
       // Best-effort: remove from disk, then the branch if we own it.
       if (project && existsSync(wt.absPath)) {
@@ -722,8 +722,9 @@ export function createWorktreeManager(
         } catch (err: any) {
           const cause = String(err?.stderr || err?.message || err).trim();
           console.warn(`[WorktreeManager] git worktree remove failed for ${wt.absPath}:`, cause);
-          // Windows, EBUSY/EPERM: somebody is inside. The row stays for the next pass, no rm on top.
+          // Windows, EBUSY/EPERM: somebody is inside; or a lock taken since the check above. The row stays, no rm on top.
           if (removalMeansAlive(err)) throw new WorktreeOperationError(`worktree is in use: ${wt.absPath}`, cause, null);
+          if (/locked working tree/i.test(cause)) throw new WorktreeOperationError(`worktree is locked by someone else: ${wt.absPath}`, cause, null);
           // Throws when the folder survives: row and branch stay, see above.
           await removeFolderOurselves(project.path, wt.absPath, cause);
         }

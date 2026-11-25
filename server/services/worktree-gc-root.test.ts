@@ -16,7 +16,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorktreeGcRunner, type WorktreeGcDeps } from "./worktree-gc-runner";
@@ -554,6 +554,102 @@ describe("the root pass of the worktree GC, on real git", () => {
     expect(summary!.root!.pruned).toBe(1);
     expect(git(repo, "worktree", "list", "--porcelain").out).not.toContain("hook-detached");
     expect(git(repo, "rev-parse", `refs/topics/archive/lost-${head}`).out).toBe(head);
+  });
+
+  /** What the Claude Code hook leaves for a session: worktree-<name> branch, lock, v2 marker, ledger entry. */
+  function hookMade(name: string, session: string, opts: { detach?: boolean; transcriptAgeMs?: number } = {}): string {
+    const abs = join(root, "proj", name);
+    mkdirSync(join(root, "proj"), { recursive: true });
+    const add = opts.detach ? ["--detach", abs, "main"] : ["-b", `worktree-${name}`, abs, "main"];
+    expect(git(repo, "worktree", "add", "-q", ...add).code).toBe(0);
+    const transcript = join(base, `${name}.jsonl`);
+    writeFileSync(transcript, "{}\n");
+    if (opts.transcriptAgeMs) age(transcript, opts.transcriptAgeMs);
+    expect(writeOwnerMarker(abs, {
+      worktreeId: name, projectId: "p1", createdAt: new Date(Date.now() - 3 * DAY).toISOString(),
+      creator: "claude-code", session: { id: session, transcript },
+    })).toBe(true);
+    expect(git(repo, "worktree", "lock", "--reason", `claude-code:${session}`, abs).code).toBe(0);
+    markFolderOwned(root, abs);
+    age(abs, 3 * DAY);
+    return abs;
+  }
+  const lockOf = (abs: string) => {
+    const block = git(repo, "worktree", "list", "--porcelain").out.split("\n\n").find((b) => b.split("\n")[0] === `worktree ${realpathSync(join(abs, ".."))}/${abs.split("/").pop()}`);
+    return block?.split("\n").find((l) => l.startsWith("locked")) ?? null;
+  };
+
+  test("a present, row-less checkout under the hook's claude-code lock keeps its lock: only a folder surely gone is lifted", async () => {
+    const abs = hookMade("live-hook", "sess-live");
+    await runner().runWorktreeGc();
+    expect(lockOf(abs)).toBe("locked claude-code:sess-live");
+    expect(existsSync(abs)).toBe(true);
+    expect(deleted).toEqual([]);
+  });
+
+  test("the hook's checkout with a row, whose folder then vanished: the lock is lifted, the row closed, the name free, the branch kept", async () => {
+    const abs = hookMade("hook-row", "sess-r", { transcriptAgeMs: 30 * DAY });
+    writeFileSync(join(abs, "work.txt"), "work\n");
+    git(abs, "add", "-A");
+    expect(git(abs, "commit", "-q", "-m", "work on the branch").code).toBe(0);
+    const tip = git(abs, "rev-parse", "HEAD").out;
+    // The row the hook's register door (or the first pass) makes for it.
+    rows.push({ id: "hook-row", projectId: "p1", absPath: abs, branchName: "worktree-hook-row", mode: "reuse", status: "ready", createdAt: new Date(Date.now() - 30 * DAY).toISOString(), source: "claude-code" });
+    rmSync(abs, { recursive: true, force: true });
+    const summary = await runner().runWorktreeGc();
+    expect(summary!.root!.pruned).toBe(1);
+    expect(lockOf(abs)).toBeNull();
+    expect(git(repo, "worktree", "list", "--porcelain").out).not.toContain("hook-row");
+    expect(summary!.keptReasons["worktree bloccato da un altro (git worktree lock)"]).toBeUndefined();
+    expect(deleted).toEqual(["hook-row"]);
+    expect(git(repo, "rev-parse", "refs/heads/worktree-hook-row").out).toBe(tip);
+    expect(git(repo, "worktree", "add", "-q", abs, "worktree-hook-row").code).toBe(0);
+  });
+
+  test("a vanished detached claude-code checkout whose commit cannot be pinned keeps its lock and its entry", async () => {
+    const abs = hookMade("hook-nopin", "sess-p", { detach: true });
+    writeFileSync(join(abs, "only-here.txt"), "work\n");
+    git(abs, "add", "-A");
+    expect(git(abs, "commit", "-q", "-m", "only on this HEAD").code).toBe(0);
+    rmSync(abs, { recursive: true, force: true });
+    const noPin: typeof defaultRunGit = async (cwd, args, opts) =>
+      args[0] === "update-ref" && (args[1] ?? "").startsWith("refs/topics/archive/lost-")
+        ? { code: 1, stdout: "", stderr: "refused by the test" }
+        : defaultRunGit(cwd, args, opts);
+    const summary = await runner({ git: noPin }).runWorktreeGc();
+    expect(summary!.root!.pruned).toBe(0);
+    expect(lockOf(abs)).toBe("locked claude-code:sess-p");
+  });
+
+  test("a vanished folder under Topics' own lock that a row claims is left to the sweep's removal, not pruned by the root pass", async () => {
+    const abs = mountAt("row-own-lock");
+    await lockOwned(defaultRunGit, repo, abs, "row-own-lock");
+    rows.push({ id: "own", projectId: "p1", absPath: abs, branchName: "topics/row-own-lock", mode: "branch", status: "ready", createdAt: new Date(Date.now() - 3 * DAY).toISOString() });
+    rmSync(abs, { recursive: true, force: true });
+    const summary = await runner().runWorktreeGc();
+    expect(summary!.root!.pruned).toBe(0);
+    // The fake manager records the removal and leaves git alone: the entry is still there for it.
+    expect(lockOf(abs)).toBe("locked topics:row-own-lock");
+  });
+
+  test("another tool's clean, merged, task-less row older than 24 h is swept: its birth travels with the row", async () => {
+    const abs = mountAt("codex-old");
+    rows.push({ id: "codex-old", projectId: "p1", absPath: abs, branchName: "topics/codex-old", mode: "branch", status: "ready", createdAt: new Date(Date.now() - 3 * DAY).toISOString(), source: "codex" });
+    await runner().runWorktreeGc();
+    expect(deleted).toEqual(["codex-old"]);
+  });
+
+  test("git that cannot list the worktrees (no `-z` before 2.36): a live session's locked row is kept, read off the disk", async () => {
+    const abs = hookMade("old-git", "sess-old");
+    git(repo, "merge", "-q", "--ff-only", "worktree-old-git");
+    rows.push({ id: "old-git", projectId: "p1", absPath: abs, branchName: "worktree-old-git", mode: "branch", status: "ready", createdAt: new Date(Date.now() - 3 * DAY).toISOString(), source: "claude-code" });
+    const noListZ: typeof defaultRunGit = async (cwd, args, opts) =>
+      args[0] === "worktree" && args[1] === "list" && args.includes("-z")
+        ? { code: 129, stdout: "", stderr: "error: unknown switch `z'" }
+        : defaultRunGit(cwd, args, opts);
+    const summary = await runner({ git: noListZ }).runWorktreeGc();
+    expect(deleted).toEqual([]);
+    expect(summary!.keptReasons["worktree bloccato da un altro (git worktree lock)"]).toBe(1);
   });
 
   test("the preview writes nothing and says what each folder is", async () => {

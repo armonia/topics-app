@@ -63,7 +63,8 @@ afterAll(() => rmSync(base, { recursive: true, force: true }));
 
 function deps(store: RegisterDeps["store"] = freshStore(), over: Partial<RegisterDeps> = {}): RegisterDeps {
   return {
-    platform: "darwin",
+    // The host's own rules: the paths below come from `join()` on this machine (drive-letter paths on Windows).
+    platform: process.platform,
     roots: () => [root],
     canonical: (p) => canonicalPath(p),
     projectFor: (p) => (p.startsWith(repo) || p.startsWith(join(root, "repo")) || p.startsWith(join(base, "elsewhere"))

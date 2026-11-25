@@ -378,26 +378,33 @@ export function hasCreatorMarker(entry: RootEntry, projects: readonly KnownProje
 
 /**
  * Unlock-and-prune: git forgets the worktrees whose folder is gone. A lock stops
- * `git worktree prune` from forgetting one, so when no row claims the entry the
- * lock is lifted first: Topics' own, and the Claude Code hook's `claude-code:`
- * one whose folder went without the remove hook (else git keeps a «missing but
- * locked» entry forever and the same name can never be created again). Any
- * other lock is left alone.
+ * `git worktree prune` from forgetting one, so it is lifted first: Topics' own
+ * when no row claims the entry (a row's is lifted by the sweep's removal), and
+ * the Claude Code hook's `claude-code:` one whose folder surely went without the
+ * remove hook, row or no row: nothing on the disk is left to protect, and the
+ * sweep cannot lift it (the marker it would read sat in the folder), so without
+ * this git keeps a «missing but locked» entry forever, the row is never closed
+ * and the same name can never be created again. Any other lock is left alone.
+ * `lifted` collects the paths whose lock was lifted.
  */
 export async function pruneKnownRepos(
   git: GitRunner,
   byRepo: ReadonlyMap<string, ListedWorktree[]>,
   rowPaths: ReadonlySet<string>,
+  lifted?: Set<string>,
 ): Promise<number> {
   let pruned = 0;
   for (const [repo, list] of byRepo) {
     for (const w of list) {
-      if (rowPaths.has(canonicalPath(w.path))) continue;
+      const abs = canonicalPath(w.path);
+      if (isClaudeCodeLock(w) && surelyAbsent(w.path)) {
+        if (await liftVanishedClaudeCodeLock(git, repo, w).catch(() => false)) { pruned++; lifted?.add(abs); }
+        continue;
+      }
+      if (rowPaths.has(abs)) continue;
       // git never flags a LOCKED worktree as prunable, so a vanished folder is read off the disk.
       if (lockedByTopics(w) && (w.prunable || !existsSync(w.path))) {
-        if (await unlockOwned(git, repo, w.path).catch(() => false)) pruned++;
-      } else if (isClaudeCodeLock(w) && surelyAbsent(w.path)) {
-        if (await liftVanishedClaudeCodeLock(git, repo, w).catch(() => false)) pruned++;
+        if (await unlockOwned(git, repo, w.path).catch(() => false)) { pruned++; lifted?.add(abs); }
       }
     }
     await git(repo, ["worktree", "prune"]).catch(() => undefined);

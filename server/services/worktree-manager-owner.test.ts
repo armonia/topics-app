@@ -102,6 +102,20 @@ describe("owner marker and lock around create and delete", () => {
     expect(rows.has(row.id)).toBe(true);
   });
 
+  test("a lock taken after the check is honoured: git refuses the remove and the folder is not rm'd by hand", async () => {
+    const m = manager();
+    const row = await m.create({ projectId: "p1", mode: "branch", baseRef: "main", name: "late-lock" });
+    await m.awaitMaterialisation(row.id, 30_000);
+    writeFileSync(join(row.absPath, ".env"), "SECRET=1\n");
+    // The project's archive script runs between the lock check and `git worktree remove`:
+    // it stands for another tool locking the checkout in that window.
+    mkdirSync(join(repo, ".topics"), { recursive: true });
+    writeFileSync(join(repo, ".topics", "worktree.json"), JSON.stringify({ archive: { command: "git", args: ["-C", repo, "worktree", "lock", "--reason", "other-tool:late", row.absPath] } }));
+    await expect(m.delete(row.id)).rejects.toBeInstanceOf(WorktreeOperationError);
+    expect(existsSync(join(row.absPath, ".env"))).toBe(true);
+    expect(rows.has(row.id)).toBe(true);
+  });
+
   test("after the root moved twice, a row of the first root is still Topics' to remove", async () => {
     const m = manager();
     const first = join(base, "first-root");

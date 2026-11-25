@@ -13,6 +13,11 @@ mkdir -p "$TOPICS_HOME/claude-hooks"
 printf 'abcdef0123456789abcdef0123456789' > "$TOPICS_HOME/claude-hooks/hook-token"
 fail=0
 ok() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got [$2] want [$3]"; fail=1; fi; }
+# A path as the hook prints and sends it: native on Git for Windows (`cygpath -m`,
+# `C:/Users/...`), unchanged elsewhere. Expected values go through it; `tmp`
+# itself stays in the shell's spelling, or a `PATH="$tmp/...:$PATH"` shim would
+# break on the colon of `C:`.
+native() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 
 # A repository with one commit, at $1 (physical path printed).
 make_repo() {

@@ -33,13 +33,15 @@ remove_wt() { # path [session] [script]
     | sh "${3:-$hook}" remove 2>"$tmp/err"
 }
 there() { if [ -e "$1" ]; then echo there; else echo gone; fi; }
-lock_of() { git -C "$repo" worktree list --porcelain | awk -v p="$1" '/^worktree /{c=substr($0,10)} /^locked/{if(c==p)print substr($0,8)}'; }
+lock_of() { git -C "$repo" worktree list --porcelain | awk -v p="$(native "$1")" '/^worktree /{c=substr($0,10)} /^locked/{if(c==p)print substr($0,8)}'; }
 
 # A git that fails one step on request (SHIM_FAIL), real git for everything else:
 #   lock         `worktree lock` fails
 #   kill-add     `worktree add` kills the hook that called it, as an Esc or a timeout would
 #   path-format  `--path-format` is unknown, as on git older than 2.31
 #   commit-tree  the snapshot of uncommitted work cannot be written
+#   add-fail     `worktree add` fails and the hook lives on
+#   status       `git status` fails, as on a corrupt index
 real_git="$(command -v git)"
 mkdir -p "$tmp/gitshim"
 cat > "$tmp/gitshim/git" <<EOF
@@ -49,10 +51,12 @@ for a in "\$@"; do
   case "\${SHIM_FAIL:-}:\$prev \$a" in
     "lock:worktree lock") exit 1 ;;
     "kill-add:worktree add") kill -TERM "\$PPID"; exit 1 ;;
+    "add-fail:worktree add") echo "fatal: refused by the test" >&2; exit 1 ;;
   esac
   case "\${SHIM_FAIL:-}:\$a" in
     path-format:--path-format*) echo "error: unknown option" >&2; exit 129 ;;
     commit-tree:commit-tree) exit 1 ;;
+    status:status) echo "fatal: index file corrupt" >&2; exit 128 ;;
   esac
   prev="\$a"
 done
@@ -65,7 +69,7 @@ with_git() { _f="$1"; shift; (PATH="$tmp/gitshim:$PATH"; SHIM_FAIL="$_f"; export
 out="$(create 'Feature/X+Y')"; code=$?
 want="$root/demo-repo/feature-x-y"
 ok "server down: still created, exit 0" "$code" 0
-ok "the last stdout line is {root}/{slug}/{name}" "$(printf '%s\n' "$out" | tail -n 1)" "$want"
+ok "the last stdout line is {root}/{slug}/{name}" "$(printf '%s\n' "$out" | tail -n 1)" "$(native "$want")"
 ok "stdout carries the path only" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" 1
 ok "branch worktree-<name>" "$(git -C "$want" symbolic-ref --short HEAD)" "worktree-feature-x-y"
 admin="$(git -C "$want" rev-parse --path-format=absolute --git-dir)"
@@ -81,21 +85,21 @@ ok "ledger: the folder has its entry, naming the creator" "$(jq -r .creator "$ro
 # --- idempotent for the session that made it (a resume) -----------------------
 before="$(git -C "$repo" worktree list | wc -l | tr -d ' ')"
 out2="$(create 'Feature/X+Y')"
-ok "re-run: same path" "$(printf '%s\n' "$out2" | tail -n 1)" "$want"
+ok "re-run: same path" "$(printf '%s\n' "$out2" | tail -n 1)" "$(native "$want")"
 ok "re-run: no second worktree" "$(git -C "$repo" worktree list | wc -l | tr -d ' ')" "$before"
 
 # --- a folder of somebody else's under the same name: next suffix -------------
 mkdir -p "$root/demo-repo/taken"
-ok "a foreign folder takes -2" "$(create taken | tail -n 1)" "$root/demo-repo/taken-2"
+ok "a foreign folder takes -2" "$(create taken | tail -n 1)" "$(native "$root/demo-repo/taken-2")"
 
 # --- the sed reader, for machines without jq ----------------------------------
-ok "without jq: same contract" "$(payload 'Plain' | TOPICS_HOOK_NO_JQ=1 sh "$hook" create 2>/dev/null | tail -n 1)" "$root/demo-repo/plain"
+ok "without jq: same contract" "$(payload 'Plain' | TOPICS_HOOK_NO_JQ=1 sh "$hook" create 2>/dev/null | tail -n 1)" "$(native "$root/demo-repo/plain")"
 
 # --- one folder, one session ----------------------------------------------------
 # Two sessions asking for the same name must not share a folder: when the second
 # one exits, its remove would take the first one's live work (ignored .env too).
 a_path="$(create shared s-a | tail -n 1)"
-ok "another session asking the same name: its own folder" "$(create shared s-b | tail -n 1)" "$root/demo-repo/shared-2"
+ok "another session asking the same name: its own folder" "$(create shared s-b | tail -n 1)" "$(native "$root/demo-repo/shared-2")"
 ok "the same session asking again: its folder back" "$(create shared s-a | tail -n 1)" "$a_path"
 echo live > "$a_path/.env"
 remove_wt "$a_path" s-b
@@ -111,7 +115,7 @@ race_codes=""; for s in 1 2 3; do eval "wait \"\$race_pid$s\""; race_codes="$rac
 ok "three creates at once: all exit 0" "$race_codes" "000"
 ok "three creates at once: three folders" \
   "$(for s in 1 2 3; do tail -n 1 "$tmp/race$s"; done | sort | tr '\n' ' ')" \
-  "$root/demo-repo/race $root/demo-repo/race-2 $root/demo-repo/race-3 "
+  "$(native "$root/demo-repo/race") $(native "$root/demo-repo/race-2") $(native "$root/demo-repo/race-3") "
 ok "three creates at once: three worktrees, one branch each" \
   "$(for s in 1 2 3; do git -C "$(tail -n 1 "$tmp/race$s")" symbolic-ref --short HEAD 2>/dev/null; done | sort | tr '\n' ' ')" \
   "worktree-race worktree-race-2 worktree-race-3 "
@@ -152,12 +156,43 @@ rm -rf "$root/demo-repo/foreignvanish"
 create foreignvanish s-z >/dev/null
 ok "vanished folder, foreign lock: the lock is left alone" "$(lock_of "$root/demo-repo/foreignvanish")" "codex:y"
 
+# --- an unlocked registration of a vanished folder does not block its name -------
+TOPICS_WORKTREE_CREATOR=adopted sh "$hook" add "$repo" plainvanish >/dev/null 2>&1
+rm -rf "$root/demo-repo/plainvanish"
+out="$(create plainvanish s-q)"; code=$?
+ok "vanished folder, no lock: created again, exit 0" "$code" 0
+ok "vanished folder, no lock: same name" "$(printf '%s\n' "$out" | tail -n 1)" "$(native "$root/demo-repo/plainvanish")"
+
+# --- a detached HEAD whose folder vanished keeps its commit reachable ------------
+det_path="$(create detvanish s-d | tail -n 1)"
+git -C "$det_path" checkout -q --detach
+echo only-here > "$det_path/x.txt" && git -C "$det_path" add x.txt && git -C "$det_path" commit -qm "only on this HEAD"
+det_head="$(git -C "$det_path" rev-parse HEAD)"
+rm -rf "$det_path"
+create detvanish s-e >/dev/null
+ok "vanished detached folder: created again, exit 0" "$?" 0
+ok "vanished detached folder: its commit is still on a ref" \
+  "$(git -C "$repo" for-each-ref --contains "$det_head" --format='%(refname)')" "refs/topics/archive/lost-$det_head"
+
+# --- the branch worktree-<name> checked out elsewhere: the next suffix ----------
+git -C "$repo" worktree add -q -b worktree-native "$repo/.claude/worktrees/native" >/dev/null 2>&1
+out="$(create native s-n)"; code=$?
+ok "branch checked out by another worktree: exit 0" "$code" 0
+ok "branch checked out by another worktree: the next suffix" "$(printf '%s\n' "$out" | tail -n 1)" "$(native "$root/demo-repo/native-2")"
+ok "branch checked out by another worktree: no empty folder left under the name" "$(there "$root/demo-repo/native")" "gone"
+git -C "$repo" worktree remove --force "$repo/.claude/worktrees/native"
+
+# --- git worktree add fails, the hook lives: exit 1, nothing left --------------
+with_git add-fail create addfail s-f >/dev/null
+ok "git worktree add fails: create exits 1" "$?" 1
+ok "git worktree add fails: the claimed folder is gone" "$(there "$root/demo-repo/addfail")" "gone"
+
 # --- git older than 2.31 (no --path-format) ---------------------------------------
 with_git path-format git -C "$repo" rev-parse --path-format=absolute --git-dir >/dev/null 2>&1
 ok "old git shim: --path-format is refused" "$?" 129
 out="$(with_git path-format create oldgit s-o)"; code=$?
 ok "old git: create exits 0" "$code" 0
-ok "old git: the path" "$(printf '%s\n' "$out" | tail -n 1)" "$root/demo-repo/oldgit"
+ok "old git: the path" "$(printf '%s\n' "$out" | tail -n 1)" "$(native "$root/demo-repo/oldgit")"
 ok "old git: marker written" "$(jq -r .creator "$(git -C "$root/demo-repo/oldgit" rev-parse --path-format=absolute --git-dir)/topics-owner" 2>/dev/null)" "claude-code"
 with_git path-format remove_wt "$root/demo-repo/oldgit" s-o
 ok "old git: remove exits 0" "$?" 0
@@ -167,10 +202,10 @@ ok "old git: archived, then removed" "$(git -C "$repo" rev-parse --verify --quie
 export FAKE_ROOT="$tmp/root2"
 start_fake
 out="$(create srv s-2)"
-ok "server up: placement's root and slug" "$(printf '%s\n' "$out" | tail -n 1)" "$tmp/root2/demo/srv"
+ok "server up: placement's root and slug" "$(printf '%s\n' "$out" | tail -n 1)" "$(native "$tmp/root2/demo/srv")"
 ok "server up: asked placement for the repo" "$(/usr/bin/grep -c '^GET /api/worktrees/placement?repo=' "$tmp/requests.log")" 1
 reg="$(/usr/bin/grep '^POST /api/worktrees/register ' "$tmp/requests.log" | sed 's/^POST \/api\/worktrees\/register //')"
-ok "server up: registered through the door" "$(printf '%s' "$reg" | jq -r '.creator + " " + .session.id + " " + .path')" "claude-code s-2 $tmp/root2/demo/srv"
+ok "server up: registered through the door" "$(printf '%s' "$reg" | jq -r '.creator + " " + .session.id + " " + .path')" "claude-code s-2 $(native "$tmp/root2/demo/srv")"
 ok "server up: marker carries the project id" "$(jq -r .projectId "$(git -C "$tmp/root2/demo/srv" rev-parse --path-format=absolute --git-dir)/topics-owner")" "p1"
 ok "server up: the ledger entry sits under placement's root" "$([ -f "$tmp/root2/.topics-owned/demo/srv" ] && echo yes || echo no)" "yes"
 stop_fake
@@ -233,6 +268,63 @@ remove_wt "$orphan_path"
 ok "no commit yet, files staged and untracked: remove refused" "$?" 1
 ok "no commit yet: the staged file is still there" "$(cat "$orphan_path/mywork.txt" 2>/dev/null)" "work"
 ok "no commit yet: the untracked file is still there" "$(cat "$orphan_path/loose.txt" 2>/dev/null)" "loose"
+
+# A HEAD-less checkout holding only an ignored file (.env, node_modules): still refused.
+printf '.env\n' > "$tmp/excludes"
+git config --global core.excludesFile "$tmp/excludes"
+bare_path="$(create orphanignored | tail -n 1)"
+git -C "$bare_path" checkout -q --orphan bareroot && git -C "$bare_path" rm -rqf .
+echo secret > "$bare_path/.env"
+remove_wt "$bare_path"
+ok "no commit yet, only an ignored file: remove refused" "$?" 1
+ok "no commit yet, only an ignored file: it is still there" "$(cat "$bare_path/.env" 2>/dev/null)" "secret"
+git config --global --unset core.excludesFile
+rm -f "$bare_path/.env"
+with_git status remove_wt "$bare_path"
+ok "no commit yet, git status fails: remove refused" "$?" 1
+ok "no commit yet, git status fails: the folder stays" "$(there "$bare_path")" "there"
+
+# --- status.showUntrackedFiles=no hides nothing from the archive --------------
+git config --global status.showUntrackedFiles no
+hid_path="$(create hidden | tail -n 1)"
+echo mine > "$hid_path/notes.txt"
+remove_wt "$hid_path"
+ok "showUntrackedFiles=no: remove exits 0" "$?" 0
+ok "showUntrackedFiles=no: the untracked file is in the archive" "$(git -C "$repo" show 'archive/wt-hidden:notes.txt' 2>/dev/null)" "mine"
+hid2="$(create hiddenorphan | tail -n 1)"
+git -C "$hid2" checkout -q --orphan fresh && git -C "$hid2" rm -rqf .
+echo mine > "$hid2/notes.txt"
+remove_wt "$hid2"
+ok "showUntrackedFiles=no, no commit yet: remove refused" "$?" 1
+ok "showUntrackedFiles=no, no commit yet: the file is still there" "$(cat "$hid2/notes.txt" 2>/dev/null)" "mine"
+git config --global --unset status.showUntrackedFiles
+
+# --- a git status that fails is not a clean tree --------------------------------
+corrupt_path="$(create corrupt | tail -n 1)"
+echo edited > "$corrupt_path/a.txt"
+head -c 64 /dev/urandom > "$(git -C "$corrupt_path" rev-parse --git-dir)/index"
+remove_wt "$corrupt_path"
+ok "corrupt index: remove refused" "$?" 1
+ok "corrupt index: the edit is still there" "$(cat "$corrupt_path/a.txt" 2>/dev/null)" "edited"
+
+# --- a repository nested in the worktree cannot be archived: not removed -------
+nest_path="$(create nested | tail -n 1)"
+mkdir "$nest_path/inner" && git -C "$nest_path/inner" init -q \
+  && echo secret > "$nest_path/inner/work.txt" && git -C "$nest_path/inner" add work.txt && git -C "$nest_path/inner" commit -qm nested-work
+remove_wt "$nest_path"
+ok "nested repository: remove refused" "$?" 1
+ok "nested repository: its committed file is still there" "$(cat "$nest_path/inner/work.txt" 2>/dev/null)" "secret"
+
+# --- Topics down: one call per question, never a second scheme on a closed port --
+mkdir -p "$tmp/refused"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/refused.log"\nexit 7\n' "$tmp" > "$tmp/refused/curl"
+chmod +x "$tmp/refused/curl"
+: > "$tmp/refused.log"
+# A subshell: macOS's sh keeps a `VAR=x` written before a function call.
+(PATH="$tmp/refused:$PATH"; export PATH; create refused >/dev/null)
+ok "port refused: create still exits 0" "$?" 0
+ok "port refused: one curl for placement, one for register" "$(/usr/bin/grep -c . "$tmp/refused.log")" 2
+ok "port refused: each capped by a connect timeout" "$(/usr/bin/grep -c -- '--connect-timeout 1' "$tmp/refused.log")" 2
 
 # --- Git for Windows: the server gets native paths, never MSYS ones -----------
 mkdir -p "$tmp/fakebin"

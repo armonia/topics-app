@@ -24,7 +24,7 @@ import {
   type KnownProject, type RegisterStore, type RootCounts, type RootEntry, type RootPlanEntry, type RootRow, type RootScan,
 } from "./worktree-root-gc";
 import { isInsideDir } from "../lib/path-containment";
-import { lockedByTopics, lockLiftRule } from "./worktree-owner";
+import { lockedByTopics, lockLiftRule, readLockOffDisk } from "./worktree-owner";
 import { listQuarantine, markFolderOwned, purgeQuarantine, slugAndName } from "./worktree-root-ledger";
 import { DEFAULT_WORKTREE_QUARANTINE_DAYS } from "../../shared/worktree-settings";
 
@@ -104,6 +104,15 @@ async function gather(deps: RootPassDeps) {
   for (const w of [...byRepo.values()].flat()) {
     if (w.locked && !lockedByTopics(w) && !(await mayLift(w).catch(() => false))) others.add(canonicalPath(w.path));
   }
+  // A repository git could not list (git older than 2.36 has no `-z`, a timeout):
+  // its rows' locks are read off the disk, and a lock nobody can read keeps the row.
+  const repoOf = new Map(projects.map((p) => [p.id, canonicalPath(p.path)]));
+  for (const row of rows) {
+    const repo = repoOf.get(row.projectId);
+    if (!repo || byRepo.has(repo)) continue;
+    const w = readLockOffDisk(row.absPath);
+    if (!w || (w.locked && !lockedByTopics(w) && !(await mayLift(w).catch(() => false)))) others.add(canonicalPath(row.absPath));
+  }
   deps.onLocks?.(others);
   const plan = planRoot({
     root: r.root, extraRoots: r.extraRoots, rows, scanned, listed, repoPaths,
@@ -116,7 +125,7 @@ async function gather(deps: RootPassDeps) {
     quarantined: roots.flatMap((root) => listQuarantine(root)),
     quarantineDays,
   });
-  return { r, roots, rows, scanned, scanMs, listed, byRepo, plan, projects, quarantineDays, now };
+  return { r, roots, rows, scanned, scanMs, listed, byRepo, plan, projects, quarantineDays, now, others };
 }
 
 /** The classification only, nothing acted on: what the preview and `--check` show. */
@@ -165,7 +174,10 @@ export async function runRootPass(deps: RootPassDeps): Promise<RootPassResult | 
   let purged = 0;
   for (const root of g.roots) purged += await purgeQuarantine(root, g.quarantineDays, g.now).catch(() => 0);
   if (purged) deps.log(`[worktree-gc] ${purged} quarantined folders deleted after ${g.quarantineDays} days`);
-  const pruned = await pruneKnownRepos(deps.git, g.byRepo, new Set(g.rows.map((r) => canonicalPath(r.absPath)))).catch(() => 0);
+  const lifted = new Set<string>();
+  const pruned = await pruneKnownRepos(deps.git, g.byRepo, new Set(g.rows.map((r) => canonicalPath(r.absPath))), lifted).catch(() => 0);
+  // A lock lifted here no longer holds its row: the sweep of this same pass closes it.
+  if (lifted.size) deps.onLocks?.(new Set([...g.others].filter((p) => !lifted.has(p))));
   return { scanMs: g.scanMs, registered, ghostsQuarantined, purged, pruned, found, plan: g.plan };
 }
 

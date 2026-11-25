@@ -17,6 +17,7 @@
  * (auto-bumped version, rebuilt bundle, relocked deps), so counting them would
  * make (2) never fire. A real dependency change always shows up in source too,
  * so ignoring the manifest stays safe — genuine work keeps the branch "unmerged".
+ * A branch that changed ONLY such paths is compared on them: then they are its work.
  */
 
 import { commitIsIn, listOwnCommits, type GitRunner } from "./own-commits";
@@ -286,13 +287,18 @@ async function statusOfExistingRef(repoPath: string, ref: string, mainRef: strin
   // forked, so a branch merely BEHIND main (main evolved those files) still
   // shows a diff and stays "unmerged". If every unique source file it touched is
   // already identical on main, the branch holds nothing to lose.
-  const changed = filterUniqueSourceFiles(
-    (await gitOut(repoPath, ["diff", "--name-only", `${mainRef}...${branch}`])).split("\n"),
-  );
-  if (changed.length === 0) return "merged"; // only generated/version noise differs
+  const own = (await gitOut(repoPath, ["diff", "--name-only", `${mainRef}...${branch}`]))
+    .split("\n").map((p) => p.trim()).filter((p) => p.length > 0);
+  if (own.length === 0) return "merged"; // the branch changes nothing since it forked
+  // Noise is ignored NEXT TO a source change (every branch relocks, bumps, rebuilds).
+  // When noise is ALL the branch changed, it is the branch's whole work (a relock,
+  // an asset under some `public/`), so it must be on main too: judged "merged" on
+  // the filtered list alone, the GC reaped it and deleted its only ref.
+  const source = filterUniqueSourceFiles(own);
+  const compared = source.length > 0 ? source : own;
 
   // `git diff --quiet` exits 0 when there is NO difference for the given paths.
-  const differs = await gitExit(repoPath, ["diff", "--quiet", branch, mainRef, "--", ...changed]);
+  const differs = await gitExit(repoPath, ["diff", "--quiet", branch, mainRef, "--", ...compared]);
   return differs === 0 ? "merged" : "unmerged";
 }
 

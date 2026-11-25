@@ -299,9 +299,36 @@ export async function lockOwned(git: GitRunner, repoPath: string, absPath: strin
 }
 
 /**
+ * The lock of the worktree at `absPath` read off its admin folder (`locked`),
+ * with no git: what is left when `git worktree list -z` cannot answer (git
+ * older than 2.36, a timeout). Null when the answer is unknown, which callers
+ * must read as "protected". A folder that is surely gone, or that is not a
+ * linked worktree, has nothing a lock could protect: not locked.
+ */
+export function readLockOffDisk(absPath: string): ListedWorktree | null {
+  const entry: ListedWorktree = { path: absPath, head: null, branch: null, detached: false, bare: false, locked: false, lockReason: null, prunable: false };
+  let st;
+  try { st = statSync(join(absPath, ".git")); } catch (err) {
+    return (err as NodeJS.ErrnoException)?.code === "ENOENT" ? entry : null;
+  }
+  if (!st.isFile()) return entry;
+  const admin = worktreeAdminDir(absPath);
+  if (!admin) return null;
+  try {
+    entry.lockReason = readFileSync(join(admin, "locked"), "utf8").replace(/\r?\n$/, "") || null;
+    entry.locked = true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") return null;
+  }
+  return entry;
+}
+
+/**
  * Lifts Topics' own lock (or, with `mayLift`, one its rule allows), and only that
  * one: any other lock stays, and the answer is false so the caller knows the
  * checkout is still protected. Nothing locked, or nothing to find, is true.
+ * When git cannot list the worktrees the lock is read off the disk, and an
+ * answer nobody can give is a refusal: a failed list never reads as "unlocked".
  */
 export async function unlockOwned(
   git: GitRunner,
@@ -311,7 +338,8 @@ export async function unlockOwned(
 ): Promise<boolean> {
   const listed = await listRepoWorktrees(git, repoPath);
   const target = canonicalPath(absPath);
-  const entry = listed?.find((w) => canonicalPath(w.path) === target);
+  const entry = listed ? listed.find((w) => canonicalPath(w.path) === target) : readLockOffDisk(absPath);
+  if (entry === null) return false;
   if (!entry || !entry.locked) return true;
   if (!(await mayLift(entry))) return false;
   const r = await git(repoPath, ["worktree", "unlock", absPath]);
