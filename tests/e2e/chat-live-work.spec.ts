@@ -30,9 +30,10 @@ import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE, E2E_DATA_DIR, daemonAuthHeaders } from "./helpers/test-server";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 // A real PTY and real processes; scenario 1 waits up to 70 s for an ended row to leave.
 test.describe.configure({ timeout: 180_000 });
 

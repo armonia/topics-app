@@ -55,10 +55,11 @@ import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { revealInTabSheet } from "./helpers/tab-sheet";
+import { VIDEO_ON } from "./video-evidence";
 
 const test = mergeTests(chatTest, browserTest);
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const BASE = E2E_BASE;
 const TS = Date.now();

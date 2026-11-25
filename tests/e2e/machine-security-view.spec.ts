@@ -11,9 +11,10 @@ import { test, expect, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { openUserMenuLevel } from "./helpers/user-menu";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const NOW = Math.floor(Date.now() / 1000);
 const node = (id: string, name: string) => ({

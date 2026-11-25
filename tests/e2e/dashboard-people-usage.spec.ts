@@ -23,9 +23,10 @@ import { join } from "node:path";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const HOUR = 3_600_000;
 

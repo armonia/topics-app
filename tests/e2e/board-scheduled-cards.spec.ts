@@ -13,9 +13,10 @@ import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-scheduled-cards-${Date.now()}`;
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);

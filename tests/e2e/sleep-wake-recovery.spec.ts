@@ -10,9 +10,10 @@ import { E2E_BASE, E2E_PORT, testServerEnv, daemonAuthHeaders } from "./helpers/
 import { portHolders } from "./helpers/server-death";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ timeout: 300_000 });
 
 const STOP_MS = 60_000;

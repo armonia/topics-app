@@ -34,9 +34,10 @@ import { createTopic, deleteTopic, resetPaneStore, seedProjectInnerChats, seedPr
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ timeout: 180_000 });
 
 const STAMP = Date.now();
