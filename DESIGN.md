@@ -152,6 +152,10 @@ barra dei menu.
 - La finestra di un progetto con le tab di lato (25/11 «Sì, va bene»): solo il titolo, che al
   passaggio prende il fondo della tab e si trascina nello split; i comandi del progetto a destra
   sulla stessa riga; nessun «+» lì, resta quello sulla riga del progetto nella colonna.
+- Il titolo come tab vera e le isole del progetto (25/11 «Va bene», #1684): con le tab di lato il
+  titolo è la tab in primo piano (icona, menu, X col conto alla rovescia, badge, indirizzo intero
+  del browser) e la striscia non torna nemmeno a colonna chiusa; i comandi del progetto restano sul
+  titolo con la colonna aperta, badge interi; File, Git e Processi sono tre card arrotondate.
 
 ## Feedback di Attilio
 
