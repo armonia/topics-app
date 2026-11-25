@@ -15,7 +15,7 @@ import { readGlobalCap, readSpendCaps, readChecksMemFloorGB } from "../dispatch-
 import { isNodeChildRun } from "../node-child-run";
 import { checksMemFloorGB } from "../../../shared/checks-memory-floor";
 
-export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend"> {
+export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "countRunningOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend" | "agentSpendClearsAt"> {
   const {
     agentAskOnThread,
     annotateDeliveryClaims,
@@ -918,6 +918,13 @@ countOnMachine(machineId: string): number {
       return row?.n ?? 0;
     },
 
+countRunningOnMachine(machineId: string, exceptTaskId?: string): number {
+      const row = db.prepare(
+        "SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status = 'in_progress' AND archived = 0 AND id != ?",
+      ).get(machineId, exceptTaskId ?? "") as { n: number } | null;
+      return row?.n ?? 0;
+    },
+
 claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption, remote }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
@@ -1808,6 +1815,25 @@ agentSpend(): { cents24h: number; centsTotal: number; unpricedCostTokens24h: num
         };
       } catch {
         return { cents24h: 0, centsTotal: 0, unpricedCostTokens24h: 0, unpricedCostTokensTotal: 0 };
+      }
+    },
+
+    agentSpendClearsAt(capCents: number): number | null {
+      // The oldest rows leave the window one at a time: the queue restarts when
+      // the ones still inside it sum to less than the cap.
+      try {
+        const day = 24 * 60 * 60 * 1000;
+        const since = new Date(Date.parse(now()) - day).toISOString();
+        const rows = db.prepare("SELECT at, cents FROM agent_spend WHERE at >= ? ORDER BY at").all(since) as Array<{ at: string; cents: number }>;
+        let inside = rows.reduce((sum, r) => sum + r.cents, 0);
+        if (inside < capCents) return null;
+        for (const r of rows) {
+          inside -= r.cents;
+          if (inside < capCents) return Date.parse(r.at) + day;
+        }
+        return null;
+      } catch {
+        return null;
       }
     }
   };

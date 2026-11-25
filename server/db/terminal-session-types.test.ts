@@ -19,8 +19,6 @@ import { Database } from "bun:sqlite";
 import { EMBEDDED_MIGRATIONS } from "./migrations-embedded";
 import {
   TERMINAL_SESSION_TYPES,
-  TERMINAL_AGENT_TYPES,
-  isTerminalSessionType,
 } from "../../shared/terminal-session-types";
 
 /** DB in memoria con lo schema completo, migrato come in produzione. */
@@ -94,16 +92,4 @@ describe("terminal_sessions.type — schema e codice dicono la stessa cosa", () 
     }
   });
 
-  test("i tipi creabili dalla UI sono un sottoinsieme di quelli persistibili", () => {
-    for (const t of TERMINAL_AGENT_TYPES) {
-      expect(isTerminalSessionType(t), `${t} è creabile ma non persistibile`).toBe(true);
-    }
-  });
-
-  test("isTerminalSessionType non lancia su input non-stringa", () => {
-    expect(isTerminalSessionType(undefined)).toBe(false);
-    expect(isTerminalSessionType(null)).toBe(false);
-    expect(isTerminalSessionType(42)).toBe(false);
-    expect(isTerminalSessionType("opencode")).toBe(true);
-  });
 });

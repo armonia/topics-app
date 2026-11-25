@@ -16,6 +16,8 @@
  * server: its revisions start again, and its word replaces the old one.
  */
 
+import { createKeyedListeners } from '../lib/keyedListeners';
+
 /** The ledger's word on one session (the `turn:state` frame without its type). */
 export interface ServerTurn {
   boot: string;
@@ -38,30 +40,21 @@ export interface TurnRef {
 }
 
 const turns = new Map<string, ServerTurn>();
-const turnSubscribers = new Map<string, Set<() => void>>();
+const turnSubscribers = createKeyedListeners<string>();
 
 /** Notify consumers that the server's word for this session may have changed. */
 function notifyTurn(sessionKey: string): void {
-  for (const listener of turnSubscribers.get(sessionKey) ?? []) listener();
+  turnSubscribers.emit(sessionKey);
 }
 
 /** Subscribe to turn state for one session. */
 export function subscribeServerTurn(sessionKey: string, listener: () => void): () => void {
-  let listeners = turnSubscribers.get(sessionKey);
-  if (!listeners) {
-    listeners = new Set();
-    turnSubscribers.set(sessionKey, listeners);
-  }
-  listeners.add(listener);
-  return () => {
-    listeners?.delete(listener);
-    if (listeners?.size === 0) turnSubscribers.delete(sessionKey);
-  };
+  return turnSubscribers.subscribe(sessionKey, listener);
 }
 
-/** Only for tests: how many turn listeners remain. */
+/** @internal Only for tests: how many turn listeners remain. */
 export function __serverTurnSubscriberCount(sessionKey: string): number {
-  return turnSubscribers.get(sessionKey)?.size ?? 0;
+  return turnSubscribers.size(sessionKey);
 }
 /**
  * The latest Stop heard per session, whatever carried it: the close that says
@@ -218,7 +211,7 @@ export function noteStopHeard(sessionKey: string): void {
   if (t && t.turnId > 0) noteStop(sessionKey, { boot: t.boot, turnId: t.turnId });
 }
 
-/** Only for tests: forget everything. */
+/** @internal Only for tests: forget everything. */
 export function __resetServerTurns(): void {
   turns.clear();
   turnSubscribers.clear();

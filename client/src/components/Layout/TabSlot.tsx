@@ -26,7 +26,8 @@ import { FolderTree } from 'lucide-react';
 import type { PaneType } from '../../types';
 import { tabSlotCommand, tabSlotSignal } from '../../lib/tabSlot';
 import { useT } from '../../hooks/useT';
-import { useChildRow } from '../../state/childWork';
+import { useChildRow, useTopicAtWork } from '../../state/childWork';
+import { loaderArcClass } from './loaderState';
 import { childBasis, runningLine, workLine } from '../../lib/workLine';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
@@ -38,7 +39,7 @@ import { useSharedOrg } from '../../lib/projectSharingStore';
 import { SharedOrgBadge } from '../Shared/SharedOrgBadge';
 import type { SwapFreezeView } from '../../state/swapFreeze';
 import {
-  useTopicLoading, useTopicInProgress, useProjectLoading,
+  useTopicLoading, useProjectLoading,
   useTerminalLoading, useBrowserLoading, useSessionActivity, useSubjectLastActivity, useProjectWorkStart,
 } from '../../state/signals';
 import { deriveSubjectTime, formatElapsedCompact } from '../../state/workLongevity';
@@ -94,11 +95,14 @@ export function TabSlot(props: TabSlotProps) {
 
 function ChatSlot(props: TabSlotProps) {
   const loading = useTopicLoading(props.topicId);
-  const inProgress = useTopicInProgress(props.topicId);
+  // At work: its turn or a job it left (attention), or agents of its own at work
+  // beneath it (a board agent's chat is idle in attention by rule 2, its agents are not).
+  const { atWork, agents } = useTopicAtWork(props.topicId);
   return (
     <SlotView
       {...props}
-      working={inProgress}
+      working={atWork}
+      agents={agents}
       canStop={loading && !!props.onStop}
       glyph={<TopicStreamingSpinner topicId={props.topicId} onFill={props.onFill} />}
     />
@@ -162,9 +166,11 @@ function BoardSlot(props: TabSlotProps) {
 
 function SlotView({
   paneId, type, label, freeze, attention, attentionTitle, onFill, closable, onClose, onStop,
-  working, canStop = false, glyph, attentionTestId, workingTestId, workingCount,
+  working, agents = 0, canStop = false, glyph, attentionTestId, workingTestId, workingCount,
 }: TabSlotProps & {
   working: boolean;
+  /** Agents at work for this tab's subject: the number in the ring when nothing asks for you. */
+  agents?: number;
   canStop?: boolean;
   /** The type's own loader, drawn when working and nothing asks for you. */
   glyph: ReactNode;
@@ -175,7 +181,7 @@ function SlotView({
 }) {
   const tr = useT();
   const pendingStatus = usePanePendingStatus(paneId);
-  const signal = tabSlotSignal({ frozen: !!freeze, working, attention });
+  const signal = tabSlotSignal({ frozen: !!freeze, working, attention, agents });
   const command = tabSlotCommand({ canStop, closable, isProject: type === 'project' });
   const display = signal.kind === 'working' || signal.kind === 'attention'
     ? (signal.count > 99 ? '99+' : String(signal.count))
@@ -187,8 +193,31 @@ function SlotView({
     <div className="tab-slot" data-testid="pane-tab-slot" data-signal={signal.kind} data-command={command ?? undefined}>
       <div className="tab-slot-signal">
         {signal.kind === 'freeze' && freeze && <SwapFreezeLabel freeze={freeze} variant="glyph" />}
-        {signal.kind === 'working' && signal.count === 0 && (
+        {signal.kind === 'working' && signal.count === 0 && signal.agents === 0 && (
           <div className="inline-flex" data-testid={workingTestId} data-count={workingCount}>{glyph}</div>
+        )}
+        {signal.kind === 'working' && signal.count === 0 && signal.agents > 0 && (
+          // THE RING AROUND THE AGENTS: how many work for this tab, in the
+          // loader's own ink, so it never reads as the number of what asks
+          // for you (that one is the text ink, and outranks it).
+          <div
+            className="relative inline-flex items-center justify-center"
+            style={{ width: SLOT_PX, height: SLOT_PX }}
+            data-loader-state="working"
+            data-testid="pane-tab-agents"
+            data-agents={signal.agents}
+            title={tr(signal.agents === 1 ? 'topic.waitLine.agentsOne' : 'topic.waitLine.agentsMany', { n: signal.agents })}
+          >
+            <div className="absolute inset-0 flex">
+              <SparkLoader size={SLOT_PX} onFill={onFill} hollow />
+            </div>
+            <span
+              className={`relative ${signal.agents > 99 ? 'text-nano tracking-tight' : 'text-mini'} font-semibold leading-none tabular-nums cap-box ${loaderArcClass('working', onFill)}`}
+              aria-label={tr(signal.agents === 1 ? 'topic.waitLine.agentsOne' : 'topic.waitLine.agentsMany', { n: signal.agents })}
+            >
+              {signal.agents > 99 ? '99+' : signal.agents}
+            </span>
+          </div>
         )}
         {signal.kind === 'working' && signal.count > 0 && (
           // THE RING AROUND THE NUMBER: working and asking for you at once,

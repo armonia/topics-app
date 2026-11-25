@@ -16,7 +16,7 @@
  *    (GET /api/nodes/runs/:id, also the heartbeat probe of
  *    `services/node-heartbeat.ts`), `cancelRun` (DELETE /api/nodes/runs/:id),
  *    `fetchBundle` (GET /api/nodes/runs/:id/bundle), `codingModels`
- *    (GET /api/providers/snapshot). The delegated-runs and delegated-requests
+ *    (GET /api/providers/snapshot), `readVersion` (GET /api/version, the heartbeat's read of the node's real version). The delegated-runs and delegated-requests
  *    calls ride on a delegated credential or on no identity at all
  *    (`isIdentityExemptPath`), never on this cookie; pair/request and
  *    pair/status are identity exempt too.
@@ -24,6 +24,9 @@
  *    GET /api/system/machine-security.
  *  - `routes/machine-readout.ts`: GET /api/system/machine-readout.
  *  - `routes/machines-overview.ts`: GET /api/system/machine-metrics.
+ *  - `services/node-client.ts` again, for the worktrees of the node (`routes/nodes-worktrees.ts`):
+ *    `worktreeSummary` (GET /api/nodes/worktrees), `putWorktreePolicy`
+ *    (PUT /api/nodes/worktree-policy), `worktreeGc` (POST /api/nodes/worktrees/gc).
  *
  * The model proxy and the tunnel are not here on purpose: the proxy is the
  * node calling its primary with a model token, and the tunnel is a transport,
@@ -37,9 +40,13 @@ type Db = Pick<Database, "query">;
 const EXACT = new Set([
   "POST /api/nodes/runs",
   "GET /api/providers/snapshot",
+  "GET /api/version",
   "GET /api/system/machine-metrics",
   "GET /api/system/machine-security",
   "GET /api/system/machine-readout",
+  "GET /api/nodes/worktrees",
+  "PUT /api/nodes/worktree-policy",
+  "POST /api/nodes/worktrees/gc",
 ]);
 const RUN = /^\/api\/nodes\/runs\/[^/]+$/;
 const RUN_BUNDLE = /^\/api\/nodes\/runs\/[^/]+\/bundle$/;

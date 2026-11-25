@@ -17,6 +17,15 @@ import type { AccessFacts, MachineSecurityReport } from "../../shared/machine-he
 import { composeAccess, worstStatus } from "./machine-security";
 
 export const EXPOSURE_TIMEOUT_MS = 3_000;
+/** The control port gets more tries: one lost SYN must not discard the whole measure. */
+export const CONTROL_ATTEMPTS = 3;
+export const PORT_ATTEMPTS = 2;
+/** How long the last good measure of a host stands in for a round where 22 did not answer. */
+export const LAST_MEASURE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+
+type MeasureMemory = Map<string, { open: number[]; at: number }>;
+
+const sharedMemory: MeasureMemory = new Map();
 
 /** `true` if a TCP connection to `host:port` is accepted within the deadline. */
 export type PortProbe = (host: string, port: number, timeoutMs: number) => Promise<boolean>;
@@ -60,10 +69,18 @@ export function poolIpOf(stateText: string, machineId: string): string | null {
   return null;
 }
 
+/** `true` if any of `attempts` tries connects: a single lost packet is not an answer. */
+async function answersWithin(probe: PortProbe, host: string, port: number, timeoutMs: number, attempts: number): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    if (await probe(host, port, timeoutMs).catch(() => false)) return true;
+  }
+  return false;
+}
+
 /** The ports among `declared` that accept a connection from here; `null` if 22 does not answer (the measure proves nothing). */
 export async function measureOpenPorts(host: string, declared: number[], probe: PortProbe = tcpPortProbe, timeoutMs = EXPOSURE_TIMEOUT_MS): Promise<number[] | null> {
   const ports = [...new Set(declared)].filter((p) => p !== 22);
-  const [control, ...answers] = await Promise.all([22, ...ports].map((p) => probe(host, p, timeoutMs).catch(() => false)));
+  const [control, ...answers] = await Promise.all([22, ...ports].map((p) => answersWithin(probe, host, p, timeoutMs, p === 22 ? CONTROL_ATTEMPTS : PORT_ATTEMPTS)));
   if (!control) return null;
   return ports.filter((_, i) => answers[i]).sort((a, b) => a - b);
 }
@@ -77,10 +94,20 @@ export function withProviderFirewall(report: MachineSecurityReport, open: number
   return { ...report, status: worstStatus(checks), checks, access_facts: rebuilt };
 }
 
-/** Measures `host` and applies the result; the report as it came when the measure is not reliable. */
-export async function applyExposure(report: MachineSecurityReport, host: string | null, probe: PortProbe = tcpPortProbe): Promise<MachineSecurityReport> {
+/**
+ * Measures `host` and applies the result. When the round is unreliable (22 silent) the last good
+ * measure of the same host is reused while it is younger than LAST_MEASURE_MAX_AGE_MS; with none,
+ * the report stays as the node wrote it.
+ */
+export async function applyExposure(report: MachineSecurityReport, host: string | null, probe: PortProbe = tcpPortProbe, now: number = Date.now(), memory: MeasureMemory = sharedMemory): Promise<MachineSecurityReport> {
   const declared = report.access_facts?.ports;
   if (!host || !declared) return report;
   const open = await measureOpenPorts(host, declared, probe);
-  return open === null ? report : withProviderFirewall(report, open);
+  if (open !== null) {
+    memory.set(host, { open, at: now });
+    return withProviderFirewall(report, open);
+  }
+  const kept = memory.get(host);
+  if (!kept || now - kept.at > LAST_MEASURE_MAX_AGE_MS) return report;
+  return withProviderFirewall(report, kept.open.filter((p) => declared.includes(p)));
 }

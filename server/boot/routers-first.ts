@@ -11,6 +11,7 @@ import { createOrchestratorSessionsRouter } from "../routes/orchestrator-session
 import { archiveTopicFully, reopenTopicFully } from "../services/archive-topic";
 import { clearRetirement, recordRetirement, type ReconcileDeps } from "../services/retirement";
 import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
+import { tabCloseArchives } from "../lib/tab-close-policy";
 import { parkTopicSession } from "../lib/session-parking";
 import { buildStreamCatchupFrame } from "../lib/stream-catchup-frame";
 import { flushTurnBody } from "../lib/turn-body-flush";
@@ -424,6 +425,7 @@ export function bootRoutersFirst(scope: AfterTracker) {
       }
     },
     shouldRetireTopic: (topicId) => !isGlobalOrchestratorTopic(ctx.db, topicId),
+    tabCloseArchives: () => tabCloseArchives(ctx.db),
     restoreTopic: (topicId) => {
       if (!isGlobalOrchestratorTopic(ctx.db, topicId)) return;
       const topic = ctx.getTopicById(topicId);

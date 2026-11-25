@@ -306,9 +306,17 @@ def keychain_password(create=True):
 # di massa sull'uplink: 5-7 s contro 1,8 s con af41, 13-72 s contro 1-4 s senza marcatura
 # (misurato a coppie il 17/11), mentre nc e curl restano veloci. Il ssh del nodo è corto e
 # interattivo; i trasferimenti grandi (scp) restano senza marcatura.
+# One shared connection per node, as in node-pool: each rsync or command used to be a new ssh
+# login and a new logind session on the node (card e809a470).
+MUX_DIR = os.path.join(HOME, ".ssh", "cm")
+MUX = ["-o", "ControlMaster=auto", "-o", f"ControlPath={MUX_DIR}/topics-node-%C", "-o", "ControlPersist=10m",
+       "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+
+
 def ssh_opts(t):
     o = ["-o", "IdentitiesOnly=yes", "-o", "IPQoS=af41", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
-         "-o", "LogLevel=ERROR"]
+         "-o", "LogLevel=ERROR", *MUX]
+    os.makedirs(MUX_DIR, mode=0o700, exist_ok=True)
     if t.get("key"):
         o = ["-i", t["key"], *o]
     if t.get("known_hosts"):

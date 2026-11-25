@@ -9,11 +9,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ChatMessage, ToolCall } from '../../types';
 import {
-  baseName,
-  isMachineWork,
-  partitionTurn,
-  summarizeWork,
-  toolsOf,
+  baseName, isMachineWork, summarizeWork, toolsOf,
 } from './taskWorkFold';
 
 let seq = 0;
@@ -72,53 +68,6 @@ describe('isMachineWork', () => {
 
   test('a failed run is still work: the summary carries the verdict', () => {
     expect(isMachineWork(msg({ toolCalls: [tc({ name: 'Bash', status: 'error' })] }))).toBe(true);
-  });
-});
-
-describe('partitionTurn', () => {
-  test('a turn becomes one salient head, one work stretch, one salient answer', () => {
-    const segments = partitionTurn([
-      msg({ role: 'user', content: 'fix the module' }),
-      msg({ toolCalls: [tc({ name: 'Read' })] }),
-      msg({ toolCalls: [tc({ name: 'Edit' })] }),
-      msg({ toolCalls: [tc({ name: 'Bash' })] }),
-      msg({ content: 'Fixed.' }),
-    ]);
-    expect(segments.map((s) => s.kind)).toEqual(['salient', 'work', 'salient']);
-    const work = segments[1];
-    expect(work.kind === 'work' && work.messages.length).toBe(3);
-  });
-
-  test('prose in the middle splits the work instead of moving: order is never rewritten', () => {
-    const segments = partitionTurn([
-      msg({ toolCalls: [tc({ name: 'Read' })] }),
-      msg({ content: 'I found the cause.' }),
-      msg({ toolCalls: [tc({ name: 'Edit' })] }),
-    ]);
-    expect(segments.map((s) => s.kind)).toEqual(['work', 'salient', 'work']);
-  });
-
-  test('a question interrupts the fold and stays in plain sight', () => {
-    const segments = partitionTurn([
-      msg({ toolCalls: [tc({ name: 'Read' })] }),
-      msg({ toolCalls: [tc({ name: 'AskUserQuestion', status: 'waiting_for_input' })] }),
-      msg({ toolCalls: [tc({ name: 'Read' })] }),
-    ]);
-    expect(segments.map((s) => s.kind)).toEqual(['work', 'salient', 'work']);
-  });
-
-  test('nothing is lost: every message comes back exactly once, in order', () => {
-    const input = [
-      msg({ role: 'user', content: 'go' }),
-      msg({ toolCalls: [tc({ name: 'Read' })] }),
-      msg({ content: 'done' }),
-    ];
-    const out = partitionTurn(input).flatMap((s) => (s.kind === 'work' ? s.messages : [s.message]));
-    expect(out.map((m) => m.id)).toEqual(input.map((m) => m.id));
-  });
-
-  test('an empty transcript has no segments', () => {
-    expect(partitionTurn([])).toEqual([]);
   });
 });
 

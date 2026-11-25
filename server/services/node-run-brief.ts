@@ -18,6 +18,7 @@
 import type { TaskComment } from "../../shared/board";
 import type { OutputLanguage } from "../../shared/types";
 import { languageDirective } from "../lib/topics-agent-prompt";
+import { isAgentAuthor } from "../../shared/comment-author";
 
 /** One comment is cut here: a pasted log must not push the reviewer's words out of the brief. */
 export const MAX_COMMENT_CHARS = 2_000;
@@ -74,14 +75,12 @@ export function nodeRunDescription(description: string | null | undefined, threa
   const own = description ?? "";
   const said = thread.filter((c) => c.content.trim() && (c.kind === "delivery" || (c.kind === "comment" && c.author !== "system")));
   if (said.length === 0) return own;
-  // The newest review comment (not a delivery) is the one carried whole.
-  let newestReview = -1;
-  for (let i = said.length - 1; i >= 0; i--) {
-    if (said[i]!.kind === "comment") {
-      newestReview = i;
-      break;
-    }
-  }
+  // The newest review comment is the one carried whole: the newest `comment` NOT written by an agent.
+  // An agent posts progress notes on its own card ("starting again from the branch…"); when a server
+  // restart requeued the run after one of them, that note was taken for the review and the reviewer's
+  // 5937-character list was cut to 2000 (22/11). With no human comment, the newest one.
+  const comments = said.flatMap((c, i) => (c.kind === "comment" ? [i] : []));
+  const newestReview = comments.findLast((i) => !isAgentAuthor(said[i]!.author)) ?? comments.at(-1) ?? -1;
   // Newest first until the budget is spent, so what falls off is the oldest talk.
   // The newest review is carried whole and does NOT count against the budget: otherwise a long review
   // pushes the previous delivery out of the brief.

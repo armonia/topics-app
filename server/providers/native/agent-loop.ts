@@ -19,7 +19,7 @@
  * simple and one more dependency on a path this central is paid for forever.
  */
 
-import { getAccessToken, recoverAfter401 } from "./auth";
+import { AllAccountsExhaustedError, switchAccountAfterExhaustion, getAccessToken, recoverAfter401 } from "./auth";
 import { claudeCliUserAgent } from "./cli-user-agent";
 import {
   ApiHeadersTimeoutError, ApiHttpError, ApiStreamError, ApiTransportError, parseRetryAfter, retryRound,
@@ -412,7 +412,7 @@ export async function pingPromptCache(
       method: "POST", headers: apiHeaders(token, longWindow), body: JSON.stringify(body), signal: abort.signal,
     });
     if (!res.ok || !res.body) {
-      throw new Error(`keep-alive answered ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
+      throw new Error(`keep-alive answered ${res.status} from ${new URL(anthropicMessagesUrl()).host}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -512,6 +512,8 @@ async function streamOnce(
   if (!res.ok) {
     const answeredAt = Date.now();
     const detail = await res.text().catch(() => "");
+    // Host only (never the token): tells whether the account proxy answered.
+    console.warn(`[native] API ${res.status} from ${new URL(apiUrl).host}: ${detail.slice(0, 200)}`);
     // The engine held a request to the end of its hold and said 429: no
     // account freed up (it logs `cap-exhausted` in the same tick). Trying
     // again would park the next attempt for another hold, up to the policy's
@@ -530,6 +532,7 @@ async function streamOnce(
       spiegaErrore(res.status, detail, opts.model),
       res.status,
       parseRetryAfter(res.headers.get("retry-after")),
+      detail,
     );
   }
   if (!res.body) throw new ApiTransportError("API answered 200 with an empty body", false);
@@ -1005,6 +1008,10 @@ export async function runAgentTurn(
     // start. Without this, the raw `OAUTH_REFRESH_FAILED` text reached the
     // chat instead of telling the person what to do.
     const detail = err instanceof Error ? err.message : String(err);
+    if (err instanceof AllAccountsExhaustedError) {
+      handler.onError(detail);
+      return { turnEnd: { end: "error", cause: "rate-limit", detail }, text: "", usage: zeroUsage };
+    }
     const msg = `sessione Claude scaduta: ${detail}. Fai \`claude\` → /login, poi riprova`;
     handler.onError(msg);
     return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: zeroUsage };
@@ -1092,6 +1099,7 @@ export async function runAgentTurn(
         renewToken: recoverAfter401,
         onRetry: (info) => handler.onRetry?.(info),
         onSaturated: () => saturationHold(auth.token),
+        onAccountExhausted: switchAccountAfterExhaustion,
       });
       // The API answered: an outage hold is over, as when a claude-code child
       // streams (`claude/api-outage.ts`); it walls this runtime's chats too.

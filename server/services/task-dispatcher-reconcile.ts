@@ -181,7 +181,7 @@ export function createReconcile(ctx: DispatcherCtx) {
       if (justBuried.has(t.id)) continue;
       // A card that names a NODE is never resumed HERE: its lane puts it back
       // in the queue instead (`task-dispatcher-remote-node.ts`).
-      const remoteQueued = ctx.runs.remote.queueAfterRestart(t);
+      const remoteQueued = await ctx.runs.remote.queueAfterRestart(t);
       if (remoteQueued !== null) { if (remoteQueued) inCoda++; continue; }
       // Only touch tasks the DISPATCHER had in hand when the process died:
       // mid-turn (working), mid-claim (starting — the claim precedes bindTopic,

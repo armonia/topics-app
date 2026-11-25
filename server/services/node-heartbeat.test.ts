@@ -112,3 +112,26 @@ describe("il battito di un nodo accoppiato", () => {
     expect(s.asked).toHaveLength(2);
   });
 });
+
+describe("what a node reports about itself", () => {
+  it("version and models reach recordReported; a node that answers neither records nothing", async () => {
+    const rows = [machine({ id: "a" }), machine({ id: "b" })];
+    const recorded: Array<[string, unknown]> = [];
+    const probe = createNodeProbe({
+      list: () => rows,
+      client: {
+        readRun: async () => { throw new NodeError("not_found", "nf", 404); },
+        readVersion: async ({ baseUrl }) => { if (baseUrl.includes("b.test")) throw new Error("old"); return { version: "1.2.3", worktreeStandard: false }; },
+        codingModels: async ({ baseUrl }) => { if (baseUrl.includes("b.test")) throw new Error("old"); return ["claude-sonnet-5-5"]; },
+      },
+      tokenOf: () => "tok",
+      touch: (id) => rows.find((r) => r.id === id)!,
+      onRefreshed: () => {},
+      recordReported: (id, input) => { recorded.push([id, input]); return null; },
+      isCloud: () => false,
+    });
+    probe();
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    expect(recorded).toEqual([["a", { version: "1.2.3", models: ["claude-sonnet-5-5"] }]]);
+  });
+});

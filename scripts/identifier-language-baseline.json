@@ -177,8 +177,7 @@
       "kbdRef",
       "replayer",
       "replayerRef",
-      "scrollAccRef",
-      "unsubscribe"
+      "scrollAccRef"
     ],
     "client/src/components/Browser/NativeBrowserPlaceholder.tsx": [
       "coalesceRaf",
@@ -413,8 +412,7 @@
     ],
     "client/src/components/Layout/hooks/projectPersistence.ts": [
       "hsum",
-      "lraw",
-      "unsubscribeFromProjectLayout"
+      "lraw"
     ],
     "client/src/components/Layout/hooks/usePaneLifecycle.ts": [
       "handleUnsolo",
@@ -1066,7 +1064,6 @@
     "client/src/hooks/usePushNotifications.ts": [
       "arr",
       "setDevicePrefs",
-      "unsubscribe",
       "urlBase64ToUint8Array"
     ],
     "client/src/hooks/useRemoteBrowser.ts": [
@@ -1301,9 +1298,6 @@
       "chiusa",
       "riaperta"
     ],
-    "client/src/lib/devBundleReload.ts": [
-      "unsubscribe"
-    ],
     "client/src/lib/devLayoutProbe.ts": [
       "classNameDesc",
       "desc",
@@ -1328,10 +1322,7 @@
       "elemento"
     ],
     "client/src/lib/dragPreview.test.ts": [
-      "INTENTI",
       "ScattoRegistrato",
-      "dopo",
-      "intenti",
       "presa",
       "presaDedotta",
       "primo",
@@ -1339,10 +1330,6 @@
       "rimaste",
       "scatto",
       "secondo",
-      "selettori",
-      "sorgente",
-      "superficie",
-      "testo",
       "testoDi",
       "traslazioneDi",
       "trovate",
@@ -1398,7 +1385,6 @@
       "PesoDichiarato",
       "Proprietario",
       "VocePeso",
-      "inventarioVisibile",
       "ordinaVoci",
       "pesoDaVoce",
       "proprietari",
@@ -1421,7 +1407,6 @@
     ],
     "client/src/lib/featureWeightText.ts": [
       "NOMI",
-      "NOMI_PER_TEST",
       "RIGHE_NEL_TOOLTIP",
       "bloccoTooltip",
       "coppia",
@@ -1586,7 +1571,6 @@
       "vicino"
     ],
     "client/src/lib/selectionStyles.test.ts": [
-      "frazionari",
       "riga",
       "risolvi",
       "sezione"
@@ -1689,9 +1673,6 @@
     "client/src/state/layout/goldenGeometry.test.ts": [
       "EPS"
     ],
-    "client/src/state/layout/legacyAdapters.test.ts": [
-      "approxGrid"
-    ],
     "client/src/state/messageStore.test.ts": [
       "lasciata",
       "primaDiLasciarla",
@@ -1724,8 +1705,7 @@
     ],
     "client/src/state/pane/adapters/projectLayoutSync.ts": [
       "__getUnackedProjectSyncKeys",
-      "unackedJsonByKey",
-      "unsubscribeProjectLayout"
+      "unackedJsonByKey"
     ],
     "client/src/state/pane/adapters/terminalLocator.test.ts": [
       "loc"
@@ -1740,8 +1720,7 @@
     ],
     "client/src/state/pane/middleware/serverHydrated.test.ts": [
       "applicato",
-      "ordine",
-      "unsubscribe"
+      "ordine"
     ],
     "client/src/state/pane/middleware/syncServer.ts": [
       "armaSpinta",
@@ -1790,7 +1769,6 @@
       "EVENTO_PAGINA_PROFILO",
       "apriProfilo",
       "dimenticaPaginaProfilo",
-      "paginaProfiloChiesta",
       "richiesta"
     ],
     "client/src/state/signals.ts": [
@@ -2957,16 +2935,12 @@
     "server/lib/grants-query.test.ts": [
       "RADICE",
       "esploso",
-      "principali",
-      "ragioni"
+      "principali"
     ],
     "server/lib/grants-query.ts": [
       "dentro",
-      "dirette",
       "fuori",
-      "lista",
       "negati",
-      "perTipo",
       "righe"
     ],
     "server/lib/grants.test.ts": [
@@ -2986,7 +2960,6 @@
       "aggiungi"
     ],
     "server/lib/identity.ts": [
-      "confinamentoDerivato",
       "riga"
     ],
     "server/lib/idle-gc.test.ts": [
@@ -3290,7 +3263,6 @@
       "FINESTRA_RIPRESA_MS",
       "RigaDaValutare",
       "candidati",
-      "chatDaRiprendere",
       "conTraccia",
       "messaggio",
       "righe",
@@ -3722,10 +3694,6 @@
     "server/providers/prompt-cache.test.ts": [
       "dopoUna"
     ],
-    "server/providers/prompt-cache.ts": [
-      "MAX_CACHE_BREAKPOINTS",
-      "countCacheBreakpoints"
-    ],
     "server/providers/registry-acp.test.ts": [
       "acpConfig",
       "primo",
@@ -3886,9 +3854,6 @@
       "idempotencyKey",
       "idempotencySlot",
       "isWoken"
-    ],
-    "server/routes/claude-hooks.ts": [
-      "isLocalhost"
     ],
     "server/routes/context-preview.test.ts": [
       "pathnameParts"
@@ -4710,9 +4675,6 @@
       "nota",
       "perche"
     ],
-    "server/services/task-dispatcher-runs.ts": [
-      "unsubscribeHumanHold"
-    ],
     "server/services/task-dispatcher-tick.ts": [
       "fermi",
       "fila",
@@ -5028,7 +4990,6 @@
     "server/services/worktree-gc-runner.ts": [
       "annuncia",
       "avviata",
-      "csid",
       "inVolo",
       "qualcosaVivoDentro"
     ],
@@ -5086,9 +5047,6 @@
       "findPricing",
       "pricing"
     ],
-    "server/usage/token-sql.test.ts": [
-      "CASI"
-    ],
     "server/usage/turn-usage.test.ts": [
       "casi"
     ],
@@ -5144,6 +5102,12 @@
       "CodiceAuth",
       "isCodiceAuth"
     ],
+    "shared/board-base.ts": [
+      "MAX_FANOUT"
+    ],
+    "shared/board-parking.ts": [
+      "NOTE_UNQUEUED_BY_HUMAN"
+    ],
     "shared/board.test.ts": [
       "carico",
       "leggera",
@@ -5152,10 +5116,6 @@
       "spento",
       "tappo",
       "tutto"
-    ],
-    "shared/board.ts": [
-      "MAX_FANOUT",
-      "NOTE_UNQUEUED_BY_HUMAN"
     ],
     "shared/browser-snapshot-core.ts": [
       "acc",
@@ -5247,8 +5207,6 @@
       "prosa"
     ],
     "shared/relay-crypto.test.ts": [
-      "busta",
-      "letto",
       "parti",
       "testo"
     ],
@@ -5256,10 +5214,8 @@
       "BUSTA_V",
       "apri",
       "chiaro",
-      "chiave",
       "componiLink",
       "importa",
-      "leggiLink",
       "nuovaChiave",
       "parti",
       "sigilla"
@@ -5432,7 +5388,6 @@
       "dividiBinario",
       "dividiTesto",
       "emetti",
-      "haContenutoOpaco",
       "involucro",
       "latoDiStream",
       "leggiFrame",
@@ -5529,7 +5484,6 @@
       "daMessaggio"
     ],
     "shared/tool-call-detail.ts": [
-      "ZodInferredToolCallDetail",
       "lspSchema"
     ],
     "shared/tray-board.test.ts": [
@@ -7467,9 +7421,6 @@
       "testo",
       "trovato"
     ],
-    "tests/unit/ghost-script.test.ts": [
-      "WPATH"
-    ],
     "tests/unit/icon-only-buttons-have-a-name.test.ts": [
       "chiusura",
       "colpevoli",
@@ -7680,11 +7631,6 @@
       "sessione",
       "turno",
       "vecchia"
-    ],
-    "tests/unit/tool-call-detail-schema.test.ts": [
-      "ZodInferredToolCallDetail",
-      "_CheckTsAssignableToZod",
-      "_CheckZodAssignableToTs"
     ],
     "tests/unit/version-lockstep.test.ts": [
       "atteso",

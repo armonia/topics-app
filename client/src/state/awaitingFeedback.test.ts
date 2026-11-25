@@ -8,7 +8,7 @@
  * @covers STATUSLINE-01
  */
 import { describe, test, expect } from "bun:test";
-import { derivePhaseTerminals, visibleTopicSignalCount, attentionTierForPhase, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";
+import { derivePhaseTerminals, visibleTopicSignalIds, attentionTierForPhase, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";
 import type { Topic, ClaudeSessionPhase } from "../types";
 
 const rosterEntry = (id: string, type: string, claudeSessionId?: string | null): TerminalRosterTypeEntry =>
@@ -87,33 +87,33 @@ describe("derivePhaseTerminals — awaiting set", () => {
  * The Sets stay unfiltered on purpose: every per-row / per-tab consumer is
  * already gated by the existence of its row or tab. Only the count needs this.
  */
-describe("visibleTopicSignalCount", () => {
+describe("visibleTopicSignalIds count", () => {
   const archived = (id: string): Topic => ({ id, name: id, archived: true } as Topic);
   const open = (id: string): Topic => ({ id, name: id, archived: false } as Topic);
 
   test("counts only topics that are not archived", () => {
     const topics = { a: open("a"), b: archived("b"), c: open("c") };
-    expect(visibleTopicSignalCount(new Set(["a", "b", "c"]), topics)).toBe(2);
+    expect(visibleTopicSignalIds(new Set(["a", "b", "c"]), topics).length).toBe(2);
   });
 
   test("an all-archived set counts zero — the exact shape of the 22-vs-0 bug", () => {
     const topics = { x: archived("x"), y: archived("y"), z: archived("z") };
-    expect(visibleTopicSignalCount(new Set(["x", "y", "z"]), topics)).toBe(0);
+    expect(visibleTopicSignalIds(new Set(["x", "y", "z"]), topics).length).toBe(0);
   });
 
   test("an id with no topic at all is dropped, not counted", () => {
     // A deleted topic must not keep nagging from the status bar.
-    expect(visibleTopicSignalCount(new Set(["ghost"]), { a: open("a") })).toBe(0);
+    expect(visibleTopicSignalIds(new Set(["ghost"]), { a: open("a") }).length).toBe(0);
   });
 
   test("an empty set counts zero", () => {
-    expect(visibleTopicSignalCount(new Set(), { a: open("a") })).toBe(0);
+    expect(visibleTopicSignalIds(new Set(), { a: open("a") }).length).toBe(0);
   });
 
   test("does not mutate its inputs", () => {
     const ids = new Set(["a", "b"]);
     const topics = { a: open("a"), b: archived("b") };
-    visibleTopicSignalCount(ids, topics);
+    visibleTopicSignalIds(ids, topics);
     expect(ids).toEqual(new Set(["a", "b"]));
     expect(Object.keys(topics).sort()).toEqual(["a", "b"]);
   });

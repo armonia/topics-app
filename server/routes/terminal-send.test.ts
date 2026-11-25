@@ -6,7 +6,7 @@
  * session type, and the bridge receives `data` (nothing when dropped).
  */
 import { describe, expect, test } from "bun:test";
-import { resolveTerminalSend } from "./terminal";
+import { resolveTerminalSend } from "./terminal-bridge-send";
 
 describe("resolveTerminalSend", () => {
   test("a suspend key typed around text is stripped, sent counts what remains", () => {

@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-22
+x-status: proposed
+x-richiesta: "andiamo a lavorare su harness sia di sistema (configurazione che mostra la harness di sistema e indica che la harness degli agenti si trova nella pagina degli agenti) · profondo studio di configurazione e visione generale degli agenti, gerarchizzarla e navigarla bene · la configurazione non dovrebbe essere direttamente sulla pagina dell'agente · pagina degli strumenti · sezione delle memorie · nulla di nascosto in UI · integrarlo in solido e spec-flow · i nuovi agenti cambiano soltanto l'identità · icone dei canali come nel resto del design system"

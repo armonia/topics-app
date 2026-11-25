@@ -11,7 +11,9 @@
  * not answer in time gives `unknown` with the sentence saying why, never an
  * error that breaks the round.
  */
-import type { AccessFacts, CheckKey, CheckStatus, MachineSecurityReport, SecurityCheck, SecurityStatus } from "../../shared/machine-health";
+import { coded, WHY_CODE } from "./machine-security-msgs";
+import { compareVersions } from "../../shared/modelMergeKey";
+import type { CheckMsg, AccessFacts, CheckKey, CheckStatus, MachineSecurityReport, SecurityCheck, SecurityStatus } from "../../shared/machine-health";
 
 /** Deadline of a probe. */
 export const PROBE_TIMEOUT_MS = 5_000;
@@ -99,7 +101,7 @@ function ok(r: RunResult): boolean {
 }
 
 function unknown(key: CheckKey, what: string, why: string): SecurityCheck {
-  return { key, status: "unknown", detail: clip(`${what}: ${why}`) };
+  return { key, status: "unknown", detail: clip(`${what}: ${why}`), msgs: [{ code: "unknown", params: { why: WHY_CODE[why] ?? "failed" } }] };
 }
 
 /** `dd/mm` for a date in ms (server time zone): the sentence carries no year, the context gives it. */
@@ -150,22 +152,40 @@ export function lastXProtect(history: ReturnType<typeof parseMacInstallHistory>)
   return best;
 }
 
+const minorVersion = (id: string): number[] | null =>
+  /^MSU_UPDATE_.*_patch_([\d.]+)_minor$/.exec(id)?.[1]?.split(".").map(Number) ?? null;
+
 /**
  * `plutil -p` of com.apple.SoftwareUpdate.plist: the recommended system updates
  * (only the `_minor` ones, i.e. the fixes; a `_major` is a version jump, not a
- * fix) with the date Apple first offered them.
+ * fix) with the date the Mac started falling behind.
+ *
+ * Apple replaces the pending fix with every release, so the offer date of the
+ * current one restarts each month: a Mac left on 26.2 read "13 days" in
+ * November 2026, nine months after it skipped 26.3. With the `installed`
+ * version (`sw_vers -productVersion`) the age is the first offer of ANY fix
+ * newer than it; without it, the offer of the pending one as before.
  */
-export function parseMacPendingUpdates(text: string): Array<{ id: string; offeredAt: number | null }> {
+export function parseMacPendingUpdates(text: string, installed: string | null = null): Array<{ id: string; offeredAt: number | null }> {
   const offered = new Map<string, number>();
   const offerSection = /"FirstOfferDateDictionary" => \{([\s\S]*?)\n\s{2}\}/.exec(text)?.[1] ?? "";
   for (const m of offerSection.matchAll(/"([^"]+)" => (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \+0000/g)) {
     offered.set(m[1], Date.parse(`${m[2].replace(" ", "T")}Z`));
   }
+  const current = installed && /^\d+(\.\d+)*$/.test(installed.trim()) ? installed.trim().split(".").map(Number) : null;
   const recommended = /"RecommendedUpdates" => \[([\s\S]*?)\n\s{2}\]/.exec(text)?.[1] ?? "";
   const out: Array<{ id: string; offeredAt: number | null }> = [];
   for (const m of recommended.matchAll(/"Identifier" => "([^"]+)"/g)) {
     if (!/^MSU_UPDATE_.*_minor$/.test(m[1])) continue;
-    out.push({ id: m[1], offeredAt: offered.get(m[1]) ?? null });
+    let offeredAt = offered.get(m[1]) ?? null;
+    const target = minorVersion(m[1]);
+    if (current && target) {
+      for (const [id, at] of offered) {
+        const v = minorVersion(id);
+        if (v && compareVersions(v, current) > 0 && compareVersions(v, target) <= 0 && (offeredAt === null || at < offeredAt)) offeredAt = at;
+      }
+    }
+    out.push({ id: m[1], offeredAt });
   }
   return out;
 }
@@ -420,29 +440,30 @@ export function findDeclaredPrivate(json: unknown): string | true | null {
 
 const MAC_HISTORY = ["plutil", "-p", "/Library/Receipts/InstallHistory.plist"];
 const MAC_SOFTWAREUPDATE = ["plutil", "-p", "/Library/Preferences/com.apple.SoftwareUpdate.plist"];
+const MAC_VERSION = ["sw_vers", "-productVersion"];
 
 async function macUpdates(env: ProbeEnv): Promise<SecurityCheck> {
-  const [hist, pend] = await Promise.all([env.run(MAC_HISTORY), env.run(MAC_SOFTWAREUPDATE)]);
+  const [hist, pend, ver] = await Promise.all([env.run(MAC_HISTORY), env.run(MAC_SOFTWAREUPDATE), env.run(MAC_VERSION)]);
   if (!ok(hist) && !ok(pend)) return unknown("updates", "Aggiornamenti", whyNoAnswer(hist));
   const now = env.now();
   const last = ok(hist) ? lastMacSecurityUpdate(parseMacInstallHistory(hist.stdout)) : null;
-  const waiting = ok(pend) ? parseMacPendingUpdates(pend.stdout) : [];
+  const waiting = ok(pend) ? parseMacPendingUpdates(pend.stdout, ok(ver) ? ver.stdout : null) : [];
   const oldest = waiting.reduce<number | null>((acc, w) => (w.offeredAt !== null && (acc === null || w.offeredAt < acc) ? w.offeredAt : acc), null);
   if (oldest !== null && now - oldest > PENDING_WARN_DAYS * DAY_MS) {
-    return { key: "updates", status: "warn", detail: clip(`${plural(waiting.length, "aggiornamento", "aggiornamenti")} in attesa da ${daysBetween(now, oldest)} giorni`) };
+    return coded("updates", "warn", clip(`${plural(waiting.length, "aggiornamento", "aggiornamenti")} in attesa da ${daysBetween(now, oldest)} giorni`), { code: "updates.macWaitingOld", params: { n: waiting.length, days: daysBetween(now, oldest) } });
   }
-  if (waiting.length > 0) return { key: "updates", status: "ok", detail: clip(`${plural(waiting.length, "aggiornamento", "aggiornamenti")} in arrivo, offerti da poco`) };
-  if (last) return { key: "updates", status: "ok", detail: clip(`Ultimo aggiornamento di sicurezza il ${shortDate(last.at)}`) };
-  return { key: "updates", status: "ok", detail: "Nessun aggiornamento in attesa" };
+  if (waiting.length > 0) return coded("updates", "ok", clip(`${plural(waiting.length, "aggiornamento", "aggiornamenti")} in arrivo, offerti da poco`), { code: "updates.macWaitingRecent", params: { n: waiting.length } });
+  if (last) return coded("updates", "ok", clip(`Ultimo aggiornamento di sicurezza il ${shortDate(last.at)}`), { code: "updates.lastSecurity", params: { date: shortDate(last.at) } });
+  return coded("updates", "ok", "Nessun aggiornamento in attesa", { code: "updates.none" });
 }
 
 async function macDisk(env: ProbeEnv): Promise<SecurityCheck> {
   const r = await env.run(["fdesetup", "status"]);
   if (!ok(r)) return unknown("disk", "Cifratura del disco", whyNoAnswer(r));
   const state = parseFileVault(r.stdout);
-  if (state === "on") return { key: "disk", status: "ok", detail: "Disco cifrato (FileVault acceso)" };
-  if (state === "working") return { key: "disk", status: "warn", detail: "Cifratura del disco in corso" };
-  if (state === "off") return { key: "disk", status: "warn", detail: "Disco non cifrato (FileVault spento)" };
+  if (state === "on") return coded("disk", "ok", "Disco cifrato (FileVault acceso)", { code: "disk.fileVaultOn" });
+  if (state === "working") return coded("disk", "warn", "Cifratura del disco in corso", { code: "disk.encrypting" });
+  if (state === "off") return coded("disk", "warn", "Disco non cifrato (FileVault spento)", { code: "disk.fileVaultOff" });
   return unknown("disk", "Cifratura del disco", "risposta non riconosciuta");
 }
 
@@ -480,12 +501,16 @@ async function macAntivirus(env: ProbeEnv): Promise<SecurityCheck> {
   const net = await env.run(["netstat", "-an", "-p", "tcp"]);
   const remote = ok(net) ? parseNetstatListening(net.stdout).includes(22) : null;
   let tail = "";
-  if (remote === false) tail = "accesso remoto spento";
+  let tailMsg: CheckMsg | null = null;
+  if (remote === false) { tail = "accesso remoto spento"; tailMsg = { code: "antivirus.remoteOff" }; }
   else if (remote === true) {
     const log = await env.run(["log", "show", "--last", "24h", "--style", "compact", "--predicate", 'process == "sshd" AND (eventMessage CONTAINS "Failed" OR eventMessage CONTAINS "Invalid user")'], MAC_LOG_TIMEOUT_MS);
-    tail = ok(log) ? `${countFailedLogins(log.stdout)} accessi falliti in 24 ore` : "accessi falliti non leggibili";
+    const failed = ok(log) ? countFailedLogins(log.stdout) : null;
+    tail = failed !== null ? `${failed} accessi falliti in 24 ore` : "accessi falliti non leggibili";
+    tailMsg = failed !== null ? { code: "antivirus.failedDay", params: { n: failed } } : { code: "antivirus.failedUnreadable" };
   }
-  return { key: "antivirus", status: stale ? "warn" : "ok", detail: clip(tail ? `${base}, ${tail}` : base) };
+  const baseMsg: CheckMsg = { code: "antivirus.xprotect", params: { version: x.version, date: shortDate(x.at) } };
+  return coded("antivirus", stale ? "warn" : "ok", clip(tail ? `${base}, ${tail}` : base), ...(tailMsg ? [baseMsg, tailMsg] : [baseMsg]));
 }
 
 // ───────────────────────────── probes: Linux ─────────────────────────────
@@ -517,25 +542,25 @@ async function linuxUpdates(env: ProbeEnv): Promise<SecurityCheck> {
   if (!ok(apt) && last === null) return unknown("updates", "Aggiornamenti", ok(apt) ? "nessun registro" : whyNoAnswer(apt));
   const pending = ok(apt) ? parseAptSecurityPending(apt.stdout) : 0;
   if (reboot !== null && now - reboot > REBOOT_WARN_MS) {
-    return { key: "updates", status: "warn", detail: clip(`Riavvio in attesa da ${plural(daysBetween(now, reboot), "giorno", "giorni")} per gli aggiornamenti`) };
+    return coded("updates", "warn", clip(`Riavvio in attesa da ${plural(daysBetween(now, reboot), "giorno", "giorni")} per gli aggiornamenti`), { code: "updates.rebootDays", params: { days: daysBetween(now, reboot) } });
   }
   if (pending > 0 && (last === null || now - last > PENDING_WARN_DAYS * DAY_MS)) {
-    return { key: "updates", status: "warn", detail: clip(`${plural(pending, "aggiornamento", "aggiornamenti")} di sicurezza in attesa${last ? ` da ${daysBetween(now, last)} giorni` : ""}`) };
+    return coded("updates", "warn", clip(`${plural(pending, "aggiornamento", "aggiornamenti")} di sicurezza in attesa${last ? ` da ${daysBetween(now, last)} giorni` : ""}`), last ? { code: "updates.pendingSince", params: { n: pending, days: daysBetween(now, last) } } : { code: "updates.pending", params: { n: pending } });
   }
-  if (last !== null) return { key: "updates", status: "ok", detail: clip(`Ultimo aggiornamento di sicurezza il ${shortDate(last)}`) };
-  return { key: "updates", status: "ok", detail: "Nessun aggiornamento di sicurezza in attesa" };
+  if (last !== null) return coded("updates", "ok", clip(`Ultimo aggiornamento di sicurezza il ${shortDate(last)}`), { code: "updates.lastSecurity", params: { date: shortDate(last) } });
+  return coded("updates", "ok", "Nessun aggiornamento di sicurezza in attesa", { code: "updates.noneSecurity" });
 }
 
 async function linuxDisk(env: ProbeEnv): Promise<SecurityCheck> {
   const raw = await env.readFile(`${env.appDataDir}/harness-sync.json`);
   let declared: string | true | null = null;
   if (raw) { try { declared = findDeclaredPrivate(JSON.parse(raw)); } catch { /* unreadable file: same as declaring nothing */ } }
-  if (declared === null) return { key: "disk", status: "info", detail: "Disco di sistema non cifrato" };
+  if (declared === null) return coded("disk", "info", "Disco di sistema non cifrato", { code: "disk.systemPlain" });
   const mounts = await env.readFile("/proc/mounts");
   const crypt = mounts ? parseGocryptfsMounts(mounts) : [];
   const mounted = declared === true ? crypt.length > 0 : crypt.some((m) => m === declared || declared.startsWith(`${m}/`) || m.endsWith(declared));
-  if (mounted) return { key: "disk", status: "ok", detail: "Dati privati in cartella cifrata, aperta" };
-  return { key: "disk", status: "info", detail: "Dati privati in cartella cifrata, chiusa" };
+  if (mounted) return coded("disk", "ok", "Dati privati in cartella cifrata, aperta", { code: "disk.privateOpen" });
+  return coded("disk", "info", "Dati privati in cartella cifrata, chiusa", { code: "disk.privateClosed" });
 }
 
 async function linuxFirewall(env: ProbeEnv): Promise<boolean | "unknown"> {
@@ -606,7 +631,7 @@ async function linuxAntivirus(env: ProbeEnv): Promise<SecurityCheck> {
   const detail = passwordOn || status === "warn"
     ? `${plural(count, "tentativo", "tentativi")} di accesso in 24 ore`
     : `${plural(count, "tentativo", "tentativi")} di accesso respinti in 24 ore`;
-  return { key: "antivirus", status, detail: clip(detail) };
+  return coded("antivirus", status, clip(detail), { code: passwordOn || status === "warn" ? "antivirus.attempts" : "antivirus.attemptsRejected", params: { n: count } });
 }
 
 // ───────────────────────────── probes: Windows ─────────────────────────────
@@ -623,7 +648,7 @@ export const WINDOWS_SCRIPTS = {
   updates: `$ErrorActionPreference='SilentlyContinue'
 Get-CimInstance Win32_QuickFixEngineering | Where-Object { $_.InstalledOn } | Sort-Object InstalledOn -Descending | Select-Object -First 8 | ForEach-Object { 'hotfix=' + $_.HotFixID + '|' + $_.Description + '|' + $_.InstalledOn.ToString('yyyy-MM-dd') }
 'reboot=' + (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired')`,
-  // 1 = BitLocker on, 2 = off, 3/4 = in progress, 5 = suspended, 6 = locked: the shell gives it without asking for administrator rights.
+  // 1 = BitLocker on, 2 = off, 0 = never turned on (Get-BitLockerVolume: Off / FullyDecrypted, 23/11/2026), 3/4 = in progress, 5 = suspended, 6 = locked: no administrator rights needed.
   disk: `$ErrorActionPreference='Stop'
 $d = $env:SystemDrive; if (-not $d) { $d = 'C:' }
 'bitlocker=' + (New-Object -ComObject Shell.Application).NameSpace($d).Self.ExtendedProperty('System.Volume.BitLockerProtection')`,
@@ -653,19 +678,19 @@ async function winUpdates(env: ProbeEnv): Promise<SecurityCheck> {
   }
   const reboot = kv.find(([k]) => k === "reboot")?.[1] === "True";
   if (last === null) return unknown("updates", "Aggiornamenti", "nessuna correzione di sicurezza registrata");
-  if (reboot) return { key: "updates", status: "warn", detail: clip(`Riavvio in attesa dopo l'aggiornamento del ${shortDate(last)}`) };
-  if (now - last > WINDOWS_KB_WARN_DAYS * DAY_MS) return { key: "updates", status: "warn", detail: clip(`Ultima correzione di sicurezza ${daysBetween(now, last)} giorni fa`) };
-  return { key: "updates", status: "ok", detail: clip(`Ultimo aggiornamento di sicurezza il ${shortDate(last)}`) };
+  if (reboot) return coded("updates", "warn", clip(`Riavvio in attesa dopo l'aggiornamento del ${shortDate(last)}`), { code: "updates.rebootAfter", params: { date: shortDate(last) } });
+  if (now - last > WINDOWS_KB_WARN_DAYS * DAY_MS) return coded("updates", "warn", clip(`Ultima correzione di sicurezza ${daysBetween(now, last)} giorni fa`), { code: "updates.lastFixAgo", params: { days: daysBetween(now, last) } });
+  return coded("updates", "ok", clip(`Ultimo aggiornamento di sicurezza il ${shortDate(last)}`), { code: "updates.lastSecurity", params: { date: shortDate(last) } });
 }
 
 async function winDisk(env: ProbeEnv): Promise<SecurityCheck> {
   const r = await env.run(powershellArgv(WINDOWS_SCRIPTS.disk));
   if (!ok(r)) return unknown("disk", "Cifratura del disco", whyNoAnswer(r));
   const v = parseKeyValueLines(r.stdout).find(([k]) => k === "bitlocker")?.[1];
-  if (v === "1" || v === "6") return { key: "disk", status: "ok", detail: "Disco cifrato (BitLocker acceso)" };
-  if (v === "3" || v === "4") return { key: "disk", status: "warn", detail: "Cifratura del disco in corso" };
-  if (v === "5") return { key: "disk", status: "warn", detail: "Cifratura del disco sospesa" };
-  if (v === "2") return { key: "disk", status: "warn", detail: "Disco non cifrato (BitLocker spento)" };
+  if (v === "1" || v === "6") return coded("disk", "ok", "Disco cifrato (BitLocker acceso)", { code: "disk.bitlockerOn" });
+  if (v === "3" || v === "4") return coded("disk", "warn", "Cifratura del disco in corso", { code: "disk.encrypting" });
+  if (v === "5") return coded("disk", "warn", "Cifratura del disco sospesa", { code: "disk.suspended" });
+  if (v === "2" || v === "0") return coded("disk", "warn", "Disco non cifrato (BitLocker spento)", { code: "disk.bitlockerOff" });
   return unknown("disk", "Cifratura del disco", "risposta non riconosciuta");
 }
 
@@ -698,46 +723,48 @@ async function winAntivirus(env: ProbeEnv): Promise<SecurityCheck> {
   const sigAt = Date.parse(`${sigDate}T12:00:00Z`);
   const stale = Number.isFinite(sigAt) && env.now() - sigAt > SIGNATURE_WARN_DAYS * DAY_MS;
   const tail = failed && failed !== "?" ? `, ${plural(Number(failed), "accesso fallito", "accessi falliti")}` : "";
-  if (enabled !== "True") return { key: "antivirus", status: "problem", detail: "Defender spento" };
-  if (realtime !== "True") return { key: "antivirus", status: "problem", detail: "Protezione in tempo reale spenta" };
-  if (stale) return { key: "antivirus", status: "warn", detail: clip(`Firme di Defender ferme al ${shortDate(sigAt)}${tail}`) };
-  return { key: "antivirus", status: "ok", detail: clip(`Defender attivo, firme del ${shortDate(sigAt)}${tail}`) };
+  const tailMsgs: CheckMsg[] = failed && failed !== "?" ? [{ code: "antivirus.failedLogins", params: { n: Number(failed) } }] : [];
+  if (enabled !== "True") return coded("antivirus", "problem", "Defender spento", { code: "antivirus.defenderOff" });
+  if (realtime !== "True") return coded("antivirus", "problem", "Protezione in tempo reale spenta", { code: "antivirus.realtimeOff" });
+  if (stale) return coded("antivirus", "warn", clip(`Firme di Defender ferme al ${shortDate(sigAt)}${tail}`), { code: "antivirus.sigStale", params: { date: shortDate(sigAt) } }, ...tailMsgs);
+  return coded("antivirus", "ok", clip(`Defender attivo, firme del ${shortDate(sigAt)}${tail}`), { code: "antivirus.defenderOn", params: { date: shortDate(sigAt) } }, ...tailMsgs);
 }
 
 // ───────────────────────────── access: the single sentence ─────────────────────────────
 
 /** Puts SSH key, open ports and firewall into one check, the worst part first. */
 export function composeAccess(f: AccessFacts): SecurityCheck {
-  const parts: Array<{ status: CheckStatus; text: string }> = [];
+  const parts: Array<{ status: CheckStatus; text: string; msg: CheckMsg }> = [];
   if (f.ssh.kind === "on") {
-    if (f.ssh.password === true) parts.push({ status: "problem", text: "SSH accetta la password" });
-    else if (f.ssh.password === false) parts.push({ status: "ok", text: "solo chiave SSH" });
-    else parts.push({ status: "unknown", text: "SSH non verificabile" });
-  } else if (f.ssh.kind === "off") parts.push({ status: "ok", text: "accesso SSH spento" });
-  else parts.push({ status: "unknown", text: "SSH non verificabile" });
+    if (f.ssh.password === true) parts.push({ status: "problem", text: "SSH accetta la password", msg: { code: "access.sshPassword" } });
+    else if (f.ssh.password === false) parts.push({ status: "ok", text: "solo chiave SSH", msg: { code: "access.sshKeyOnly" } });
+    else parts.push({ status: "unknown", text: "SSH non verificabile", msg: { code: "access.sshUnverifiable" } });
+  } else if (f.ssh.kind === "off") parts.push({ status: "ok", text: "accesso SSH spento", msg: { code: "access.sshOff" } });
+  else parts.push({ status: "unknown", text: "SSH non verificabile", msg: { code: "access.sshUnverifiable" } });
 
   // Measured from outside, the ports that really answer win over what the machine says it listens on.
   const measured = f.providerFirewall;
   const ports = measured ? measured.open : f.ports;
   if (measured && measured.open.length === 0) {
-    parts.push({ status: "ok", text: "firewall del provider: aperta solo la 22" });
+    parts.push({ status: "ok", text: "firewall del provider: aperta solo la 22", msg: { code: "access.providerFirewall" } });
   } else if (ports !== null) {
     const risky = ports.filter((p) => RISKY_PORTS.has(p));
-    if (risky.length > 0) parts.push({ status: "warn", text: `porta ${risky[0]} aperta alla rete` });
-    else parts.push({ status: "ok", text: ports.length === 0 ? "nessuna porta aperta" : `${plural(ports.length, "porta aperta", "porte aperte")}` });
+    if (risky.length > 0) parts.push({ status: "warn", text: `porta ${risky[0]} aperta alla rete`, msg: { code: "access.riskyPort", params: { port: risky[0] } } });
+    else parts.push({ status: "ok", text: ports.length === 0 ? "nessuna porta aperta" : `${plural(ports.length, "porta aperta", "porte aperte")}`, msg: ports.length === 0 ? { code: "access.noPorts" } : { code: "access.ports", params: { n: ports.length } } });
   }
 
   const noPorts = ports !== null && ports.length === 0;
   if (measured && noPorts) { /* the provider's firewall already answered: the machine's own one is not the question */ }
-  else if (f.firewall === true) parts.push({ status: "ok", text: "firewall acceso" });
-  else if (f.firewall === false) parts.push(f.linuxServer && noPorts ? { status: "ok", text: "firewall spento" } : { status: "warn", text: "firewall spento" });
-  else if (f.firewall === "unknown" && !(f.linuxServer && noPorts)) parts.push({ status: "unknown", text: "firewall non leggibile" });
+  else if (f.firewall === true) parts.push({ status: "ok", text: "firewall acceso", msg: { code: "access.firewallOn" } });
+  else if (f.firewall === false) parts.push(f.linuxServer && noPorts ? { status: "ok", text: "firewall spento", msg: { code: "access.firewallOff" } } : { status: "warn", text: "firewall spento", msg: { code: "access.firewallOff" } });
+  else if (f.firewall === "unknown" && !(f.linuxServer && noPorts)) parts.push({ status: "unknown", text: "firewall non leggibile", msg: { code: "access.firewallUnreadable" } });
 
   const status = worstStatus(parts.map((p) => ({ status: p.status })));
   // The sentence puts what is wrong first; the "cannot verify" parts last.
   const order = (s: CheckStatus) => (s === "problem" ? 0 : s === "warn" ? 1 : s === "ok" ? 2 : 3);
-  const text = [...parts].sort((a, b) => order(a.status) - order(b.status)).map((p) => p.text).join(", ");
-  return { key: "access", status, detail: clip(text.charAt(0).toUpperCase() + text.slice(1)) };
+  const sorted = [...parts].sort((a, b) => order(a.status) - order(b.status));
+  const text = sorted.map((p) => p.text).join(", ");
+  return coded("access", status, clip(text.charAt(0).toUpperCase() + text.slice(1)), ...sorted.map((p) => p.msg));
 }
 
 // ───────────────────────────── the round ─────────────────────────────
@@ -761,6 +788,12 @@ function memoRunner(run: Runner): Runner {
     if (!hit) { hit = run(argv, timeoutMs); seen.set(key, hit); }
     return hit;
   };
+}
+
+/** What a node reports when its build does not know the probe route at all (an old version): four honest unknowns, not silence. */
+export function probeUnavailableReport(nowMs: number): MachineSecurityReport {
+  const checks = KEYS.map((key) => unknown(key, "Controllo", "il nodo ha una versione senza sonda di sicurezza"));
+  return { checked_at: Math.floor(nowMs / 1000), status: "unknown", checks };
 }
 
 /** This machine's four probes, in parallel; every failure becomes an `unknown`, never an exception. */

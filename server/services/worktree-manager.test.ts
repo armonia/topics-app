@@ -370,6 +370,8 @@ describe("worktree-manager.create(): a repo with a git-crypt filter", () => {
     initRepo(true);
     const r = await createAndSettle("keeper");
     expect(r.status).toBe("ready");
+    // Topics' own lock is on every checkout it makes; delete lifts it, a bare `git` has to do the same.
+    git(repo, "worktree", "unlock", r.abs);
     expect(git(repo, "worktree", "remove", "--force", r.abs).code).toBe(0);
     expect(existsSync(join(repo, ".git", "git-crypt", "keys", "default"))).toBe(true);
   }, 10_000);

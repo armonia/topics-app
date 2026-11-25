@@ -72,7 +72,9 @@ export function scheduleBrowserClaimHeartbeat(): void {
 }
 
 /** Test-only. Ferma il battito e disarma la guardia, così ogni test riparte da
- *  una finestra che non ha ancora reclamato niente. */
+ *  una finestra che non ha ancora reclamato niente.
+ * @internal
+ */
 export function __resetBrowserClaimHeartbeatForTests(): void {
   if (timer !== null) clearInterval(timer);
   timer = null;

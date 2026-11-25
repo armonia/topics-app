@@ -85,7 +85,8 @@ beforeAll(async () => {
   delete process.env.TOPICS_EMBEDDED;
   await startFakeBridge();
   ctx = await createTestAppContext();
-  const { createTerminalRouter, _setPtyBridgeSocketPath, disconnectBridge } = await import("../../server/routes/terminal");
+  const { createTerminalRouter, disconnectBridge } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
   disconnectBridge();
   _setPtyBridgeSocketPath(SOCKET_PATH);
   terminalRouter = createTerminalRouter(ctx) as typeof terminalRouter;
@@ -98,7 +99,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   warn?.mockRestore();
-  const { disconnectBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  const { disconnectBridge } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
   disconnectBridge();
   _setPtyBridgeSocketPath(null);
   for (const s of bridgeSockets) s.destroy();

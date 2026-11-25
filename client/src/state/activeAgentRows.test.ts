@@ -13,7 +13,7 @@
  * @covers STATUSLINE-05, BGVIS-03, ATTN-01
  */
 import { describe, expect, test } from "bun:test";
-import { activeAgentCount, activeAgentRowsFrom, visibleTopicSignalCount, visibleTopicSignalIds } from "./signals";
+import { activeAgentCount, activeAgentRowsFrom, visibleTopicSignalIds } from "./signals";
 import type { AttentionSnapshot, AttentionState } from "../../../shared/attention";
 import type { Topic } from "../types";
 
@@ -42,7 +42,7 @@ describe("visibleTopicSignalIds", () => {
     const topics = { a: topic("a"), b: topic("b", true), c: topic("c") };
     const ids = new Set(["a", "b", "c", "ghost"]);
     expect(visibleTopicSignalIds(ids, topics)).toEqual(["a", "c"]);
-    expect(visibleTopicSignalCount(ids, topics)).toBe(2);
+    expect(visibleTopicSignalIds(ids, topics).length).toBe(2);
   });
 });
 
@@ -107,6 +107,14 @@ describe("activeAgentRowsFrom", () => {
     expect(rows.awaitingInput).toHaveLength(2);
     expect(rows.finished).toEqual([]);
     expect(rows.working).toEqual([]);
+  });
+
+  test("a turn open and parked on a question is ONE row, waiting for you, never also at work", () => {
+    const topics = { a: topic("a") };
+    const rows = activeAgentRowsFrom([], topics, { ...quiet, hydratedStream: new Set(["a"]), attention: attention({ "t:a": "needs-you" }) });
+    expect(rows.awaitingInput).toEqual([{ id: "a", kind: "topic", label: "chat a" }]);
+    expect(rows.working).toEqual([]);
+    expect(activeAgentCount(rows)).toBe(0);
   });
 
   test("a terminal gone from the roster, or a shell, has no row among the finished either", () => {

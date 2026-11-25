@@ -88,11 +88,6 @@ function setState(sessionKey: string, id: string, s: SteerState): void {
   states.set(id, { sessionKey, at: now, s });
 }
 
-/** A running turn on this session takes messages. */
-export function steerOpen(sessionKey: string): boolean {
-  return targets.has(sessionKey);
-}
-
 /** Hands `text` to the turn running on `sessionKey`. Null when no turn there takes messages: the caller goes the usual way. */
 export function offerSteer(sessionKey: string, text: string, meta: SteerMeta): SteerItem | null {
   const target = targets.get(sessionKey);
@@ -212,7 +207,7 @@ export function openSteerTarget(sessionKey: string): SteerTarget {
   };
 }
 
-/** For tests: forget every target, queue and state (the sink stays: the route installs it once). */
+/** @internal For tests: forget every target, queue and state (the sink stays: the route installs it once). */
 export function resetTurnSteer(): void {
   targets.clear();
   queues.clear();

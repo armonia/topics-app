@@ -321,7 +321,7 @@ export interface StoredMessage {
 // missing right here. Now there is one single declaration, in
 // `shared/types.ts`, and this re-export keeps every existing
 // `import type { Topic } from "./types"` valid.
-export type { Topic, Project, Worktree, TopicsData, TopicsFilter, UnreadData } from "../shared/types";
+export type { Topic, Project, Worktree, WorktreeSource, TopicsData, TopicsFilter, UnreadData } from "../shared/types";
 // `export type { … } from` re-exports but does NOT bring the names into local
 // scope, and `AppContext` below uses them. A separate import, not redundancy.
 import type { Topic, Project, TopicsData, TopicsFilter, UnreadData } from "../shared/types";
@@ -624,7 +624,7 @@ export interface AppContext {
     role: "user" | "assistant",
     content: string,
     autore?: { authorPersonId?: string | null; authorDeviceId?: string | null },
-    /** Blocks written on the row (today: the goal continuation's `goal-nudge`). */
+    /** Blocks written on the row (the goal continuation's `goal-nudge`, the turn-end hook's `hook-nudge`, …). */
     blocks?: ContentBlock[],
     /** The send's key, on the person's row a send stored (unique per session). */
     clientMessageId?: string,

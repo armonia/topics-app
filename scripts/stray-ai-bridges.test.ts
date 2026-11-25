@@ -3,6 +3,7 @@
  *
  * @covers GATE-01
  */
+import { slackMs } from "../tests/helpers/time-slack";
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -31,13 +32,13 @@ describe("the check at the end of a unit run", () => {
     expect(stderr).toContain("1 ai-bridge daemon(s) started by this run are still alive");
     expect(stderr).toMatch(/pid \d+ {2}socket \S*stray-fixture-\S*ai-bridge\.sock/);
     expect(code).toBe(1);
-  }, 60_000);
+  }, slackMs(60_000));
 
   test("the same run is green when the test stops its daemon", () => {
     const { code, stderr } = runSuite({ STRAY_FIXTURE_STOP: "1" });
     expect(stderr).not.toContain("still alive");
     expect(code).toBe(0);
-  }, 60_000);
+  }, slackMs(60_000));
 });
 
 describe("which daemons belong to a run", () => {

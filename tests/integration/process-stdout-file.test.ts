@@ -22,7 +22,8 @@ setupTestDataDir(join(ROOT, "data"));
 const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true }), join(ROOT, "project")));
 const TOPIC = { id: "topic-stdout", sessionKey: "topic:stdout" };
 
-const { createProcessesRouter, logPathOf } = await import("../../server/routes/processes");
+const { createProcessesRouter } = await import("../../server/routes/processes");
+const { logPathOf } = await import("../../server/routes/processes-persist");
 const router = createProcessesRouter({
   db: { query: () => ({ get: () => null }) },
   json: (d: unknown, status = 200) => new Response(JSON.stringify(d), { status }),

@@ -230,3 +230,23 @@ restare associati al progetto che li ha causati.
 - **GIVEN** il watcher del progetto A è in errore
 - **WHEN** il watcher del progetto B parte correttamente
 - **THEN** la health conserva l'errore di A e nomina il suo percorso
+
+### Requirement: SYSTEM-DISK-01 — La cartella dati ha un tetto rispetto al database vivo, e i registri scadono
+
+La cartella dati SHALL restare entro un multiplo configurabile del database vivo
+(default 3 volte): ciò che ci cresce accanto (registri, copie, cache) non può
+pesare venti volte il dato che serve. Un controllo SHALL misurare ogni
+sottocartella e diventare ROSSO quando il rapporto totale o il tetto di una
+singola cartella sfora, nominando la cartella.
+
+I file di registro SHALL avere una scadenza generica e configurabile (default 14
+giorni), oltre la quale si potano; nessun percorso di una persona nel codice. Il
+controllo non cancella mai dati dell'utente né tocca il database vivo.
+
+#### Scenario: rapporto oltre il tetto
+- **GIVEN** una cartella dati più grande di 3 volte il database vivo
+- **THEN** il controllo SHALL essere rosso e nominare le cartelle più pesanti
+
+#### Scenario: registro scaduto
+- **GIVEN** un file di registro più vecchio della scadenza
+- **THEN** SHALL essere fra quelli da potare, e uno più recente no

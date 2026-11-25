@@ -44,19 +44,19 @@
       // (`scripts/mcp-cap-bench/`, `decompose.ts` + `prefix-probe.ts`,
       // `scripts/webrtc-probe.ts`).
       "entry": [
-        "server.ts",
+        "server.ts!",
         // The entry the SHIPPED binary is compiled from (scripts/build-server-sidecar.sh):
         // it picks between being the server and being the ai-bridge daemon.
         "server/sidecar-entry.ts!",
         "server/ai-bridge.mjs!", // spawned as a detached daemon
         "server/pty-bridge.mjs!", // idem
-        "server/lib/serial-queue-survivor.ts!", // spawned as a child process by serial-queue.test.ts
+        "server/lib/serial-queue-survivor.ts", // spawned as a child process by serial-queue.test.ts
         "cli/topics.ts!", // the `topics` CLI binary
         // Loaded by bun before EVERY `bun test` of this repo (`preload` in
         // bunfig.toml:30). Nothing imports it, and it is the one place below
         // the scripts that every entrance to the suite goes through: it is
         // where the gate semaphore is taken for a hand-typed `bun test`.
-        "tests/setup/bun-test-preload.ts!",
+        "tests/setup/bun-test-preload.ts",
         // Il Worker del relay: è il `main` di `relay/wrangler.jsonc`, cioè
         // codice che sta IN PRODUZIONE su Cloudflare. Knip ha un plugin
         // `wrangler` che leggerebbe quel `main` da solo, e qui non si accende
@@ -71,103 +71,104 @@
         // was invisible by construction, which is how watch-board-tasks.ts sat
         // orphaned for months. List the three families that really are
         // entrypoints and let everything else in `scripts/` be checked.
-        "scripts/check-*.ts!",            // wired to package.json / CI
+        "scripts/check-*.ts",            // wired to package.json / CI
         // `bun run build:client` (and `cd client && bun run build`, which now
         // delegates here): vite builds into a staging dir and this publishes
         // the result into public/ only once whole. Nobody imports it - it is a
         // command - but its publishing rules live next to it in
         // `build-client-publish.ts`, which its test does import.
-        "scripts/backfill-card-channel.ts!", // lancio a mano: bun run scripts/backfill-card-channel.ts [--apply] (collega le card aperte al canale di Jarvis)
-        "scripts/redact-stored-secrets.ts!", // lancio a mano: bun run scripts/redact-stored-secrets.ts [--apply] [--db PATH] (SEC-02: oscura i segreti già salvati, dopo il backup)
-        "scripts/build-client.ts!",
-        "scripts/compose-release-manifest.ts!", // invoked by .github/workflows/tauri-release.yml
-        "scripts/assert-sig.ts!", // invoked by .github/workflows/tauri-release.yml (publish job)
+        "scripts/backfill-card-channel.ts", // lancio a mano: bun run scripts/backfill-card-channel.ts [--apply] (collega le card aperte al canale di Jarvis)
+        "scripts/backfill-agent-account.ts", // lancio a mano: bun run scripts/backfill-agent-account.ts <id>=<account> [--apply] (dichiara l'account di un agente senza riavviare la migrazione automatica)
+        "scripts/migrate-principal-soul.ts", // lancio a mano: bun run scripts/migrate-principal-soul.ts <agentId> [--keep "<heading>"] [--apply] (sposta le direttive dal SOUL dell agente principale allo strato utente)
+        "scripts/redact-stored-secrets.ts", // lancio a mano: bun run scripts/redact-stored-secrets.ts [--apply] [--db PATH] (SEC-02: oscura i segreti già salvati, dopo il backup)
+        "scripts/build-client.ts",
+        "scripts/compose-release-manifest.ts", // invoked by .github/workflows/tauri-release.yml
+        "scripts/assert-sig.ts", // invoked by .github/workflows/tauri-release.yml (publish job)
         // `bun run test:unit`: the unit run, one `bun test` process per file. It
         // exists as a file and not as a command line in package.json because it
         // has to MEASURE the load before bun starts, to hand the slack factor
         // down (GATE-16). Nobody imports it: it is a command, like the two above.
-        "scripts/test-unit-shards.ts!",
+        "scripts/test-unit-shards.ts",
         // `bun run test:touched`: the unit tests the branch diff reaches, picked from the import graph.
-        "scripts/test-touched.ts!",
+        "scripts/test-touched.ts",
         // `bun scripts/test-touched-measure.ts`: replays the selector on past red CI runs (needs gh).
-        "scripts/test-touched-measure.ts!",
+        "scripts/test-touched-measure.ts",
         // Same shape: only .github/workflows/e2e-nightly.yml runs it, to name the
         // red tests inside the issue instead of sending the reader to the run.
-        "scripts/e2e-failed-titles.ts!",
-        "scripts/typecheck-*.ts!",
+        "scripts/e2e-failed-titles.ts",
+        "scripts/typecheck-*.ts",
         // I banchi: uno per asse, si lanciano a mano (`bun run bench` li chiama
         // tutti, ma ognuno vive anche da solo) e nessuno li importa, quindi per
         // knip sarebbero file morti. Stessa forma delle due famiglie qui sopra e
         // altrettanto stretta: `scripts/bench/*.ts` e non `scripts/**`, così un
         // file morto dentro bench/ resta visibile.
-        "scripts/bench/*.ts!",
+        "scripts/bench/*.ts",
         // Il banco cloud contro locale e la sonda dello stop delle sessioni cloud:
         // si lanciano a mano, i numeri stanno in cloud-vs-local/RESULTS.md.
-        "scripts/bench/cloud-vs-local/*.ts!",
+        "scripts/bench/cloud-vs-local/*.ts",
         // `bun scripts/webrtc-probe.ts` — la sonda del percorso WebRTC: si lancia a
         // mano quando si vuole vedere encode/trasporto dal vivo, nessuno la importa.
-        "scripts/webrtc-probe.ts!",
+        "scripts/webrtc-probe.ts",
         // `bun scripts/anti-bot/chromium-bar.ts` - la barra anti-bot del Chromium
         // headless del server (Hetzner, sannysoft, Cloudflare). A mano, nessuno la importa.
-        "scripts/anti-bot/chromium-bar.ts!",
+        "scripts/anti-bot/chromium-bar.ts",
         // `bun run scripts/browser-qos-probe.ts` - the control measure of the
         // shared Chromium's QoS band (card 7f4d8f32): prints the process table
         // of the browser tree with only an agent using it and again with a
         // person watching. Run by hand, imported by nobody.
-        "scripts/browser-qos-probe.ts!",
+        "scripts/browser-qos-probe.ts",
         // `bun scripts/project-quota-check.ts --db PATH [--now ISO]`
         // - limiti-consumo-progetto's probe: every project's points in the last
         // 24h and 7d with the split by surface, read-only, run by hand against a
         // COPY of the database. Imported by nobody.
-        "scripts/project-quota-check.ts!",
+        "scripts/project-quota-check.ts",
         // `bun run scripts/terminal-attach-latency.ts` - how long a terminal
         // pane stays mute after a reload (socket open, `replay-end`, and the
         // server's roster warming window). Run by hand against its own server
         // instance, imported by nobody.
-        "scripts/terminal-attach-latency.ts!",
+        "scripts/terminal-attach-latency.ts",
         // `bun run scripts/smoke-muse-provider.ts` - the BAR-5 live smoke of
         // the Muse chat provider (two real meta turns, sid resume). Run by
         // hand, imported by nobody, never in CI.
-        "scripts/smoke-muse-provider.ts!",
+        "scripts/smoke-muse-provider.ts",
         // `bun run probe:gate-slots` - the control measure of the gate
         // semaphore: how many `bun test` runs are alive against how many slots
         // are declared. Run by hand while the board is busy, imported by
         // nobody but its own bench.
-        "scripts/probe-gate-concurrency.ts!",
+        "scripts/probe-gate-concurrency.ts",
         // `bun run probe:budget` - the synthetic bench of the CPU budget: it
         // starts a real burner, checks that one card per tick is admitted and
         // that a check runner really stops (`ps -o stat` = T) and starts again.
         // Run by hand, imported by nobody.
-        "scripts/probe-dispatch-budget.ts!",
-        "scripts/e2e-shards-summary.ts!", // invoked by scripts/e2e-shards.sh:88
-        "scripts/e2e-shard-run.ts!", // invoked by scripts/e2e-shards.sh before starting any shard
+        "scripts/probe-dispatch-budget.ts",
+        "scripts/e2e-shards-summary.ts", // invoked by scripts/e2e-shards.sh:88
+        "scripts/e2e-shard-run.ts", // invoked by scripts/e2e-shards.sh before starting any shard
         // `bun run scripts/merge-shard-reports.ts <dir> --out <file>` — fonde i
         // report-N.json dei quattro shard in un report solo. Lo chiama
         // `scripts/specflow-evidence.sh:90`, cioe' una riga di shell: knip legge
         // gli import, non i comandi, quindi per lui questo file e' morto. Non lo
         // e': senza, la catena che pubblica la living-doc non ha un report da
         // caricare.
-        "scripts/merge-shard-reports.ts!",
-        "scripts/gen-migrations-manifest.ts!", // run by hand to regenerate migrations-embedded.ts
-        "scripts/install-db-snapshot.ts!",
-    "scripts/new-migration.ts!",           // `bun run migration:new <slug>` — crea la migration col prefisso timestamp
-    "scripts/token-before-after.ts!",  // misura i token prima e dopo sul DB vero (card 65deecdf)
-    "scripts/restore-archived-completed-at.ts!", // riporta a done le card archiviate riaperte senza toccare completed_at (card 600feca6)
+        "scripts/merge-shard-reports.ts",
+        "scripts/gen-migrations-manifest.ts", // run by hand to regenerate migrations-embedded.ts
+        "scripts/install-db-snapshot.ts",
+    "scripts/new-migration.ts",           // `bun run migration:new <slug>` — crea la migration col prefisso timestamp
+    "scripts/token-before-after.ts",  // misura i token prima e dopo sul DB vero (card 65deecdf)
         // Congela la coda di review dell'11/08 come fixture della derivazione
         // delle etichette (`bun run scripts/build-review-queue-fixture.ts`).
         // Si rilancia solo per rigenerare il file: legge il DB vero e git, quindi
         // non puo' essere un test — il test legge il JSON che questo ha scritto.
-        "scripts/build-review-queue-fixture.ts!",
-        "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
+        "scripts/build-review-queue-fixture.ts",
+        "scripts/watch-board-tasks.ts",  // CLI tool for the Monitor loop, run by hand
         // `bun run scripts/boot-sweep-probe.ts [db]` — read-only probe that
         // replays the three boot-sweep SELECTs with and without the archived
         // filter. Run by hand against a copy of a database; imported by nobody.
-        "scripts/boot-sweep-probe.ts!",
+        "scripts/boot-sweep-probe.ts",
         // `bun run scripts/dedupe-imported-claude-messages.ts [--db data/topics.db] [--apply]`
         // - one-off cleanup of the bare copies the adopted-session import sweep
         // wrote of Topics-streamed turns. Dry run unless `--apply`. Run by hand,
         // imported by nobody.
-        "scripts/dedupe-imported-claude-messages.ts!",
+        "scripts/dedupe-imported-claude-messages.ts",
         // Le tre sonde di performance CITATE in `docs/perf-map.md`: si lanciano
         // per path (`bun run scripts/layer-growth.ts`), non da package.json,
         // quindi per knip erano file morti e tenevano `check:deadcode` rosso su
@@ -175,107 +176,91 @@
         // layer del compositore, la memoria di una finestra nel tempo e lo
         // stallo dell'event loop del server. Elencate a una a una, non con un
         // glob, per la stessa ragione delle famiglie qui sopra.
-        "scripts/layer-growth.ts!",
-        "scripts/mem-growth.ts!",
-        "scripts/event-loop-lag.ts!",
+        "scripts/layer-growth.ts",
+        "scripts/mem-growth.ts",
+        "scripts/event-loop-lag.ts",
         // `bun scripts/prompt-ab.ts` — il banco A/B sul prompt del giudice: si
         // lancia a mano quando si vuole rimisurare quale formulazione declassa
         // meno. Nessuno lo importa, e i suoi bracci stanno nel file accanto
         // (`prompt-ab.arms.ts`, importato solo da lui). L'esito misurato e il
         // metodo stanno in `docs/effort-variance/prompt-ab.md`.
-        "scripts/prompt-ab.ts!",
+        "scripts/prompt-ab.ts",
         // La prova che i test del doctor sanno diventare rossi: si lancia a
         // mano (`bun scripts/board-doctor.mutants.ts`), non lo importa nessuno
         // e non deve — mentre gira riscrive il file che sta mutando.
-        "scripts/board-doctor.mutants.ts!",
+        "scripts/board-doctor.mutants.ts",
         // The same proof for the measured card weight and the cap on agent
         // waits: run by hand (`bun scripts/card-weight.mutants.ts`), imported
         // by nobody, and it rewrites the files it mutates while it runs.
-        "scripts/card-weight.mutants.ts!",
+        "scripts/card-weight.mutants.ts",
         // La sonda degli stalli muti: `bun run probe:stalls [--db <file>]
         // [--json] [--gate]`. Sola lettura sul DB della board, si lancia a mano
         // (o da un cron) e non la importa nessuno tranne il suo test.
-        "scripts/stalled-parents.ts!",
+        "scripts/stalled-parents.ts",
         // La sonda dei descrittori persi: `bun run probe:fdleak [--port 3333]
         // [--n 500] [--json] [--gate]`. Spara N connessioni abortite al server
         // vivo e riconta i suoi descrittori. Si lancia a mano (sola lettura
         // sul server: tocca una sola GET), e non la importa nessuno tranne il
         // suo test.
-        "scripts/fd-leak-probe.ts!",
+        "scripts/fd-leak-probe.ts",
         // `bun run scripts/ws-catchup-probe.ts` [E2E_PORT=… PROBE_STREAMS=…]:
         // seeds N turns in flight on the TEST server and counts the bytes one
         // socket open costs, per frame type. Run by hand, and it never writes
         // on the socket it measures.
-        "scripts/ws-catchup-probe.ts!",
-        "scripts/effort-variance.ts!",
-        // Le due migrazioni una tantum sul DB della board, entrambe in sola
-        // lettura finche' non ricevono `--apply`: `bun run
-        // scripts/migrate-uuid-board-ids.ts [<file>.db] [--apply]` sposta i
-        // task nati sotto l'UUID del progetto sulla board vera, e `bun run
-        // scripts/canonicalizza-progetti.ts [--apply]` fonde i progetti
-        // sdoppiati da un symlink. Si lanciano a mano, non le importa nessuno.
-        "scripts/migrate-uuid-board-ids.ts!",
-        "scripts/canonicalizza-progetti.ts!",
+        "scripts/ws-catchup-probe.ts",
+        "scripts/effort-variance.ts",
         // La rimisura del cancello sui rapporti di consegna: `bun run
         // scripts/delivery-claims-audit.ts [--db <file>] [--code <codice>]
         // [--list] [--json]`. Sola lettura sul DB della board e su git, si
         // lancia a mano prima di decidere se un controllo puo' bloccare una
         // consegna, e non lo importa nessuno tranne il suo test.
-        "scripts/delivery-claims-audit.ts!",
+        "scripts/delivery-claims-audit.ts",
         // `bun run scripts/mem-report.ts [--json]` — dove stanno i megabyte che
         // la status bar riassume in due numeri: si lancia a mano quando uno dei
         // due sembra alto, legge e basta, nessuno lo importa.
-        "scripts/mem-report.ts!",
+        "scripts/mem-report.ts",
         // Il banco del freno del dispatch: `bun run scripts/dispatch-brake-bench.ts
         // [--warmup=60] [--json=<path>]`. Carica la macchina due volte (carico
         // altrui fuori dal nostro albero di processi, carico nostro dentro) e
         // guarda cosa risponde il tetto automatico. Si lancia a mano, occupa la
         // macchina un paio di minuti, e nessuno lo importa.
-        "scripts/dispatch-brake-bench.ts!",
+        "scripts/dispatch-brake-bench.ts",
         // `bun run test:unit:junit [paths...]` - the unit suite with a junit
         // report on a path derived per run. Launched as a command, never
         // imported except by its own bench.
-        "scripts/test-junit.ts!",
-    "scripts/disk-report.ts!",        // `bun run report:disk`
+        "scripts/test-junit.ts",
+    "scripts/disk-report.ts",        // `bun run report:disk`
+    "scripts/disk-budget-check.ts!", // `bun run check:disk-budget`, also run every night by the `disk-budget-check` launchd job: it ships, so `!`
         // Read-only run of the landing audit over a whole board:
         // `bun run scripts/landing-audit-probe.ts --db <topics.db>`.
-        "scripts/landing-audit-probe.ts!",
-    "scripts/heavy-slot.ts!",         // `bun run heavy-slot <label> -- <cmd>`: any harness runs a heavy command behind the Topics queue
+        "scripts/landing-audit-probe.ts",
+    "scripts/heavy-slot.ts",         // `bun run heavy-slot <label> -- <cmd>`: any harness runs a heavy command behind the Topics queue
         // Does the PTY bridge boot and open a terminal on THIS platform?
         // `node scripts/pty-bridge-probe.mjs`, or on the Windows PC
         // `tools/topwin run "node scripts\\pty-bridge-probe.mjs"`. Run by hand:
         // it starts a real daemon and a real shell, which is the whole point.
-        "scripts/pty-bridge-probe.mjs!",
+        "scripts/pty-bridge-probe.mjs",
         // Verdetto sui rami PER CONTENUTO: `bun run report:branches`, e
         // `--delete-landed` per cancellare quelli che main ha già dentro.
-        "scripts/branch-audit.ts!",
+        "scripts/branch-audit.ts",
         // Misura a mano quanti doppioni ha una board, in sola lettura:
         // `bun scripts/board-duplicates.ts [--db <file>] [--json]`.
-        "scripts/board-duplicates.ts!",
+        "scripts/board-duplicates.ts",
         // Audit read-only of permanent `stay_local` pins against the reason
         // that put them there: `bun scripts/stay-local-audit.ts [--db <file>]`.
         // Writes nothing, run by hand, imported only by its own test.
-        "scripts/stay-local-audit.ts!",
-        // La fusione dei progetti sdoppiati da un symlink, a mano e in due
-        // tempi: `bun scripts/canonicalizza-progetti.ts` elenca, `--esegui` lo
-        // fa davvero. Nessuno la importa, e non deve partire da sola.
-        "scripts/canonicalizza-progetti.ts!",
-        // La migrazione una-tantum delle card nate con l'UUID del progetto al
-        // posto dell'id di board: `bun scripts/migrate-uuid-board-ids.ts`
-        // elenca, `--esegui` riscrive. Si lancia a mano una volta sola, e
-        // nessuno la importa.
-        "scripts/migrate-uuid-board-ids.ts!",
-        "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
-        "scripts/orphan-park-dryrun.ts!", // `bun run orphan:dryrun` — prova a vuoto sul db vero
+        "scripts/stay-local-audit.ts",
+        "scripts/token-live.ts",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
+        "scripts/orphan-park-dryrun.ts", // `bun run orphan:dryrun` — prova a vuoto sul db vero
         // `bun run browser:dryrun [--tutti]` — la spazzata dei chromium orfani
         // provata a vuoto sul `ps` vero: dice chi ucciderebbe e chi si salva,
         // senza inviare un segnale. Si lancia a mano, nessuno la importa.
-        "scripts/browser-orphan-dryrun.ts!",
-        "scripts/skill-listing-probe.ts!", // misura a mano: `bun run scripts/skill-listing-probe.ts`
+        "scripts/browser-orphan-dryrun.ts",
+        "scripts/skill-listing-probe.ts", // misura a mano: `bun run scripts/skill-listing-probe.ts`
         // Estrazione a mano della fixture della BARRA di `cost-probe.test.ts`,
         // contro il database VIVO in sola lettura: si rilancia solo se quella
         // misura va rifatta su un'altra chat.
-        "scripts/extract-cost-probe-fixture.ts!",
+        "scripts/extract-cost-probe-fixture.ts",
         // Il conio delle licenze. Non è un residuo: il servizio che firmerà i
         // gettoni non esiste ancora (`CHIAVI_INTEGRATE` è vuota, e il ramo
         // Stripe `no_token_in_event` dice esplicitamente che «il gettone lo
@@ -283,35 +268,35 @@
         // l'unico modo di emetterne uno. Lo lancia anche
         // `tests/integration/licenza-conio.test.ts`, ma con `spawnSync` su un
         // path in stringa: un riferimento che knip non può vedere.
-        "scripts/licenza.ts!",
-        "scripts/prefix-budget.ts!",      // diagnostica a mano: `bun run scripts/prefix-budget.ts [--probe]`
+        "scripts/licenza.ts",
+        "scripts/prefix-budget.ts",      // diagnostica a mano: `bun run scripts/prefix-budget.ts [--probe]`
         // Il `postinstall` di package.json — invocato da `bun install`, quindi da
         // fuori del grafo degli import. Rimette il bit +x su spawn-helper di
         // node-pty, senza il quale ogni terminale è morto.
-        "scripts/fix-node-pty-exec-bit.ts!",
+        "scripts/fix-node-pty-exec-bit.ts",
         // La prova che la quota di core si RILEGGE a metà sessione: fa girare un
         // finto `cargo` attraverso lo shim vero con l'ambiente congelato, e
         // esce non-zero se il numero non cambia. Si lancia a mano
         // (`bun run scripts/job-quota-live-demo.ts`) e alimenta il video di
         // `scripts/job-quota-live-video.mjs`.
-        "scripts/job-quota-live-demo.ts!",
+        "scripts/job-quota-live-demo.ts",
         // Il banco del tetto ai risultati MCP: `bun scripts/mcp-cap-bench/bench.ts`
         // fa i due bracci (taglio spento e acceso) e misura i token di prompt. Si
         // lancia a mano — è la prova che il tetto serve, non un pezzo della app —
         // e `fake-web-mcp` è il server MCP finto che bench.ts SPAWNA, quindi
         // nessun import lo raggiunge mai.
-        "scripts/mcp-cap-bench/bench.ts!",
-        "scripts/mcp-cap-bench/fake-web-mcp.ts!",
-        "scripts/mcp-cap-bench/fetch-pages.ts!",
-        "scripts/mcp-cap-bench/pages.ts!",
+        "scripts/mcp-cap-bench/bench.ts",
+        "scripts/mcp-cap-bench/fake-web-mcp.ts",
+        "scripts/mcp-cap-bench/fetch-pages.ts",
+        "scripts/mcp-cap-bench/pages.ts",
         // La decomposizione del prompt e la sonda del prefisso: si lanciano a
         // mano accanto al banco, e come lui nessuno le importa.
-        "scripts/mcp-cap-bench/decompose.ts!",
-        "scripts/mcp-cap-bench/prefix-probe.ts!",
+        "scripts/mcp-cap-bench/decompose.ts",
+        "scripts/mcp-cap-bench/prefix-probe.ts",
         // La SCALA di ablazione: toglie una voce di prefisso alla volta e
         // misura il delta (`bun scripts/mcp-cap-bench/prefix-ladder.ts`). Come
         // le altre si lancia a mano e nessuno la importa.
-        "scripts/mcp-cap-bench/prefix-ladder.ts!",
+        "scripts/mcp-cap-bench/prefix-ladder.ts",
         // La soglia di compattazione, tre pezzi e si lanciano in quest'ordine:
         //   bun scripts/mcp-cap-bench/real-context-curve.ts --out <file>
         //     legge i transcript veri della CLI e ne tira fuori la curva del
@@ -321,26 +306,26 @@
         //     soglia T, e dice dove sta il minimo in dollari;
         //   bun scripts/mcp-cap-bench/compact-bench.ts --soglia off|<token>
         //     il banco vivo a due bracci, che è la barra della card.
-        "scripts/mcp-cap-bench/real-context-curve.ts!",
-        "scripts/mcp-cap-bench/compact-sim.ts!",
-        "scripts/mcp-cap-bench/compact-bench.ts!",
+        "scripts/mcp-cap-bench/real-context-curve.ts",
+        "scripts/mcp-cap-bench/compact-sim.ts",
+        "scripts/mcp-cap-bench/compact-bench.ts",
         // `bun run measure:task-tabs <copia.db>` — la misura prima/dopo del
         // ripasso sulle tab dei task archiviati, su una COPIA del db vivo. Si
         // lancia a mano quando si vuole rifare il conto (o rispondere a «quanto
         // rende davvero»): nessuno lo importa e non deve.
-        "scripts/measure-task-tab-teardown.ts!",
+        "scripts/measure-task-tab-teardown.ts",
         // bun run measure:thread — il thread del task si assottiglia col coordinatore?
-        "scripts/thread-vs-work.ts!",
+        "scripts/thread-vs-work.ts",
         // `bun run measure:ui-state-init <copia.db>` — quanto pesa il frame
         // `ui-state:init` con e senza le chiavi per-task del browser. Stesso
         // patto del precedente: si lancia a mano su una COPIA del db, nessuno
         // lo importa.
-        "scripts/measure-ui-state-init.ts!",
+        "scripts/measure-ui-state-init.ts",
         // Chi lo chiama: `scripts/check-occlusion.mjs` (`bun run check:occlusion`),
         // che lo bundla con `bun build` per portare il modulo di occlusione VERO
         // dentro un WebKit vero. Il riferimento è un path in stringa dentro un
         // comando, non un import: knip non può vederlo.
-        "scripts/occlusion-probe-entry.ts!",
+        "scripts/occlusion-probe-entry.ts",
         // `bun run scripts/retitle-review-cards.ts [--apply]` riscrive i titoli
         // delle card vecchie, quelle nate col preambolo della richiesta al
         // posto del titolo («Potremmo fare una roba molto figa…»). Le nuove il
@@ -348,7 +333,7 @@
         // cronologia gia' scritta, si lancia a mano, e in secco stampa cosa
         // cambierebbe senza toccare niente. Nessuno lo importa, e non deve:
         // e' un gesto una tantum su un DB vero.
-        "scripts/retitle-review-cards.ts!",
+        "scripts/retitle-review-cards.ts",
         // Two one-off migrations on a REAL database, both run by hand and both
         // read-only until `--apply`:
         //   bun scripts/canonicalizza-progetti.ts [--apply]   (project split in
@@ -357,9 +342,18 @@
         //   board id that is a UUID, which no kanban reads)
         // Nobody imports them, and nobody should: they landed without this
         // declaration and the dead-code gate was red on main for it.
-        "scripts/canonicalizza-progetti.ts!",
-        "scripts/migrate-uuid-board-ids.ts!",
-        "scripts/*.test.ts!",             // run by `bun test ./scripts` in test:unit
+        "scripts/canonicalizza-progetti.ts",
+        "scripts/migrate-uuid-board-ids.ts",
+        "scripts/*.test.ts",             // run by `bun test ./scripts` in test:unit
+        "scripts/git-hooks/*.test.ts",   // idem: `bun test ./scripts` walks the folder, the hook scripts have no other caller
+        // `bun scripts/backfill-project-parents.ts [--db <path>] [--apply]` - the
+        // manual door of the project-family backfill the server also runs at boot.
+        // Dry run unless `--apply`; run by hand, imported by nobody.
+        "scripts/backfill-project-parents.ts",
+        // `bun scripts/worktree-hook-probe.ts [--keep]` - asks the real Claude Code
+        // to make a worktree through the hook script (worktree-standard, T10).
+        // Spends a few tokens of a real session: by hand, never in CI.
+        "scripts/worktree-hook-probe.ts",
         // Everything else under scripts/ stays a PROJECT file only (see the
         // `project` list below). Listing the folder here — with or without `!` —
         // would re-grant the amnesty this narrowing exists to remove: any dead
@@ -374,8 +368,8 @@
         // `*.fixture.ts` = processo finto lanciato da un test con `bun <path>`
         // (es. l'agente ACP di `acp-provider.test.ts`): nessuno lo IMPORTA, il
         // riferimento è una stringa di path.
-        "server/**/*.fixture.ts!",
-        "scripts/**/*.fixture.ts!",
+        "server/**/*.fixture.ts",
+        "scripts/**/*.fixture.ts",
         "server/**/*.test.ts",
         "shared/**/*.test.ts", // girati da `test:unit`, non importati da nessuno
         "relay/*.test.ts",     // idem, via `./relay` in `test:unit`
@@ -395,22 +389,44 @@
         // (`join(import.meta.dir, ...)`), che knip non puo' seguire: senza
         // questa riga risulta «file morto» e tiene rosso il cancello per
         // tutti. Il `!` dice «e' un entrypoint anche se nessuno lo importa».
-        "server/routes/files.git-commit-harness.ts!",
+        "server/routes/files.git-commit-harness.ts",
         // `bun run review:open-prs` - prepares review prompts for every open PR
         // on a read-only mirror clone. Run by hand (or from a cron), not imported.
-        "scripts/review-open-prs.ts!"
+        "scripts/review-open-prs.ts"
       ],
       "project": [
-        "server/**/*.{ts,mjs}",
-        "shared/**/*.ts",
-        "cli/**/*.ts",
+        "server/**/*.{ts,mjs}!",
+        "shared/**/*.ts!",
+        "cli/**/*.ts!",
         "scripts/**/*.ts",
         // `relay/` è un Worker DEPLOYATO, e fino al 15/08/2026 stava fuori da
         // qui, fuori da ogni tsconfig e fuori da eslint: 1.703 righe in
         // produzione senza un cancello che le guardasse. Un export morto lì
         // dentro non aveva modo di risultare morto.
-        "relay/**/*.ts",
-        "server.ts"
+        "relay/**/*.ts!",
+        "server.ts!",
+        // Test-only support files: alive through the tests that import them, so
+        // they are excluded from `project` in `--production` only (`!...!`),
+        // which leaves the normal check:deadcode as sharp as before.
+        "!server/**/*{-test-support,.testkit,.harness,.world,-test-helpers,-parity-helpers}.ts!",
+        "!server/db/test-schema.ts!",
+        "!server/lib/test-node-bin.ts!",
+        "!server/services/tasks-test-db.ts!",
+        "!shared/relay-fake.ts!",
+        "!relay/**/*-test-helpers.ts!",
+        "!server/lib/remove-dir-reporting.ts!",
+        // The pure halves of the nightly disk budget job: production code, but its
+        // only caller is `scripts/disk-budget-check.ts`, run by launchd
+        // (scripts/launchd/com.armonia.topics-disk-budget-check.plist.in), and
+        // scripts/ is outside the production graph.
+        "!server/lib/disk-budget.ts!",
+        "!server/lib/log-retention.ts!",
+        // The `--check` and `--projects` halves of `bun run worktrees:orphans`
+        // (scripts/worktree-orphans.ts), a command run by hand or by the bar of
+        // the worktree-standard change: production code with no caller in the
+        // server, for the same reason as the disk budget above.
+        "!server/services/worktree-root-check.ts!",
+        "!server/services/project-worktree-check.ts!"
       ],
       // `ws` e `@types/ws` sono USATE, da `tests/e2e/helpers/node-websocket.ts`,
       // che da' alle spec un WebSocket anche su Node 20 (dove non e' globale: la
@@ -435,7 +451,7 @@
       // stryker.config.mjs), never imported; knip reads `testRunner: "bun"` and looks for an
       // official `@stryker-mutator/bun-runner` that does not exist. `@stryker-mutator/core` is
       // only its `stryker` binary, run through `bun --bun stryker` which knip does not parse.
-      "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7", "@hughescr/stryker-bun-runner", "@stryker-mutator/bun-runner", "@stryker-mutator/core"], // typescript7: alias del TS nativo, gli script lo usano per percorso
+      "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7", "@hughescr/stryker-bun-runner", "@stryker-mutator/bun-runner", "@stryker-mutator/core", "jscpd"], // jscpd: run by scripts/check-dup.ts through its binary path; typescript7: alias del TS nativo, gli script lo usano per percorso
 
       // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo
       // check dava falsi positivi a raffica: un export usato SOLO da uno spec
@@ -447,24 +463,35 @@
     },
     "client": {
       "entry": [
-        "src/main.tsx",
-        "vite.config.ts",
-        "vite.landing.config.ts",
+        "src/main.tsx!",
+        "vite.config.ts!",
+        "vite.landing.config.ts!",
         // Il boot della demo della landing: lo compila vite.landing.config.ts
         // da un percorso scritto come stringa, che knip non segue.
-        "src/demo/boot.ts",
+        "src/demo/boot.ts!",
         // La galleria dello strato UI e l'anteprima collegata: le aprono
         // client/ui.html e client/app.html, che knip non legge.
+        // Neither the gallery nor the development scripts carry `!`: nothing ships
+        // them (no workflow runs `build:ui`, scripts are run by hand or by CI), so
+        // in --production they must not keep what they import alive. The kit files
+        // only the gallery reaches therefore show up in the prod baseline.
         "vite.ui.config.ts",
         "src/ui-gallery/main.tsx",
         "src/ui-gallery/app-main.tsx",
-        // Le due demo (client/sarim.html e client/consorzio.html): senza, knip
+        // Le due demo (client/orbit.html e client/consorzio.html): senza, knip
         // dava per inutilizzata tutta la galleria che solo loro montano.
-        "src/ui-gallery/sarim-main.tsx",
-        "src/ui-gallery/consorzio-main.tsx",
+        "src/ui-gallery/*-main.tsx",
         "src/**/*.{test,spec}.{ts,tsx}"
       ],
-      "project": ["src/**/*.{ts,tsx}"]
+      "project": [
+        "src/**/*.{ts,tsx}!",
+        // Production-only exclusions (`!...!`): test support alive through its tests.
+        "!src/**/test*/**!",
+        "!src/**/*testSupport.ts!",
+        "!src/**/*[fF]ixtures.ts!",
+        "!src/lib/reloadSites.ts!",
+        "!src/lib/settingsHomes.ts!"
+      ]
       // `src/hooks/usePushNotifications.ts` stava qui, ignorato perché
       // «deliberatamente non cablato». Era la forma esatta del guasto: il codice
       // per iscriversi esisteva, nessuno lo montava, `push_subscriptions` aveva

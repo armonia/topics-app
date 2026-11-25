@@ -12,14 +12,28 @@
  */
 import { Database } from "bun:sqlite";
 import { existsSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
+import { readAgentActivity, readAgentTurns, type AgentActivityRow, type AgentTurn } from "../services/agent-activity";
+import { readChannelPlacesById } from "../services/channel-place";
+import { channelsDbPath } from "../services/channels-db-path";
 import type { AppContext, RouteHandler } from "../types";
+
+export { channelsDbPath };
 
 const CACHE_MS = 60_000;
 
-export function channelsDbPath(env: Record<string, string | undefined> = process.env): string {
-  return env.JARVIS_CHANNELS_DB?.trim() || join(homedir(), "Library", "Application Support", "jarvis-channels", "channels.sqlite");
+/** The channel names the bridge recorded on its turns (empty when the column or the file is missing). */
+export function readTurnChannels(path: string): string[] {
+  if (!existsSync(path)) return [];
+  const db = new Database(path, { readonly: true });
+  try {
+    const hasChannel = (db.query("PRAGMA table_info(turns)").all() as { name: string }[]).some((c) => c.name === "channel");
+    if (!hasChannel) return [];
+    return (db.query("SELECT DISTINCT channel FROM turns WHERE channel IS NOT NULL AND channel <> ''").all() as { channel: string }[]).map((r) => r.channel);
+  } catch {
+    return [];
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -94,10 +108,23 @@ export function readCardThreads(path: string, cardId: string): OpenedThread[] {
 
 export function createAgentChannelsRouter(ctx: Pick<AppContext, "json">, path: () => string = () => channelsDbPath()): RouteHandler {
   let cache: { at: number; titles: Record<string, string> } | null = null;
+  let activityCache: { at: number; rows: AgentActivityRow[]; turns: AgentTurn[] } | null = null;
+  let placesCache: { at: number; places: ReturnType<typeof readChannelPlacesById> } | null = null;
   return async function agentChannelsRouter(_req, _url, pathname, method) {
     // `GET /api/agent-channels/card/<id>`: the Discord threads opened for that card, with their links.
     const card = /^\/api\/agent-channels\/card\/([\w-]+)$/.exec(pathname);
     if (card && method === "GET") return ctx.json({ threads: readCardThreads(path(), card[1]) });
+    // `GET /api/agent-channels/places`: the server/channel/thread each chat lives in — the Agents
+    // channel tree (Configure › Canali e chat) groups chats under their Discord server with it.
+    if (pathname === "/api/agent-channels/places" && method === "GET") {
+      if (!placesCache || Date.now() - placesCache.at > CACHE_MS) placesCache = { at: Date.now(), places: readChannelPlacesById(path()) };
+      return ctx.json({ places: placesCache.places });
+    }
+    // `GET /api/agent-channels/activity`: what each agent handled in the last 7 days, per channel.
+    if (pathname === "/api/agent-channels/activity" && method === "GET") {
+      if (!activityCache || Date.now() - activityCache.at > CACHE_MS) activityCache = { at: Date.now(), rows: readAgentActivity(path()), turns: readAgentTurns(path()) };
+      return ctx.json({ days: 7, rows: activityCache.rows, turns: activityCache.turns });
+    }
     if (pathname !== "/api/agent-channels" || method !== "GET") return null;
     if (!cache || Date.now() - cache.at > CACHE_MS) cache = { at: Date.now(), titles: readChannelTitles(path()) };
     return ctx.json({ titles: cache.titles });

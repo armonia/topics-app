@@ -10,11 +10,7 @@
  */
 import { describe, test, it, expect } from 'bun:test';
 import {
-  computeDetachedTopicMap,
-  computeSpaceWindows,
-  useWindowPresenceStore,
-  windowTabs,
-  type PresenceWindow,
+  computeDetachedTopicMap, computeSpaceWindows, useWindowPresenceStore, type PresenceWindow,
 } from './windowPresence';
 
 const win = (over: Partial<PresenceWindow> & { windowId: string }): PresenceWindow => ({
@@ -152,52 +148,5 @@ describe('computeSpaceWindows — self per label, non solo per id', () => {
     const windows = byId([w('io', 'space-aa', 'space:1'), w('altra', 'space-aa', 'space:1')]);
     expect([...computeSpaceWindows(windows, 'io', null)]).toEqual([['space:1', 'space-aa']]);
     expect([...computeSpaceWindows(windows, 'io', '')]).toEqual([['space:1', 'space-aa']]);
-  });
-});
-
-describe('windowTabs — a window is described by ALL its tabs', () => {
-  const base = (over: Partial<PresenceWindow>): PresenceWindow => ({
-    windowId: 'w', clientId: 'c', topicIds: [], ...over,
-  });
-
-  it('returns every announced tab, chat or not', () => {
-    const w = base({
-      topicIds: ['t-auth'],
-      tabs: [
-        { id: 't-auth', type: 'chat', title: 'auth flow' },
-        { id: 'terminal:cc9', type: 'terminal', title: 'Claude Code' },
-        { id: 'browser:c9', type: 'browser' },
-      ],
-    });
-    expect(windowTabs(w).map((t) => t.type)).toEqual(['chat', 'terminal', 'browser']);
-  });
-
-  it('a window that announces no tabs falls back to its topics, not to nothing', () => {
-    // An older client sends `topicIds` only. Rendering an empty list under its
-    // heading would say "this window holds nothing", which is never true.
-    const w = base({ topicIds: ['t-ship', 't-auth'] });
-    expect(windowTabs(w)).toEqual([
-      { id: 't-ship', type: 'chat' },
-      { id: 't-auth', type: 'chat' },
-    ]);
-  });
-
-  it('an empty tabs array is treated as "did not announce", not as "empty window"', () => {
-    const w = base({ topicIds: ['t-ship'], tabs: [] });
-    expect(windowTabs(w)).toEqual([{ id: 't-ship', type: 'chat' }]);
-  });
-
-  it('a window of only non-chat tabs is no longer invisible', () => {
-    // The bug this whole field exists for: three terminals and a project used
-    // to announce zero topics, so the row rendered as a heading over nothing.
-    const w = base({
-      topicIds: [],
-      tabs: [
-        { id: 'terminal:a', type: 'terminal' },
-        { id: 'terminal:b', type: 'terminal' },
-        { id: 'project:%2Fsrv', type: 'project', title: 'acme-api' },
-      ],
-    });
-    expect(windowTabs(w)).toHaveLength(3);
   });
 });

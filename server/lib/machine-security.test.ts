@@ -6,7 +6,7 @@ import {
   clip, composeAccess, countFailedLogins, findDeclaredPrivate, iptablesBlocksInput, lastMacSecurityUpdate, lastXProtect, nftBlocksInput, parseAptHistory,
   parseAptSecurityPending, parseAutopatchLog, parseFileVault, parseGocryptfsMounts, parseKeyValueLines, parseMacFirewall,
   parseMacInstallHistory, parseMacPendingUpdates, parseNetstatListening, parseSshdConfig, parseSshdT, parseSsListening,
-  powershellArgv, probeMachineSecurity, whyNoAnswer, worstStatus, DETAIL_MAX, FAILED_LOGIN_PATTERN,
+  powershellArgv, probeMachineSecurity, probeUnavailableReport, whyNoAnswer, worstStatus, DETAIL_MAX, FAILED_LOGIN_PATTERN,
   type ProbeEnv, type RunResult,
 } from "./machine-security";
 
@@ -168,6 +168,19 @@ describe("parser macOS", () => {
     expect(parseMacPendingUpdates(MAC_SU_CLEAN)).toEqual([]);
   });
 
+  test("aggiornamenti in attesa: con la versione installata l'età è la prima correzione saltata, non l'ultima offerta", () => {
+    // On 26.2 the Mac skipped 26.7.2 (26/10) before 26.7.3 (09/11): behind since 26/10.
+    expect(parseMacPendingUpdates(MAC_SU, "26.2\n")).toEqual([
+      { id: "MSU_UPDATE_25G342_patch_26.7.3_minor", offeredAt: Date.parse("2026-10-26T22:25:07Z") },
+    ]);
+    // Already on 26.7.2: only 26.7.3 is missing, its own offer date. A _major never counts.
+    expect(parseMacPendingUpdates(MAC_SU, "26.7.2")).toEqual([
+      { id: "MSU_UPDATE_25G342_patch_26.7.3_minor", offeredAt: Date.parse("2026-11-09T22:26:15Z") },
+    ]);
+    // An unreadable version falls back to the pending fix's own offer.
+    expect(parseMacPendingUpdates(MAC_SU, "boh")[0]?.offeredAt).toBe(Date.parse("2026-11-09T22:26:15Z"));
+  });
+
   test("FileVault e firewall", () => {
     expect(parseFileVault("FileVault is On.\n")).toBe("on");
     expect(parseFileVault("FileVault is Off.\n")).toBe("off");
@@ -218,6 +231,18 @@ describe("parser Linux e comuni", () => {
     expect(countFailedLogins(text)).toBe(2);
     const iso = `2026-11-15T10:00:00.000000+00:00 h sshd[1]: Failed password for x\n2026-11-17T10:00:00.000000+00:00 h sshd[1]: Failed password for y\n`;
     expect(countFailedLogins(iso, NOW - 86_400_000)).toBe(1);
+  });
+
+  test("failed logins: OpenSSH 9.8+ journal lines (sshd-session, pam_unix) count once per process", () => {
+    const text = [
+      "Nov 21 03:01:00 h sshd-session[901]: Invalid user admin from 203.0.113.7 port 1",
+      "Nov 21 03:01:02 h sshd-session[901]: pam_unix(sshd:auth): authentication failure; logname= uid=0 rhost=203.0.113.7",
+      "Nov 21 03:01:04 h sshd-session[901]: Failed password for invalid user admin from 203.0.113.7 port 1 ssh2",
+      "Nov 21 03:05:00 h sshd-session[902]: Failed publickey for root from 203.0.113.8 port 2 ssh2",
+      "-- No entries --",
+    ].join("\n");
+    expect(countFailedLogins(text)).toBe(2);
+    expect(countFailedLogins("")).toBe(0);
   });
 
   test("gocryptfs: punti di mount e cartella dichiarata, a qualunque profondità", () => {
@@ -384,6 +409,15 @@ describe("giro completo per sistema", () => {
     expect(by.disk).toMatchObject({ status: "warn", detail: "Disco non cifrato (BitLocker spento)" });
     expect(by.access.status).toBe("problem");
     expect(by.antivirus).toMatchObject({ status: "ok", detail: "Defender attivo, firme del 17/11, 0 accessi falliti" });
+  });
+
+  test("Windows: BitLocker mai acceso risponde 0 ed è un disco non cifrato, non una risposta sconosciuta", async () => {
+    const disk = async (answer: string) => (await probeMachineSecurity(envOf("win32", {
+      "powershell.exe": (argv) => Buffer.from(argv[4], "base64").toString("utf16le").includes("BitLockerProtection") ? psOut(answer) : MISSING,
+    }))).checks.find((c) => c.key === "disk");
+    expect(await disk("bitlocker=0")).toMatchObject({ status: "warn", detail: "Disco non cifrato (BitLocker spento)" });
+    // an empty answer (no BitLocker at all) stays unknown: nothing was read
+    expect((await disk("bitlocker="))?.status).toBe("unknown");
   });
 
   test("Windows: protezione in tempo reale spenta = problema; riavvio in attesa = avviso", async () => {
@@ -566,5 +600,15 @@ describe("Linux failed logins filtered on the machine", () => {
       grep: res("", { code: 2, stderr: "grep: /var/log/auth.log: Permission denied" }),
     });
     expect(check).toMatchObject({ status: "unknown", detail: "Accessi falliti: registri non leggibili da questo utente" });
+  });
+});
+
+describe("nodo con build senza sonda", () => {
+  test("riporta quattro unknown con l'ora, non silenzio", () => {
+    const r = probeUnavailableReport(NOW);
+    expect(r.checked_at).toBe(NOW / 1000);
+    expect(r.status).toBe("unknown");
+    expect(r.checks.map((c) => c.key)).toEqual(["updates", "disk", "access", "antivirus"]);
+    for (const c of r.checks) expect(c.detail.length).toBeLessThanOrEqual(DETAIL_MAX);
   });
 });

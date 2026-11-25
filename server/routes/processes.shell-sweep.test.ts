@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { captureShellTree, esitoShellMorta, sweepOrphanedShellTree } from "./processes";
+import { captureShellTree, esitoShellMorta, sweepOrphanedShellTree } from "./processes-shells";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 function isAlive(pid: number): boolean {

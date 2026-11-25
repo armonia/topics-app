@@ -554,6 +554,8 @@ export interface TaskService {
    * A card waiting for a silent node is in Todo, so it counts.
    */
   countOnMachine(machineId: string): number;
+  /** Cards already running on the machine (in progress), not counting `exceptTaskId`. */
+  countRunningOnMachine(machineId: string, exceptTaskId?: string): number;
   /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
    *
@@ -875,4 +877,6 @@ export interface TaskService {
    * decorative, so whoever draws the figure can say how much of it is missing.
    */
   agentSpend(): { cents24h: number; centsTotal: number; unpricedCostTokens24h: number; unpricedCostTokensTotal: number };
+  /** When the rolling 24h spend falls back under `capCents` if nothing new is spent (epoch ms); `null` = already under, or unreadable. */
+  agentSpendClearsAt(capCents: number): number | null;
 }

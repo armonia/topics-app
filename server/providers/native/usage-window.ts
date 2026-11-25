@@ -180,7 +180,7 @@ export async function releaseHoldIfEngineFree(engineFree: () => Promise<boolean 
 export const ENGINE_LIFT_TRUST_MS = 10 * 60_000;
 let engineLift: { window: UsageWindowKind; untilMs: number; atMs: number; probe: () => Promise<boolean | null> } | null = null;
 
-/** Tests only: forget the last engine lift. */
+/** @internal Tests only: forget the last engine lift. */
 export function resetEngineLift(): void {
   engineLift = null;
 }

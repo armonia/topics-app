@@ -1,4 +1,6 @@
 import { existsSync, mkdirSync, readFileSync } from "fs";
+import { gunzipSync } from "zlib";
+import { readTranscriptJsonl } from "./lib/transcript-retention";
 import { writeFileAtomic } from "./lib/atomic-write";
 import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { timingSafeEqual } from "crypto";
@@ -96,7 +98,7 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
 
 // Re-exported so the routes and tests that import these from "./utils" keep
 // their import lines: they moved with the message row codec.
-export { restoreToolCallsFromBlocks, sanitizeToolCallDetail } from "./app-context/message-thread-reads";
+export { restoreToolCallsFromBlocks } from "./app-context/message-thread-reads";
 
 export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
@@ -1353,10 +1355,11 @@ export function createAppContext(baseDir: string): AppContext {
           if (!key.startsWith("topic:")) continue;
           if (!sessionToTopic[key]) continue;
           const jsonlPath = join(SESSIONS_DIR, entry.sessionId + ".jsonl");
-          if (!existsSync(jsonlPath)) continue;
+          const jsonlContent = readTranscriptJsonl(jsonlPath, { existsSync, readFileSync, gunzipSync });
+          if (jsonlContent === null) continue;
           const topic = sessionToTopic[key];
           try {
-            const lines = readFileSync(jsonlPath, "utf-8").split("\n").filter(Boolean);
+            const lines = jsonlContent.split("\n").filter(Boolean);
             for (const line of lines) {
               let d: unknown;
               try {

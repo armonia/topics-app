@@ -228,6 +228,8 @@ export interface Task {
   overflowedAt?: string;
   /** ON THE WIRE only while it holds: the node an empty run came back from, which the overflow skips. */
   overflowSkipMachine?: string;
+  /** ON THE WIRE only while it holds: every node this card came back from (empty run, no model), all skipped. */
+  overflowSkipMachines?: string[];
   /**
    * ON THE WIRE only when set: on a node's MIRROR card, the branch its worktree
    * is born from instead of main (the origin card's own delivery branch, sent
@@ -353,6 +355,12 @@ export interface Task {
   deliveryBranch: string | null;
   /** Branch tip at delivery time — the handle that outlives the reaped branch. */
   deliveryCommit: string | null;
+  /**
+   * The tip a review SENT BACK, kept so the same tip handed in again is read as
+   * "no work done" instead of a new delivery. Absent in the list projection,
+   * which does not select the column: read it from `svc.get`, never from a feed row.
+   */
+  priorCommit?: string | null;
   reviewAt: string | null;
   deliveryFilesChanged: number | null;
   deliveryInsertions: number | null;
@@ -635,6 +643,14 @@ export interface UpdateTaskPatch {
 export interface ListTasksInput {
   scope: "project" | "all";
   projectId?: string;
+  /**
+   * With `scope: "project"`: also read the cards of the projects merged into
+   * this one (`projects.parent_id` + `merge_mode = 'accorpa'`). ONLY the human
+   * board turns it on. The dispatcher and the agent doors keep the literal
+   * `project_id = ?`: a card of a child must dispatch from its own project,
+   * with its own settings, whatever board it is drawn on.
+   */
+  includeChildBoards?: boolean;
   status?: TaskStatus;
   /**
    * Only ROOT tasks (parent_task_id IS NULL). The board columns and the

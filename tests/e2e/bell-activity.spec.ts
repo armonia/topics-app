@@ -8,8 +8,10 @@
  *   - the facts that matter light the bell with the panel closed: an account
  *     whose token the proxy could not renew, every account exhausted in the
  *     last hour (the log is read in the background, every minute);
- *   - the account rows of «Now» say how it happened: a switch automatic for a
- *     429, a limit for 10 minutes, the names under a cap, the proxy's error;
+ *   - «Now» lists exactly those (one ledger: the closed button counts the
+ *     rows the open panel lists), with how it happened: every account out,
+ *     the proxy's error and «Renew»; a switch, one account's limit, a cap are
+ *     news of the log and wait in History;
  *   - each account row opens History on «Account Claude»: every event of the
  *     week (found, renamed, switched off, removed, priority, settings,
  *     upgrade, a type nobody named yet), under its day, with its hour and
@@ -106,22 +108,19 @@ test.describe("the proxy's activity in the bell", () => {
     const quota = panel(page).getByTestId("bell-group-quota");
     await expect(quota).toBeVisible({ timeout: 15_000 });
     const row = (type: string) => quota.locator(`[data-source="account"][data-type="${type}"]`);
-    // The switch: automatic, for a 429; twice in the day (the early one three hours ago).
-    await expect(row("auto-switch")).toContainText(`Account cambiato: ${WORK} → ${SPARE}`);
-    await expect(row("auto-switch").getByTestId("bell-account-note")).toHaveText("automatico, errore 429");
-    await expect(row("auto-switch")).toContainText("2 volte nelle ultime 24 ore");
-    await expect(row("rate-limited").getByTestId("bell-account-note")).toHaveText("per 10 min");
-    // A cap on every account is not «every account exhausted»: two rows, the cap with its names.
-    await expect(row("cap-exhausted")).toContainText("Tetto raggiunto: tutti gli account");
-    await expect(row("cap-exhausted").getByTestId("bell-account-note")).toHaveText(`${WORK}, ${SPARE}`);
+    // The two rows the button counts, and nothing else: the same number open and closed.
+    await expect(quota.locator('[data-source="account"]')).toHaveCount(2);
+    await expect(panel(page).getByTestId("inbox-now-count")).toHaveText("2");
     await expect(row("all-exhausted")).toContainText("Limite raggiunto: tutti gli account");
     // The proxy's error, and «Rinnova» beside it.
     await expect(row("refresh-failed").getByTestId("bell-account-note")).toHaveText("invalid_grant");
     await expect(row("refresh-failed").getByTestId("bell-renew")).toBeVisible();
+    // The switch, one account's limit and the cap ask nothing of the person: History has them.
+    for (const type of ["auto-switch", "rate-limited", "cap-exhausted"]) await expect(row(type)).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("vero-campanella-attivita-ora-scuro.png") });
 
     // From an account row to the whole week of the accounts.
-    await row("auto-switch").getByTestId("bell-account-history").click();
+    await row("refresh-failed").getByTestId("bell-account-history").click();
     await expect(panel(page).getByTestId("inbox-tab-history")).toHaveAttribute("aria-selected", "true");
     await expect(panel(page).getByTestId("bell-history-accounts")).toHaveAttribute("aria-pressed", "true");
     const events = panel(page).getByTestId("bell-proxy-row");

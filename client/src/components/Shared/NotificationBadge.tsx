@@ -6,12 +6,32 @@
  * - Auto-hides when count <= 0 (the parent doesn't have to gate the
  *   render conditionally; this matches the previous inline contract at
  *   every call site).
- * - Caps display at "99+" so a runaway counter doesn't blow the layout.
+ * - Says the number up to three figures, then thousands as «1,2K» / «12K»
+ *   (`formatBadgeCount`): «99+» hid whether 104 or 900 things wait. Only the
+ *   `compact` badge of the 20px tab slot keeps «99+», the exact count is in
+ *   the tab's name there.
  *
  * Don't roll your own pill in a new surface — drop this in. If you
  * genuinely need a different colour or size, extend with a variant
  * prop rather than copy-pasting the className.
  */
+
+/**
+ * The figure a badge shows. Up to 999 the count itself; then thousands with one
+ * decimal under ten in the system's own notation («1,2K» in Italian, «1.2K»
+ * in English) and whole above («12K»). `compact` is the 20px tab slot, where
+ * three figures are the most that fit: there «99+» stays.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- the badge's own formatter, tested on its own
+export function formatBadgeCount(count: number, { compact = false, locale }: { compact?: boolean; locale?: string } = {}): string {
+  if (compact) return count > 99 ? '99+' : String(count);
+  if (count <= 999) return String(count);
+  if (count < 10_000) {
+    const tenths = Math.floor(count / 100) / 10;
+    return `${tenths.toLocaleString(locale, { maximumFractionDigits: 1 })}K`;
+  }
+  return `${Math.floor(count / 1000)}K`;
+}
 
 interface NotificationBadgeProps {
   count: number;
@@ -36,7 +56,7 @@ interface NotificationBadgeProps {
 
 export function NotificationBadge({ count, className = '', ariaLabel, title, variant = 'default', testId, compact = false }: NotificationBadgeProps) {
   if (count <= 0) return null;
-  const display = count > 99 ? '99+' : String(count);
+  const display = formatBadgeCount(count, { compact });
   // Measured on WebKit: "13" at the mini step with `px-1` is 22.6px, "99+" 27;
   // the slot is 20. Two figures fit with 2px of padding, three only at nano,
   // with no padding and the tighter tracking: the Linux CI draws DejaVu Sans,

@@ -33,6 +33,12 @@ if [ -f "$guard" ]; then
   printf '%s\n' "$refs" | bun run "$guard" "${1:-origin}" || exit $?
 fi
 
+# Instance strings (homes, harness paths, IPs...) are held by a ratchet that CI
+# also runs; failing here saves the round trip.
+if [ -f "$root/tests/unit/no-instance-strings.test.ts" ]; then
+  (cd "$root" && bun test tests/unit/no-instance-strings.test.ts >&2) || exit $?
+fi
+
 # Campo 2 del protocollo: "<local ref> <local sha> <remote ref> <remote sha>".
 in_push="$(printf '%s\n' "$refs" | awk 'NF>=2 {print $2}' | tr '\n' ' ')"
 

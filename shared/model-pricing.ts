@@ -90,11 +90,6 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   "gpt-o3-mini": price(1.1, 4.4),
 };
 
-/** The ids of the table, for the test that checks every one resolves to its own row. */
-export function pricedModelIds(): string[] {
-  return Object.keys(PRICE_TABLE);
-}
-
 /**
  * Normalises a model id before matching. Strips what a gateway or cloud wraps
  * around the name, none of which changes the model or its price:

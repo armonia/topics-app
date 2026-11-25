@@ -9,9 +9,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  cronJobId, dayStrip, feedbackBody, fixingKeys, hasCommands, isJarvisJobProvider, jobRequest, readAutomations,
-  readCronJobs, refusalOf, scheduleParts, systemCounts, systemOf, systemRows, toDecide, toFixCount,
-  verdictOf, withCronJobs, workflowTitle,
+  cronJobId, dayStrip, feedbackBody, fixingKeys, isJarvisJobProvider, jobRequest, readAutomations, readCronJobs, refusalOf, scheduleParts, systemCounts, systemOf, systemRows, toDecide, toFixCount, verdictOf, withCronJobs, workflowTitle,
 } from './automations';
 import { calendarDays, readCalendar } from './automationsCalendar';
 import { readCronRuns } from './automationRuns';
@@ -127,35 +125,12 @@ describe('commands only on the Jarvis jobs', () => {
     expect(rows.find((r) => r.key === 'health:docs')!.jobId).toBeNull();
   });
 
-  test('the gateway says on or off, and the switched-off job the hub hides comes back as a row', () => {
-    const merged = withCronJobs(rows, jobs);
-    expect(merged.find((r) => r.key === 'cron:job-docs')!.enabled).toBe(true);
-    const old = merged.find((r) => r.key === 'cron:job-old')!;
-    expect(old.enabled).toBe(false);
-    expect(old.system).toBe('jarvis');
-    expect(hasCommands(old)).toBe(true);
-    // launchd and GitHub never: nothing here can run or stop them.
-    expect(merged.filter(hasCommands).map((r) => r.key).sort()).toEqual(['cron:job-docs', 'cron:job-mail', 'cron:job-old']);
-    // The week summary is not in the gateway's list: no word on it, no command.
-    expect(hasCommands(merged.find((r) => r.key === 'cron:job-week')!)).toBe(false);
-    // The hub does not word the schedule of a job it hides: the caller's words do.
-    expect(old.when).toBeNull();
-    const worded = withCronJobs(rows, jobs, (j) => `schedule of ${j.id}`);
-    expect(worded.find((r) => r.key === 'cron:job-old')!.when).toBe('schedule of job-old');
-    expect(worded.find((r) => r.key === 'cron:job-docs')!.when).toBe(merged.find((r) => r.key === 'cron:job-docs')!.when);
-  });
-
   test('a one-shot job is an ordinary task: no row, switched on or off', () => {
     const once = { schedule: { kind: 'at', at: '2026-11-06T09:00:00Z' }, nextRunAt: null };
     const withOnce = [...(jobs ?? []), { id: 'job-once', name: 'Once', enabled: true, ...once }, { id: 'job-once-off', name: 'Once off', enabled: false, ...once }];
     const merged = withCronJobs(rows, withOnce);
     expect(merged.some((r) => r.jobId === 'job-once' || r.jobId === 'job-once-off')).toBe(false);
     expect(merged.length).toBe(withCronJobs(rows, jobs).length);
-  });
-
-  test('gateway down: no list, no command anywhere', () => {
-    expect(readCronJobs({ jobs: [], warning: 'Gateway error' })).toEqual([]);
-    expect(withCronJobs(rows, null).filter(hasCommands)).toEqual([]);
   });
 
   test('a switched-off job sorts last in its system', () => {

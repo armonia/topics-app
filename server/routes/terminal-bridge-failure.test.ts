@@ -35,7 +35,7 @@
  * @covers TERM-03
  */
 import { describe, expect, test } from "bun:test";
-import { bridgeFailureDetail } from "./terminal";
+import { bridgeFailureDetail } from "./terminal-bridge-socket";
 
 // The path below is the one that appears IN THE MESSAGE under test, copied from
 // the nightly run that produced this file. Nothing here opens, creates or

@@ -280,3 +280,15 @@ describe("a job with broken data (review finding)", () => {
     expect(statuses("good").length).toBeGreaterThan(0);
   });
 });
+
+describe("lost occurrences behind a running job (review finding)", () => {
+  test("occurrences lost while the previous run is open are counted as overlap, not stall", () => {
+    const { executor } = fakeCommand();
+    const engine = createScheduleEngine(db, { executors: { command: executor }, now: () => clock });
+    addJob("j", { kind: "cron", expr: "*/10 * * * *", tz: "UTC" }, COMMAND, "2026-01-01T00:10:00.000Z");
+    setClock("2026-01-01T00:10:05.000Z"); engine.tick();
+    setClock("2026-01-01T00:40:05.000Z"); engine.tick(); // 00:20 and 00:30 lost, 00:40 skipped, run still open
+    const missed = runs("j").find(r => r.status === "missed");
+    expect([missed?.cause, missed?.missed_count]).toEqual(["overlap", 2]);
+  });
+});

@@ -4,7 +4,7 @@
 ```
 bun test server/lib/machine-security.test.ts server/lib/machine-health.test.ts   # resta verde
 bun test server/routes/machine-health-route.test.ts                               # T1: la rotta dà al client il giro per macchina
-bunx playwright test tests/e2e/machine-security-view.spec.ts                      # T1: segno e menu, video in videos/machines/MACHINE-06.webm
+bunx playwright test tests/e2e/machine-security-view.spec.ts                      # T1: segno e menu, video in videos/machines/MACHINE-09.webm
 bun test server/lib/machine-security-alerts.test.ts                               # T2: transizioni → apri/chiudi card, una per chiave
 bun test server/lib/machine-security-ssh.test.ts                                  # T3: server senza Topics, uscite registrate
 bun run check:security --only=dependencies                                        # T4: esce 0 su main
@@ -13,7 +13,7 @@ bun run check:deadcode && bun run check:bloat                                   
 ```
 Mutazioni che devono fare rosso: in T2, togliere la chiave stabile (due giri `problem` → due card); in T5, togliere la regola `sshpass -p` (il caso del 14/09 torna in chiaro).
 
-## Scenario: il segno accanto al nodo (MACHINE-06)
+## Scenario: il segno accanto al nodo (MACHINE-09)
 Dato un giro di sicurezza con il Mac `warn` («1 aggiornamento in attesa da 11 giorni») e un nodo cloud `ok`
 Quando apro il menu profilo → Dispositivi
 Allora accanto al Mac c'è lo scudo giallo e accanto al nodo lo scudo verde
@@ -38,4 +38,4 @@ Quando il turno viene salvato
 Allora nel DB e nel giro dopo verso il modello l'argomento è `sshpass -p '[oscurato]' ssh root@host`
 
 ## Prova
-Video di MACHINE-06 e MACHINE-07, screenshot a 375, 768, 1440 e 3440 px accanto alla versione prima, uscite dei comandi sopra.
+Video di MACHINE-09 e MACHINE-07, screenshot a 375, 768, 1440 e 3440 px accanto alla versione prima, uscite dei comandi sopra.

@@ -39,7 +39,7 @@ export function addInteraction(histogram: InteractionHistogram, durationMs: numb
   if (index >= 0) histogram[index] = (histogram[index] ?? 0) + 1;
 }
 
-/** Element-wise sum of histograms from different page loads. */
+/** @knipignore used by scripts/check-inp-shell.ts, outside the production graph. Element-wise sum of histograms from different page loads. */
 export function mergeInteractionHistograms(histograms: readonly (readonly number[])[]): InteractionHistogram {
   const sum = emptyInteractionHistogram();
   for (const histogram of histograms) {

@@ -11,9 +11,13 @@ describe("the node scope", () => {
       ["DELETE", "/api/nodes/runs/run-1"],
       ["GET", "/api/nodes/runs/run-1/bundle"],
       ["GET", "/api/providers/snapshot"],
+      ["GET", "/api/version"],
       ["GET", "/api/system/machine-metrics"],
       ["GET", "/api/system/machine-security"],
       ["GET", "/api/system/machine-readout"],
+      ["GET", "/api/nodes/worktrees"],
+      ["PUT", "/api/nodes/worktree-policy"],
+      ["POST", "/api/nodes/worktrees/gc"],
     ];
     for (const [m, p] of calls) expect(isNodeAllowedRequest(p, m), `${m} ${p}`).toBe(true);
   });
@@ -34,7 +38,11 @@ describe("the node scope", () => {
       ["POST", "/api/nodes/runs/run-1/bundle"],
       ["GET", "/api/nodes/runs/run-1/bundle/extra"],
       ["POST", "/api/providers/snapshot"],
+      ["GET", "/api/machines/health"],
       ["GET", "/ws"],
+      ["DELETE", "/api/nodes/worktrees"],
+      ["POST", "/api/nodes/worktree-policy"],
+      ["GET", "/api/nodes/worktrees/gc"],
     ];
     for (const [m, p] of shut) expect(isNodeAllowedRequest(p, m), `${m} ${p}`).toBe(false);
   });

@@ -26,7 +26,7 @@ import { PLAN_HIERARCHY_DDL } from "../db/test-schema";
 import { createTaskService } from "../services/tasks";
 import { buildPlan } from "../services/plan";
 import { toFeedTask } from "../../shared/board-feed";
-import { trayBoardAttention, trayBoardGroups } from "../../shared/tray-board";
+import { TRAY_LIT_REASONS, trayBoardGroups, type TrayGroup } from "../../shared/tray-board";
 import { boardTabCounts } from "../../client/src/lib/boardTabCounts";
 import { boardAttention, boardLitCards } from "../../client/src/state/attentionRollups";
 import type { BoardTask } from "../../client/src/lib/board";
@@ -176,6 +176,11 @@ describe("a plan to approve across a restart (B4)", () => {
  * each surface reads it: they all say 5, and the project tabs add up to the
  * Board row.
  */
+// The glyph's number: the tray rows that ask something of a person. Local on
+// purpose, production reads the groups directly.
+const trayAttention = (groups: readonly TrayGroup[]): number =>
+  groups.filter((g) => (TRAY_LIT_REASONS as readonly string[]).includes(g.status)).reduce((n, g) => n + g.count, 0);
+
 describe("review parity: Kanban, tab, tray, attention and Plan count the same cards", () => {
   function parityDb(): Database {
     const db = freshDb();
@@ -233,7 +238,7 @@ describe("review parity: Kanban, tab, tray, attention and Plan count the same ca
     // Plan: what needs the person, every card.
     const plan = buildPlan(db).projects.reduce((n, p) => n + p.needsYou.length, 0);
 
-    expect({ kanban, attention: lit.length, tray: trayReview, glyph: trayBoardAttention(tray), plan })
+    expect({ kanban, attention: lit.length, tray: trayReview, glyph: trayAttention(tray), plan })
       .toEqual({ kanban: 5, attention: 5, tray: 5, glyph: 5, plan: 5 });
     // Per project the tab badges add up to the Board row (the steps light their own project).
     const perProject = ["p1", "p2"].map((p) => boardAttention(rows, feed, p).count);

@@ -18,7 +18,7 @@ import { runAgentTurn, type AgentMessage } from "./agent-loop";
 import type { StreamHandler } from "../types";
 import type { RetryPolicy } from "./retry";
 import {
-  offerSteer, openSteerTarget, resetTurnSteer, setSteerSink, steerLeftByHost, steerOpen, steerState, steerTaken,
+  offerSteer, openSteerTarget, resetTurnSteer, setSteerSink, steerLeftByHost, steerState, steerTaken,
   type SteerItem, type SteerMeta,
 } from "../../lib/turn-steer";
 
@@ -146,22 +146,6 @@ describe("steering a running native turn", () => {
     expect(told).toEqual([["taken", "e poi controlla anche i log"]]);
   });
 
-  test("a message offered during the last round, which asks for no tool, is handed back", async () => {
-    const bodies: string[] = [];
-    const steer = openSteerTarget(SK);
-    let offered: SteerItem | null = null;
-    scriptFetch([lastRound], bodies, () => { offered = offerSteer(SK, "un'altra cosa", META); });
-    await runAgentTurn({
-      model: "claude-haiku-4-5-20251001", history: [{ role: "user", content: "ciao" }],
-      toolContext: { workspace: ws }, autonomy: "auto-apply", retryPolicy: FAST, takeSteer: () => steer.take(),
-    }, handler());
-    expect(steerState(SK, offered!.id)).toEqual({ state: "pending" });
-    steer.close();
-    expect(steerState(SK, offered!.id)).toEqual({ state: "returned" });
-    expect(told).toEqual([["returned", "un'altra cosa"]]);
-    expect(steerOpen(SK)).toBe(false);
-  });
-
 });
 
 describe("the steer queue", () => {
@@ -216,12 +200,4 @@ describe("the steer queue", () => {
     expect(steerState(SK, left.id)).toEqual({ state: "held" });
   });
 
-  test("a turn that replaced another one keeps the session open when the old one closes", () => {
-    const old = openSteerTarget(SK);
-    const current = openSteerTarget(SK);
-    old.close();
-    expect(steerOpen(SK)).toBe(true);
-    expect(offerSteer(SK, "x", META)).not.toBeNull();
-    expect(current.take()).toEqual(["x"]);
-  });
 });

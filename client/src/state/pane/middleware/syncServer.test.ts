@@ -65,11 +65,13 @@ const {
   __resetInflightForTests,
   __pushSnapshotForTests,
   __teardownFlushUrlForTests,
-  PANE_STORE_REMOTE_KEY,
   initServerSync,
   __stopServerSyncForTests: stopServerSync,
 } = await import("./syncServer");
 const { usePaneStore } = await import("../store");
+
+// The literal key the server stores the pane snapshot under (a rename is a wire change).
+const PANE_STORE_REMOTE_KEY = "pane-store-v2";
 const { __resetSelfEchoForTests } = await import("./selfEcho");
 const { dispatchLifecycle } = await import("../../../lib/wsFrameBus");
 const { markServerHydrated, __resetServerHydratedForTests: resetServerHydrated } =

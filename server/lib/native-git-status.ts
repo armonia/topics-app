@@ -97,7 +97,7 @@ export function recordNativeGitNumstatFallbacks(count: number): void {
   metrics.numstatFallbacks += count;
 }
 
-/** Test seam for exercising native, disabled, and rejection paths. */
+/** @internal Test seam for exercising native, disabled, and rejection paths. */
 export function setNativeGitStatusTestOverrides(overrides: {
   enabled?: boolean | undefined;
   module?: NativeModule | null | undefined;

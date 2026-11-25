@@ -25,22 +25,6 @@
 import type { ContentBlock, UserInputSchema } from "../types";
 import { PLAN_APPROVE_LABEL, PLAN_REJECT_LABEL, PLAN_APPROVAL_QUESTION } from "../../shared/plan-decision";
 
-// Etichette e testo della domanda sono un CONTRATTO col client, che li legge
-// per capire se far ripartire il lavoro: stanno in `shared/` e si importano,
-// perché scritti due volte divergerebbero in silenzio — il pannello
-// continuerebbe a comparire e il bottone smetterebbe di fare qualcosa.
-//
-// Ri-esportate sono le due ETICHETTE, che il test di questo modulo legge per
-// dire quale delle due opzioni è la consigliata. Il TESTO della domanda no, e
-// non perché conti meno: chi lo confronta lo fa già qui dentro, sulla costante
-// importata sopra (`planApprovalSchema` la pone, `isPlanApprovalAnswer` la
-// riconosce), e chi sta dall'altra parte la importa da `shared/plan-decision` —
-// il client (`ChatPane.tsx`) e lo spec e2e. Una terza porta sullo stesso valore
-// non aveva nessuno che ci passasse. Se un domani un altro modulo di server
-// dovrà porre quella domanda, importa `shared/plan-decision`: l'unico modo
-// sbagliato è riscrivere la stringa.
-export { PLAN_APPROVE_LABEL, PLAN_REJECT_LABEL } from "../../shared/plan-decision";
-
 /**
  * La domanda di approvazione, nella forma che il pannello esistente sa già
  * rendere. Volutamente `kind: "questions"` e non un tipo nuovo: così il form
@@ -123,4 +107,3 @@ export function isPlanApprovalAnswer(response: { kind: string; answers?: Record<
   return Object.keys(response.answers ?? {}).some((q) => q.trim() === PLAN_APPROVAL_QUESTION);
 }
 
-export { planDecisionFrom } from "../../shared/plan-decision";

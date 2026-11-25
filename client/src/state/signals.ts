@@ -98,16 +98,6 @@ export function attentionTierForPhase(phase: ClaudeSessionPhase): PhaseTier | nu
 export const SEEN_DWELL_MS = SHARED_SEEN_DWELL_MS;
 
 /**
- * Politica pura: una tab è "vista" solo se è stata davanti per almeno `dwellMs`
- * CONTINUI. `focusedSince` è l'istante in cui è diventata davanti-e-sveglia, o
- * `null` se in questo momento non lo è (blur, finestra addormentata, altra tab).
- */
-export function isSeen(focusedSince: number | null, now: number, dwellMs = SEEN_DWELL_MS): boolean {
-  if (focusedSince === null) return false;
-  return now - focusedSince >= dwellMs;
-}
-
-/**
  * Il fill di attenzione da applicare a una superficie, in UN posto.
  *
  * FOCUS WINS era ricopiato in QUATTRO punti indipendenti (sidebarRowCard,
@@ -953,16 +943,6 @@ export function visibleTopicSignalIds(
   return out;
 }
 
-/** The count is the list's length: one gate, one place. A consumer that needs
- *  the number reads this, one that needs the rows reads `visibleTopicSignalIds`,
- *  and the two cannot disagree. */
-export function visibleTopicSignalCount(
-  ids: ReadonlySet<string>,
-  topics: Record<string, Topic>,
-): number {
-  return visibleTopicSignalIds(ids, topics).length;
-}
-
 /** One agent that is doing something right now, with the words to name it:
  *  a terminal by its name, a chat by its title. `kind` says which id space the
  *  id belongs to. */
@@ -1056,9 +1036,13 @@ export function activeAgentRowsFrom(
     if (loading) working.push(row);
     place(`terminal:${t.id}`, row, loading);
   }
-  // Chat sessions (distinct id space from terminals: no overlap).
+  // Chat sessions (distinct id space from terminals: no overlap). A turn open
+  // and parked on the person is waiting, not working: it is counted once, in
+  // `awaitingInput` (before, a question on screen was «1 at work» and «1
+  // waiting for you» at once).
   const streamingTopics = new Set<string>([...sig.liveStream, ...sig.hydratedStream]);
   for (const id of visibleTopicSignalIds(streamingTopics, topics)) {
+    if (attentionOf(sig.attention, `topic:${id}`).tier === 'needs-you') continue;
     working.push({ id, kind: 'topic', label: topics[id].name });
   }
   const chatSubjects: string[] = [];

@@ -120,7 +120,9 @@ export function noteDeviceDisconnected(deviceId: string): void {
 }
 
 /** Test-only: la mappa e' di modulo, e un test che conta le socket deve poter
- *  ripartire da zero. */
+ *  ripartire da zero.
+ * @internal
+ */
 export function __resetLiveSocketsForTests(): void {
   liveSockets.clear();
 }
@@ -157,6 +159,7 @@ export function __resetPendingForTests(): void {
  *
  * A defect invisible by construction has to be made visible to whoever guards
  * it, or "covered" only ever means "nobody looked".
+ * @internal
  */
 export function __scadenzeArmatePerTests(): number {
   return scadenze.size;
@@ -164,7 +167,9 @@ export function __scadenzeArmatePerTests(): number {
 
 /** Invecchia una richiesta in attesa, per provare la scadenza senza aspettare
  *  tre minuti veri. Tocca `createdAt` e basta: il tempo lo legge `sweep`, e un
- *  test che spostasse l'orologio proverebbe un mondo diverso da quello vero. */
+ *  test che spostasse l'orologio proverebbe un mondo diverso da quello vero.
+ * @internal
+ */
 export function __invecchiaPendingPerTests(id: string, di: number): void {
   const p = pending.get(id);
   if (p) p.createdAt -= di;

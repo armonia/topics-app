@@ -13,6 +13,7 @@
  *   D. nessun DB sul disco → exit 0 (primo avvio, sicuro per definizione)
  *   E. sqlite3 assente → exit 0, dichiarando che il cancello e' spento (meglio un reload)
  *   F. migration ROTTA senza DATA_DIR nell'env → exit 1 (percorso default corretto)
+ *   G. a registry past the pipe buffer: an early applied migration stays applied → exit 0
  *
  * Il cancello NON tocca il DB vivo: tutte le prove usano una copia.
   * @covers GATE-04
@@ -260,6 +261,35 @@ describe("server-reload-gate.sh — cancello migration SQL", () => {
     expect(code).toBe(1);
     expect(out).toContain("20260817120001-broken.sql");
     expect(out).toContain("server vecchio resta su");
+  });
+
+  it.skipIf(!HAS_SQLITE3)("G: a registry larger than the pipe buffer reads an early applied migration as applied (skipped without sqlite3)", () => {
+    // On 24/11 two deploys in a row were refused for "duplicate column": the
+    // gate took 002-agent-autonomy.sql, then 031-task-dispatch.sql, for pending.
+    // `echo "$APPLIED" | grep -q` under pipefail fails when grep exits on an
+    // early match before echo has written everything. Under memory pressure
+    // macOS gives the pipe a 4 KB buffer; here the registry itself is past 64 KB.
+    const padding = Array.from({ length: 1500 }, (_, i) => ({
+      name: `2026${String(i).padStart(10, "0")}-padding-so-the-registry-outgrows-any-pipe-buffer.sql`,
+      sql: "SELECT 1;",
+      applied: true,
+    }));
+    const dir = fakeAppDir({
+      migrations: [
+        // Applied, and fails if applied again: a gate that calls it pending goes red.
+        { name: "001-first.sql", sql: "CREATE TABLE first_table (id INTEGER);", applied: true },
+        ...padding,
+      ],
+    });
+    daPulire.push(dir);
+    const db = new Database(join(dir, "data", "topics.db"));
+    db.run("CREATE TABLE first_table (id INTEGER)");
+    db.close();
+
+    const { code, out } = eseguiCancello(dir);
+
+    expect(out).not.toContain("001-first.sql");
+    expect(code).toBe(0);
   });
 });
 

@@ -81,9 +81,7 @@ export function isSplit(node: LayoutNode): node is SplitNode {
   return node.kind === 'split';
 }
 
-/** Build a split from children + (optional) weights. Weights default to equal;
- *  any supplied set is normalised. Always passes through `normalize` so the
- *  result is canonical (same-dir children flattened, single child collapsed). */
+/** @internal Test builder: the layout tests assemble their trees with it. Weights default to equal and any supplied set is normalised. */
 export function split(
   dir: SplitDir,
   nodes: readonly LayoutNode[],

@@ -40,10 +40,14 @@ import {
   type BlockerRef,
 } from "./board";
 import { queueReasonText } from "./queue-reason-text";
-import { queueReasonKeys } from "./board";
+import { QUEUE_REASON_MESSAGE_KEYS, type QueueReasonKind } from "./board";
+
 import EN from "../client/src/lib/i18n-en";
 import IT from "../client/src/lib/i18n-it";
 import { interpolate } from "../client/src/lib/i18n";
+
+const queueReasonKeys = (kind: QueueReasonKind): string[] =>
+  QUEUE_REASON_MESSAGE_KEYS[kind].flatMap((base) => [`${base}.head`, `${base}.detail`, `${base}.title`]);
 
 /** @covers KANBAN-84 */
 describe("CI evidence check classification", () => {

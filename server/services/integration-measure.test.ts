@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { CheckRun } from "../../shared/board";
 import { measureIntegration, type IntegrationMeasureDeps } from "./integration-measure";
-import { ownChangesBetween } from "../routes/tasks";
+import { ownChangesBetween } from "../routes/tasks-git";
 
 const roots: string[] = [];
 afterAll(() => { for (const r of roots) rmSync(r, { recursive: true, force: true }); });
@@ -168,5 +168,20 @@ describe("measureIntegration", () => {
     expect(out.verdict).toBe("pass");
     const still = await measureIntegration(r.work, [{ taskId: "x", commit: r.one }], CHECKS, { ...deps(() => [ko("unit")]), rerunFailed: async () => true });
     expect(still.verdict).toBe("fail");
+  });
+});
+
+describe("measureIntegration: a push that fails", () => {
+  test("is logged with its step, and the measure comes back unmeasured with the fault set", async () => {
+    const r = repo();
+    sh(r.work, "push", "--quiet", "origin", `${r.one}:refs/heads/main`);
+    const lines: string[] = [];
+    const d = deps(() => [ok("unit")]);
+    d.log = (line) => lines.push(line);
+    d.awaitCi = async ({ checks, onFault }) => { onFault?.("push", "push failed: hook declined"); return checks.map((c) => ({ ...ko(c.name), notMeasured: true })); };
+    const out = await measureIntegration(r.work, [{ taskId: "landed", commit: r.one }], CHECKS, d);
+    expect(out.verdict).toBe("unmeasured");
+    expect(out.fault).toContain("push: push failed: hook declined");
+    expect(lines.join("\n")).toContain("hook declined");
   });
 });

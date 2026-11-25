@@ -92,27 +92,47 @@ export function dropRegionStyle(
     background: DROP_REGION_FILL,
     boxShadow: seam,
     borderRadius: DROP_RADIUS,
-    transition: 'all 140ms ease',
+    // Centres the name of what lands here (see `dropLabelStyle`).
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   };
 }
 
 /**
- * The center-merge preview: an inset, rounded FILL covering the pane's
- * interior — "this drop goes INTO the pane" (adds as a tab), as opposed to a
- * half-footprint (which claims a side). Pure fill, no seam: there is no
- * divider to preview for a merge. Before this primitive existed, hovering the
- * center of a pane body gave ZERO feedback — a merge drop looked like a dead
- * zone.
+ * The centre preview: an OUTLINE of the whole cell — "the pane shows here",
+ * as opposed to a half-footprint (which claims a side). No fill: the wash that
+ * used to cover 80% of the cell hid the content the user was aiming at and
+ * read the same on every zone (24/11), so an edge and the centre looked alike.
  */
 export function centerRegionStyle(): CSSProperties {
   return {
     position: 'absolute',
     pointerEvents: 'none',
     zIndex: Z_DROP_REGION,
-    inset: '10%',
-    background: DROP_REGION_FILL,
-    borderRadius: 10,
-    transition: 'all 140ms ease',
+    inset: 4,
+    boxShadow: `inset 0 0 0 ${DROP_SEAM_PX}px ${DROP_ACCENT}`,
+    borderRadius: 8,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  };
+}
+
+/** The name of what is being dragged, written inside the footprint it will
+ *  take: the drop says WHAT lands, not only where. */
+export function dropLabelStyle(): CSSProperties {
+  return {
+    maxWidth: '80%',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    padding: '3px 8px',
+    borderRadius: 6,
+    font: '600 11px/1.3 Inter, system-ui, sans-serif',
+    color: DROP_ACCENT,
+    background: 'var(--bg-elevated, #fff)',
+    boxShadow: `0 0 0 1px color-mix(in srgb, ${DROP_ACCENT} 35%, transparent)`,
   };
 }
 
@@ -150,7 +170,6 @@ export function fullRowZoneStyle(side: 'top' | 'bottom', active: boolean, edgeOf
       : (side === 'bottom'
           ? `inset 0 -${DROP_SEAM_PX}px 0 0 color-mix(in srgb, ${DROP_ACCENT} 45%, transparent)`
           : `inset 0 ${DROP_SEAM_PX}px 0 0 color-mix(in srgb, ${DROP_ACCENT} 45%, transparent)`),
-    transition: 'background 140ms ease, box-shadow 140ms ease',
   };
 }
 
@@ -187,7 +206,6 @@ export function rowGapZoneStyle(topPct: number, active: boolean): CSSProperties 
     boxShadow: active
       ? `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}, inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`
       : `inset 0 -${DROP_SEAM_PX}px 0 0 color-mix(in srgb, ${DROP_ACCENT} 45%, transparent)`,
-    transition: 'background 140ms ease, box-shadow 140ms ease',
   };
 }
 

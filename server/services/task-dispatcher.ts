@@ -29,7 +29,7 @@
 import { isNodeSessionKey } from "./task-dispatcher-remote-node";
 import { effectiveSlots, type OverflowMachine } from "./dispatch-overflow";
 import type { DispatcherDeps, TaskDispatcher } from "./task-dispatcher-types";
-import { GENERIC_PRODUCT_RULE, summarizeToolInput, rotateFrom, longCommandsRule, parkedEdgeEvent } from "./task-dispatcher-support";
+import { summarizeToolInput, parkedEdgeEvent } from "./task-dispatcher-support";
 import { createDispatcherCore } from "./task-dispatcher-core";
 import { createAdmission } from "./task-dispatcher-admission";
 import { createProviderHold } from "./task-dispatcher-hold";
@@ -48,7 +48,7 @@ import { createReconcile } from "./task-dispatcher-reconcile";
 import { createBoardEvents } from "./task-dispatcher-events";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 export type { DispatcherDeps, TaskDispatcher };
-export { GENERIC_PRODUCT_RULE, summarizeToolInput, rotateFrom, longCommandsRule, parkedEdgeEvent };
+export { summarizeToolInput, parkedEdgeEvent };
 
 export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const ctx = {} as DispatcherCtx;
@@ -100,6 +100,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       since: new Date(admissionCountingSince).toISOString(),
     }),
     isInFlight: (id) => inFlight.has(id),
+    reassignFromForbidden: (task, settings) => ctx.overflow.reassignFromForbidden(task, settings),
+    emitTask: (task) => ctx.queue.emit(task),
     // THE REMOTE LANE DOES NOT SPEND THIS MACHINE'S CAP (KANBAN-76): a card
     // running on a node costs no process, no worktree and no CPU here, and the
     // cap exists to protect exactly those. `running` in

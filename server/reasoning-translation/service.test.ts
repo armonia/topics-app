@@ -15,11 +15,19 @@ import { join } from "node:path";
 import {
   ReasoningTranslationService,
   hashSentence,
-  memoryTranslationStore,
   sqliteTranslationStore,
   type TranslationStore,
 } from "./service";
 import type { DetectedLanguage, ReasoningTranslator } from "./translator";
+
+/** In-memory store the translation tests inject in place of the database one. */
+const memoryTranslationStore = (): TranslationStore => {
+  const rows = new Map<string, string>();
+  return {
+    get: (hash, target) => rows.get(`${hash}|${target}`) ?? null,
+    put: (hash, target, _source, text) => void rows.set(`${hash}|${target}`, text),
+  };
+};
 
 const ENGLISH = "First I need to read the failing test and see what it expects. Then I will check the migration file for the new column.";
 const ITALIAN = "Prima devo leggere il test che fallisce e vedere cosa si aspetta. Poi controllerò il file di migrazione per la nuova colonna.";

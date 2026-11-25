@@ -72,7 +72,7 @@ export async function readNativeFileTree(root: string, depth: number, home?: str
   }
 }
 
-/** Override the module and state in tests only. */
+/** @internal Override the module and state in tests only. */
 export function setNativeFileTreeTestOverrides(overrides: {
   enabled?: boolean | undefined;
   module?: NativeModule | null | undefined;

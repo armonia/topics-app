@@ -16,7 +16,7 @@
  * @covers PROCESS-01
  */
 import { describe, expect, test } from "bun:test";
-import { readoptVerdict } from "./processes";
+import { readoptVerdict } from "./processes-persist";
 
 const LSTART = "Fri Aug 15 09:12:03 2026";
 const OTHER = "Fri Aug 15 11:40:55 2026";

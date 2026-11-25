@@ -303,6 +303,14 @@ describe("node-client · corse", () => {
     expect(headerOf(calls[0]!, "cookie")).toBe(`topics_device=${TOKEN}`);
   });
 
+  // The archive does not move the status: this flag is the only way the origin learns it (card 4a1a6d3d).
+  test("readRun porta archived dal nodo, e un nodo che non lo manda vale non archiviato", async () => {
+    const { fetch } = fakeFetch([jsonResponse({ status: "in_progress", comments: [], archived: true }), jsonResponse({ status: "in_progress", comments: [] })]);
+    const c = client(fetch);
+    expect((await c.readRun({ baseUrl: BASE, token: TOKEN, runId: "run-9" })).archived).toBe(true);
+    expect((await c.readRun({ baseUrl: BASE, token: TOKEN, runId: "run-9" })).archived).toBe(false);
+  });
+
   test("readRun senza cursore non manda nessuna query", async () => {
     const { fetch, calls } = fakeFetch([jsonResponse({ status: "working", comments: [] })]);
     await client(fetch).readRun({ baseUrl: BASE, token: TOKEN, runId: "run-9" });

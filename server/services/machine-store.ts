@@ -16,6 +16,7 @@ import { join } from "node:path";
 // `shared/types.ts` così non ce n'è una seconda copia in client/src/types.
 export type { Machine } from "../../shared/types";
 import type { Machine } from "../../shared/types";
+import type { MachineWorktreeReport } from "../../shared/worktree-summary";
 
 export class MachineInUseError extends Error {
   constructor(
@@ -52,12 +53,24 @@ export interface MachineStore {
    */
   touchNode(id: string): Machine | null;
   /**
+   * What a node said about itself on the last probe: its real version (written to the row) and the
+   * coding models it can run (kept in memory, re-read every probe). `null` when the row is gone.
+   */
+  recordReported(id: string, input: { version?: string | null; models?: string[] | null }): Machine | null;
+  /**
    * Say a node is offline NOW, whatever its last heartbeat: the cloud row has
    * no heartbeat of its own, and an account without an active cloud environment
    * must not read as a machine the overflow can send cards to. `null` = no
    * flip (gone, or already offline).
    */
   markNodeOffline(id: string): Machine | null;
+  /**
+   * The read-model of a machine's worktrees (`machines.worktree_summary`, T12): what its node
+   * reported on the last probe. Written only when it changed; a schema without the column is a no-op.
+   */
+  recordWorktreeReport(id: string, report: MachineWorktreeReport): void;
+  /** The last worktree report of a machine; `null` = never reported. */
+  worktreeReport(id: string): MachineWorktreeReport | null;
   /** How many tasks still name this machine. Feeds the MACHINE-01 conflict. */
   countTasks(id: string): number;
   delete(id: string): boolean;
@@ -125,6 +138,7 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       UPDATE machines SET status = 'online', last_heartbeat_at = $now, last_seen_at = $now, updated_at = $now
       WHERE id = $id
     `),
+    setVersion: db.prepare(`UPDATE machines SET daemon_version = ? WHERE id = ?`),
     markNodeOffline: db.prepare(`
       UPDATE machines SET status = 'offline', updated_at = $now WHERE id = $id AND status != 'offline'
     `),
@@ -132,6 +146,27 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
     countTasks: db.prepare(`SELECT COUNT(*) as n FROM tasks WHERE machine_id = ?`),
     delete: db.prepare(`DELETE FROM machines WHERE id = ?`),
   };
+
+  // Models a node reported: volatile on purpose, the next probe (30 s) refills it.
+  const reportedModels = new Map<string, string[]>();
+
+  // Prepared on first use: a database older than the column answers null instead of failing the store.
+  let reportStatements: { get: ReturnType<Database["prepare"]>; set: ReturnType<Database["prepare"]> } | null = null;
+  const reports = () => (reportStatements ??= {
+    get: db.prepare(`SELECT worktree_summary FROM machines WHERE id = ?`),
+    set: db.prepare(`UPDATE machines SET worktree_summary = ? WHERE id = ?`),
+  });
+
+  function worktreeReport(id: string): MachineWorktreeReport | null {
+    try {
+      const raw = (reports().get.get(id) as { worktree_summary: string | null } | null)?.worktree_summary;
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as MachineWorktreeReport;
+      return typeof parsed?.supported === "boolean" ? { supported: parsed.supported, summary: parsed.summary ?? null } : null;
+    } catch {
+      return null;
+    }
+  }
 
   function rowToMachine(row: any): Machine {
     let warnings: Record<string, string> = {};
@@ -151,6 +186,7 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       acknowledgedWarnings: warnings,
       baseUrl: row.base_url ?? null,
       slots: row.slots ?? null,
+      ...(reportedModels.has(row.id) ? { models: reportedModels.get(row.id)! } : {}),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -229,12 +265,26 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       const row = stmts.getById.get(id);
       return row ? rowToMachine(row) : null;
     },
+    recordReported(id, input) {
+      if (input.version) stmts.setVersion.run(input.version, id);
+      if (input.models) reportedModels.set(id, [...input.models]);
+      const row = stmts.getById.get(id);
+      return row ? rowToMachine(row) : null;
+    },
     markNodeOffline(id) {
       const res = stmts.markNodeOffline.run({ $id: id, $now: new Date().toISOString() });
       if (res.changes === 0) return null;
       const row = stmts.getById.get(id);
       return row ? rowToMachine(row) : null;
     },
+    recordWorktreeReport(id, report) {
+      try {
+        const next = JSON.stringify({ supported: report.supported, summary: report.summary });
+        const prev = (reports().get.get(id) as { worktree_summary: string | null } | null)?.worktree_summary ?? null;
+        if (prev !== next) reports().set.run(next, id);
+      } catch { /* schema older than the column: nothing to keep it in */ }
+    },
+    worktreeReport,
     countTasks(id) {
       return (stmts.countTasks.get(id) as { n: number } | null)?.n ?? 0;
     },

@@ -221,12 +221,40 @@ async function sessionExpired(res: Response): Promise<boolean> {
   return /session|not initialized/i.test(body);
 }
 
-class HttpMcpConnection implements McpConnection {
-  readonly transport = "http" as const;
+/** The calls both transports make the same way once `send` exists. */
+abstract class BaseMcpConnection {
+  abstract readonly transport: "http" | "stdio";
   serverInfo: { name?: string; version?: string } | null = null;
+  protected capabilities: Record<string, unknown> = {};
+  protected abstract send(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>;
+
+  get listChanged(): boolean { return declaresListChanged(this.capabilities); }
+
+  async listTools(): Promise<McpToolDescriptor[]> {
+    const result = (await this.send("tools/list", {}, CONNECT_TIMEOUT_MS)) as { tools?: McpToolDescriptor[] };
+    return result?.tools ?? [];
+  }
+
+  async listPrompts(): Promise<McpPromptDescriptor[]> {
+    if (!this.capabilities.prompts) return [];
+    try {
+      const result = (await this.send("prompts/list", {}, CONNECT_TIMEOUT_MS)) as { prompts?: McpPromptDescriptor[] };
+      return result?.prompts ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  async callTool(name: string, args: Record<string, unknown>) {
+    const result = (await this.send("tools/call", { name, arguments: args })) as { isError?: boolean };
+    return { ...flattenContent(result), isError: Boolean(result?.isError) };
+  }
+}
+
+class HttpMcpConnection extends BaseMcpConnection implements McpConnection {
+  readonly transport = "http" as const;
   private nextId = 1;
   private sessionId: string | null = null;
-  private capabilities: Record<string, unknown> = {};
   /** A renewal handshake failed: the next call shakes hands before it goes. */
   private handshakeOwed = false;
   /** The renewal in flight, shared by every call that found the session dead. */
@@ -236,7 +264,7 @@ class HttpMcpConnection implements McpConnection {
     private readonly url: string,
     private readonly headers: Record<string, string>,
     private readonly auth: McpAuthProvider | null = null,
-  ) {}
+  ) { super(); }
 
   /**
    * One POST, with the headers in the order that keeps today's behaviour.
@@ -303,7 +331,7 @@ class HttpMcpConnection implements McpConnection {
     return this.renewing;
   }
 
-  private async send(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
+  protected async send(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
     const id = this.nextId++;
     if (method !== "initialize" && (this.renewing || this.handshakeOwed)) await this.renew();
     const sentWith = this.sessionId;
@@ -369,28 +397,6 @@ class HttpMcpConnection implements McpConnection {
   }
 
 
-  get listChanged(): boolean { return declaresListChanged(this.capabilities); }
-
-  async listTools(): Promise<McpToolDescriptor[]> {
-    const result = (await this.send("tools/list", {}, CONNECT_TIMEOUT_MS)) as { tools?: McpToolDescriptor[] };
-    return result?.tools ?? [];
-  }
-
-  async listPrompts(): Promise<McpPromptDescriptor[]> {
-    if (!this.capabilities.prompts) return [];
-    try {
-      const result = (await this.send("prompts/list", {}, CONNECT_TIMEOUT_MS)) as { prompts?: McpPromptDescriptor[] };
-      return result?.prompts ?? [];
-    } catch {
-      return [];
-    }
-  }
-
-  async callTool(name: string, args: Record<string, unknown>) {
-    const result = (await this.send("tools/call", { name, arguments: args })) as { isError?: boolean };
-    return { ...flattenContent(result), isError: Boolean(result?.isError) };
-  }
-
   close(): void {
     // Nothing to tear down: an http transport holds no process and no socket
     // between calls.
@@ -399,20 +405,18 @@ class HttpMcpConnection implements McpConnection {
 
 // ---- stdio transport ------------------------------------------------------
 
-class StdioMcpConnection implements McpConnection {
+class StdioMcpConnection extends BaseMcpConnection implements McpConnection {
   readonly transport = "stdio" as const;
-  serverInfo: { name?: string; version?: string } | null = null;
   private nextId = 1;
   private child: ChildProcess | null = null;
   private buffer = "";
-  private capabilities: Record<string, unknown> = {};
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 
   constructor(
     private readonly command: string,
     private readonly args: string[],
     private readonly env: Record<string, string>,
-  ) {}
+  ) { super(); }
 
   private onLine(line: string): void {
     let msg: { id?: number; result?: unknown; error?: RpcError };
@@ -429,7 +433,7 @@ class StdioMcpConnection implements McpConnection {
     else waiter.resolve(msg.result);
   }
 
-  private send(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
+  protected send(method: string, params?: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
     const child = this.child;
     if (!child?.stdin?.writable) return Promise.reject(new Error(`${method}: server is not running`));
     const id = this.nextId++;
@@ -489,28 +493,6 @@ class StdioMcpConnection implements McpConnection {
     } catch { /* best-effort */ }
   }
 
-
-  get listChanged(): boolean { return declaresListChanged(this.capabilities); }
-
-  async listTools(): Promise<McpToolDescriptor[]> {
-    const result = (await this.send("tools/list", {}, CONNECT_TIMEOUT_MS)) as { tools?: McpToolDescriptor[] };
-    return result?.tools ?? [];
-  }
-
-  async listPrompts(): Promise<McpPromptDescriptor[]> {
-    if (!this.capabilities.prompts) return [];
-    try {
-      const result = (await this.send("prompts/list", {}, CONNECT_TIMEOUT_MS)) as { prompts?: McpPromptDescriptor[] };
-      return result?.prompts ?? [];
-    } catch {
-      return [];
-    }
-  }
-
-  async callTool(name: string, args: Record<string, unknown>) {
-    const result = (await this.send("tools/call", { name, arguments: args })) as { isError?: boolean };
-    return { ...flattenContent(result), isError: Boolean(result?.isError) };
-  }
 
   close(): void {
     try { this.child?.kill(); } catch { /* already gone */ }

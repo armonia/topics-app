@@ -32,7 +32,7 @@ import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker
 import { parseCompactBoundary } from "./claude/compaction";
 import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark } from "./claude/row-turn";
 import { buildClaudeArgs, resolveToolTrim } from "./claude/args";
-import { delegationHookPath, hookScriptPath } from "../lib/topics-hook-script";
+import { delegationHookPath, hookScriptPath, sessionWorktreeHookPath } from "../lib/topics-hook-script";
 import { nativeSubagentToolPolicy } from "../lib/subagent-tool-policy";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota } from "../services/agent-job-quota";
@@ -105,13 +105,10 @@ import {
   cleanupMcpConfigForSession,
 } from "./claude-code-session";
 import { MESSAGE_TIMEOUT_MS, buildSafeEnv, resolveCliPath, runOneshotCompletion } from "./claude/cli-launch";
-// Re-exported because tests and callers have always imported these from this module.
-export { buildSafeEnv, parseCompletionStdout } from "./claude/cli-launch";
 
 // Re-exported because tests and callers have always imported these from this module.
 export {
-  cleanupMcpConfigForSession, getOrCreateClaudeSessionId, getTopicSpawnOverridesForSession,
-  planClaudeSessionStart, topicsAppBaseUrl, topicsMcpBridgeSpec, writeMcpConfigForSession,
+  cleanupMcpConfigForSession, topicsAppBaseUrl, topicsMcpBridgeSpec, writeMcpConfigForSession,
 } from "./claude-code-session";
 
 // ============ Config ============
@@ -221,14 +218,6 @@ const HEARTBEAT_QUIET_MS = 30_000;                 // emit only after 30s silenc
 // percepiscono su una lista che si allunga, e tolgono il grosso dei fotogrammi
 // in una raffica di azioni.
 const SUBAGENT_COALESCE_MS = 150;
-
-
-// ============ History Replay ============
-// The recap of a reset session lives in `claude/history-replay.ts`; re-exported
-// here because tests and callers have always imported it from this module.
-export {
-  loadActiveBranchForReplay, hasPriorMessagesInDB, renderReplayPrologue, type ReplayTurn,
-} from "./claude/history-replay";
 
 // ============ Persistent Process ============
 
@@ -1671,6 +1660,9 @@ export class ClaudeCodeProvider implements AIProvider {
       // file: phase, tool label and foreground command list for EVERY session
       // launched from here, and for no other.
       hooksScriptPath: hookScriptPath(),
+      // Where a worktree of this session is born: under the worktree root, marked
+      // and registered (`claude_worktree_hooks`, default on).
+      worktreeHooksScriptPath: sessionWorktreeHookPath(),
       // The nudge toward spawn_agent after a long run of inline calls (the
       // policy itself rides `appendSystemPrompt`). `TOPICS_DELEGATION_NUDGE=off`
       // turns it off without a release.

@@ -104,6 +104,7 @@ import { tracePaneAttach } from '../../../lib/paneAttachTrace';
 import { apiFetch } from '../../../lib/shell/net';
 import { createProjectSingletonPaneId, isProjectSingletonPaneType } from '../../../state/pane/adapters/paneConfig';
 import { migrateProjectPaneIdentity } from './projectPaneIdentity';
+import { CLOSE_PROJECT_INNER_PANE_EVENT, type CloseProjectInnerPaneDetail } from '../../../lib/closedRows';
 
 // --- Module-local helpers (mirrors of ProjectWindow.tsx helpers) ---
 
@@ -1111,6 +1112,24 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     window.addEventListener('close-focused-pane', handler);
     return () => window.removeEventListener('close-focused-pane', handler);
   }, [wrapperPaneId, focusedGroupIdRef, groupsRef]);
+
+  // The column's circle on a chat open in THIS window: close it here, through
+  // the window's own close, so the row and the tab agree (see lib/closedRows).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { projectPath: target, paneIds } = (e as CustomEvent<CloseProjectInnerPaneDetail>).detail ?? {};
+      if (target !== projectPath || !paneIds?.length) return;
+      for (const paneId of paneIds) {
+        const group = groupsRef.current.find(g => g.paneIds.includes(paneId));
+        if (!group) continue;
+        e.preventDefault();
+        handleClosePaneRef.current?.(group.id, paneId);
+        return;
+      }
+    };
+    window.addEventListener(CLOSE_PROJECT_INNER_PANE_EVENT, handler);
+    return () => window.removeEventListener(CLOSE_PROJECT_INNER_PANE_EVENT, handler);
+  }, [projectPath, groupsRef]);
 
   // A project singleton view has one id per project (PANE-AUTH-04): opening it
   // again focuses the open one instead of minting a second pane with that id.

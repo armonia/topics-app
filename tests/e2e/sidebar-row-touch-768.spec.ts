@@ -16,6 +16,10 @@ for (const width of [375, 768]) {
   test(`pinned tiles and rows are at least 44px tall at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(E2E_BASE);
+    // The Automations row is always drawn, so wait for it instead of reading
+    // the DOM before the sidebar has rendered, then for a measurable row.
+    await page.getByTestId("sidebar-automations").waitFor();
+    await expect(page.locator('[class*="coarse:h-11"]').first()).toBeVisible({ timeout: 30_000 });
     const heights = await page.evaluate(() => {
       const out: number[] = [];
       for (const el of Array.from(document.querySelectorAll<HTMLElement>('[class*="coarse:h-11"]'))) {

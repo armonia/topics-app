@@ -15,7 +15,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
-import { getTopicSpawnOverridesForSession } from "./claude-code";
+import { getTopicSpawnOverridesForSession } from "./claude-code-session";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const NOW = "2026-09-28T00:00:00.000Z";

@@ -2,7 +2,7 @@
 
 ## ADDED Requirements
 
-### Requirement: MACHINE-06 — Ogni nodo mostra il suo stato di sicurezza accanto al nome e i check nel suo menu
+### Requirement: MACHINE-09 — Ogni nodo mostra il suo stato di sicurezza accanto al nome e i check nel suo menu
 
 Il client SHALL ricevere dal server l'ultimo giro di MACHINE-05 per macchina. Ogni riga di
 macchina nel menu Dispositivi e in Impostazioni → Macchine SHALL avere accanto al nome il segno
@@ -10,7 +10,7 @@ del suo stato (il peggiore dei check, `info` escluso) e l'età della misura se p
 un'ora; il menu della riga SHALL elencare i quattro check con la loro frase. Una macchina senza
 misura SHALL mostrare lo stato `unknown`, mai un segno verde.
 
-MISURA: `bunx playwright test tests/e2e/machine-security-view.spec.ts` verde, video `videos/machines/MACHINE-06.webm`.
+MISURA: `bunx playwright test tests/e2e/machine-security-view.spec.ts` verde, video `videos/machines/MACHINE-09.webm`.
 
 #### Scenario: un nodo con un aggiornamento in attesa
 - **GIVEN** un giro con il Mac `warn` e un nodo cloud `ok`

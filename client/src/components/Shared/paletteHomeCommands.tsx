@@ -7,7 +7,7 @@
  * (`Settings/HomePanelHost`). Searchable rows of the palette's action list, so
  * the arrows and Enter reach them like any other command.
  */
-import { Bell, CalendarDays, CreditCard, KeyRound, Palette, Plug, Server } from 'lucide-react';
+import { Bell, CalendarDays, CreditCard, GitBranch, KeyRound, Palette, Plug, Server } from 'lucide-react';
 import { openHome, type SettingHome } from '../../lib/openHome';
 import type { CommandAction } from './CommandPalette';
 import type { Translate } from '../../../../shared/queue-reason-text';
@@ -16,6 +16,7 @@ const HOMES: Array<{ home: SettingHome; label: string; hint: string; icon: React
   { home: 'providers', label: 'home.providers', hint: 'home.palette.providers', icon: <KeyRound size={14} /> },
   { home: 'tools', label: 'home.tools', hint: 'home.palette.tools', icon: <Plug size={14} /> },
   { home: 'calendar', label: 'home.calendar', hint: 'home.palette.calendar', icon: <CalendarDays size={14} /> },
+  { home: 'worktrees', label: 'home.worktrees', hint: 'home.palette.worktrees', icon: <GitBranch size={14} /> },
   { home: 'plan', label: 'settings.section.plan', hint: 'home.palette.plan', icon: <CreditCard size={14} /> },
   { home: 'machines', label: 'home.machines', hint: 'home.palette.machines', icon: <Server size={14} /> },
   { home: 'appearance', label: 'settings.section.appearance', hint: 'home.palette.appearance', icon: <Palette size={14} /> },

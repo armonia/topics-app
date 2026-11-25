@@ -15,7 +15,8 @@ import { cancelAsk } from "../lib/ask-user-bridge";
 import { topicSessionKey } from "../services/agent-census";
 import { imageShape } from "../services/image-shape";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
-import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
+import { createTaskService, LAND_ACTION_LABEL } from "../services/tasks";
+import { ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL } from "../../shared/board";
 import { freshDb, makeCtx, call, rawCall } from "./tasks-test-support";
 
 describe("tasks router (session-scoped)", () => {

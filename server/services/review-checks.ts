@@ -243,12 +243,6 @@ export function serializeReviewChecks(checks: ReviewCheck[]): string | null {
   return clean.length ? JSON.stringify(clean) : null;
 }
 
-/** Le ultime `TAIL_LINES` righe non vuote in coda, che è dove sta l'errore. */
-export function tailOf(text: string, lines = TAIL_LINES): string {
-  const rows = text.replace(/\s+$/, "").split("\n");
-  return rows.slice(Math.max(0, rows.length - lines)).join("\n");
-}
-
 /**
  * A bun test run ends with a wall of `(pass)` and `(skip)` lines, and the tail
  * is a fixed number of lines: on a suite with dozens of skips the wall is the
@@ -1010,12 +1004,32 @@ export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: st
  */
 export const FAST_GATES_CHECK: ReviewCheck = { name: "gates:fast", cmd: "bun run gates:fast" };
 
-/** Does this checkout declare the `gates:fast` script? Other projects do not. */
-export function hasFastGates(cwd: string): boolean {
+/** Does this checkout declare the package.json script `name`? Other projects do not. */
+export function hasScript(cwd: string, name: string): boolean {
   try {
     const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8")) as { scripts?: Record<string, string> };
-    return typeof pkg.scripts?.["gates:fast"] === "string";
+    return typeof pkg.scripts?.[name] === "string";
   } catch {
     return false;
   }
+}
+
+/** Does this checkout declare the `gates:fast` script? Other projects do not. */
+export function hasFastGates(cwd: string): boolean {
+  return hasScript(cwd, "gates:fast");
+}
+
+/**
+ * The unit tests of the files a delivery touched, run on the machine that runs
+ * the pre-review (CI runs on Linux only: a test written on another OS and never
+ * run, or a path limit of this OS, shows up here and nowhere else). The server
+ * never names a test or a selector: the project declares the script, which
+ * picks the tests from its own diff, and a project without it is measured as
+ * before. Never the whole suite: that stays with the CI.
+ */
+export const TOUCHED_TESTS_CHECK: ReviewCheck = { name: "test:touched:review", cmd: "bun run test:touched:review" };
+
+/** Does this checkout declare the touched-tests script? */
+export function hasTouchedTests(cwd: string): boolean {
+  return hasScript(cwd, TOUCHED_TESTS_CHECK.name);
 }

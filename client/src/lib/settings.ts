@@ -44,6 +44,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showBoardRow: true,
   // The live-terminals menu at the end of the tabs. See AppSettings.
   showLiveTerminals: true,
+  // The column already lists every open surface, so the strip on top is the
+  // copy that goes. See AppSettings.
+  tabsPosition: 'side',
+  // Three states, open / closed / archived: closing leaves a closed row.
+  closeArchives: false,
+  // A pin is never closed by accident.
+  pinnedClosable: false,
 };
 
 const STORAGE_KEY = 'app-settings';
@@ -197,7 +204,7 @@ export function msSinceLocalSettingsChange(): number {
   return Date.now() - lastLocalChange;
 }
 
-/** Solo per i test: riporta il modulo allo stato di boot. */
+/** @internal Solo per i test: riporta il modulo allo stato di boot. */
 export function __resetSettingsSyncState(): void {
   hydrated = false;
   lastLocalChange = 0;

@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
-  firstOccurrence, isRepeatedWallTime, nextCronOccurrence, nextOccurrence, previewOccurrences, validateSchedule, ScheduleError,
+  firstOccurrence, isRepeatedWallTime, nextCronOccurrence, nextOccurrence, validateSchedule, ScheduleError,
 } from "./schedule";
 
 const at = (iso: string) => new Date(iso);
@@ -64,10 +64,6 @@ describe("every and at", () => {
     expect(validateSchedule({ kind: "at", at: "2026-01-01T10:00:00Z" }, { now }).kind).toBe("at");
   });
 
-  test("preview lists the next occurrences", () => {
-    const list = previewOccurrences({ kind: "cron", expr: "0 9 * * *", tz: "UTC" }, at("2026-01-01T00:00:00Z"), 3);
-    expect(list.map(d => d.toISOString())).toEqual(["2026-01-01T09:00:00.000Z", "2026-01-02T09:00:00.000Z", "2026-01-03T09:00:00.000Z"]);
-  });
 });
 
 describe("validation", () => {

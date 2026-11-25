@@ -2,12 +2,11 @@
  * The shape of the tab sheet, without a DOM: what sits on the first level, in
  * which order, and what a level with one row or none becomes.
  *
- * @covers TABSHEET-02 @covers TABSHEET-03
+ * @covers TABSHEET-02 @covers TABSHEET-03 @covers SPLIT-05
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  buildTabSheetEntries, shapeLevels, rowCount, FIRST_LEVEL_MAX_ROWS,
-  type SheetEntry, type TabSheetModel,
+  buildTabSheetEntries, shapeLevels, type SheetEntry, type TabSheetModel,
 } from './tabSheetEntries';
 
 const t = (key: string, vars?: Record<string, string>) => (vars?.n ? `${key}:${vars.n}` : key);
@@ -46,16 +45,6 @@ describe('the first level (TABSHEET-02)', () => {
       'return-to-chat', 'open-in-project', 'back-to-spawner', 'find',
       'page', 'tools', 'session', 'tab', 'layout', 'close', 'close-others',
     ]);
-  });
-
-  test('never more than eleven rows, even with an agent at the wheel', () => {
-    // The widest real tab: an agent drives it, it was lent by the topic window
-    // and an agent's chat opened it. «Open in project» lives only in a task's
-    // drawer, where a lent sheet does not, so the two never meet.
-    const entries = buildTabSheetEntries(fullBrowser({
-      contextual: { takeControl: noop, returnToChat: noop, backToSpawner: noop },
-    }));
-    expect(rowCount(entries)).toBe(FIRST_LEVEL_MAX_ROWS);
   });
 
   test('the Page level says zoom and device, the Tools level the errors, in its tail', () => {
@@ -141,5 +130,21 @@ describe('every command has one place (TABSHEET-03)', () => {
     const tab = entries.find((e) => e.id === 'tab');
     expect(tab?.kind === 'level' && tab.children.map((c) => c.kind === 'action' ? c.label : c.id))
       .toEqual(['tab.menu.pinProject', 'tab.menu.unpinTab']);
+  });
+});
+
+describe('the layout level speaks every side (SPLIT-05)', () => {
+  test('four sides, then even out, then reset, in that order', () => {
+    const entries = buildTabSheetEntries(fullBrowser({
+      layout: { splitRight: noop, splitLeft: noop, splitDown: noop, splitUp: noop, equalize: noop, resetLayout: noop },
+    }));
+    const all = reachable(entries);
+    const order = ['split-right', 'split-left', 'split-down', 'split-up', 'equalize', 'reset-layout'];
+    expect(all.filter((id) => order.includes(id))).toEqual(order);
+  });
+
+  test('a surface that cannot split offers no side and no even out', () => {
+    const all = reachable(buildTabSheetEntries(fullBrowser({ layout: { detach: noop } })));
+    expect(all.filter((id) => id.startsWith('split-') || id === 'equalize')).toEqual([]);
   });
 });

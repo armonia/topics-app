@@ -88,7 +88,8 @@ export function appSettings(): AppSettingsWire {
       profilePublishCost: null, profileShareToken: null, turnCheckpointsEnabled: null,
       calendarEnabled: null, calendarFeedUrl: null, calendarRefreshMinutes: null,
       calendarHorizonDays: null, browserStoreCacheReapEnabled: null, browserStoreReapEnabled: null,
-      browserStoreReapAfterDays: null, firstRunDoneAt: "2026-01-01T00:00:00.000Z",  securityAlertsProjectId: null,
+      browserStoreReapAfterDays: null, firstRunDoneAt: "2026-01-01T00:00:00.000Z",  securityAlertsProjectId: null, topicsCheck: null,
+      worktreeRoot: null, worktreeMaxPerProject: null, worktreeDiskFloorGb: null, cargoTargetMode: null, gcForeign: null, worktreeAbandonDays: null, claudeWorktreeHooks: null, worktreeQuarantineDays: null,
     },
   };
 }

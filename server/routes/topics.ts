@@ -76,8 +76,7 @@ import { createToolResponseRoutes } from "./topics-tool-response";
 import { createCommandRoutes } from "./topics-commands";
 
 
-export { removeTopicFromUiStateValue, retractTopicTombstoneFromUiStateValue, purgeTopicFromUiState, reopenDepsFor } from "./topics-ui-state";
-export { topicPreviewText } from "./topics-preview";
+export { purgeTopicFromUiState, reopenDepsFor } from "./topics-ui-state";
 
 /**
  * `paneAttachedTo` — «una pane viva sta guardando questo contextId?». Il
@@ -273,7 +272,7 @@ export function createTopicsRouter(
   }
 
   const projects = createProjectBinding(ctx);
-  const { isExistingDir, registerAdoptedWorktree, lastTranscriptModel, resolveProjectRef, knownProjectPaths, bindTopicToProject, autoBindProject, getProjectIdForTopic, WORKSPACE_DIR, getWorkspaceProjects, detectProjectPathFromMessages, moveTerminalPaneToProject } = projects;
+  const { isExistingDir, registerAdoptedWorktree, canonicalProjectOf, lastTranscriptModel, resolveProjectRef, knownProjectPaths, bindTopicToProject, autoBindProject, getProjectIdForTopic, WORKSPACE_DIR, getWorkspaceProjects, detectProjectPathFromMessages, moveTerminalPaneToProject } = projects;
 
   function matchHistoryRoute(pathname: string): string | null {
     const prefix = "/api/history/";
@@ -808,8 +807,34 @@ export function createTopicsRouter(
             // project's): adopt as before this rule, the worktree folder as the
             // project, so the CLI still runs where it ran. Refusing here broke
             // an adoption that used to work.
-            console.warn(`[adopt-claude] ${reg.error}: the worktree folder becomes the project`);
-            projectDir = resolveProjectRef(checkout.worktreeDir, { trustRawPaths: true });
+            //
+            // The one exception: a worktree is never a project. When the
+            // repository's project is found by its git common dir (the repo
+            // was not reached through the checkout's own `.git` pointer, or the
+            // folder is one of Topics' own), the chat belongs to THAT project and
+            // keeps working in the worktree row that already exists for the folder.
+            //
+            // Without a row to run in, the chat must NOT move to the repository's
+            // main checkout: the CLI resumes its transcript by working directory
+            // and its next turn would write in the main checkout. Then the folder
+            // stays the project, as before.
+            const owner = canonicalProjectOf(checkout.worktreeDir);
+            const row = owner ? worktreeStore.getByAbsPath(checkout.worktreeDir) : null;
+            const again = owner && !(row && row.projectId === owner.id)
+              ? registerAdoptedWorktree(owner.path, checkout.worktreeDir, checkout.worktreeName, facts.branch)
+              : null;
+            if (owner && row && row.projectId === owner.id) {
+              projectDir = owner.path;
+              worktreeId = row.id;
+              worktreePath = checkout.worktreeDir;
+            } else if (owner && again && !("error" in again)) {
+              projectDir = owner.path;
+              worktreeId = again.id;
+              worktreePath = checkout.worktreeDir;
+            } else {
+              console.warn(`[adopt-claude] ${reg.error}: the worktree folder becomes the project`);
+              projectDir = resolveProjectRef(checkout.worktreeDir, { trustRawPaths: true });
+            }
           } else {
             worktreeId = reg.id;
             worktreePath = checkout.worktreeDir;

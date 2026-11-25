@@ -274,6 +274,7 @@ export function markKeyRejected(id: SttProviderId, env: SttDeps["env"], status: 
   if (!key) return;
   keyVerdicts.set(verdictSlot(id, key), { ok: false, reason: keyRejectedReason(status), at: Date.now() });
 }
+/** @internal Test seam: clears the per-key verdict cache that otherwise carries over between tests in one process. */
 export function __resetKeyVerdictsForTests(): void {
   keyVerdicts.clear();
 }

@@ -2,7 +2,7 @@
  * The work on the kanban of «Da fare» in the Consorzio edition: the columns and allow-italian: quotes the words on screen
  * every card, each on the flow that moves it (`./flows.ts`), with its history,
  * who has it in hand, who checks it, its originals and the values read on them.
- * Same shape and the same rules as `../sarim-org/cards.ts`.
+ * Same shape and the same rules as `../orbit-org/cards.ts`.
  *
  * The demo moment is Friday 6 November 2026, 10:30 (`DEMO_NOW`): nothing here
  * happens after it except due dates. A card in «Fatto» was closed from 30/10 on. allow-italian: quotes the words on screen
@@ -18,7 +18,7 @@
  * ones of the old preview (`../org/cases/`), moved into the new shape and given
  * the prefix of their flow; the others follow the same numbers.
  */
-import type { CardOriginal, CardValue, SarimCard, Stage, StageEntry, StageId, Worker } from '../sarim-org/types';
+import type { CardOriginal, CardValue, OrbitCard, Stage, StageEntry, StageId, Worker } from '../orbit-org/types';
 
 /* ---------- helpers ---------- */
 
@@ -50,7 +50,7 @@ export const NOCERA_STAGES: Stage[] = [
 
 /* ---------- PEC e protocollo (9) ---------- */
 
-const PEC: SarimCard[] = [
+const PEC: OrbitCard[] = [
   {
     id: 'PEC-2423', flow: 'nocera-pec', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Richiesta di spurgo del Canale Rio Pennacchio', // allow-italian: fixture data, shown as written
@@ -323,7 +323,7 @@ const PEC: SarimCard[] = [
 
 /* ---------- Fatture passive (7) ---------- */
 
-const INVOICES: SarimCard[] = [
+const INVOICES: OrbitCard[] = [
   {
     id: 'FT-2414', flow: 'nocera-fatture', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Fattura per il collaudo statico della Vasca Santa Croce', // allow-italian: fixture data, shown as written
@@ -590,7 +590,7 @@ const irrigationForm = (applicant: string, comune: string, parcel: string, basin
   `Inviata il ${signed}`, // allow-italian: fixture data, shown as written
 ];
 
-const IRRIGATION: SarimCard[] = [
+const IRRIGATION: OrbitCard[] = [
   {
     id: 'IR-2424', flow: 'nocera-irrigazione', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Turno per il cavolfiore a Striano', // allow-italian: fixture data, shown as written
@@ -772,7 +772,7 @@ const IRRIGATION: SarimCard[] = [
 
 /* ---------- Segnalazioni dal territorio (8) ---------- allow-italian: quotes the words on screen */
 
-const REPORTS: SarimCard[] = [
+const REPORTS: OrbitCard[] = [
   {
     id: 'SG-2424', flow: 'nocera-segnalazioni', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Rifiuti e ramaglie nel Canale Fosso Imperatore', // allow-italian: fixture data, shown as written
@@ -995,7 +995,7 @@ const REPORTS: SarimCard[] = [
 
 /* ---------- Concessioni idrauliche (4) ---------- */
 
-const CONCESSIONS: SarimCard[] = [
+const CONCESSIONS: OrbitCard[] = [
   {
     id: 'CO-2398', flow: 'nocera-concessioni', step: 's7', // allow-italian: fixture data, shown as written
     title: 'Attraversamento del Canale Lauro con una tubazione', // allow-italian: fixture data, shown as written
@@ -1130,7 +1130,7 @@ const CONCESSIONS: SarimCard[] = [
 const officerOpening = (day: string, hour: string, stream: string, comune: string) =>
   `Il giorno ${day} 2026, alle ore ${hour}, l'ufficiale idraulico del Consorzio di Bonifica Integrale Comprensorio Sarno, Autorità di Polizia Idraulica ai sensi dell'art. 10, comma 2, della L.R. Campania 7/2025, durante il servizio di vigilanza sul ${stream} in Comune di ${comune}, ha accertato`; // allow-italian: fixture data, shown as written
 
-const POLICE: SarimCard[] = [
+const POLICE: OrbitCard[] = [
   {
     id: 'VP-2401', flow: 'nocera-polizia', step: 's4', // allow-italian: fixture data, shown as written
     title: 'Rifiuti in alveo, trasgressore senza indirizzo', // allow-italian: fixture data, shown as written
@@ -1261,7 +1261,7 @@ const POLICE: SarimCard[] = [
 
 /* ---------- Contributi e sgravi (5) ---------- */
 
-const CONTRIBUTIONS: SarimCard[] = [
+const CONTRIBUTIONS: OrbitCard[] = [
   {
     id: 'RC-2425', flow: 'nocera-contributi', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Sgravio per un terreno espropriato', // allow-italian: fixture data, shown as written
@@ -1425,7 +1425,7 @@ const CONTRIBUTIONS: SarimCard[] = [
 /* ---------- Personale (5) ---------- */
 
 /** Every employee here is a matricola with a qualifica, never a name: they are examples. */
-const STAFF: SarimCard[] = [
+const STAFF: OrbitCard[] = [
   {
     id: 'PE-2406', flow: 'nocera-personale', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Visita medica periodica in scadenza, operaio', // allow-italian: fixture data, shown as written
@@ -1566,7 +1566,7 @@ const STAFF: SarimCard[] = [
 
 /* ---------- Contratti, gare e incarichi (6) ---------- */
 
-const TENDERS: SarimCard[] = [
+const TENDERS: OrbitCard[] = [
   {
     id: 'CT-2398', flow: 'nocera-contratti', step: 's1', // allow-italian: fixture data, shown as written
     title: 'Schema di convenzione per la difesa del suolo a Siano', // allow-italian: fixture data, shown as written
@@ -1734,4 +1734,4 @@ const TENDERS: SarimCard[] = [
   },
 ];
 
-export const NOCERA_CARDS: SarimCard[] = [...PEC, ...INVOICES, ...IRRIGATION, ...REPORTS, ...CONCESSIONS, ...POLICE, ...CONTRIBUTIONS, ...STAFF, ...TENDERS];
+export const NOCERA_CARDS: OrbitCard[] = [...PEC, ...INVOICES, ...IRRIGATION, ...REPORTS, ...CONCESSIONS, ...POLICE, ...CONTRIBUTIONS, ...STAFF, ...TENDERS];

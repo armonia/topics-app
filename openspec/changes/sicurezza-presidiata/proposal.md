@@ -19,7 +19,7 @@ In più un buco vero nel prodotto: **i segreti passati negli argomenti di un com
 
 ## Cosa cambia
 
-- **T1 · Vista.** Il server espone l'ultimo giro di MACHINE-05 al client. Ogni nodo, nel menu Dispositivi e in Impostazioni → Macchine, ha accanto il suo segno di sicurezza (scudo colorato dal peggiore dei check, con l'età della misura) e nel suo menu i quattro check con la loro frase. MACHINE-06.
+- **T1 · Vista.** Il server espone l'ultimo giro di MACHINE-05 al client. Ogni nodo, nel menu Dispositivi e in Impostazioni → Macchine, ha accanto il suo segno di sicurezza (scudo colorato dal peggiore dei check, con l'età della misura) e nel suo menu i quattro check con la loro frase. MACHINE-09.
 - **T2 · Avviso.** Un check che passa a `problem`, o resta `warn` oltre 24 ore, apre UNA card per (macchina, check) con chiave stabile, sulla board scelta nelle impostazioni; la card si chiude da sola quando il check torna `ok`. Niente doppioni, niente card per `unknown`. MACHINE-07.
 - **T3 · Server senza Topics.** Un server registrato nelle impostazioni (host, utente SSH; nessun nome nel codice) viene misurato via SSH in sola lettura con gli stessi parser di MACHINE-05. MACHINE-08.
 - **T4 · Aggiornato da solo.** Un giro quotidiano rilancia l'audit delle dipendenze su main anche senza push; un avviso nuovo, non accettato nella baseline, fa rosso e apre la card come T2. Sui server Linux, `reboot-required` presente da oltre 24 ore è `warn` (l'autopatch non ha riavviato). SEC-01.

@@ -14,7 +14,7 @@ import { runGit } from "../lib/run-git";
 import { awaitCiEvidence, closeCiDraft, spawnCapped } from "../services/ci-evidence";
 import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
 import { measureIntegration } from "../services/integration-measure";
-import { describeMainRed, mainRedKey, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
+import { describeMainRed, MAIN_RED_MODEL, mainRedKey, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
 import { personPlace } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
 import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict } from "../services/red-bounce";
@@ -333,7 +333,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
    * card carried is the card's own business (`bounced`, `asked`), and the watch of main must not open a
    * second card for it. A `green` card does not hold a red back: the measure said green, the push said red.
    */
-  type AfterMark = { commit: string; who: "human" | "auto" | null; repo: string | null; at: string; settled?: "green" | "bounced" | "asked" };
+  type AfterMark = { commit: string; who: "human" | "auto" | null; repo: string | null; at: string; settled?: "green" | "bounced" | "asked" | "faulted" };
 
   function readAfter(taskId: string): AfterMark | null {
     try {
@@ -491,6 +491,14 @@ export function createCiPhase(deps: CiPhaseDeps) {
       settleAfter(taskId, "asked");
       askPersonAfter(projectId, taskId, `La CI dopo il land non dà un esito: ${why.split("\n")[0]!.slice(0, 220)}. Il lavoro è già su main.`);
     },
+    // The board could not measure it, round after round: the mark closes, one note says so, the card stays done.
+    abandon: (_projectId, taskId, why) => {
+      settleAfter(taskId, "faulted");
+      deps.svc.addComment({
+        taskId, author: "system", kind: "service", replaces: ["CI non misurata"],
+        content: `CI dopo il land non misurata, smetto di riprovare: ${why.slice(0, 220)}. Il lavoro è già su main e la card resta chiusa; il guasto è della board, la CI di main lo misura comunque al push.`,
+      });
+    },
     stillWanted: (_projectId, taskId) => {
       const mark = readAfter(taskId);
       if (!mark || mark.settled) return false;
@@ -511,7 +519,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
     for (const r of rows) {
       let mark: AfterMark;
       try { mark = JSON.parse(r.ci_after) as AfterMark; } catch { continue; }
-      if (mark.settled === "green" || !mark.commit || Date.parse(mark.at) < recent) continue;
+      if (mark.settled === "green" || mark.settled === "faulted" || !mark.commit || Date.parse(mark.at) < recent) continue;
       if (await port.entersAt(mark.commit, sha).catch(() => false)) return true;
     }
     return false;
@@ -537,7 +545,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
         const key = mainRedKey(projectId, commit.sha);
         if (deps.db.query("SELECT 1 FROM tasks WHERE claude_task_id = ?").get(key)) return false;
         const task = deps.svc.create({
-          projectId, text: mainRedTitle(commit.sha), status: "todo", createdBy: "cron:main-ci", idempotencyKey: key,
+          projectId, text: mainRedTitle(commit.sha), status: "todo", createdBy: "cron:main-ci", idempotencyKey: key, model: MAIN_RED_MODEL,
           description: describeMainRed(commit, verdict),
           bar: "La CI del push su main è verde su un commit che contiene la riparazione.",
         });

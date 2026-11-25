@@ -6,8 +6,8 @@
  */
 import { type Task } from "./tasks";
 import { carriedBranch } from "./branch-on-origin";
-import { wakeBreaker } from "./wake-breaker";
-import { effectiveSlots, machineForbidden, pickReassignTarget, reassignNote, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNoteImmediate, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
+import { nodeBlocked } from "./wake-breaker";
+import { effectiveSlots, machineForbidden, machineLacksModel, pickReassignTarget, reassignNote, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNoteImmediate, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 import { providerHold } from "../lib/provider-hold";
 import { CLOUD_HOLD_KEY } from "../lib/cloud-weekly-limit";
 import type { DispatcherCtx } from "./task-dispatcher-context";
@@ -32,6 +32,21 @@ export function createOverflow(ctx: DispatcherCtx) {
     try { return deps.overflowMachines().some((m) => m.id === task.machineId && m.slots === 0); } catch { return false; }
   }
   /**
+   * The card's pinned machine already runs as many cards as it has seats: the card
+   * stays in Todo and no attempt is spent, instead of being claimed, refused at the
+   * node and counted as a failed start. Cards of an unknown machine are not held.
+   */
+  function pinnedMachineFull(task: Task): boolean {
+    if (!task.machineId || !deps.overflowMachines) return false;
+    try {
+      const m = deps.overflowMachines().find((x) => x.id === task.machineId);
+      if (!m || m.slots === undefined) return false;
+      const seats = effectiveSlots(m);
+      if (seats <= 0) return false;
+      return deps.svc.countRunningOnMachine(task.machineId, task.id) >= seats;
+    } catch { return false; }
+  }
+  /**
    * A Todo card pinned to a machine that cannot run it (zero slots, or offline
    * with no way to wake it) moves to an allowed machine, or back here when none
    * is free, instead of waiting for ever. Delegated and mirror cards are bound
@@ -46,7 +61,8 @@ export function createOverflow(ctx: DispatcherCtx) {
     let machines: OverflowMachine[] = [];
     try { machines = deps.overflowMachines(); } catch (err) { log("reassign: machine list failed", err); return false; }
     const pinned = machines.find((m) => m.id === t.machineId);
-    if (!pinned || !machineForbidden(pinned, (id) => wakeBreaker.isOpen(id))) return false;
+    const wantedModel = t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null);
+    if (!pinned || !(machineForbidden(pinned, nodeBlocked) || machineLacksModel(pinned, wantedModel))) return false;
     let cloudCredit = true;
     try { cloudCredit = deps.cloudCredit?.() ?? (!providerHold() && !providerHold(Date.now(), CLOUD_HOLD_KEY)); } catch { cloudCredit = false; }
     const origin = overflowOriginOf(t.projectId);
@@ -55,7 +71,7 @@ export function createOverflow(ctx: DispatcherCtx) {
       githubOrigin: origin.github && !cloudRefusesProject(t.projectId),
       model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
       load: machineLoad,
-      wakeBlocked: (id) => wakeBreaker.isOpen(id),
+      wakeBlocked: nodeBlocked,
     });
     try {
       const moved = deps.svc.update({ taskId: t.id, actor: "agent", by: "dispatcher", patch: { machineId: target?.id ?? null } });
@@ -120,11 +136,11 @@ export function createOverflow(ctx: DispatcherCtx) {
   /** Is there a seat on some OTHER online machine right now, origin aside -
    *  cheap enough to ask before deciding whether a cold origin cache is worth
    *  waiting out. */
-  function anyOverflowSeatElsewhere(localId: string | null, skipMachineId?: string | null): boolean {
+  function anyOverflowSeatElsewhere(localId: string | null, skipMachineIds?: readonly string[] | null): boolean {
     if (!deps.overflowMachines) return false;
     let machines: OverflowMachine[] = [];
     try { machines = deps.overflowMachines(); } catch { return false; }
-    return machines.some((m) => m.id !== localId && m.id !== skipMachineId && m.online && machineLoad(m.id) < effectiveSlots(m));
+    return machines.some((m) => m.id !== localId && !skipMachineIds?.includes(m.id) && m.online && machineLoad(m.id) < effectiveSlots(m));
   }
   function overflowBranchReady(t: Task): boolean | null {
     const branch = carriedBranch(t);
@@ -210,7 +226,7 @@ export function createOverflow(ctx: DispatcherCtx) {
     // Its own branch reaches origin first; `null` = the push is under way.
     if (overflowBranchReady(t) !== true) return false;
     let machines: OverflowMachine[] = [];
-    try { machines = deps.overflowMachines().filter((m) => m.id !== localId && m.id !== t.overflowSkipMachine); } catch (err) { log("overflow: machine list failed", err); return false; }
+    try { machines = deps.overflowMachines().filter((m) => m.id !== localId && !t.overflowSkipMachines?.includes(m.id)); } catch (err) { log("overflow: machine list failed", err); return false; }
     let cloudCredit = true;
     try { cloudCredit = deps.cloudCredit?.() ?? (!providerHold() && !providerHold(Date.now(), CLOUD_HOLD_KEY)); } catch { cloudCredit = false; }
     const target = pickOverflowMachine(machines, {
@@ -220,7 +236,7 @@ export function createOverflow(ctx: DispatcherCtx) {
       model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
       // Read after this round's own moves: they are written before the next card is asked.
       load: machineLoad,
-      wakeBlocked: (id) => wakeBreaker.isOpen(id),
+      wakeBlocked: nodeBlocked,
     });
     if (!target) return false;
     let moved: Task | null = null;
@@ -243,5 +259,5 @@ export function createOverflow(ctx: DispatcherCtx) {
     } catch { /* the move stands without its line */ }
     return true;
   }
-  return { anyOverflowSeatElsewhere, beginOverflowRound, forgetOverflowClock, isRemoteTask, machineLoad, markMemoryHeld, overflowCardToFreeSeat, overflowOriginUnresolved, pinnedMachineDrained, pruneOverflowClocks, pruneOverflowClocksOutside, reassignFromForbidden };
+  return { anyOverflowSeatElsewhere, beginOverflowRound, forgetOverflowClock, isRemoteTask, machineLoad, markMemoryHeld, overflowCardToFreeSeat, overflowOriginUnresolved, pinnedMachineDrained, pinnedMachineFull, pruneOverflowClocks, pruneOverflowClocksOutside, reassignFromForbidden };
 }

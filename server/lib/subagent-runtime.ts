@@ -375,6 +375,7 @@ async function watchChildren(): Promise<void> {
 }
 
 /**
+ * @knipignore re-exported by routes/terminal.ts, which an open branch is editing
  * Retire every live child due for it, now. The watch does it on its tick; a
  * test calls it with a clock moved forward instead of waiting 15 minutes.
  */
@@ -386,7 +387,7 @@ export function retireIdleSubAgents(opts: { now?: number; idleMs?: number } = {}
   return retired;
 }
 
-/** Test seam: forget what this process remembers of its children, as a restart does. */
+/** @internal Test seam: forget what this process remembers of its children, as a restart does. */
 export function _forgetSubAgentMemory(): void {
   childRuntime.clear();
   deliveredResultKeys.clear();

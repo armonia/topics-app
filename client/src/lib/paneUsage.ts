@@ -288,14 +288,14 @@ export function webviewSnapshot(): { label: string; memoryMB: number }[] {
     .map(([label, e]) => ({ label, memoryMB: e.memoryMB }));
 }
 
-/** Test seam. */
+/** @internal Test seam. */
 export function _resetPaneUsage(): void {
   snapshot = null;
   inFlight = null;
   listeners.clear();
 }
 
-/** Test seam: inietta uno snapshot senza passare dalla rete. */
+/** @internal Test seam: inietta uno snapshot senza passare dalla rete. */
 export function _setPaneUsageSnapshot(
   sessions: { sessionId: string; memoryMB: number; cpuPercent: number | null; processCount: number }[],
   opts?: { cpuCores?: number; memMetric?: string; webviews?: { label: string; memoryMB: number; cpuPercent: number | null }[] },

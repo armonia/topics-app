@@ -1084,3 +1084,22 @@ riporta SHALL far fallire il cancello, indicando il file.
 - **GIVEN** il repo pulito
 - **WHEN** un file fuori elenco contiene il nome
 - **THEN** il test fallisce e stampa quel file
+
+### Requirement: GATE-24 — La barra non è verde su file che nessun cancello ha letto
+
+I cancelli di `scripts/qa-gate.sh` enumerano i file con git, quindi un file nuovo
+non ancora aggiunto non lo legge nessuno. La barra SHALL misurare, prima delle
+corsie, i file fuori da git e non ignorati (`scripts/untracked-files.sh`), e
+SHALL riportarli come una riga rossa con l'elenco e la cura (aggiungerli
+all'indice). I file ignorati da `.gitignore` SHALL non contare. Successo tre
+volte (12/09, 15/09, 22/11/2026): barra locale verde, CI di main rossa subito
+dopo il push.
+
+#### Scenario: Un file nuovo non aggiunto
+- **GIVEN** un file sorgente nuovo fuori da git
+- **WHEN** si lancia la barra
+- **THEN** la riga `untracked-files` è rossa e nomina il file
+
+#### Scenario: Dopo averlo aggiunto all'indice
+- **WHEN** il file viene aggiunto all'indice
+- **THEN** la riga torna verde e i cancelli lo leggono

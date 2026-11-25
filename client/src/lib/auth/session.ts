@@ -12,7 +12,9 @@
 import { apiFetch } from '../shell/net';
 import { getSession, markUnpaired, publishSession, type SessionState } from './sessionState';
 
-export { getSession, subscribeSession, markUnpaired, __resetSessionForTests, type SessionState } from './sessionState';
+export { getSession, subscribeSession, type SessionState } from './sessionState';
+/** @internal Test seam: resets the module-level session state between tests. */
+export { __resetSessionForTests } from './sessionState';
 
 /** The body of GET /api/auth/session; the landing demo answers with this type. */
 export type SessionWire = {

@@ -13,7 +13,7 @@ import { riprendiTurniInterrotti } from "./ripresa-boot";
 import { RESEND_COUNTS_DDL } from "../db/test-schema";
 import { INTERRUPTED_MARKER } from "./stale-stream-sweep";
 import { resetTurnEndRegistry } from "../providers/turn-end-registry";
-import { loadActiveBranchForReplay } from "../providers/claude-code";
+import { loadActiveBranchForReplay } from "../providers/claude/history-replay";
 import { nativeHistorySource } from "../providers/native/history-source";
 import { assembleTopicContext } from "../context/assemble";
 

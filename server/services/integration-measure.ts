@@ -13,18 +13,20 @@
  * pull request.
  */
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CheckRun, ReviewCheck } from "../../shared/board";
 import type { IntegrationMeasure } from "./integration-queue";
 import { INTEGRATION_BRANCH_PREFIX } from "./own-commits";
+import { ensureScratchDir } from "./worktree-scratch";
 
 export interface GitResult { code: number; out: string; err: string }
 
 export interface IntegrationMeasureDeps {
   git(cwd: string, args: string[], env?: Record<string, string>): Promise<GitResult>;
   /** `awaitCiEvidence` bound to its port: pushes `cwd`'s branch, opens the draft, waits for every row. */
-  awaitCi(input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[] }): Promise<CheckRun[]>;
+  awaitCi(input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[]; onFault?: (step: "push" | "draft-pr", error: string) => void }): Promise<CheckRun[]>;
+  /** Where the failing step is written (the server log). */
+  log?(line: string): void;
   /** `closeCiDraft`: the integration pull request and branch end with the verdict. */
   closeDraft(input: { cwd: string; branch: string; reason: string }): Promise<unknown>;
   /**
@@ -36,7 +38,8 @@ export interface IntegrationMeasureDeps {
   rerunFailed?: (cwd: string, sha: string) => Promise<boolean>;
   /** The failing rows as the agent reads them (`formatChecksComment`). */
   describeRed(runs: CheckRun[], commit: string): string;
-  tmpRoot?: string;
+  /** Folder the throwaway checkout is made in. Default `{worktree root}/_scratch/integrazione`. */
+  scratchRoot?: string;
 }
 
 export interface IntegrationCard { taskId: string; commit: string }
@@ -72,7 +75,7 @@ export async function measureIntegration(
   }
   await deps.git(repoPath, ["worktree", "prune"]);
 
-  const dir = mkdtempSync(join(deps.tmpRoot ?? tmpdir(), "topics-integrazione-"));
+  const dir = mkdtempSync(join(deps.scratchRoot ?? ensureScratchDir("integrazione"), "topics-integrazione-"));
   const added = await deps.git(repoPath, ["worktree", "add", "--detach", "--quiet", dir, base]);
   if (added.code !== 0) {
     rmSync(dir, { recursive: true, force: true });
@@ -123,8 +126,22 @@ export async function measureIntegration(
     const localStale = (await deps.git(repoPath, ["for-each-ref", "--format=%(refname:short)", `refs/heads/${INTEGRATION_BRANCH_PREFIX}*`])).out
       .split("\n").map((l) => l.trim()).filter((b) => b && b !== branch);
     for (const old of localStale) await deps.git(repoPath, ["branch", "-D", old]);
-    const ask = { cwd: dir, sha, taskId: `${sha.slice(0, 8)}-integrazione`, checks };
-    let runs = await deps.awaitCi(ask);
+    let fault = "";
+    const ask = {
+      cwd: dir, sha, taskId: `${sha.slice(0, 8)}-integrazione`, checks,
+      onFault: (step: string, error: string) => { fault = `${step}: ${error.slice(0, 300)}`; },
+    };
+    const log = deps.log ?? ((line: string) => console.warn(line));
+    let runs: CheckRun[];
+    try { runs = await deps.awaitCi(ask); }
+    catch (err) {
+      log(`[integration] ${sha.slice(0, 8)} awaitCi threw: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    }
+    if (fault) {
+      log(`[integration] ${sha.slice(0, 8)} not measured, ${fault}`);
+      return { ...unmeasured(`la misura non è partita (${fault})`, sha), fault };
+    }
     let red = runs.filter((r) => !r.ok && !r.notMeasured && !r.timedOut);
     // A red is confirmed by a second run of the failed jobs: a flake must not cost a card a round.
     if (red.length && deps.rerunFailed && (await deps.rerunFailed(dir, sha).catch(() => false))) {

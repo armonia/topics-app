@@ -60,6 +60,8 @@ const checksFloorFields = (svc: TaskService): { checksMemFloorGB: number } =>
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { resolveCreatedSource } from "../lib/created-by";
 import { createTaskService, projectIdForPath, type TaskService } from "../services/tasks";
+import { familyLinks } from "../../shared/project-family";
+import { loadFamilyRows } from "../services/project-family-rows";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { activeFrozenCount } from "../services/budget-governor";
 import { swapFrozenCount } from "../lib/swap-freeze-hold";
@@ -113,10 +115,9 @@ function scheduledWait(body: unknown): { reason: string; minutes: number } | nul
   return { reason: b.wait_reason.trim(), minutes: b.wait_minutes };
 }
 
-export { runGitCap, ownChangesBetween, ownCommitFiles, ownBranchFiles } from "./tasks-git";
-export { matchGuestTaskAction } from "./tasks-guests";
+export { runGitCap, ownCommitFiles, ownBranchFiles } from "./tasks-git";
 export type { TasksRouterOpts } from "./tasks-opts";
-export { emitReviewReadyEdge, pendingQuestion } from "./tasks-shared";
+export { emitReviewReadyEdge } from "./tasks-shared";
 
 /**
  * How many CLOSED cards the global feed carries.
@@ -933,7 +934,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         : null);
       if (method === "GET") {
         const { projects, labelOnly } = listPickerProjects(loadRegisteredProjects(db), knownDirs());
-        return json({ projects, labelOnly, newProjectDir: newDir() });
+        // `families`: the projects that sit under another one (accorpa / separa), in board ids.
+        return json({ projects, labelOnly, newProjectDir: newDir(), families: familyLinks(loadFamilyRows(db)) });
       }
       if (method === "POST") {
         if (!opts?.workspaceDir) return json({ error: "workspace not configured", code: "invalid_input" }, 500);
