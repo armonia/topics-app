@@ -105,6 +105,22 @@ async function shoot(page: Page, name: string) {
   await page.screenshot({ path: join(MEDIA_DIR, `${name}.png`) });
 }
 
+/**
+ * On the global board the project comes BEFORE the title, like the group header reads, and always
+ * with its icon (the folder's favicon, or the neutral glyph); its name only once the pane is wide.
+ */
+async function projectBeforeTitle(page: Page, key: string, withName: boolean) {
+  const row = rowOf(page, key);
+  const project = row.locator('[data-col="project"]');
+  const title = row.locator('[data-col="title"]');
+  await expect(project.locator("svg, img").first()).toBeVisible();
+  const [p, t] = [await project.boundingBox(), await title.boundingBox()];
+  expect(p && t && p.x + p.width <= t.x + 1, `project cell left of the title in row ${key}`).toBe(true);
+  const name = project.getByText("e2e-table-", { exact: false });
+  if (withName) await expect(name).toBeVisible();
+  else await expect(name).toBeHidden();
+}
+
 async function noSideScroll(page: Page) {
   const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(over, "page scrolls sideways").toBeLessThanOrEqual(0);
@@ -170,9 +186,12 @@ test.describe("Board — vista Tabella", () => {
       expect(box?.height, `row ${key}`).toBe(32);
     }
     await expect(review.getByTestId("board-table-waiting")).toBeVisible();
+    // Painted, not only laid out: a colour class with no utility behind it leaves a transparent 6px box that still reads as «visible».
+    await expect(review.getByTestId("board-table-waiting")).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(rowOf(page, "login").getByTestId("board-table-waiting")).toHaveCount(0);
-    // The project column shows on the global board.
-    await expect(rowOf(page, "docs")).toContainText("e2e-table-alfa");
+    // The project column shows on the global board, before the title, with its icon and its name.
+    await expect(rowOf(page, "docs").locator('[data-col="project"]')).toContainText("e2e-table-alfa");
+    for (const key of Object.keys(ids)) await projectBeforeTitle(page, key, true);
 
     await expect(page.getByTestId("task-detail-drawer")).toHaveCount(0);
     await rowOf(page, "docs").click();
@@ -235,9 +254,10 @@ test.describe("Board — vista Tabella", () => {
       await shoot(page, `table-${width}`);
     }
 
-    // Narrow: the extra columns are gone, the title cell still has room to read.
+    // Narrow: the extra columns are gone, the project is down to its icon, the title cell still has room to read.
     await page.setViewportSize({ width: 375, height: 800 });
-    const title = rowOf(page, "review").locator('[role="cell"]').nth(1);
+    await projectBeforeTitle(page, "review", false);
+    const title = rowOf(page, "review").locator('[data-col="title"]');
     expect((await title.boundingBox())?.width ?? 0).toBeGreaterThan(100);
 
     // Wide: the extra columns (project, owner, priority, links) are drawn.

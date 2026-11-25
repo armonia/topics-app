@@ -73,15 +73,20 @@ export function sortTableTasks(tasks: readonly BoardTask[], sort: TableSort, ctx
 export interface TableLayout {
   /** The grid template, on the header and on every row. */
   grid: string;
-  /** Added to a cell that only shows once the pane is wide enough (everything but status, title and age). */
+  /** Added to a cell that only shows once the pane is wide enough (everything but status, project, title and age). */
   extra: string;
+  /** Inline content shown only once the pane is wide (the project's name next to its icon), and its narrow counterpart. */
+  wideOnly: string;
+  narrowOnly: string;
 }
 
 /**
  * Below the pane width where the extra columns fit only status, title and age
  * stay, so the page never scrolls sideways. The pane's width counts, not the
  * window's: an open drawer narrows the table too. The global board has one more
- * column (the project) and so needs a wider pane.
+ * column, the project, before the title like the group header reads: its icon
+ * at every width (2rem: the 16px icon and the cell's padding), its name too
+ * once the pane is wide, so the global board needs a wider pane.
  *
  * The age column is 6rem on purpose: its header, «Aggiornato» in Italian (the (allow-italian: quotes the UI label)
  * longest of the two languages), is 57px wide at this size, and with the sort
@@ -90,6 +95,6 @@ export interface TableLayout {
  */
 export function tableLayout(showProject: boolean): TableLayout {
   return showProject
-    ? { grid: 'grid-cols-[6.5rem_minmax(0,1fr)_6rem] @3xl:grid-cols-[7rem_minmax(0,1fr)_8rem_7rem_5rem_6rem_4.5rem]', extra: 'hidden @3xl:flex' }
-    : { grid: 'grid-cols-[6.5rem_minmax(0,1fr)_6rem] @2xl:grid-cols-[7rem_minmax(0,1fr)_7rem_5rem_6rem_4.5rem]', extra: 'hidden @2xl:flex' };
+    ? { grid: 'grid-cols-[6.5rem_2rem_minmax(0,1fr)_6rem] @3xl:grid-cols-[7rem_10rem_minmax(0,1fr)_7rem_5rem_6rem_4.5rem]', extra: 'hidden @3xl:flex', wideOnly: 'hidden @3xl:inline', narrowOnly: '@3xl:hidden' }
+    : { grid: 'grid-cols-[6.5rem_minmax(0,1fr)_6rem] @2xl:grid-cols-[7rem_minmax(0,1fr)_7rem_5rem_6rem_4.5rem]', extra: 'hidden @2xl:flex', wideOnly: 'hidden @2xl:inline', narrowOnly: '@2xl:hidden' };
 }

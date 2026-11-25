@@ -134,6 +134,10 @@ barra dei menu.
 - Don't: id, nomi di file o comandi nei titoli.
 - Don't: una funzione che esiste solo come variabile d'ambiente o riga di log.
 - Don't: rifare ciò che non è stato segnalato.
+- Don't: hover e fondi scritti a mano (`hover:bg-black/5 dark:hover:bg-white/5`) dove c'è il token
+  (`hover:bg-app-hover`, `bg-app-inset`); raggi solo dalla scala (`rounded` 8px pannelli,
+  `rounded-sm` 6px controlli, `rounded-xs` 4px chip); l'avviso è `amber-500`, cioè `warning`.
+  Corretto più volte, l'ultima il 25/11.
 
 ## Riferimenti
 
@@ -212,3 +216,8 @@ barra dei menu.
   progetto non ha barra sua: il titolo è la tab (fondo al passaggio, si trascina nello split) e
   i comandi del progetto stanno a destra del titolo. Il «+» lì no («ma il + serve ancora la?»):
   c'è già sulla riga del progetto nella colonna.
+- 25/11 «nella tabella il progetto dovrebbe andare prima del titolo e mostrare anche icona..
+  così come il resto dovrebbe seguire il design system ovunque fatto bene.. e parecchie volte
+  che nn segui i design system» → nella tabella della board il progetto (icona, poi nome dove
+  c'è posto) viene prima del titolo, come nella riga di gruppo; ogni colore, raggio, hover e
+  focus della tabella viene dai token, niente valori a mano.
