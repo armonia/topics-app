@@ -4993,7 +4993,6 @@
     "server/services/worktree-gc-runner.ts": [
       "annuncia",
       "avviata",
-      "csid",
       "inVolo",
       "qualcosaVivoDentro"
     ],

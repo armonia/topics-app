@@ -8,6 +8,24 @@ import { CALENDAR_HORIZON_CHOICES, CALENDAR_REFRESH_CHOICES } from "../../shared
 import { normalizeFeedUrl, resetCalendarCache } from "../services/calendar-feed";
 import { clampBrowserStoreReapDays } from "../../shared/browser-store-reap";
 import { OUTPUT_LANGUAGES, DISCORD_DETAIL_LEVELS, AGENT_RUNTIMES } from "../../shared/types";
+import { normalizeWorktreeRoot, worktreeRootRefusal, type WorktreeRootRefusal } from "../lib/worktree-root-setting";
+import { hasRootSentinel } from "../services/worktree-root-ledger";
+import { defaultWorktreeRootDir } from "../services/worktree-root";
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
+import {
+  CARGO_TARGET_MODES,
+  DEFAULT_WORKTREE_ABANDON_DAYS,
+  DEFAULT_WORKTREE_QUARANTINE_DAYS,
+  DEFAULT_WORKTREE_DISK_FLOOR_GB,
+  DEFAULT_WORKTREE_MAX_PER_PROJECT,
+  GC_FOREIGN_MODES,
+  WORKTREE_ABANDON_DAYS_RANGE,
+  WORKTREE_QUARANTINE_DAYS_RANGE,
+  WORKTREE_DISK_FLOOR_RANGE,
+  WORKTREE_MAX_PER_PROJECT_RANGE,
+  clampInto,
+} from "../../shared/worktree-settings";
 
 /**
  * GET/PUT /api/app-settings — the promoted behaviour toggles (env-var audit,
@@ -57,7 +75,20 @@ function registeredProviderNames(): Set<string> {
   return new Set(listProviders().map((p) => p.name));
 }
 
-type ValidationError = { field: string; message: string };
+type ValidationError = { field: string; message: string; code?: WorktreeRootRefusal };
+
+/** The sentence of each refusal of a worktree root; the client shows its own words for the `code`. */
+const ROOT_REFUSAL_TEXT: Record<WorktreeRootRefusal, string> = {
+  relative: "the folder must be an absolute path",
+  temp: "a temp folder: the system cleans it under live checkouts",
+  "filesystem-root": "the root of a disk",
+  home: "the home folder",
+  "home-ancestor": "a folder that contains the home folder",
+  system: "a system folder",
+  "inside-project": "inside a project's repository",
+  "contains-project": "it contains a project",
+  "not-empty": "it already holds files that are not Topics' worktrees",
+};
 
 /** Come si valida UN campo: stringa (con eventuale allow-set, fisso o risolto
  *  al momento della richiesta), intero, booleano. */
@@ -142,6 +173,19 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   firstRunDoneAt: { kind: "string" },
   securityAlertsProjectId: { kind: "string" },
   topicsCheck: { kind: "string" },
+  // Worktrees (change worktree-standard, T1). The root is normalised before it
+  // is written (`~` expanded, absolute, not a temp, system or home folder); the
+  // checks that need the disk and the projects run in the PUT below, which also
+  // names the reason of a refusal.
+  worktreeRoot: { kind: "string", normalize: normalizeWorktreeRoot },
+  // The three dials are bounded, not closed sets: a number outside its range is
+  // brought back to the nearest limit, like the browser-store days.
+  worktreeMaxPerProject: { kind: "int", clamp: (n) => clampInto(n, WORKTREE_MAX_PER_PROJECT_RANGE, DEFAULT_WORKTREE_MAX_PER_PROJECT) },
+  worktreeDiskFloorGb: { kind: "int", clamp: (n) => clampInto(n, WORKTREE_DISK_FLOOR_RANGE, DEFAULT_WORKTREE_DISK_FLOOR_GB) },
+  cargoTargetMode: { kind: "string", allow: new Set<string>(CARGO_TARGET_MODES) },
+  gcForeign: { kind: "string", allow: new Set<string>(GC_FOREIGN_MODES) },
+  worktreeAbandonDays: { kind: "int", clamp: (n) => clampInto(n, WORKTREE_ABANDON_DAYS_RANGE, DEFAULT_WORKTREE_ABANDON_DAYS) },
+  worktreeQuarantineDays: { kind: "int", clamp: (n) => clampInto(n, WORKTREE_QUARANTINE_DAYS_RANGE, DEFAULT_WORKTREE_QUARANTINE_DAYS) },
 };
 
 /** Coerce+validate an incoming patch. Returns the clean patch or errors. */
@@ -233,7 +277,22 @@ function generateToken(): string {
     .replace(/=+$/, "");
 }
 
-export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
+/**
+ * What the root check reads of this machine: its home, its temp folder and the
+ * disk. The server passes nothing and gets the real ones; a test names its own,
+ * so the verdict does not depend on where its checkout or its HOME happen to be.
+ */
+interface RootCheckHost {
+  home?: string;
+  osTmp?: string;
+  nonEmpty?: (abs: string) => boolean;
+}
+
+const folderHoldsSomething = (abs: string): boolean => {
+  try { return readdirSync(abs).some((n) => n !== ".DS_Store"); } catch { return false; }
+};
+
+export function createAppSettingsRouter(ctx: AppContext, host: RootCheckHost = {}): RouteHandler {
   const { json } = ctx;
 
   return async function appSettingsRouter(
@@ -287,6 +346,27 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
         return json({ ok: false, error: "Body must be an object" }, 400);
       }
       const { patch, errors } = parsePatch(parsed as Record<string, unknown>);
+      // THE SERVER DECIDES WHERE THE CLEANUP MAY LOOK. Every subfolder of the
+      // root is judged by the GC, so a root that holds anything but Topics'
+      // worktrees (the home, a parent of it, a folder of projects, a folder of
+      // documents) is refused here with its reason: on 24/11/2026 a GC pass over
+      // the wrong folder removed 30 real ones. A root inside a repository nests
+      // checkouts in it (watchers and indexers walk each one): refused too.
+      const rawRoot = (parsed as Record<string, unknown>).worktreeRoot;
+      if (typeof rawRoot === "string" && rawRoot.trim() !== "") {
+        const verdict = worktreeRootRefusal(rawRoot, {
+          projectPaths: (ctx.projectStore?.list?.() ?? []).map((p) => p.path).filter(Boolean),
+          nonEmpty: host.nonEmpty ?? folderHoldsSomething,
+          isTopicsRoot: (abs) => hasRootSentinel(abs) || resolve(abs) === resolve(defaultWorktreeRootDir()),
+        }, { home: host.home, osTmp: host.osTmp });
+        for (let i = errors.length - 1; i >= 0; i--) if (errors[i]!.field === "worktreeRoot") errors.splice(i, 1);
+        if ("refusal" in verdict) {
+          errors.push({ field: "worktreeRoot", code: verdict.refusal, message: ROOT_REFUSAL_TEXT[verdict.refusal] });
+        } else {
+          // What is stored is exactly the path that was judged.
+          patch.worktreeRoot = verdict.root;
+        }
+      }
       if (errors.length > 0) {
         return json({ ok: false, errors }, 400);
       }

@@ -87,6 +87,8 @@ import { useGoToSpace, useSpaceCards } from './useSpaceCards';
 import { useSidebarRowFlip } from './useSidebarRowFlip';
 import { useArchivedSidebarPages } from './useArchivedSidebarPages';
 import { ProjectQuotaMenu } from './ProjectQuotaMenu';
+import { useFoldMergedProjects } from './useFoldMergedProjects';
+import { ProjectFamilyMenu } from './ProjectFamilyMenu';
 import { ProjectQuotaMeter } from './ProjectQuotaMeter';
 
 /**
@@ -678,7 +680,7 @@ export function TopicTree({
     return m;
   }, [pinnedItems, closedTabs]);
   const { closedRecords, closedProjectChats, reopenClosed } = useClosedRows({ closeArchives, closedTabs, openPanels, topics, onReopenClosedTab });
-  const allItems = useMemo(() => buildSidebarItems({
+  const allItems = useFoldMergedProjects(useMemo(() => buildSidebarItems({
     topics,
     workspaceProjects,
     terminalSessions,
@@ -694,7 +696,7 @@ export function TopicTree({
     sessionLastActivityById,
     closedRecords,
     closedProjectChatIds: closedProjectChats,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, showArchived, openPanels, projectOpenPanes, attention, pinnedIds, detachedTopicIds, paneTitleById, browserOriginById, sessionLastActivityById, closedRecords, closedProjectChats]);
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, showArchived, openPanels, projectOpenPanes, attention, pinnedIds, detachedTopicIds, paneTitleById, browserOriginById, sessionLastActivityById, closedRecords, closedProjectChats]));
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
@@ -2584,6 +2586,7 @@ export function TopicTree({
             projectPath={projectContextMenu.projectPath}
             onDone={() => setProjectContextMenu(null)}
           />
+          <ProjectFamilyMenu projectPath={projectContextMenu.projectPath} onDone={() => setProjectContextMenu(null)} />
           {onArchiveProject && (
             <button
               onClick={() => {

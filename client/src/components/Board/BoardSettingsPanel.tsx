@@ -19,6 +19,8 @@ import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
 import { MAX_CHECKS, boardApi, personPathsFromText, personPathsToText, type BoardSettings, type BoardSettingsPatch, type BoardTask, type BoardWorkflowView, type ReviewCheck } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
+import { ProjectFamilySettings } from './ProjectFamilySettings';
+import { useProjectFamily } from '../../hooks/useProjectFamily';
 import { CiPhaseControl } from './CiPhaseControl';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
 import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
@@ -57,6 +59,8 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
     try { onChanged(await boardApi.updateSettings(projectId, p)); }
     catch (e) { onError(e instanceof Error ? e.message : 'settings save failed'); }
   };
+  // Accorpa / separa: the project's place among the others. Before the early return too.
+  const family = useProjectFamily({ boardId: projectId });
   // Before the early return: a hook is called on every render.
   const boardTrigger = useTaskModelTrigger(s?.dispatchModel ?? null, s ? boardTopicsRoutingEnabled(s.dispatchTopicsRouting, s.dispatchModel) : false, 'board');
   if (!s) return null;
@@ -256,6 +260,14 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         </p>
       )}
       </SettingsSection>
+
+      {/* ACCORPA / SEPARA: whether this project shares a parent's board. Drawn once the
+          project row is known (a folder that is not a registered project has no family). */}
+      {family.loaded && (family.parent || family.hasChildren || family.choices.suggested.length + family.choices.others.length > 0) && (
+        <SettingsSection label={tr('family.section')}>
+          <ProjectFamilySettings family={family} />
+        </SettingsSection>
+      )}
 
       {/* THE WORKFLOW RULES OF THIS BOARD (`shared/workflow.ts`): the CI phase
           and the paths a person must look at. The columns are not a choice. */}

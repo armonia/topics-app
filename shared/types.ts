@@ -1416,6 +1416,10 @@ export interface Project {
   ownerPersonId?: string | null;
   /** Marcato incognito: fuori dall'elenco dei compagni d'organizzazione. */
   incognito?: boolean;
+  /** `projects.id` of the parent project (one level deep), null for a top-level project. */
+  parentId?: string | null;
+  /** On a child: `accorpa` shares the parent's board and sidebar entry, `separa` keeps its own. */
+  mergeMode?: 'accorpa' | 'separa';
   createdAt: string;
   updatedAt: string;
 }

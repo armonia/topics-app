@@ -359,6 +359,8 @@ export interface WorktreeGcDeps {
    * another tool's checkout, or slim its `node_modules`, on its first run.
    */
   foreign?: (wt: GcWorktree) => boolean;
+  /** `git worktree lock` taken by somebody other than Topics: never removed, whatever the task says. */
+  lockedByOthers?: (wt: GcWorktree) => boolean;
   /** Whether the worktree directory still exists on disk. */
   diskPresent: (absPath: string) => boolean;
   /**
@@ -382,6 +384,14 @@ export interface WorktreeGcDeps {
    * `merged` (ancestor of main → nothing to lose), or `unmerged`.
    */
   branchStatus: (wt: GcWorktree) => Promise<BranchStatus>;
+  /**
+   * For a `reuse` or `detached` row: is what its folder's HEAD reaches already on
+   * main? Without it such a row reads as merged (the old behaviour), and a clean
+   * checkout of a branch, or a detached HEAD, with commits nowhere else is reaped.
+   * The root pass now registers orphans and the by-hand move brings foreign
+   * worktrees into the root, so the host must answer. `gone` is never returned.
+   */
+  headStatus?: (wt: GcWorktree) => Promise<"merged" | "unmerged">;
   /**
    * Days since the last sign of life on the task, or `null` when unmeasurable.
    * Absent ⇒ the abandon TTL is off entirely.
@@ -633,6 +643,7 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       // clean and already on main.
       if (deps.liveInside?.(wt)) { keep("sessione viva nella cartella"); continue; }
       if (deps.foreign?.(wt)) { keep("cartella fuori dai worktree di Topics"); continue; }
+      if (deps.lockedByOthers?.(wt)) { keep("worktree bloccato da un altro (git worktree lock)"); continue; }
 
       const t = deps.resolveTask(wt.id);
       const taskId = t.taskId;
@@ -640,7 +651,9 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       // Never reap under a live turn, even if the task row reads terminal.
       if (taskId && deps.isBusy(taskId)) { keep("turno in corso sul task"); continue; }
 
-      const branch = wt.mode === "branch" ? await deps.branchStatus(wt).catch(() => "unmerged" as BranchStatus) : "merged";
+      const branch: BranchStatus = wt.mode === "branch"
+        ? await deps.branchStatus(wt).catch(() => "unmerged" as BranchStatus)
+        : deps.headStatus ? await deps.headStatus(wt).catch(() => "unmerged" as const) : "merged";
 
       // Ghost row: a `branch`-mode worktree whose branch is already gone holds
       // nothing — the disk dir (if any) is a leftover, the row is dead weight.

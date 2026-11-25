@@ -65,7 +65,9 @@ import { ownerLabel } from './ownerChip';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
-import { resolveProjectRefs, useBoardProjectLabels } from '../../lib/boardProjectsStore';
+import { resolveProjectRefs, useBoardFamilies, useBoardProjectLabels } from '../../lib/boardProjectsStore';
+import { mergedParentMap } from '../../../../shared/project-family';
+import { MergedBoardsContext } from './mergedBoards';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, TOOLBAR_ICON_W, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
 import { BOARD_PRESET_STORAGE_KEY, initialBoardFilters, taskMatchesFilters } from './taskFilter';
@@ -410,6 +412,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Le voci si tolgono quando la PATCH ha finito: da lì in poi il server sa.
   const [pendingWrites, setPendingWrites] = useState<ReadonlyMap<string, Partial<BoardTask>>>(EMPTY_WRITES);
   const tasks = useMemo(() => applyPendingWrites(feedTasks, pendingWrites), [feedTasks, pendingWrites]);
+  // Accorpa: the projects merged into another share its lane (global board) and
+  // its live updates (project board). Child board id -> parent board id.
+  const families = useBoardFamilies();
+  const projectParent = useMemo(() => mergedParentMap(families), [families]);
+  const mergedChildren = useMemo(
+    () => new Set(families.filter((l) => l.mode === 'accorpa' && l.parentProjectId === projectId).map((l) => l.projectId)),
+    [families, projectId],
+  );
+
   // Ghost card of what the composer is about to create (card 058ea722), held until the real one arrives.
   const { draft, setDraft, holdCreated } = useHeldDraft(tasks);
 
@@ -446,13 +457,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         // it. Asking for a read here would land in the same coalescer and pay
         // the feed anyway, which is the traffic this skips.
         const absorbed = mode === 'all' && m.type === 'task:updated' && canAbsorbBoardTaskFrame(m.task);
-        if (!absorbed && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) refetch();
+        if (!absorbed && (mode === 'all' || m.projectId === undefined || m.projectId === projectId || mergedChildren.has(m.projectId))) refetch();
         // Il lampo è il segnale «è nato un task», e non ha un autore
         // privilegiato: qui passano anche le creazioni remote (agent, MCP, un
         // altro device), che sono proprio quelle che altrimenti comparirebbero
         // in silenzio. L'eco della propria POST rientra da qui ed è innocua.
         if (m.type === 'task:created' && typeof m.task?.id === 'string'
-          && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
+          && (mode === 'all' || m.projectId === undefined || m.projectId === projectId || mergedChildren.has(m.projectId))) {
           flashCreated(m.task.id);
         }
         // A turn that ended (or a task that left 'working') drops its live chip;
@@ -464,7 +475,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       // Live per-turn preview from the dispatcher: model + tokens-so-far +
       // execution-time-so-far, ticked on the card while the agent works.
       if (m.type === 'task:usage-live' && typeof m.taskId === 'string'
-        && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
+        && (mode === 'all' || m.projectId === undefined || m.projectId === projectId || mergedChildren.has(m.projectId))) {
         setLiveUsage((prev) => {
           const n = new Map(prev);
           // "The turn ended": drop the chip NOW. Waiting for a `task:updated`
@@ -481,7 +492,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         });
       }
       if (m.type === 'task:awaiting-human' && typeof m.taskId === 'string'
-        && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
+        && (mode === 'all' || m.projectId === undefined || m.projectId === projectId || mergedChildren.has(m.projectId))) {
         setAwaitingHuman((prev) => {
           const has = prev.has(m.taskId!);
           if (m.waiting === has) return prev; // nessun cambio: niente re-render
@@ -491,6 +502,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         });
       }
       if (m.type === 'board:settings' && m.projectId === projectId && m.settings) setSettings(m.settings);
+      // Accorpa / separa changes which projects this board reads: a project row
+      // update (the only frame it travels in) re-reads a single-project board.
+      if (m.type === 'project:updated' && mode !== 'all') refetch();
       // Global switch flipped anywhere (any board, any client) → this pill too.
       // E anche le CARD: da quando ognuna porta la ragione per cui è ferma
       // (`queueReason`, risolta dal server), l'interruttore è un ingrediente di
@@ -503,7 +517,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         refetch();
       }
     });
-  }, [onMessage, projectId, refetch, mode, flashCreated]);
+  }, [onMessage, projectId, refetch, mode, flashCreated, mergedChildren]);
 
   // Wake-up refresh: a window coming back from sleep/background has yesterday's
   // board (WS events happened while it slept) — and the live "ci sta mettendo"
@@ -848,10 +862,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     statusOrder: TASK_STATUSES,
     keepEmptyProject: draftProject,
     personName,
-  }) : []), [grouped, groupSource, groupLevels, projectNameById, draftProject, personName]);
+    projectParent,
+  }) : []), [grouped, groupSource, groupLevels, projectNameById, draftProject, personName, projectParent]);
   const draftLeafPath = useMemo(
-    () => (draftProject ? leavesOf(groups.filter((g) => g.key === draftProject))[0]?.path ?? null : null),
-    [groups, draftProject],
+    () => (draftProject ? leavesOf(groups.filter((g) => g.key === (projectParent.get(draftProject) ?? draftProject)))[0]?.path ?? null : null),
+    [groups, draftProject, projectParent],
   );
   const groupLabel = useCallback((level: GroupKey, key: string): string => {
     if (key === NO_VALUE) return tr('board.group.none');
@@ -893,7 +908,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     return () => { window.removeEventListener('focusin', sync); window.removeEventListener('focusout', sync); };
   }, []);
   const { sensors, onDragStart, onDragEnd } = useBoardDrag({
-    tasks, byStatus, boardColumns, groupLevels, orderScope, setActiveId, setDropNotice, setPendingWrites,
+    tasks, byStatus, boardColumns, groupLevels, projectParent, orderScope, setActiveId, setDropNotice, setPendingWrites,
     onCardError, patchTask, refetch, beginDrag, endDrag, flushDeferredRead, holdColumnsSnap, skipFlight,
   });
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
@@ -1161,6 +1176,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     // volta sola, al montaggio, e non a ogni ridisegno. Solo opacita': muovere
     // le colonne mentre appaiono le farebbe leggere come se stessero arrivando
     // da qualche parte, e non arrivano da nessuna parte.
+    <MergedBoardsContext.Provider value={mergedChildren}>
     <div className="reveal-in relative flex h-full flex-col overflow-hidden" data-testid="kanban-board">
       {/* Header: a project/all toggle inside a project, a static label globally.
           On phone the toolbar is too dense to fit — it becomes a single
@@ -1574,5 +1590,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         )}
       </div>
     </div>
+    </MergedBoardsContext.Provider>
   );
 }

@@ -14,7 +14,7 @@
  * esattamente il caso limite: nessun nome è accettabile, e il messaggio deve
  * dirlo invece di elencare un insieme vuoto.
  *
- * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-05, BROWSER-STORE-REAP-08
+ * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-05, BROWSER-STORE-REAP-08, WORKTREE-STD-08
  */
 
 import { describe, expect, test, beforeAll, afterAll, beforeEach, spyOn } from "bun:test";
@@ -44,6 +44,12 @@ function fakeCtx(): AppContext {
   } as unknown as AppContext;
 }
 
+/**
+ * The machine the root check judges against, named here: the runner's HOME and
+ * temp folder (a temp HOME, a checkout cloned into `mktemp`) must not decide.
+ */
+const HOST = { home: "/data/home", osTmp: "/data/os-tmp" };
+
 async function put(body: unknown): Promise<{ status: number; body: any }> {
   const req = new Request("http://localhost/api/app-settings", {
     method: "PUT",
@@ -64,7 +70,7 @@ beforeAll(() => {
     writeFileSync(join(migDir, f), readFileSync(join(realMigDir, f), "utf-8"));
   }
     initDatabase(tmpRoot);
-  router = createAppSettingsRouter(fakeCtx());
+  router = createAppSettingsRouter(fakeCtx(), HOST);
 });
 
 afterAll(() => {
@@ -333,6 +339,93 @@ describe("the cleanup of closed browsers' data: a setting, clamped when saved", 
       });
       expect(getAppSettings().browserStoreReapAfterDays).toBe(90);
     }
+  });
+});
+
+describe("worktree settings (worktree-standard T1)", () => {
+  beforeEach(() => {
+    updateAppSettings({
+      worktreeRoot: null, worktreeMaxPerProject: null, worktreeDiskFloorGb: null,
+      cargoTargetMode: null, gcForeign: null, worktreeAbandonDays: null, worktreeQuarantineDays: null,
+    });
+  });
+
+  test("a valid root is stored absolute, and ~ is expanded", async () => {
+    const r = await put({ worktreeRoot: "/data/trees/" });
+    expect(r.status).toBe(200);
+    expect(r.body.settings.worktreeRoot).toBe("/data/trees");
+    const home = await put({ worktreeRoot: "~/trees" });
+    expect(home.status).toBe(200);
+    expect(home.body.settings.worktreeRoot).toBe(join(HOST.home, "trees"));
+  });
+
+  test("a relative root and a /tmp root are refused, and the stored value does not move", async () => {
+    await put({ worktreeRoot: "/data/keep" });
+    for (const bad of ["trees", "/tmp/trees", "/private/tmp/x"]) {
+      const r = await put({ worktreeRoot: bad });
+      expect({ bad, status: r.status, field: r.body.errors?.[0]?.field }).toEqual({ bad, status: 400, field: "worktreeRoot" });
+    }
+    expect(getAppSettings().worktreeRoot).toBe("/data/keep");
+  });
+
+  test("a root inside a project's repository is refused: checkouts nested in a repo are the failure the standard prevents", async () => {
+    const withProjects = createAppSettingsRouter({ ...fakeCtx(), projectStore: { list: () => [{ path: "/data/repo" }] } } as unknown as AppContext, HOST);
+    await put({ worktreeRoot: "/data/keep" });
+    for (const bad of ["/data/repo", "/data/repo/.worktrees"]) {
+      const req = new Request("http://localhost/api/app-settings", { method: "PUT", body: JSON.stringify({ worktreeRoot: bad }) });
+      const res = (await withProjects(req, new URL(req.url), "/api/app-settings", "PUT"))!;
+      const body = await res.json() as any;
+      expect({ bad, status: res.status, field: body.errors?.[0]?.field }).toEqual({ bad, status: 400, field: "worktreeRoot" });
+    }
+    expect(getAppSettings().worktreeRoot).toBe("/data/keep");
+    // A sibling of the repository is fine.
+    const req = new Request("http://localhost/api/app-settings", { method: "PUT", body: JSON.stringify({ worktreeRoot: "/data/repo-trees" }) });
+    expect((await withProjects(req, new URL(req.url), "/api/app-settings", "PUT"))!.status).toBe(200);
+  });
+
+  test("a root that would hold more than Topics' worktrees is refused, with the reason the form shows", async () => {
+    // A folder that already holds files and no Topics sentinel, named rather than read off the
+    // runner's disk: any real folder a test can make sits in a temp area, refused for that first.
+    const full = "/data/full-of-things";
+    const router = createAppSettingsRouter(
+      { ...fakeCtx(), projectStore: { list: () => [{ path: "/data/projects/app" }] } } as unknown as AppContext,
+      { ...HOST, nonEmpty: (abs) => abs === full },
+    );
+    const send = async (worktreeRoot: string) => {
+      const req = new Request("http://localhost/api/app-settings", { method: "PUT", body: JSON.stringify({ worktreeRoot }) });
+      const res = (await router(req, new URL(req.url), "/api/app-settings", "PUT"))!;
+      const body = await res.json() as { errors?: Array<{ field: string; code?: string }> };
+      return { status: res.status, code: body.errors?.find((e) => e.field === "worktreeRoot")?.code };
+    };
+    await put({ worktreeRoot: "/data/keep" });
+    expect(await send(HOST.home)).toEqual({ status: 400, code: "home" });
+    expect(await send(join(HOST.home, ".."))).toEqual({ status: 400, code: "home-ancestor" });
+    expect(await send("/")).toEqual({ status: 400, code: "filesystem-root" });
+    expect(await send("/data/projects")).toEqual({ status: 400, code: "contains-project" });
+    expect(await send(join(HOST.osTmp, "trees"))).toEqual({ status: 400, code: "temp" });
+    expect(await send(full)).toEqual({ status: 400, code: "not-empty" });
+    expect(getAppSettings().worktreeRoot).toBe("/data/keep");
+  });
+
+  test("null clears the root back to the default", async () => {
+    await put({ worktreeRoot: "/data/keep" });
+    expect((await put({ worktreeRoot: null })).status).toBe(200);
+    expect(getAppSettings().worktreeRoot).toBeNull();
+  });
+
+  test("the three dials are clamped into their range, not refused", async () => {
+    const r = await put({ worktreeMaxPerProject: 5000, worktreeDiskFloorGb: 0, worktreeAbandonDays: 9999 });
+    expect(r.status).toBe(200);
+    expect(r.body.settings).toMatchObject({ worktreeMaxPerProject: 200, worktreeDiskFloorGb: 1, worktreeAbandonDays: 365 });
+  });
+
+  test("the two enums accept their values and refuse the rest", async () => {
+    expect((await put({ cargoTargetMode: "per-worktree", gcForeign: "merged" })).status).toBe(200);
+    expect(getAppSettings()).toMatchObject({ cargoTargetMode: "per-worktree", gcForeign: "merged" });
+    const bad = await put({ cargoTargetMode: "linked" });
+    expect(bad.status).toBe(400);
+    expect(bad.body.errors[0].field).toBe("cargoTargetMode");
+    expect((await put({ gcForeign: "all" })).status).toBe(400);
   });
 });
 

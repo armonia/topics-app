@@ -15,7 +15,8 @@ import { machineCores } from "../lib/machine-cores";
 import { worktreeRealDirt } from "../services/task-automerge";
 import { branchStatusFromRepo, worktreeDiffStat } from "../services/branch-status";
 import { createDetachedTopic } from "../lib/session-control-core";
-import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
+import { buildProjectCandidates, canonicalProjectFor, resolveProjectPath } from "../services/project-path-resolver";
+import { worktreeRootDir } from "../services/worktree-manager";
 import { getDefaultProviderName, tryGetProvider, resolveTurnAlive } from "../providers";
 import { readNativeUsage } from "../providers/native-usage-registry";
 import { automaticDispatchHooks } from "../services/task-auto-model";
@@ -154,7 +155,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     externalSessionsAt: (path) =>
       externalSessions.activeAt(path).map((s) => ({ cwd: s.cwd, branch: s.branch })),
     resolveProject: (projectId) => {
-      const c = resolveProjectPath(
+      const found = resolveProjectPath(
         projectId,
         buildProjectCandidates({
           projectStore: ctx.projectStore,
@@ -162,7 +163,17 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
           extraPaths: dispatchExtraPaths,
         }),
       );
-      if (!c) return null;
+      if (!found) return null;
+      // A worktree is never a project: a card keyed by a worktree folder (or by
+      // an alias of the repo) dispatches on the project that owns the repository,
+      // so the auto-registration below cannot mint a board out of a checkout.
+      const owner = canonicalProjectFor(found.path, ctx.projectStore.list(), {
+        worktreeOwner: (abs) => ctx.worktreeStore.getByAbsPath(abs)?.projectId ?? null,
+        worktreeRoot: worktreeRootDir(),
+      });
+      const c = owner && owner.id !== found.projectStoreId
+        ? { path: owner.path, projectStoreId: owner.id }
+        : found;
       // Worktrees require a ProjectStore row. Ad-hoc projects (path-only
       // candidates) that are git repos get registered on demand, so the default
       // "isola in un worktree" board setting actually works for them instead of
