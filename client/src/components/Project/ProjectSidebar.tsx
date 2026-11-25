@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_CARD, SECTION_ISLAND, TAB_GAP_CLASS, TAB_LABEL, TAB_RESTING_SURFACE } from '../../lib/selectionStyles';
+import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, TAB_GAP_CLASS, TAB_LABEL, TAB_RESTING_SURFACE, sectionCard, sectionIsland } from '../../lib/selectionStyles';
 import { capSezione, clampSidebarWidth, projectSidebarWidthKey, readProjectSidebarWidth, DEFAULT_SIDEBAR_W } from './projectSidebarHeights';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
@@ -384,7 +384,7 @@ function GitSectionRow({
         data-testid="project-sidebar-git"
         role="button"
         aria-expanded={expanded}
-        className={SECTION_CARD}
+        className={sectionCard(expanded)}
       >
         <div className="flex items-center gap-2 min-w-0">
           <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
@@ -472,7 +472,7 @@ function FilesSectionHeader({ open, onToggle, explorerRef, reveal, headerRef }: 
       // starting color was `currentColor`, here `--text-secondary` against a
       // much lighter `--border`. Keeping the color always on leaves nothing
       // to animate.
-      className={`${SECTION_CARD} group/files`}
+      className={`${sectionCard(open)} group/files`}
     >
       <FolderTree size={14} className="flex-shrink-0" />
       <span>{tr('project.sidebar.files')}</span>
@@ -1094,7 +1094,7 @@ export function ProjectSidebar({
           seconda: due posti che dicono la stessa cosa divergono al primo che
           viene corretto da solo. */}
       <div className="flex-1 flex flex-col min-h-0 pb-[3px] sidebar-column">
-            <div className={`${SECTION_ISLAND} flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
+            <div data-section-island className={`${sectionIsland(expandedSections.files)} flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
               <FilesSectionHeader
                 open={expandedSections.files}
                 onToggle={() => toggleSection('files')}
@@ -1110,7 +1110,8 @@ export function ProjectSidebar({
             {gitVisible && <div
               data-testid="project-sidebar-git-section"
               ref={el => { sectionsRef.current.git = el; }}
-              className={`${SECTION_ISLAND} flex flex-col ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
+              data-section-island
+              className={`${sectionIsland(expandedSections.git)} flex flex-col ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
               style={expandedSections.git
               // Automatica: l'altezza la dà il contenuto, con il tetto di
               // `capSezione`. Trascinata: il numero vince, ed è una deroga
@@ -1138,7 +1139,8 @@ export function ProjectSidebar({
             </div>}
             <div
               ref={el => { sectionsRef.current.processes = el; }}
-              className={`${SECTION_ISLAND} flex flex-col ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
+              data-section-island
+              className={`${sectionIsland(expandedSections.processes)} flex flex-col ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
               style={expandedSections.processes
               // Automatica: l'altezza la dà il contenuto, con il tetto di
               // `capSezione`. Trascinata: il numero vince, ed è una deroga
@@ -1163,7 +1165,7 @@ export function ProjectSidebar({
                 // gemello nella rail lo dichiara già (RailButton).
                 data-testid="project-sidebar-processes"
                 aria-expanded={expandedSections.processes}
-                className={SECTION_CARD}
+                className={sectionCard(expandedSections.processes)}
               >
                 <CirclePlay size={14} className="flex-shrink-0" />
                 <span>{tr('project.sidebar.processes')}</span>
@@ -1280,7 +1282,7 @@ export function ProjectSidebar({
             «quando aperta, trigger e trigger degli altri accordion si trovano
             alla stessa distanza» (Attilio, 09/08). Adesso ci si trovano. */}
         <div ref={filesBoxRef} className="flex flex-col flex-1 min-h-0">
-          <div className={`${SECTION_ISLAND} flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
+          <div data-section-island className={`${sectionIsland(expandedSections.files)} flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
           <FilesSectionHeader
             headerRef={filesHeaderRef}
             open={expandedSections.files}
@@ -1320,7 +1322,8 @@ export function ProjectSidebar({
         {gitVisible && <div
           data-testid="project-sidebar-git-section"
           ref={el => { sectionsRef.current.git = el; }}
-          className={`${SECTION_ISLAND} flex flex-col ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
+          data-section-island
+          className={`${sectionIsland(expandedSections.git)} flex flex-col ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
           style={expandedSections.git
               // Automatica: l'altezza la dà il contenuto, con il tetto di
               // `capSezione`. Trascinata: il numero vince, ed è una deroga
@@ -1374,7 +1377,8 @@ export function ProjectSidebar({
         {/* Processes Section — anchored at bottom, fixed pixel height */}
         <div
           ref={el => { sectionsRef.current.processes = el; }}
-          className={`${SECTION_ISLAND} flex flex-col ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
+          data-section-island
+          className={`${sectionIsland(expandedSections.processes)} flex flex-col ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
           style={expandedSections.processes
               // Automatica: l'altezza la dà il contenuto, con il tetto di
               // `capSezione`. Trascinata: il numero vince, ed è una deroga
@@ -1397,7 +1401,7 @@ export function ProjectSidebar({
             // «quale controllo» e `aria-expanded` dice «è già aperto?».
             data-testid="project-sidebar-processes"
             aria-expanded={expandedSections.processes}
-            className={SECTION_CARD}
+            className={sectionCard(expandedSections.processes)}
           >
             <CirclePlay size={14} className="flex-shrink-0" />
             <span>{tr('project.sidebar.processes')}</span>

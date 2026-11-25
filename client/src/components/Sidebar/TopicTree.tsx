@@ -53,7 +53,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { startDragPreview } from '@/lib/dragPreview';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity, ProjectElapsed } from '@/components/Shared/SessionActivity';
@@ -1766,20 +1766,11 @@ export function TopicTree({
             due px più a sinistra dei 6+8 delle righe con card, cioè un
             disallineamento troppo piccolo per vedersi e abbastanza grande per
             far sembrare storta la colonna. */}
-        {/* `SECTION_H` e non `ROW_H`: un'intestazione alta quanto le righe che
-            introduce non si legge come un'intestazione. Le due intestazioni di
-            sezione dell'app — questa e quella della colonna di progetto — erano
-            34 e 28 col mouse: la stessa cosa, due misure, in due colonne che si
-            guardano affiancate. Col dito restano 44, il minimo iOS, perché qui
-            lo spazio c'è (vedi SECTION_H).
-
-            Il FONDO invece resta quello del riposo di una riga, e non
-            `RESTING_SURFACE` come nella colonna di progetto: là le sezioni sono
-            tre e non hanno righe-card attorno, qui un'intestazione DIPINTA in
-            mezzo a righe trasparenti si leggerebbe come una riga SELEZIONATA —
-            cioè l'ambiguità che tutto questo file esiste per togliere. A dire
-            «sono un'intestazione» ci pensa l'altezza. */}
-        <div data-sidebar-flip className={`group flex items-center ${SECTION_H} ${ROW_PX} ${sidebarRowCard({})}`}>
+        {/* `ROW_H`, a row's height since 25/11 ("everything consistent"),
+            and a row's ground: none at rest, the rows' hover under the pointer.
+            A PAINTED header among transparent rows would read as a SELECTED
+            row. */}
+        <div data-sidebar-flip className={`group flex items-center ${ROW_H} ${ROW_PX} ${sidebarRowCard({})}`}>
           <button
             onClick={() => toggleSection(sectionKey)}
             aria-expanded={!isCollapsed}
