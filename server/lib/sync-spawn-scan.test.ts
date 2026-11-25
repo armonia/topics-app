@@ -39,6 +39,7 @@ const ALLOWED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/providers/claude-cloud/node.ts", snippet: "Bun.spawnSync([\"security\", \"find-generic-password\"", why: "cloudCredentialsPresent: whether the «Cloud Claude» machine exists, once at boot (server.ts, providers/index.ts), 5 s timeout. The token itself is read asynchronously (creds.ts)" },
   { file: "server/lib/live-checkout-branch-guard.ts", snippet: "spawnSync(\"git\"", why: "source text of the PreToolUse hook: it runs in the agent's own short-lived `bun -e`, never in the server" },
   { file: "server/services/external-proxy-ca.ts", snippet: "execFileSync(findOpenssl()", why: "building the local CA and the api.anthropic.com leaf for the external-sessions proxy: at boot, only when the files are missing or near expiry (a few openssl runs of milliseconds, once), 15 s timeout. Never on a request path" },
+  { file: "server/services/own-branch.ts", snippet: "const r = spawnSync(\"git\", args", why: "three local git reads (rev-parse, rev-list) of one worktree, 5 s timeout, only when a card declares a wait (`deferForWait`): a rare board event, never a request or turn path" },
   { file: "server/providers/native/auth.ts", snippet: "spawnSync(cmd, args", why: "the Keychain, macOS only, for the callers synchronous by contract: `hasCredentials` (the `connected` getter, only when no credential file holds a pair), the plan in a providers snapshot, and the write of a renewal. The turn's path (getAccessToken, recoverAfter401) asks it asynchronously (T16)" },
 ];
 
