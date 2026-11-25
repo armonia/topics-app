@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * scripts/ui-org-bar.mjs - the whole bar of the two demos (SARIM and the
+ * scripts/ui-org-bar.mjs - the whole bar of the two demos (ORBIT and the
  * Consorzio di Nocera) in one command, the same every time: static gates, the
  * two word/native gates with a mutation that must turn each of them red, then
  * the browser suites on both entries, one browser at a time. It was
- * `ui-sarim-bar.mjs`, which now forwards here.
+ * `ui-orbit-bar.mjs`, which now forwards here.
  *
  * WHY. Attilio (08/11) asked for a bar with numbers, not a list of claims; on
  * 09/11 the preview became two demos on the same screens, and the nine points
@@ -19,7 +19,7 @@
  * The nine checks of round 3 save their captures and a video of the whole
  * walk in test-results/giro3/<entry>/.
  *
- *   node scripts/ui-org-bar.mjs [--only static|browsers] [--skip build,phone-sarim] [--with-app] [--jobs N]
+ *   node scripts/ui-org-bar.mjs [--only static|browsers] [--skip build,phone-orbit] [--with-app] [--jobs N]
  *
  * `--jobs N` runs the browser steps N at a time (each has its own server on a
  * free port and its own browser): the six crawler shards alone take two hours
@@ -59,28 +59,28 @@ const STEPS = [
     name: "native-mutation", group: "static", expect: 1, cmd: "node scripts/check-ui-native.mjs --src-only",
     ...planted("client/src/ui-gallery/BarMutation.tsx", "export const BarMutation = () => <select aria-label=\"x\" />;\n"),
   },
-  { name: "words", group: "static", cmd: "node scripts/check-sarim-words.mjs" },
+  { name: "words", group: "static", cmd: "node scripts/check-orbit-words.mjs" },
   {
-    name: "words-mutation", group: "static", expect: 1, cmd: "node scripts/check-sarim-words.mjs --src-only",
+    name: "words-mutation", group: "static", expect: 1, cmd: "node scripts/check-orbit-words.mjs --src-only",
     ...planted("client/src/ui-gallery/barMutation.ts", `export const ${"fun"}${"nel"}Count = 1;\n`),
   },
-  { name: "crawl-sarim-1", group: "browsers", cmd: "node scripts/ui-app-crawl.mjs --entry sarim --shard 1/3" },
-  { name: "crawl-sarim-2", group: "browsers", cmd: "node scripts/ui-app-crawl.mjs --entry sarim --shard 2/3" },
-  { name: "crawl-sarim-3", group: "browsers", cmd: "node scripts/ui-app-crawl.mjs --entry sarim --shard 3/3" },
+  { name: "crawl-orbit-1", group: "browsers", cmd: "node scripts/ui-app-crawl.mjs --entry orbit --shard 1/3" },
+  { name: "crawl-orbit-2", group: "browsers", cmd: "node scripts/ui-app-crawl.mjs --entry orbit --shard 2/3" },
+  { name: "crawl-orbit-3", group: "browsers", cmd: "node scripts/ui-app-crawl.mjs --entry orbit --shard 3/3" },
   { name: "crawl-consorzio-1", group: "browsers", cmd: "node scripts/ui-app-crawl.mjs --entry consorzio --shard 1/3" },
   { name: "crawl-consorzio-2", group: "browsers", cmd: "node scripts/ui-app-crawl.mjs --entry consorzio --shard 2/3" },
   { name: "crawl-consorzio-3", group: "browsers", cmd: "node scripts/ui-app-crawl.mjs --entry consorzio --shard 3/3" },
   { name: "crawl-app-1", group: "browsers", optional: true, cmd: "node scripts/ui-app-crawl.mjs --shard 1/3" },
   { name: "crawl-app-2", group: "browsers", optional: true, cmd: "node scripts/ui-app-crawl.mjs --shard 2/3" },
   { name: "crawl-app-3", group: "browsers", optional: true, cmd: "node scripts/ui-app-crawl.mjs --shard 3/3" },
-  { name: "walk", group: "browsers", cmd: "node scripts/ui-sarim-walk.mjs" },
-  { name: "giro3-sarim", group: "browsers", cmd: "node scripts/ui-giro3-walk.mjs --entry sarim --shots test-results/giro3/sarim --video test-results/giro3/sarim/giro.webm" },
+  { name: "walk", group: "browsers", cmd: "node scripts/ui-orbit-walk.mjs" },
+  { name: "giro3-orbit", group: "browsers", cmd: "node scripts/ui-giro3-walk.mjs --entry orbit --shots test-results/giro3/orbit --video test-results/giro3/orbit/giro.webm" },
   { name: "giro3-consorzio", group: "browsers", cmd: "node scripts/ui-giro3-walk.mjs --entry consorzio --shots test-results/giro3/consorzio --video test-results/giro3/consorzio/giro.webm" },
   { name: "giro3-mutant", group: "browsers", cmd: "node scripts/ui-giro3-mutant.mjs" },
-  { name: "phone-sarim", group: "browsers", cmd: "node scripts/ui-sarim-phone.mjs" },
-  { name: "phone-consorzio", group: "browsers", cmd: "node scripts/ui-sarim-phone.mjs --entry consorzio" },
-  { name: "stability-sarim", group: "browsers", cmd: "node scripts/ui-sarim-stability.mjs" },
-  { name: "stability-consorzio", group: "browsers", cmd: "node scripts/ui-sarim-stability.mjs --entry consorzio" },
+  { name: "phone-orbit", group: "browsers", cmd: "node scripts/ui-orbit-phone.mjs" },
+  { name: "phone-consorzio", group: "browsers", cmd: "node scripts/ui-orbit-phone.mjs --entry consorzio" },
+  { name: "stability-orbit", group: "browsers", cmd: "node scripts/ui-orbit-stability.mjs" },
+  { name: "stability-consorzio", group: "browsers", cmd: "node scripts/ui-orbit-stability.mjs --entry consorzio" },
 ];
 
 const chosen = STEPS.filter((s) => !skip.has(s.name) && (withApp || !s.optional) && (!only || s.group === only || s.group === "both"));

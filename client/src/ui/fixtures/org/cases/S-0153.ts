@@ -1,8 +1,8 @@
 /**
  * Case S-0153: AMA reports leaves blocking the drains of a street, on Teams.
- * SARIM, flow `sarim-segnalazioni`, office Call center.
+ * ORBIT, flow `orbit-segnalazioni`, office Call center.
  *
- * Real: SARIM handles reports from AMA and from private users, and the leaf
+ * Real: ORBIT handles reports from AMA and from private users, and the leaf
  * collection service (training questionnaire of 26-28/10, DATI-VERI.md). An
  * example: the street, the AMA contact, the reference number, the deadline
  * (the one AMA asks for in its message).
@@ -12,18 +12,18 @@ import { original } from './originals';
 
 export const CASE_S0153: CaseSeed = {
   id: 'S-0153',
-  org: 'sarim',
+  org: 'orbit',
   kind: 'foglie',
   title: 'AMA: foglie sulle caditoie, via Esempio', // allow-italian: fixture data, shown as written
   subject: 'Accumulo di foglie che ostruisce le caditoie, civici 20-48', // allow-italian: fixture data, shown as written
   office: 'call-center',
-  flow: 'sarim-segnalazioni',
+  flow: 'orbit-segnalazioni',
   channel: 'teams',
   arrivedAt: '2026-11-05T14:12:00+01:00',
   counterpart: 'AMA, referente (esempio)', // allow-italian: fixture data, shown as written
   status: 'in-lavorazione',
   urgent: true,
-  assignee: 'sarim-cc',
+  assignee: 'orbit-cc',
   proposal: 'Call center · passaggio entro sabato 07/11', // allow-italian: fixture data, shown as written
   fields: [
     {
@@ -53,14 +53,14 @@ export const CASE_S0153: CaseSeed = {
   ],
   steps: [
     { id: 'ricevuta', label: 'Ricevuta', flowStep: 's1', state: 'done', at: '2026-11-05 14:12', by: 'Teams' }, // allow-italian: fixture data, shown as written
-    { id: 'ticket', label: 'Ticket aperto', flowStep: 's2', state: 'done', at: '2026-11-05 14:20', by: 'Operatrice call center SARIM (esempio)' }, // allow-italian: fixture data, shown as written
+    { id: 'ticket', label: 'Ticket aperto', flowStep: 's2', state: 'done', at: '2026-11-05 14:20', by: 'Operatrice call center ORBIT (esempio)' }, // allow-italian: fixture data, shown as written
     { id: 'squadra', label: 'Squadra assegnata', flowStep: 's3', state: 'current' }, // allow-italian: fixture data, shown as written
     { id: 'intervento', label: 'Intervento', flowStep: 's4', state: 'todo' }, // allow-italian: fixture data, shown as written
     { id: 'esito', label: 'Esito ad AMA', flowStep: 's5', state: 'todo' }, // allow-italian: fixture data, shown as written
   ],
   documents: [
     {
-      id: 'd-teams', name: 'Chat Teams AMA · SARIM', kind: 'image', // allow-italian: fixture data, shown as written
+      id: 'd-teams', name: 'Chat Teams AMA · ORBIT', kind: 'image', // allow-italian: fixture data, shown as written
       detail: '3 messaggi · 05/11/2026', // allow-italian: fixture data, shown as written
       from: 'Referente AMA (esempio), Teams', receivedAt: '2026-11-05T14:12:00+01:00', // allow-italian: fixture data, shown as written
       summary: [{ text: 'Foglie sulle caditoie tra i civici 20 e 48; passaggio entro sabato; riferimento AMA n. 88213.', page: 1 }], // allow-italian: fixture data, shown as written
@@ -70,7 +70,7 @@ export const CASE_S0153: CaseSeed = {
   history: [
     { at: '2026-11-05 14:12', who: 'Teams', what: 'Messaggio del referente AMA', doc: 'd-teams' }, // allow-italian: fixture data, shown as written
     { at: '2026-11-05 14:13', who: 'AI', what: 'Riconosciuta come segnalazione AMA, servizio foglie, urgente' }, // allow-italian: fixture data, shown as written
-    { at: '2026-11-05 14:20', who: 'Operatrice call center SARIM (esempio)', what: 'Ticket aperto e risposta su Teams' }, // allow-italian: fixture data, shown as written
+    { at: '2026-11-05 14:20', who: 'Operatrice call center ORBIT (esempio)', what: 'Ticket aperto e risposta su Teams' }, // allow-italian: fixture data, shown as written
   ],
   primaryAction: {
     label: 'Assegna la squadra', // allow-italian: fixture data, shown as written
