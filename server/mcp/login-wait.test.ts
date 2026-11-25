@@ -62,7 +62,7 @@ describe("callRequestLogin", () => {
       async () => {},
     );
     expect(out).toContain("logged_in");
-    expect(calls[0]).toContain('"name":"Login"');
+    expect(calls[0]).toContain('"name":"Login x.test"');
     expect(calls[1]).toContain('"loginRequest":true');
     expect(calls[1]).toContain('"detached":true');
   });

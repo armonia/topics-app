@@ -39,7 +39,7 @@
             },
             "name": {
               "type": "string",
-              "description": "Tab label (default 'Login')."
+              "description": "Tab label (default 'Login <host>', so each site gets its own tab)."
             },
             "detached": {
               "type": "boolean",
@@ -2195,7 +2195,7 @@
             },
             "name": {
               "type": "string",
-              "description": "Tab label (default 'Login')."
+              "description": "Tab label (default 'Login <host>', so each site gets its own tab)."
             },
             "detached": {
               "type": "boolean",
@@ -4313,7 +4313,7 @@
             },
             "name": {
               "type": "string",
-              "description": "Tab label (default 'Login')."
+              "description": "Tab label (default 'Login <host>', so each site gets its own tab)."
             },
             "detached": {
               "type": "boolean",
@@ -6167,7 +6167,7 @@
             },
             "name": {
               "type": "string",
-              "description": "Tab label (default 'Login')."
+              "description": "Tab label (default 'Login <host>', so each site gets its own tab)."
             },
             "detached": {
               "type": "boolean",
@@ -7983,7 +7983,7 @@
             },
             "name": {
               "type": "string",
-              "description": "Tab label (default 'Login')."
+              "description": "Tab label (default 'Login <host>', so each site gets its own tab)."
             },
             "detached": {
               "type": "boolean",
@@ -9761,7 +9761,7 @@
             },
             "name": {
               "type": "string",
-              "description": "Tab label (default 'Login')."
+              "description": "Tab label (default 'Login <host>', so each site gets its own tab)."
             },
             "detached": {
               "type": "boolean",
