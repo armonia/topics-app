@@ -921,6 +921,14 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bash scripts/e2e-placement.test.sh
 
+      # The governor that pauses idle Listeners on the permanent node. The failure
+      # it guards is a shard booked on a runner the governor keeps paused: GitHub
+      # sees it offline and the shard waits with no end (25/11, 21 minutes).
+      # Pure decisions plus the /proc reads on Linux; about 2 s.
+      - name: Governatore dei runner permanenti (ci-governor)
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: python3 deploy/permanent-node/ci-governor.py --selftest
+
       # The booking of the permanent node's runners. The failure it guards: one
       # runner booked by two runs, so a shard queues behind another run. About 20 s.
       - name: Prenotazione dei runner del nodo permanente (ci-permanent-reserve)
