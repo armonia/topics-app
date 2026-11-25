@@ -29,6 +29,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useToast } from '../components/Shared/Toast';
+import { getProjectPathFromPaneId } from '../state/pane/adapters/paneConfig';
 
 export type PendingActionKind =
   | 'close-tab'
@@ -389,8 +390,15 @@ export function usePanePendingStatus(paneId: string | null | undefined): Pending
   const pending = usePendingActions();
   if (!paneId) return null;
   const candidates: string[] = [`close-tab:${paneId}`];
+  const projectPath = getProjectPathFromPaneId(paneId);
   if (paneId.startsWith('chat:')) {
     candidates.push(`archive-topic:${paneId.slice('chat:'.length)}`);
+  } else if (!paneId.includes(':')) {
+    // A chat of the main window lives under its bare topic id.
+    candidates.push(`archive-topic:${paneId}`);
+  } else if (projectPath) {
+    // A project archived from its row counts down on its tab too.
+    candidates.push(`archive-project:${projectPath}`);
   } else if (paneId.startsWith('terminal:')) {
     candidates.push(`close-terminal:${paneId.slice('terminal:'.length)}`);
   } else if (paneId.startsWith('browser:')) {

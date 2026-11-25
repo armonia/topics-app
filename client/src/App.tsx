@@ -467,7 +467,7 @@ function App() {
     openPinsInBackground(sidebar.pinnedItems);
   }, [appSettings.pinnedClosable, paneStateHydrated, topicsLoading, isDetached, openPinsInBackground, sidebar.pinnedItems]);
 
-  const placement = tabsPlacement(appSettings.tabsPosition, { phone: isMobile, sidebarCollapsed });
+  const placement = tabsPlacement(appSettings.tabsPosition, { phone: isMobile });
   const stripPaneIds = useMemo(
     () => (placement.columnSkipsStrip ? new Set(visiblePanels) : undefined),
     [placement.columnSkipsStrip, visiblePanels],
@@ -568,6 +568,7 @@ function App() {
     pinnedCloseBlocked: panelLifecycle.handlers.pinnedCloseBlocked,
     closeArchives: appSettings.closeArchives,
     removeClosedTab,
+    frontOnlyOnTop: !placement.strip,
   });
 
   // Keyboard shortcuts (Phase 3 hook 4, ref-mirror pattern fixes
