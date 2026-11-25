@@ -145,6 +145,8 @@ export type LandSkipCode =
   | "not-as-measured"
   /** The automatic land's own last look (`DeliverySnapshot.beforeMerge`) said no: nothing was merged. */
   | "auto-land-stopped"
+  /** Landing through the branch's pull request failed (GitHub refused or never merged it): the reason is GitHub's, not a merge conflict. */
+  | "pull-request-land-failed"
   /** A commit of the branch credits an assistant, or has an author other than the repo identity (LAND-13). */
   | "attribution"
   /** The land found nothing to bring over, or no branch, while the delivered commit is not on main: nothing landed, so the card is not accepted. */
@@ -1543,23 +1545,24 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
          * auto-merge, a merge commit), instead of merging locally and pushing a
          * tree a `pull_request` run never tested (`tree-verdict`,
          * scripts/ci-changes.ts, would make main rerun the whole CI on that push).
-         * Only tried when the merge targets the branch tip itself: a pinned sha
-         * (`noRealign`) is not what the open pull request's head points at, so
-         * GitHub's merge would not be the measured commit and the local merge
-         * below is the only correct path.
+         * Only tried when the pull request's head IS the commit this land means
+         * to merge (the pinned sha, or the local branch tip): a realign commit
+         * only the local branch has would be lost, or leave the pull request
+         * in conflict until the deadline while it holds the repo's queue.
          *
          * `cwd` ends up fast-forwarded onto GitHub's merge commit on success,
          * same as a successful local `git merge` leaves it on the merge commit.
          */
-        async function mergeBranchHere(cwd: string): Promise<{ ok: true } | { ok: false }> {
-          if (!pinnedSha) {
-            const viaPr = await landViaPr({ cwd, branch, mergeMessage: mergeMsg }, githubPort());
+        async function mergeBranchHere(cwd: string): Promise<{ ok: true } | { ok: false; reason?: string }> {
+          const tip = pinnedSha ?? (await runGit(cwd, ["rev-parse", "--verify", `${branch}^{commit}`])).stdout.trim();
+          if (tip) {
+            const viaPr = await landViaPr({ cwd, branch, mergeMessage: mergeMsg, expectedHead: tip }, githubPort());
             if (viaPr.status === "merged") return { ok: true };
             if (viaPr.status === "failed") {
               log(`[automerge] land-via-pull-request failed for ${taskId}: ${viaPr.reason}`);
-              return { ok: false };
+              return { ok: false, reason: viaPr.reason };
             }
-            // "no-pr": no open pull request to reuse, fall through to the local merge.
+            // "no-pr" or "head-differs": nothing GitHub can merge as is, fall through to the local merge.
           }
           const merge = await runGit(cwd, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
           if (merge.code === 0) return { ok: true };
@@ -1597,6 +1600,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           // --no-ff keeps a merge commit so the landing is auditable even for a FF.
           const merged = await mergeBranchHere(repoPath);
           if (merged.ok) return finishMerged(repoPath, /*live*/ true, cur);
+          if (merged.reason) return { status: "skipped", code: "pull-request-land-failed", reason: merged.reason };
           return { status: "conflict", branch };
         }
 
@@ -1622,6 +1626,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           if (stopped) return stopped;
           const merged = await mergeBranchHere(wtPath);
           if (merged.ok) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
+          if (merged.reason) return { status: "skipped", code: "pull-request-land-failed", reason: merged.reason };
           return { status: "conflict", branch };
         } finally {
           await discardWorktree(runGit, repoPath, wtPath);

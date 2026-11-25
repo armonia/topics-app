@@ -18,6 +18,11 @@
  * run already tested), waits for GitHub to actually merge it, and then fast
  * forwards local main onto the commit GitHub produced.
  *
+ * `{ status: "head-differs" }` is not a failure either: the pull request's head
+ * is not the commit the caller wants merged (realign commits only the local
+ * branch has, or a measured sha that moved), so GitHub would merge the wrong
+ * tree or never merge it. The caller falls back to the local merge.
+ *
  * `{ status: "no-pr" }` is not a failure: a branch with no open pull request
  * (ci-evidence never ran for it, or it was closed already) falls back to the
  * caller's own local-merge-and-push path, which this module never replaces.
@@ -28,6 +33,8 @@ import type { GithubPort } from "./ci-evidence";
 export type LandViaPrResult =
   | { status: "merged"; commit: string }
   | { status: "no-pr" }
+  /** The pull request exists but its head is not the commit the caller means to land: GitHub would merge something else. */
+  | { status: "head-differs"; prHead: string | null; expected: string }
   | { status: "failed"; reason: string };
 
 export type FastForwardMain = (cwd: string, commit: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
@@ -63,7 +70,7 @@ const realFastForwardMain: FastForwardMain = async (cwd, commit) => {
  * local-merge path.
  */
 export async function landViaPullRequest(
-  input: { cwd: string; branch: string; mergeMessage: string },
+  input: { cwd: string; branch: string; mergeMessage: string; expectedHead: string },
   port: GithubPort,
   deps: LandViaPrDeps = {},
 ): Promise<LandViaPrResult> {
@@ -83,6 +90,12 @@ export async function landViaPullRequest(
   if (!open.ok) return { status: "failed", reason: `cannot look up the pull request of ${input.branch}: ${open.error}` };
   if (!open.value) return { status: "no-pr" };
   const pr = open.value.number;
+
+  // GitHub merges the pull request's head, whatever the caller holds locally
+  // (a realign commit, a newer pinned measurement): merge only that exact commit.
+  if (open.value.headRefOid !== input.expectedHead) {
+    return { status: "head-differs", prHead: open.value.headRefOid ?? null, expected: input.expectedHead };
+  }
 
   const state = await port.pullRequestState(input.cwd, repo, pr);
   if (!state.ok) return { status: "failed", reason: `cannot read pull request #${pr}: ${state.error}` };

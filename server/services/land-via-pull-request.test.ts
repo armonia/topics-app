@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { landViaPullRequest } from "./land-via-pull-request";
 import type { GithubPort } from "./ci-evidence";
 
-const input = { cwd: "/tmp/wt", branch: "topics/card", mergeMessage: "merge task abc: title" };
+const input = { cwd: "/tmp/wt", branch: "topics/card", mergeMessage: "merge task abc: title", expectedHead: "h".repeat(40) };
 
 function fakePort(over: Partial<GithubPort> = {}): GithubPort {
   return {
@@ -13,7 +13,7 @@ function fakePort(over: Partial<GithubPort> = {}): GithubPort {
     remoteHead: async () => ({ ok: true, value: null }),
     inReflog: async () => ({ ok: true, value: false }),
     contains: async () => ({ ok: true, value: false }),
-    openPullRequest: async () => ({ ok: true, value: { number: 7, url: "https://github.com/o/r/pull/7" } }),
+    openPullRequest: async () => ({ ok: true, value: { number: 7, url: "https://github.com/o/r/pull/7", headRefOid: "h".repeat(40) } }),
     draftPullRequest: async () => ({ ok: true, value: { number: 7, url: "https://github.com/o/r/pull/7" } }),
     closePullRequest: async () => ({ ok: true, value: "closed" }),
     deleteRemoteBranch: async () => ({ ok: true, value: "deleted" }),
@@ -47,6 +47,18 @@ describe("landViaPullRequest", () => {
     const port = fakePort({ openPullRequest: async () => ({ ok: true, value: null }) });
     const got = await landViaPullRequest(input, port);
     expect(got).toEqual({ status: "no-pr" });
+  });
+
+  test("a pull request whose head differs from the commit to land is not touched", async () => {
+    const calls: string[] = [];
+    const port = fakePort({
+      openPullRequest: async () => ({ ok: true, value: { number: 7, url: "u", headRefOid: "o".repeat(40) } }),
+      markReady: async () => { calls.push("ready"); return { ok: true, value: "ready" }; },
+      enableAutoMerge: async () => { calls.push("auto"); return { ok: true, value: "enabled" }; },
+    });
+    const got = await landViaPullRequest(input, port);
+    expect(got).toEqual({ status: "head-differs", prHead: "o".repeat(40), expected: "h".repeat(40) });
+    expect(calls).toEqual([]);
   });
 
   test("a failed lookup is a failure, not a fallback", async () => {

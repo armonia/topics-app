@@ -511,7 +511,7 @@ export interface GithubPort {
   cancelRun(repo: string, runId: number): Promise<Got<void>>;
 }
 
-export type PullRequestRef = { number: number; url: string };
+export type PullRequestRef = { number: number; url: string; /** The commit the pull request currently points at, when the lookup asked for it. */ headRefOid?: string };
 export type PullRequestState = { isDraft: boolean; merged: boolean; mergeCommit: string | null };
 export type OpenPullRequest = PullRequestRef & { headRefName: string; title: string };
 
@@ -605,7 +605,7 @@ export function githubPort(): GithubPort {
   // opened only when this lookup finds none, and the cleanup closes whatever it
   // finds, so both doors ask GitHub the same question.
   const openPullRequest: GithubPort["openPullRequest"] = (cwd, repo, branch) => call(
-    ["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number,url", "--limit", "1"], cwd,
+    ["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number,url,headRefOid", "--limit", "1"], cwd,
     (o) => (JSON.parse(o) as PullRequestRef[])[0] ?? null);
   return {
     openPullRequest,
