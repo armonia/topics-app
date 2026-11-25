@@ -37,6 +37,8 @@ import { TURN_ERROR_PREFIX } from "../../shared/board";
 import type { AfterHeadlessTurns } from "./scope";
 import { late } from "./late";
 import { isThisServerPrimary } from "../lib/primary-role";
+import { sessionHasOpenQuestion } from "../lib/question-outlives-asker";
+import { decodeCol } from "../../shared/message-blob";
 
 /** Project id -> GitHub owner/repo, filled by the overflow's origin lookup: the cloud's per-repository refusals are read through it. */
 const projectSlugs = new Map<string, string>();
@@ -317,6 +319,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       }
     },
     runTurn: runHeadlessTurn,
+    hasOpenQuestion: (sessionKey) => sessionHasOpenQuestion(ctx, sessionKey, decodeCol),
     // ai-bridge restart recovery: the provider answers whether a turn survived in
     // the broker (returns false when the flag is off / provider lacks it), and
     // runHeadlessReattach drives the adopted turn. Both are safe no-ops off-broker.
