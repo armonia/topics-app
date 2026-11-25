@@ -159,7 +159,6 @@
     "lint:server": "bun run scripts/lint.ts server",
     "lint:gherkin": "find tests/features -name '*.feature' -type f 2>/dev/null | grep -q . || { echo \"lint:gherkin: zero .feature sotto tests/features/, non c'è niente da controllare — un verde a vuoto è peggio di nessun cancello (b8092abe). I 5 .feature sono morti con Master (dd1c3f28) e claude-event (9e5516d1); la cartella resta pronta, vedi tests/features/.gitkeep.\" >&2; exit 1; }; spec-flow lint-gherkin",
     "lint:openspec": "bun run scripts/check-spec-coverage.ts --json openspec/coverage-map.json > /dev/null; spec-flow lint-openspec",
-    "lint:intrecci": "bun run scripts/check-spec-coverage.ts --json openspec/coverage-map.json > /dev/null; spec-flow check-intersections",
     "tag:scenarios": "spec-flow tag-scenarios",
     "uat": "spec-flow generate-uat",
     "specflow:link": "spec-flow link-uat",

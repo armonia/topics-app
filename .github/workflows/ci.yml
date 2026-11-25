@@ -539,14 +539,6 @@ jobs:
           # scenario non ha niente da provare, e la living-doc lo pubblicherebbe
           # come «coperto». Rigenera la mappa (ignorata da git) e poi la legge.
           bun run lint:openspec
-          # spec-flow D19, "intrecci": every `**Intersects:**` line in `openspec/specs/` needs ONE
-          # executed unit (one Playwright annotation, or one `@covers A+B`) that names both sides,
-          # read from the `joint` key of the map `lint:openspec` just wrote. Run through npx like the
-          # tree-verdict steps because the command exists from 0.7.0 on, and `package.json` still
-          # pins 0.5.0: bumping it needs a published 0.7.0 and a refreshed `bun.lock` in the same
-          # commit (a bare bump makes every `bun install --frozen-lockfile` fail). When that lands,
-          # replace the pin with the `jq` read of package.json used by the tree-verdict steps.
-          npx --yes "@armonia-io/spec-flow@0.7.0" check-intersections
           # `check:untraced-tests` guarda nella direzione OPPOSTA a
           # `check:spec-coverage`: quello parte dalle spec e cerca i test, questo
           # parte dai test e cerca il requisito. La direzione mancante e' quella
