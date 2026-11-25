@@ -1,4 +1,5 @@
 import type { Page, BrowserContext, Browser } from "playwright-core";
+import { loadPlaywrightCore } from "./lib/playwright-loader";
 import { browserReapable } from "./lib/browser-idle-reap";
 import { rewriteDomEventResources } from "./lib/dom-resource-rewrite";
 import { pushNetworkEntry, completeNetworkEntry, type NetworkEntry } from "./browser-network-log";
@@ -616,7 +617,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // How a chromium-engine context reaches the real Chromium (injectable for tests).
   const connectOverCDP =
     opts.connectOverCDP ??
-    (async (endpoint: string) => (await import("playwright-core")).chromium.connectOverCDP(endpoint));
+    (async (endpoint: string) => (await loadPlaywrightCore()).chromium.connectOverCDP(endpoint));
   /** Clamp DPR to a bandwidth-safe range: 2× covers virtually all retina Macs;
    *  3× would quadruple+ frame bytes and trip the backpressure drop. */
   const clampDsf = (dsf: number | undefined): number => {
@@ -667,7 +668,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   }
 
   async function launchBrowserOnce(): Promise<Browser> {
-    const pw = await import("playwright-core");
+    const pw = await loadPlaywrightCore();
 
     // Path resolution chain (priority order):
     //   1. opts.chromiumPath (constructor)
