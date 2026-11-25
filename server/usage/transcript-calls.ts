@@ -11,12 +11,23 @@ export type TranscriptCall = { ts: number; tokens: CallTokens; model: string | n
  * (the 2.8 GB of transcripts of one project took the process to 3-6 GB for a
  * few seconds, once a minute).
  */
-interface ParsedTranscript { size: number; ino: number; offset: number; seen: Set<string>; calls: TranscriptCall[] }
+interface ParsedTranscript { size: number; ino: number; offset: number; seen: Set<string>; calls: TranscriptCall[]; cost: number }
 const parsedTranscripts = new Map<string, ParsedTranscript>();
-/** Files kept parsed: a week holds thousands of subagent files, each entry is a few KB of calls. */
-const PARSED_TRANSCRIPTS_MAX = 6000;
+/** Rough heap cost of one parsed call: the call object plus its id in the seen set. */
+const CALL_COST_BYTES = 300;
+/** Heap the parsed transcripts may hold together: the least recently read go first. */
+const PARSED_TRANSCRIPTS_MAX_BYTES = 48 * 1024 * 1024;
+let parsedCost = 0;
 /** Bytes read per step while catching up: bounds the transient buffer, whatever the file size. */
 const TRANSCRIPT_READ_CHUNK = 4 * 1024 * 1024;
+const LINE_FEED = 0x0a;
+
+function forget(path: string): void {
+  const st = parsedTranscripts.get(path);
+  if (!st) return;
+  parsedCost -= st.cost;
+  parsedTranscripts.delete(path);
+}
 
 function parseTranscriptLine(line: string, st: ParsedTranscript): void {
   if (!line.includes('"usage"')) return;
@@ -41,42 +52,52 @@ function parseTranscriptLine(line: string, st: ParsedTranscript): void {
 /** One transcript's calls: one per `message.id` (per-block lines repeat), with the model and the `cwd` the line itself carries. */
 export function readTranscript(path: string): TranscriptCall[] {
   let fd: number;
-  try { fd = openSync(path, "r"); } catch { parsedTranscripts.delete(path); return []; }
+  try { fd = openSync(path, "r"); } catch { forget(path); return []; }
   try {
     const stat = fstatSync(fd);
     let st = parsedTranscripts.get(path);
     // Shrunk or replaced: start over.
-    if (st && (stat.size < st.offset || stat.ino !== st.ino)) st = undefined;
-    if (!st) st = { size: 0, ino: stat.ino, offset: 0, seen: new Set(), calls: [] };
-    parsedTranscripts.delete(path);
-    parsedTranscripts.set(path, st); // most recently used last
-    if (parsedTranscripts.size > PARSED_TRANSCRIPTS_MAX) parsedTranscripts.delete(parsedTranscripts.keys().next().value!);
-    if (stat.size === st.offset) { st.size = stat.size; return st.calls; }
-    const decoder = new TextDecoder();
-    let carry = "";
-    let pos = st.offset;
-    const buf = Buffer.alloc(Math.min(TRANSCRIPT_READ_CHUNK, stat.size - pos));
-    while (pos < stat.size) {
-      const want = Math.min(buf.length, stat.size - pos);
-      const got = readSync(fd, buf, 0, want, pos);
-      if (got <= 0) break;
-      pos += got;
-      carry += decoder.decode(buf.subarray(0, got), { stream: true });
-      const lastNl = carry.lastIndexOf("\n");
-      if (lastNl < 0) continue;
-      for (const line of carry.slice(0, lastNl).split("\n")) parseTranscriptLine(line, st);
-      carry = carry.slice(lastNl + 1);
-      // The offset moves only past complete lines: a half line is read again next time.
-      st.offset = pos - Buffer.byteLength(carry);
+    if (st && (stat.size < st.offset || stat.ino !== st.ino)) { forget(path); st = undefined; }
+    if (!st) st = { size: 0, ino: stat.ino, offset: 0, seen: new Set(), calls: [], cost: 0 };
+    const before = st.cost;
+    try {
+      catchUp(fd, stat.size, st);
+    } finally {
+      st.cost = st.calls.length * CALL_COST_BYTES;
+      // Re-insert last: the map order is the recency order.
+      parsedTranscripts.delete(path);
+      parsedTranscripts.set(path, st);
+      parsedCost += st.cost - before;
+      while (parsedCost > PARSED_TRANSCRIPTS_MAX_BYTES && parsedTranscripts.size > 1) forget(parsedTranscripts.keys().next().value!);
     }
-    // A last line with no newline yet counts when it is already a whole record.
-    const tail = carry + decoder.decode();
-    if (tail) {
-      try { JSON.parse(tail); parseTranscriptLine(tail, st); st.offset = pos; } catch { /* still being written */ }
-    }
-    st.size = stat.size;
     return st.calls;
   } finally {
     closeSync(fd);
+  }
+}
+
+/** Parses the bytes past `st.offset`, working in bytes so a multi-byte character cut at a read edge is never counted as consumed. */
+function catchUp(fd: number, size: number, st: ParsedTranscript): void {
+  st.size = size;
+  let pos = st.offset;
+  if (size === pos) return;
+  const chunk = Buffer.alloc(Math.min(TRANSCRIPT_READ_CHUNK, size - pos));
+  let pending: Buffer = Buffer.alloc(0);
+  while (pos < size) {
+    const got = readSync(fd, chunk, 0, Math.min(chunk.length, size - pos), pos);
+    if (got <= 0) break;
+    pos += got;
+    pending = Buffer.concat([pending, chunk.subarray(0, got)]);
+    const lastNl = pending.lastIndexOf(LINE_FEED);
+    if (lastNl < 0) continue;
+    for (const line of pending.subarray(0, lastNl).toString("utf8").split("\n")) parseTranscriptLine(line, st);
+    pending = pending.subarray(lastNl + 1);
+    // The offset is the byte after the last newline: a half line is read again next time.
+    st.offset = pos - pending.length;
+  }
+  // A last line with no newline yet counts when it is already a whole record.
+  if (pending.length) {
+    const tail = pending.toString("utf8");
+    try { JSON.parse(tail); parseTranscriptLine(tail, st); st.offset = pos; } catch { /* still being written */ }
   }
 }
