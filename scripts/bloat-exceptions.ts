@@ -41,3 +41,35 @@ export function refusedEntries(baseline: Recorded, over: { file: string; lines: 
   }
   return refused;
 }
+
+/**
+ * Check-mode ratchet: what the working baseline records above the baseline
+ * committed on the base ref. A new entry, a higher entry or a higher total
+ * needs a live exception, whatever command wrote it.
+ */
+export function baseRegressions(
+  current: Recorded & { max_over_files?: number },
+  base: Recorded & { max_over_files?: number },
+  baseRef: string,
+): string[] {
+  const problems: string[] = [];
+  let excepted = 0;
+  for (const [file, lines] of Object.entries(current.files)) {
+    const was = base.files[file];
+    if (was !== undefined && lines <= was) continue;
+    if (exceptionIsLive(current.exceptions[file])) {
+      if (was === undefined) excepted++;
+      continue;
+    }
+    problems.push(
+      `RAISED  ${file}: ${was === undefined ? `new in the baseline at ${lines}` : `${was} -> ${lines}`} against ${baseRef}. ` +
+        `Split it, or write an exception (why + expiry) under "exceptions".`,
+    );
+  }
+  const baseMax = base.max_over_files ?? Object.keys(base.files).length;
+  const max = current.max_over_files ?? Object.keys(current.files).length;
+  if (max > baseMax + excepted) {
+    problems.push(`RAISED  max_over_files ${baseMax} -> ${max} against ${baseRef}, with ${excepted} live exception(s) for new entries.`);
+  }
+  return problems;
+}

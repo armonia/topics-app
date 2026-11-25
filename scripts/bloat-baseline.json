@@ -295,7 +295,7 @@
   "min_clone_lines": 20,
   "duplicated_lines": 290,
   "clone_groups": 11,
-  "max_over_files": 154,
+  "max_over_files": 153,
   "files": {
     "client/src/App.tsx": 1140,
 
@@ -603,8 +603,6 @@
     },
 
     "server/routes/outbound.test.ts": 1049,
-
-    "server/routes/chat-handler.ts": 811,
 
     "server/routes/tasks-board.ts": 1605,
 

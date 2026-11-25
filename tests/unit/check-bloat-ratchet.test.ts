@@ -14,8 +14,8 @@ const SCRIPT = join(import.meta.dir, "../../scripts/check-bloat.ts");
 let root: string;
 let baselinePath: string;
 
-function lines(n: number): string {
-  return Array.from({ length: n }, (_, i) => `export const v${i} = ${i};`).join("\n") + "\n";
+function lines(n: number, salt = ""): string {
+  return Array.from({ length: n }, (_, i) => `export const v${salt}${i} = ${i};`).join("\n") + "\n";
 }
 
 function git(...args: string[]) {
@@ -34,7 +34,7 @@ function readBaseline() {
 }
 
 function addFile(name: string, n: number) {
-  writeFileSync(join(root, "src", name), lines(n));
+  writeFileSync(join(root, "src", name), lines(n, name === "big.ts" ? "" : name.replace(/\W/g, "_")));
   git("add", "-A");
 }
 
@@ -101,6 +101,40 @@ describe("check-bloat ratchet", () => {
     const r = gate();
     expect(r.code).toBe(1);
     expect(r.out).toContain("TOTAL rose");
+  });
+
+  test("hand-editing entry and total together is caught against the base ref", () => {
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base");
+    addFile("new.ts", 900);
+    writeBaseline((b) => {
+      (b.files as Record<string, number>)["src/new.ts"] = 900;
+      b.max_over_files = (b.max_over_files as number) + 1;
+    });
+    expect(gate().code).toBe(0); // nothing to compare against: the baseline trusts itself
+    const r = gate("--base-ref=HEAD");
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("RAISED");
+    expect(r.out).toContain("src/new.ts");
+  });
+
+  test("a hand-raised recorded entry is caught against the base ref", () => {
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base");
+    addFile("big.ts", 950);
+    writeBaseline((b) => {
+      (b.files as Record<string, number>)["src/big.ts"] = 950;
+    });
+    expect(gate("--base-ref=HEAD").code).toBe(1);
+  });
+
+  test("a written exception lets a raised entry through against the base ref", () => {
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base");
+    addFile("new.ts", 900);
+    writeBaseline((b) => {
+      (b.files as Record<string, number>)["src/new.ts"] = 900;
+      b.max_over_files = (b.max_over_files as number) + 1;
+      b.exceptions = { "src/new.ts": { why: "generated shape", expires: "2999-01-01" } };
+    });
+    expect(gate("--base-ref=HEAD").code).toBe(0);
   });
 
   test("shrinking is recorded and lowers the ceiling", () => {
