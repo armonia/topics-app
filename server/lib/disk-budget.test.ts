@@ -87,18 +87,31 @@ describe("evaluateDiskBudget", () => {
   });
 });
 
-describe("folders that are the user's own work", () => {
-  test("counted:false stays out of the ratio but can still hit its own cap", () => {
+describe("every folder counts", () => {
+  test("user-work folders are inside the ratio and carry growth per day", () => {
+    const now = 10 * 86_400_000;
     const r = evaluateDiskBudget(
       100,
       [
-        { name: "agents", bytes: 10_000, counted: false },
+        { name: "agents", bytes: 10_000 },
         { name: "logs", bytes: 50 },
       ],
       { ratioCap: 3, folderCaps: { agents: 5_000 } },
+      { agents: { at: now - 2 * 86_400_000, bytes: 9_000 } },
+      now,
     );
-    expect(r.outsideBytes).toBe(50);
-    expect(r.ratioOverCap).toBe(false);
+    expect(r.outsideBytes).toBe(10_050);
+    expect(r.ratioOverCap).toBe(true);
     expect(r.ok).toBe(false);
+    expect(r.folders[0]?.growthPerDay).toBe(500);
+    expect(r.folders[1]?.growthPerDay).toBeNull();
+  });
+  test("default caps apply to the folders that grew unbounded, env overrides them", () => {
+    const names = ["agents", "media", "backups", "db-backups", "logs"];
+    const c = diskBudgetConfig({ TOPICS_DISK_CAP_MEDIA: "123" }, names);
+    expect(c.folderCaps.media).toBe(123);
+    expect(c.folderCaps.agents).toBeGreaterThan(0);
+    expect(c.folderCaps["db-backups"]).toBeGreaterThan(0);
+    expect(c.folderCaps.logs).toBeUndefined();
   });
 });

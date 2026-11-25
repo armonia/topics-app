@@ -5,6 +5,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { topicsHome } from "../services/daemon-state";
+import { pruneOldBackups, purgeTrash } from "./backup-prune";
 import { backupKeepCount, expiredBackupEntries } from "./backup-retention";
 
 const e = (name: string, mtimeMs: number) => ({ id: name, name, mtimeMs });
@@ -40,24 +42,57 @@ describe("backup retention", () => {
     const out = expiredBackupEntries([...names.map((n, i) => e(n, i)), e(auto("aaaaaaa", "20261101"), 100), e(auto("bbbbbbb", "20261102"), 200)], 1);
     expect(out).toEqual([auto("aaaaaaa", "20261101")]);
   });
-  test("a fake folder: only the old automatic copy is a candidate", () => {
-    const dir = mkdtempSync(join(tmpdir(), "backup-retention-"));
+  test("the two-hash name Topics writes is recognised and ordered by the date in the name", () => {
+    const old = "topics-pre-6242e44e-266a3e1e-20261120-0947.db";
+    const mid = auto("bbbbbbb", "20261121");
+    const fresh = auto("ccccccc", "20261122");
+    // a sibling touched later must not make the oldest copy look recent
+    const out = expiredBackupEntries([e(old, 999), e(`${old}-shm`, 999), e(mid, 1), e(fresh, 2)], 2, Date.UTC(2026, 10, 30));
+    expect(out.sort()).toEqual([old, `${old}-shm`]);
+  });
+  test("copies younger than the minimum age never expire", () => {
+    const out = expiredBackupEntries([e(auto("aaaaaaa", "20261125"), 1), e(auto("bbbbbbb", "20261126"), 2)], 1, Date.UTC(2026, 10, 27));
+    expect(out).toEqual([]);
+  });
+});
+
+describe("pruneOldBackups on a fake home", () => {
+  test("moves only the old automatic copy to the trash, named copies and lists stay", () => {
+    const home = mkdtempSync(join(tmpdir(), "backup-prune-"));
+    const prevHome = process.env.TOPICS_HOME;
     try {
-      writeFileSync(join(dir, "pre-merge-20261117.db"), "x");
-      writeFileSync(join(dir, "branches-deleted-1.txt"), "x");
-      mkdirSync(join(dir, "pre-filter-repo"));
-      writeFileSync(join(dir, auto("aaaaaaa", "20261101")), "x");
-      writeFileSync(join(dir, auto("bbbbbbb", "20261102")), "x");
-      const entries = ["pre-merge-20261117.db", "branches-deleted-1.txt", "pre-filter-repo", auto("aaaaaaa", "20261101"), auto("bbbbbbb", "20261102")]
-        .map((name, i) => ({ id: join(dir, name), name, mtimeMs: i }));
-      const expired = expiredBackupEntries(entries, 1);
-      for (const p of expired) rmSync(p, { force: true });
+      process.env.TOPICS_HOME = home;
+      const dir = join(home, "db-backups");
+      mkdirSync(join(dir, "pre-filter-repo"), { recursive: true });
+      for (const name of ["pre-merge-20261117.db", "branches-deleted-1.txt", auto("aaaaaaa", "20261101"), auto("bbbbbbb", "20261102")]) {
+        writeFileSync(join(dir, name), "x");
+      }
+      const now = Date.UTC(2026, 10, 30);
+      const moved = pruneOldBackups(topicsHome(), { TOPICS_BACKUP_KEEP: "1" }, now);
+      expect(moved).toEqual([join(dir, auto("aaaaaaa", "20261101"))]);
       expect(existsSync(join(dir, auto("aaaaaaa", "20261101")))).toBe(false);
+      expect(existsSync(join(home, "trash", "20261130", auto("aaaaaaa", "20261101")))).toBe(true);
       for (const kept of ["pre-merge-20261117.db", "branches-deleted-1.txt", "pre-filter-repo", auto("bbbbbbb", "20261102")]) {
         expect(existsSync(join(dir, kept))).toBe(true);
       }
+      expect(purgeTrash(home, now)).toEqual([]);
+      expect(purgeTrash(home, now + 8 * 86_400_000)).toEqual(["20261130"]);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      if (prevHome === undefined) delete process.env.TOPICS_HOME;
+      else process.env.TOPICS_HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+  test("does nothing when a kept copy is empty", () => {
+    const home = mkdtempSync(join(tmpdir(), "backup-prune-"));
+    try {
+      const dir = join(home, "db-backups");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, auto("aaaaaaa", "20261101")), "x");
+      writeFileSync(join(dir, auto("bbbbbbb", "20261102")), "");
+      expect(pruneOldBackups(home, { TOPICS_BACKUP_KEEP: "1" }, Date.UTC(2026, 10, 30))).toEqual([]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
     }
   });
 });

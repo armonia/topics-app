@@ -13,16 +13,22 @@
  * TWO INDEPENDENT CHECKS, both configurable by environment and both with a
  * default that works with no configuration at all:
  *
- *   1. RATIO — total bytes outside the database must stay within
- *      `TOPICS_DISK_RATIO_CAP` times the database's own size (default 3).
- *      A ratio scales with usage, so it stays meaningful whether the
- *      database is 10 MB or 10 GB.
- *   2. PER-FOLDER CAP — an individual folder (logs, a cache, a sidecar
- *      download) can be capped in bytes with `TOPICS_DISK_CAP_<NAME>`,
- *      `<NAME>` being the folder's name uppercased with every non-alphanumeric
- *      character turned into `_` (e.g. `chromium-sidecar` →
- *      `TOPICS_DISK_CAP_CHROMIUM_SIDECAR`). Unset means no cap for that folder:
- *      the ratio check still watches it as part of the total.
+ *   1. RATIO: the bytes of EVERY folder beside the database (agents, media,
+ *      workspace and backups included: the card measures the whole data
+ *      folder) must stay within `TOPICS_DISK_RATIO_CAP` times the database's
+ *      own size (default 3). A ratio scales with usage, so it stays meaningful
+ *      whether the database is 10 MB or 10 GB.
+ *   2. PER-FOLDER CAP: an individual folder can be capped in bytes with
+ *      `TOPICS_DISK_CAP_<NAME>`, `<NAME>` being the folder's name uppercased
+ *      with every non-alphanumeric character turned into `_` (e.g.
+ *      `chromium-sidecar` becomes `TOPICS_DISK_CAP_CHROMIUM_SIDECAR`). The
+ *      folders that grew without a ceiling have a DEFAULT cap
+ *      (`DEFAULT_FOLDER_CAPS`); the variable overrides it, and `0` is a real
+ *      cap of zero bytes.
+ *
+ * GROWTH: the caller may pass the previous measurement of each folder; the
+ * result then carries bytes per day, so a folder climbing toward its cap shows
+ * up before it crosses it.
  *
  * ZERO PERSONAL PATHS: this module never sees a path, only folder names and
  * byte counts the caller already measured.
@@ -32,12 +38,13 @@ export interface DiskBudgetFolder {
   /** The folder's own name (e.g. `logs`, `chromium-sidecar`), not a path. */
   name: string;
   bytes: number;
-  /**
-   * False for folders holding the user's own work (agent workspaces, media):
-   * they are reported and may carry a per-folder cap, but stay out of the
-   * ratio, which only judges what Topics itself produces. Default true.
-   */
-  counted?: boolean;
+}
+
+/** A past measurement of a folder, used to compute growth per day. */
+export interface DiskBudgetSample {
+  /** Epoch milliseconds of the measurement. */
+  at: number;
+  bytes: number;
 }
 
 export interface DiskBudgetConfig {
@@ -50,6 +57,8 @@ export interface DiskBudgetConfig {
 export interface DiskBudgetFolderVerdict extends DiskBudgetFolder {
   capBytes: number | null;
   overCap: boolean;
+  /** Bytes per day since the previous sample, or null with no usable sample. */
+  growthPerDay: number | null;
 }
 
 export interface DiskBudgetResult {
@@ -64,6 +73,20 @@ export interface DiskBudgetResult {
 }
 
 const DEFAULT_RATIO_CAP = 3;
+
+const GIB = 1024 ** 3;
+
+/**
+ * Default ceilings for the folders that grew unbounded (2026-11-19 audit).
+ * Generic sizes, not tied to any one machine; an operator moves them with
+ * `TOPICS_DISK_CAP_<NAME>`.
+ */
+const DEFAULT_FOLDER_CAPS: Readonly<Record<string, number>> = {
+  agents: 10 * GIB,
+  media: 5 * GIB,
+  backups: 2 * GIB,
+  "db-backups": 2 * GIB,
+};
 
 /** `logs` → `LOGS`, `chromium-sidecar` → `CHROMIUM_SIDECAR`, `ui state` → `UI_STATE`. */
 function envSuffix(folderName: string): string {
@@ -86,8 +109,10 @@ export function diskBudgetConfig(
   const ratioCap = Number.isFinite(rawRatio) && rawRatio > 0 ? rawRatio : DEFAULT_RATIO_CAP;
   const folderCaps: Record<string, number> = {};
   for (const name of folderNames) {
-    const raw = Number(env[`TOPICS_DISK_CAP_${envSuffix(name)}`]);
+    const rawText = env[`TOPICS_DISK_CAP_${envSuffix(name)}`];
+    const raw = rawText === undefined || rawText === "" ? Number.NaN : Number(rawText);
     if (Number.isFinite(raw) && raw >= 0) folderCaps[name] = raw;
+    else if (DEFAULT_FOLDER_CAPS[name] !== undefined) folderCaps[name] = DEFAULT_FOLDER_CAPS[name];
   }
   return { ratioCap, folderCaps };
 }
@@ -102,13 +127,18 @@ export function evaluateDiskBudget(
   dbBytes: number,
   folders: readonly DiskBudgetFolder[],
   config: DiskBudgetConfig,
+  previous: Readonly<Record<string, DiskBudgetSample>> = {},
+  now: number = Date.now(),
 ): DiskBudgetResult {
-  const outsideBytes = folders.reduce((sum, f) => sum + (f.counted === false ? 0 : f.bytes), 0);
+  const outsideBytes = folders.reduce((sum, f) => sum + f.bytes, 0);
   const ratio = dbBytes > 0 ? outsideBytes / dbBytes : 0;
   const ratioOverCap = dbBytes > 0 && ratio > config.ratioCap;
   const folderVerdicts: DiskBudgetFolderVerdict[] = folders.map((f) => {
     const capBytes = config.folderCaps[f.name] ?? null;
-    return { ...f, capBytes, overCap: capBytes !== null && f.bytes > capBytes };
+    const prev = previous[f.name];
+    const days = prev ? (now - prev.at) / 86_400_000 : 0;
+    const growthPerDay = prev && days >= 1 / 24 ? (f.bytes - prev.bytes) / days : null;
+    return { ...f, capBytes, overCap: capBytes !== null && f.bytes > capBytes, growthPerDay };
   });
   const ok = !ratioOverCap && folderVerdicts.every((f) => !f.overCap);
   return {
