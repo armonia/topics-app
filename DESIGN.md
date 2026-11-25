@@ -153,6 +153,10 @@ barra dei menu.
 - La Board del 20/11 («va bene così»): barra «Il mio lavoro | Tutto» con i chip dei proprietari e il
   menu dei canali, chip proprietario e canale sulla card, slider del dettaglio, viste «Kanban, Lista,
   Chi la segue, Workflow» con icone; etichette e campo di ricerca seguono la larghezza della board.
+- La vista Tabella della board del 25/11 («Sì, unisci» sulle foto a 375, 768, 1440 e 3440): stato,
+  poi progetto con la sua icona (il nome accanto da pannello largo), titolo, chip di chi la segue;
+  intestazione e righe in un solo riquadro con l'intestazione su `inset`, hover `app-hover` e anello
+  di focus sulle righe.
 
 ## Feedback di Attilio
 
