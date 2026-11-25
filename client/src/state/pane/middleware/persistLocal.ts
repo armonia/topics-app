@@ -129,6 +129,9 @@ export function hydrateFromLocalSnapshot(): void {
             server_seq: seq,
             seq,
           },
+          // This device wrote this snapshot: its new chats (draft panes) are
+          // its own and come back, with the text the draft pane reads back.
+          ownDrafts: true,
         },
       });
     }
