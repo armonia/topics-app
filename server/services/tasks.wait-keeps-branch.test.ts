@@ -5,6 +5,8 @@
  * failed under load and the agent declared a wait. The wait path cleared
  * `assigned_topic_id` and wrote no `prior_branch`: the worktree later vanished
  * and the card pointed at a dead branch, so a rerun started from main.
+ *
+ * @covers KANBAN-07
  */
 import { test, expect, describe } from "bun:test";
 import { createTaskService } from "./tasks";
