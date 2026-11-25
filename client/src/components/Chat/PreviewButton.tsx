@@ -7,7 +7,8 @@
  * already is the preview) nor for an archived one.
  */
 import { useState } from 'react';
-import { Eye, Loader2 } from 'lucide-react';
+import { Eye } from 'lucide-react';
+import { Spinner } from '../Shared/Spinner';
 import { useT } from '../../hooks/useT';
 import { apiFetch } from '../../lib/shell/net';
 import { CHAT_STRIP, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
@@ -48,7 +49,7 @@ export function PreviewButton({ topic }: PreviewButtonProps) {
         className={`${CHAT_STRIP_ROW} disabled:opacity-60`}
       >
         {busy
-          ? <Loader2 size={13} className="flex-shrink-0 animate-spin text-app-text-secondary" />
+          ? <Spinner size="xs" decorative />
           : <Eye size={13} className="flex-shrink-0 text-app-text-secondary" />}
         <span className="text-mini font-medium text-app-text-secondary">{tr('chat.preview.button')}</span>
       </button>
