@@ -14,7 +14,7 @@
  * USAGE (needs `gh` logged in and network)
  *   bun run scripts/ci-impact-measure.ts [--reds 30] [--limit 200]
  */
-import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { impactOf, onlyChangedSpecs, planFiles } from "./ci-impact.ts";
@@ -70,8 +70,6 @@ function replay(run: Run): { e2e: Set<string> | "full"; unit: Set<string> | "ful
   try {
     sh(["git", "fetch", "--quiet", REPO_URL, run.headSha]);
     sh(["git", "worktree", "add", "--detach", "--quiet", dir, run.headSha]);
-    // The replay worktree has no dependencies of its own: borrow ours so Playwright can answer `--only-changed`.
-    if (existsSync(join(process.cwd(), "node_modules"))) symlinkSync(join(process.cwd(), "node_modules"), join(dir, "node_modules"), "junction");
     const base = sh(["git", "rev-parse", `${run.headSha}^1`], dir).trim();
     sh(["git", "fetch", "--quiet", REPO_URL, base], dir);
     // selectSpecs reads the changed sources relative to the working directory.
