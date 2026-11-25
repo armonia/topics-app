@@ -998,6 +998,7 @@ pub(crate) fn window_corner_radius() -> f64 {
 ///   window's arc (the native view is NOT clipped by the window shape).
 ///
 /// Returns the 4-bit visual code (tl | tr<<1 | bl<<2 | br<<3) and the radius.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 pub(crate) fn corner_plan(
     rect: (f64, f64, f64, f64),
     win: (f64, f64),
