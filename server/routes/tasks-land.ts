@@ -417,11 +417,19 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
    */
   function unmeasuredStop(projectId: string, taskId: string): string | null {
     const t = svc.get(taskId, { projectId })?.task;
-    if (!t || t.checksState != null || (t.checks?.length ?? 0) > 0) return null;
-    let declared: unknown[] = [];
+    if (!t) return null;
+    let declared: Array<{ cmd: string; name: string }> = [];
     try { declared = svc.getBoardSettings(projectId).reviewChecks; } catch { return null; }
     if (!declared.length) return null;
-    return "la consegna non ha nessun check misurato (checks nullo) su una board che ne dichiara: non atterra finché la barra non gira sul suo commit";
+    const rows = t.checks ?? [];
+    if (t.checksState == null && rows.length === 0) {
+      return "la consegna non ha nessun check misurato (checks nullo) su una board che ne dichiara: non atterra finché la barra non gira sul suo commit";
+    }
+    // A partial bar (say gates measured, the unit job never) is the same hole: the card cannot land on it.
+    const missing = rows.length ? declared.filter((d) => !rows.some((r) => r.cmd === d.cmd)) : [];
+    return missing.length
+      ? `la barra della board non è stata misurata per intero (mancano: ${missing.map((m) => m.name).join(", ")}): non atterra finché non gira`
+      : null;
   }
 
   /** A land waits while the CI of main is red, unless the card is the one repairing it. */

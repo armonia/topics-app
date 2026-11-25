@@ -281,18 +281,21 @@ describe("approve decoupled from landing", () => {
     const r2 = createTasksRouter(ctx, undefined, { autoMerge: am });
     db.run("INSERT INTO topics (id) VALUES ('top-4')");
     db.run("INSERT OR REPLACE INTO board_settings (project_id, review_checks) VALUES ('pX', ?)",
-      [JSON.stringify([{ name: "gates", cmd: "true" }])]);
+      [JSON.stringify([{ name: "gates", cmd: "true" }, { name: "unit", cmd: "github-ci:unit" }])]);
     const ids: string[] = [];
-    for (const state of [null, "pass"]) {
+    const rowOf = (cmd: string) => ({ name: cmd, cmd, ok: true, code: 0, ms: 1, timedOut: false });
+    const bars: Array<[string | null, unknown[] | null]> = [[null, null], ["pass", [rowOf("true")]], ["pass", [rowOf("true"), rowOf("github-ci:unit")]]];
+    for (const [state, rows] of bars) {
       const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: "card " + String(state) }))!.json();
-      db.prepare("UPDATE tasks SET assigned_topic_id='top-4', status='review', delivery_branch='topics/y', delivery_commit='bdfcf0cb', checks_state=? WHERE id = ?").run(state, t.id);
+      db.prepare("UPDATE tasks SET assigned_topic_id='top-4', status='review', delivery_branch='topics/y', delivery_commit='bdfcf0cb', checks_state=?, checks_json=? WHERE id = ?").run(state, rows ? JSON.stringify(rows) : null, t.id);
       ids.push(t.id);
       await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
       await new Promise((r) => setTimeout(r, 50));
     }
-    expect(hooks).toHaveLength(2);
+    expect(hooks).toHaveLength(3);
     expect(await hooks[0]!("bdfcf0cb")).toContain("checks nullo");
-    expect(await hooks[1]!("bdfcf0cb")).toBeNull();
+    expect(await hooks[1]!("bdfcf0cb")).toContain("mancano: unit");
+    expect(await hooks[2]!("bdfcf0cb")).toBeNull();
   });
 
   test("land: with main red the merge hook refuses, but the repair card (main-ci-red:) goes through", async () => {
