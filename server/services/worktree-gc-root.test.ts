@@ -171,10 +171,10 @@ describe("the root pass of the worktree GC, on real git", () => {
   });
 
   /** A worktree adopted on `feat` (already merged into main), later detached with a commit only it holds. */
-  function adoptedThenDetached(abs: string): string {
+  function adoptedThenDetached(abs: string, mode: "reuse" | "branch" = "reuse"): string {
     git(repo, "branch", "-q", "feat", "main");
     expect(git(repo, "worktree", "add", "-q", abs, "feat").code).toBe(0);
-    rows.push({ id: "drifted", projectId: "p1", absPath: abs, branchName: "feat", mode: "reuse", status: "ready", createdAt: new Date(Date.now() - 9 * DAY).toISOString() });
+    rows.push({ id: "drifted", projectId: "p1", absPath: abs, branchName: "feat", mode, status: "ready", createdAt: new Date(Date.now() - 9 * DAY).toISOString() });
     git(abs, "checkout", "-q", "--detach");
     writeFileSync(join(abs, "work.txt"), "the only copy\n");
     git(abs, "add", "-A");
@@ -187,6 +187,17 @@ describe("the root pass of the worktree GC, on real git", () => {
     const abs = join(root, "proj", "adopted");
     mkdirSync(join(root, "proj"), { recursive: true });
     adoptedThenDetached(abs);
+    const summary = await runner().runWorktreeGc();
+    expect(summary!.reaped).toBe(0);
+    expect(deleted).toEqual([]);
+    expect(existsSync(join(abs, "work.txt"))).toBe(true);
+  });
+
+  test("a branch row whose HEAD left its merged branch for commits of its own is kept too: Topics' own worktrees are judged by HEAD as well", async () => {
+    const abs = join(root, "proj", "own");
+    mkdirSync(join(root, "proj"), { recursive: true });
+    markFolderOwned(root, abs, { worktreeId: "drifted", projectId: "p1" });
+    adoptedThenDetached(abs, "branch");
     const summary = await runner().runWorktreeGc();
     expect(summary!.reaped).toBe(0);
     expect(deleted).toEqual([]);

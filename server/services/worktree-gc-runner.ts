@@ -34,7 +34,7 @@ import { isTopicsSpawned } from "../lib/ghost-script";
 import { isInsideDir } from "../lib/path-containment";
 import { topicSessionKey } from "./agent-census";
 import { taskIdleDays, transcriptMtime } from "./worktree-task-idle";
-import { headStatusOfCheckout } from "./worktree-head-status";
+import { headHoldsCommitsOffBranch, headStatusOfCheckout } from "./worktree-head-status";
 
 export { taskIdleDays };
 import { defaultRunGit, type GitRunner } from "./own-commits";
@@ -492,10 +492,12 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
    * freed or abandoned (`wt-<id>` for a row with no task). False when the branch
    * should resolve and the ref could not be written: the checkout then stays.
    */
-  const pinBeforeFree = async (wt: { id: string; projectId: string; branchName: string | null; mode: string }): Promise<boolean> => {
+  const pinBeforeFree = async (wt: { id: string; projectId: string; absPath: string; branchName: string | null; mode: string }): Promise<boolean> => {
     if (wt.mode !== "branch" || !wt.branchName) return true;
     const repoPath = deps.projectStore.get(wt.projectId)?.path;
     if (!repoPath) return true;
+    // Freeing keeps the BRANCH: commits made on a HEAD that left it would go with the folder.
+    if (await headHoldsCommitsOffBranch(wt, repoPath, git)) return false;
     if (!(await branchExistsInRepo(repoPath, wt.branchName))) return true;
     const t = resolveTaskOf(wt.id);
     return archiveBranchRef(repoPath, wt.branchName, t.taskId ?? `wt-${wt.id}`);
@@ -528,10 +530,11 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       liveInside: (w) => busyInside(w.absPath, w.id),
       diskPresent: (absPath) => existsSync(absPath),
       realDirt: (absPath) => worktreeDirtProbe(absPath),
-      branchStatus: (w) => {
+      branchStatus: async (w) => {
         const repoPath = deps.projectStore.get(w.projectId)?.path;
-        if (!repoPath) return Promise.resolve("gone" as const);
-        return branchStatusFromRepo(repoPath, w.branchName);
+        if (!repoPath) return "gone" as const;
+        const status = await branchStatusFromRepo(repoPath, w.branchName);
+        return status !== "unmerged" && await headHoldsCommitsOffBranch(w, repoPath, git) ? "unmerged" : status;
       },
       headStatus: (w) => headStatusOfCheckout(w, deps.projectStore.get(w.projectId)?.path, git),
       abandonAfterDays: settings.abandonDays,
