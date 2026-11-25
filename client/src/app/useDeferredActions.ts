@@ -29,6 +29,11 @@ interface DeferredActionsArgs {
   /** View setting: closing a chat archives it (the two-state model). Off, a
    *  closed chat is a closed row and unpinning one archives nothing. */
   closeArchives: boolean;
+  /** Only the tab in front is drawn on top, as the desktop title row: the
+   *  countdown of a close lives on that tab, so the front must not move to
+   *  the next surface before the close commits (25/11: the title jumped to
+   *  the next tab and the progress was nowhere to be seen). */
+  frontOnlyOnTop?: boolean;
 }
 
 /**
@@ -39,7 +44,7 @@ export function useDeferredActions({
   topics, topicsRef, focusedPanelId, visiblePanels, openPanels, projectOpenPanes,
   handleClosePanel, handleFocusPanel, handleArchiveProject, handleCloseTerminal,
   archiveTopic, browserCtx, sidebarIsPinned, sidebarTogglePin,
-  pinnedCloseBlocked, closeArchives, removeClosedTab,
+  pinnedCloseBlocked, closeArchives, removeClosedTab, frontOnlyOnTop = false,
 }: DeferredActionsArgs) {
   // ── Pending-action wrappers (Things3-style soft-destructive flow) ──
   // Each soft-destructive action (close tab, archive topic, archive project)
@@ -99,8 +104,10 @@ export function useDeferredActions({
     // openPanels, which can be an unrelated split cell appended later.
     // Spaces: the pre-shift runs on the VISIBLE set, pre-focusing a pane
     // hidden in another space would switch the whole window mid-countdown.
+    // With only the front tab on top there is no destination to show, and
+    // moving the front would take the countdown off screen with it.
     let focusBeforeClose: string | null = null;
-    if (focusedPanelId === topicId) {
+    if (focusedPanelId === topicId && !frontOnlyOnTop) {
       const idx = visiblePanels.indexOf(topicId);
       const remaining = visiblePanels.filter(id => id !== topicId);
       const nextFocus = remaining.length > 0 ? remaining[Math.min(idx, remaining.length - 1)] : null;
@@ -128,7 +135,7 @@ export function useDeferredActions({
         ? () => handleFocusPanel(focusBeforeClose!)
         : undefined,
     });
-  }, [topics, handleClosePanel, enqueueAndTick, focusedPanelId, visiblePanels, handleFocusPanel, pinnedCloseBlocked]);
+  }, [topics, handleClosePanel, enqueueAndTick, focusedPanelId, visiblePanels, handleFocusPanel, pinnedCloseBlocked, frontOnlyOnTop]);
 
   const handleArchiveTopicDeferred = useCallback((topicId: string, archive: boolean): Promise<boolean> => {
     const topic = topicsRef.current[topicId];

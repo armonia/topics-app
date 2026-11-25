@@ -1,4 +1,6 @@
 /**
+ * @covers LAND-18
+ *
  * A CARD THAT DECLARES A WAIT KEEPS THE BRANCH IT WORKED ON.
  *
  * Card f3c5a186: the work was committed on the worktree's branch, the pre-review
@@ -7,6 +9,7 @@
  * and the card pointed at a dead branch, so a rerun started from main.
  *
  * @covers KANBAN-07
+ * @covers WORKTREE-18
  */
 import { test, expect, describe } from "bun:test";
 import { createTaskService } from "./tasks";

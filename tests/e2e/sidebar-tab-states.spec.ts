@@ -98,6 +98,12 @@ test.describe("@sidebar-tab-states tabs in the column: open, closed, archived", 
     await expect(row(page, a.id)).toHaveAttribute("data-tab-state", "open", { timeout: 10_000 });
     await expect(row(page, b.id)).toHaveAttribute("data-tab-state", "open");
     await expect(page.getByTestId("panel-tab-bar")).toHaveCount(0);
+    // The column closed: still no strip, the tabs are in one place or the
+    // other (25/11). The title row keeps the surface in front.
+    await page.keyboard.press("ControlOrMeta+b");
+    await expect(page.getByTestId("sidebar-reopen")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("panel-tab-bar")).toHaveCount(0);
+    await expect(page.locator('[data-testid="cell-title-tab"] [role="tab"]')).toHaveCount(1);
   });
 
   test("on top: the strip holds the open tabs and the column leaves them out", async ({ browser, request }) => {
@@ -269,7 +275,7 @@ test.describe("@sidebar-tab-states tabs in the column: open, closed, archived", 
     // Without the strip a tab closes from its title's sheet (⌘W is the desktop
     // shell's): for a pinned tab the sheet has no Close anywhere, and unpinning
     // is the way out.
-    await openTabSheet(page, page.getByTestId("mobile-pane-title"));
+    await openTabSheet(page, page.locator('[data-testid="cell-title-tab"] [role="tab"]'));
     expect(await findRowInTabSheet(page, "Chiudi")).toBeNull();
     expect(await findRowInTabSheet(page, "Rimuovi dai Fissati")).not.toBeNull();
     expect(await isOpen(request, p.id)).toBe(true);

@@ -382,6 +382,26 @@ describe("la ragione della coda arriva dal server, con la card", () => {
   });
 
   /**
+   * The door the e2e scene walks through (board-queue-reason-chip.spec.ts, the
+   * card that already asks), on a switched-off board as the scene sets it. Since
+   * a6d1d5fb60 only a step that LEAVES FLIGHT raises the question: one moved
+   * between the two parked columns was already stopped. Born in todo, the step
+   * leaves the parent in todo and the chip says «dispatch off».
+   */
+  test("switch off: a step leaving flight under a stopped parent makes it ask, with the count on the chip", () => {
+    s.setGlobalAutoDispatch(false);
+    const padre = s.create({ projectId: PID, text: "Ripulire i redirect vecchi", status: "todo" });
+    // A parent that already spent a turn: what the scene's dispatch-gate verb writes.
+    db.prepare("UPDATE tasks SET dispatch_attempts = 1 WHERE id = ?").run(padre.id);
+    const figlio = s.create({ projectId: PID, text: "Passo uno: censire i 301", status: "in_progress", parentTaskId: padre.id });
+    mv(s, figlio.id, "backlog");
+
+    const t = s.get(padre.id)!.task;
+    expect(t.queueReason).toMatchObject({ kind: "children_parked", key: "board.queue.childrenParked.one", params: { n: 1 } });
+    expect(t.status).toBe("review");
+  });
+
+  /**
    * L'altra domanda che `needs_input` copre: quella dell'agente. Qui la mossa è
    * rispondere nella sessione, e il tooltip di `checklist_frozen` non la nomina
    * nemmeno — dice di chiudere i sottotask o rimettere la card in coda.

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { createTopic, deleteTopic, waitForTopicVisible, closeAllBrowserContexts } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -26,8 +26,11 @@ test("request_login raises a detached window and records a linked notice", async
     expect(opened.ok()).toBeTruthy();
     const { contextId } = (await opened.json()) as { contextId: string };
 
+    // focus-pane is an agent route: it answers 401 without the daemon token,
+    // which is what request_login sends.
     const focused = await request.post(`${E2E_BASE}/api/topics/${topic.id}/browser/focus-pane`, {
       data: { contextId, loginRequest: true, detached: true },
+      headers: daemonAuthHeaders(),
       ignoreHTTPSErrors: true,
     });
     expect(focused.ok()).toBeTruthy();
