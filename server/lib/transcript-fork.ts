@@ -188,14 +188,16 @@ export async function findForkContinuation(opts: FindForkOptions): Promise<FindF
     // Solo file più RECENTI del nostro: il fork nasce dopo che il padre si è
     // fermato. Un transcript più vecchio non può contenere la nostra coda.
     if (!st.isFile() || st.size === 0 || st.mtimeMs <= curMtime) continue;
+    if (skip?.(p, st.mtimeMs)) continue;
     if (st.size > maxScanBytes) {
-      // Niente tagli silenziosi: se un candidato è troppo grosso per essere
-      // scansionato, si dice — altrimenti "non è un fork" e "non l'ho guardato"
-      // sono indistinguibili.
+      // No silent cuts: a candidate too big to scan is said, otherwise "not a
+      // fork" and "not looked at" read the same. It is also handed back as
+      // rejected, so the caller skips it until the file changes: on 25/11 the
+      // same two files were warned about on every sweep, 80% of the error log.
       console.warn(`[transcript-fork] candidato saltato, ${st.size} byte > ${maxScanBytes}: ${p}`);
+      rejected.push({ path: p, mtimeMs: st.mtimeMs });
       continue;
     }
-    if (skip?.(p, st.mtimeMs)) continue;
     candidates.push({ path: p, mtimeMs: st.mtimeMs, size: st.size });
   }
   if (candidates.length === 0) return { found: null, rejected };

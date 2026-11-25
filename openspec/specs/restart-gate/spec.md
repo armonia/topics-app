@@ -504,3 +504,63 @@ sarebbe sembrato fermo su una persona.
 #### Scenario: un permesso a schermo
 - **GIVEN** un turno bloccato su un permesso
 - **THEN** il turno SHALL restare fra quelli che lavorano e trattenere come prima
+
+### Requirement: RGATE-13 — Chi altro legge «LAVORA»: la card ferma su una persona, l'auto-land, il vacuum
+
+RGATE-12 dice che un turno fermo su una persona non lavora, e lo dice per ogni
+lettore del cancello, non solo per `GET /__daemon/idle`. Tre lettori leggevano
+ancora il conteggio vecchio, quello che nomina anche le domande aperte.
+
+**La card.** Un turno di card fermo su una domanda il cui bridge interroga ancora
+(`askStillPolled`, lo stesso registro di RGATE-12) NON SHALL contare come lavoro:
+`working` è falso e `workingBusy` non lo nomina, quindi `idle` risponde `true`. SHALL
+però restare in `cards`, e il riavvio lo rinvia come oggi. Non è la regola delle
+chat, e la differenza è la RIPRESA: una chat tagliata su una domanda non viene
+ripresa (`resumeVerdict`: aspettare una persona non è un'interruzione da
+riparare), mentre il dispatcher riprende subito una card tagliata a metà turno
+con il sollecito del turno interrotto, che non guarda se la sua domanda è ancora
+aperta. Il modello la ripone in un secondo pannello o va avanti senza la
+risposta, che arriva dopo come messaggio. Per questo il rinvio della card resta
+finché la ripresa non rispetterà una domanda aperta: è lavoro a parte, e quel
+giorno la card potrà uscire da `cards` come la chat.
+
+Una card il cui turno TORNA dopo il riavvio (claude-code sotto il broker, un
+turno nativo staccato) non è in `cards`, e si parcheggia come ogni chat. È il caso
+di fatto: su 459 card degli ultimi 30 giorni 28 hanno interpellato una persona,
+21 su claude-code e 7 sul nativo, nessuna su Codex né su ACP. Resta a cards solo
+una card il cui turno vive nel processo del server. Una card senza sessione, una
+domanda che nessuno interroga più e un permesso restano lavoro: il dubbio
+protegge il turno.
+
+**L'auto-land.** `autoLandTurnCount` SHALL non contare le chat ferme su una
+persona, né come stream né come turni del broker: la domanda sopravvive sulla
+riga, e il land di un diff del server aspettava per tutto il tempo in cui nessuno
+rispondeva, fino alle sue tre ore, e poi rinunciava. SHALL contare ogni stream che
+lavora e ogni card in `cards`, ferma o no: il cancello la rinvierebbe.
+
+**Il vacuum.** Il giro del vacuum incrementale SHALL leggere `workingBusy` e non
+`busy`: `busy` è la frase del riavvio e nomina le domande, quindi una domanda
+lasciata aperta di notte saltava ogni giro. Il vacuum libera pagine su disco e
+tiene il lock di scrittura per pochi millisecondi: gli serve sapere se qualcosa
+CALCOLA, non se un riavvio sarebbe trattenuto.
+
+#### Scenario: una card che non torna, ferma su una domanda
+- **GIVEN** un turno di card nel processo del server bloccato su una domanda senza risposta, il cui bridge interroga
+- **WHEN** arriva `GET /__daemon/idle`
+- **THEN** la risposta SHALL avere `idle: true`
+- **AND** il cancello SHALL contarla in `cards` e rinviare il riavvio, come oggi
+
+#### Scenario: un land e una card ferma
+- **GIVEN** la stessa card ferma e un land in corso
+- **THEN** `working` SHALL essere `true`: il land riscrive main e non aspetta nessuno
+
+#### Scenario: la domanda lasciata aperta di notte e il vacuum
+- **GIVEN** una chat e una card ferme su una domanda da ore, niente altro in volo, pagine libere nel database
+- **WHEN** parte il giro del vacuum incrementale
+- **THEN** SHALL liberare le pagine
+- **AND** con una chat che streamma SHALL fermarsi come prima
+
+#### Scenario: il land di un diff del server accanto a una domanda
+- **GIVEN** una chat ferma su una domanda e nient'altro
+- **THEN** il conteggio dell'auto-land SHALL essere zero
+- **AND** SHALL restare positivo con una chat che lavora, o con una card che non torna anche se ferma

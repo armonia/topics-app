@@ -3567,7 +3567,7 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     expect(notes).toHaveLength(0);
   });
 
-  it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {
+  it("nessuna sesta copia: il testo dei rami esiste solo in shared/board-base.ts", () => {
     // Il marcatore è una riga della costante. Chi riscrive la regola a mano in
     // un altro file la ricopia quasi certamente da qui — e questo test lo vede.
     const MARK = "· DIAGRAM .svg";
@@ -3584,7 +3584,7 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
       }
     };
     for (const r of roots) walk(join(repo, r));
-    expect(hits.sort()).toEqual(["server/services/task-dispatcher.test.ts", "shared/board.ts"]);
+    expect(hits.sort()).toEqual(["server/services/task-dispatcher.test.ts", "shared/board-base.ts"]);
   });
 });
 

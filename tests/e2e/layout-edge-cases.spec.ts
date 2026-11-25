@@ -50,7 +50,7 @@ async function seedAndLoad(page: Page, panelIds: string[], opts?: { gridRows?: u
   // 2. Set localStorage BEFORE the app loads so the client's initial state
   //    matches the server. The client reads openPanels and grid layout from
   //    localStorage on mount (before the server fetch completes).
-  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
   const gridData = {
     gridRows: opts?.gridRows ?? [],
     gridRowHeights: opts?.gridRowHeights ?? [],

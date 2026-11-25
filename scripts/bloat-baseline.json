@@ -293,7 +293,7 @@
   "tolerance_pct": 5,
   "max_lines": 800,
   "min_clone_lines": 20,
-  "duplicated_lines": 311,
+  "duplicated_lines": 290,
   "clone_groups": 11,
   "files": {
     "client/src/App.tsx": 1140,
@@ -428,9 +428,9 @@
 
     "client/src/ui/fixtures/nocera-org/knowledge.ts": 1114,
 
-    "client/src/ui/fixtures/sarim-org/cards.ts": 1648,
+    "client/src/ui/fixtures/orbit-org/cards.ts": 1648,
 
-    "client/src/ui/fixtures/sarim-org/knowledge.ts": 1045,
+    "client/src/ui/fixtures/orbit-org/knowledge.ts": 1045,
 
     "desktop-tauri/pty-bridge/src/bridge.rs": 1275,
 
@@ -601,6 +601,8 @@
 
     "server/routes/outbound.test.ts": 1049,
 
+    "server/routes/chat-handler.ts": 811,
+
     "server/routes/tasks-board.ts": 1605,
 
     "server/routes/tasks-land.ts": 917,
@@ -674,7 +676,6 @@
 
     "server/services/tasks.ts": 910,
 
-    "server/services/tasks/shared.ts": 2617,
 
     "server/services/tasks/status.ts": 1840,
 

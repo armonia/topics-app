@@ -10,7 +10,7 @@ export function ActorChip({ actor, copy }: { actor: ActorModel; copy: UiCopy }) 
   switch (actor.kind) {
     case 'trigger': return <Chip icon={Zap} strong>{copy.flows.trigger}</Chip>;
     case 'rule': return <Chip tone="blue" icon={Split} strong>{copy.flows.rule}</Chip>;
-    /* A named agent (the SARIM edition) is the robot with its name; otherwise the product's AI chip. */
+    /* A named agent (the ORBIT edition) is the robot with its name; otherwise the product's AI chip. */
     case 'ai': return actor.name ? <Chip tone="pink" icon={Bot} strong>{actor.name}</Chip> : <Chip tone="pink" icon={Sparkles} strong>{copy.common.ai}</Chip>;
     case 'person': return <Chip tone="amber" icon={User} strong>{copy.flows.person}</Chip>;
     case 'program': return <Chip tone={actor.tone ?? 'green'} icon={Link} strong>{actor.name}</Chip>;
