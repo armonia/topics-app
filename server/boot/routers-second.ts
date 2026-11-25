@@ -31,8 +31,14 @@ import { createTabsRouter } from "../routes/tabs";
 import { createViewsRouter } from "../routes/views";
 import { createProjectsRouter } from "../routes/projects";
 import { createWorktreesRouter } from "../routes/worktrees";
+import { createRegistrationDoor } from "./worktree-register-wiring";
+import { createRelocateService } from "./worktree-relocate-wiring";
+import { toPlanPayload } from "../services/worktree-plan-payload";
 import { createMachinesRouter } from "../routes/machines";
 import { createNodesRouter } from "../routes/nodes";
+import { createNodeWorktreesRouter } from "../routes/nodes-worktrees";
+import { createMachineWorktreesRouter } from "../routes/machine-worktrees";
+import { createWorktreeReportDeps } from "./worktree-node-wiring";
 import { createDelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 import { internalRequest, STOP_CAUSE_HEADER } from "../lib/abort-cause";
 import type { AfterTasksRouter } from "./scope";
@@ -190,6 +196,12 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
     // `worktreeGc` è costruito più sotto (dopo `taskAutoMerge`): questa closure
     // quindi la closure è valida anche se il router nasce prima.
     runGc: () => worktreeGc.runWorktreeGc(),
+    planGc: async ({ weigh }) => {
+      const plan = await worktreeGc.planWorktreeGc({ weigh });
+      return plan ? toPlanPayload(plan, (id) => ctx.projectStore.get(id)?.name ?? null) : null;
+    },
+    relocate: createRelocateService(ctx, worktreeGc),
+    registration: createRegistrationDoor(ctx),
   });
 
   // The ingress of a card mirrored from another machine (KANBAN-76). The DELETE
@@ -209,6 +221,12 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
     log: (message, error) => console.error(`[delegated-revoke] ${message}`, error),
   });
 
+  // The worktrees of every machine (worktree-standard T12): in the route table right before
+  // `machinesRouter` and `nodesRouter`, whose `/api/machines/:id` would claim the same paths.
+  const worktreeReports = createWorktreeReportDeps(ctx, { worktreeGc, nodeClient });
+  const machineWorktreesRouter = createMachineWorktreesRouter(ctx, worktreeReports.machine);
+  const nodeWorktreesRouter = createNodeWorktreesRouter(ctx, worktreeReports.node);
+
   const machinesRouter = createMachinesRouter(ctx, { revocations: delegatedRevocations });
 
   const nodesRouter = createNodesRouter(ctx, {
@@ -227,5 +245,5 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
-  return { agentChannelsRouter, agentConfigRouter, agentPermissionsRouter, agentsRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, memoryStoresRouter, scheduledJobsRouter, systemHealthRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, topicsCheckRouter, uiStateRouter, viewsRouter, worktreesRouter };
+  return { agentChannelsRouter, agentConfigRouter, agentPermissionsRouter, agentsRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machineWorktreesRouter, machinesRouter, memoryStoresRouter, scheduledJobsRouter, systemHealthRouter, nodeWorktreesRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, topicsCheckRouter, uiStateRouter, viewsRouter, worktreesRouter };
 }

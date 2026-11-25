@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+# topics-worktree: a worktree in Topics' standard place, for any tool or person.
+#
+#   topics-worktree add <repo path|project> [name]   create {root}/{slug}/{name}, print its path
+#   topics-worktree register <path>                  tell Topics about a worktree made elsewhere
+#   topics-worktree list                             the worktrees under the root
+#
+# The same library as the Claude Code worktree hook (claude-hooks/worktree-hook.sh):
+# the copy next to this script in a checkout of Topics, else the one the server
+# writes under ${TOPICS_HOME:-~/.topics}/claude-hooks/. `TOPICS_WORKTREE_CREATOR`
+# says which tool is asking (codex, jcode, muse, workflow; default adopted).
+set -u
+lib="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/claude-hooks/worktree-hook.sh"
+[ -r "$lib" ] || lib="${TOPICS_HOME:-$HOME/.topics}/claude-hooks/worktree-hook.sh"
+[ -r "$lib" ] || { echo "topics-worktree: worktree-hook.sh not found (start Topics once, it writes it)" >&2; exit 1; }
+case "${1:-}" in
+  add|register|list) exec sh "$lib" "$@" ;;
+  *) echo "usage: topics-worktree add <repo path|project> [name] | register <path> | list" >&2; exit 2 ;;
+esac

@@ -162,7 +162,10 @@ describe("Phase D · multi-machine", () => {
       fetchBundle: async () => { throw new Error("not in this test"); },
       cancelRun: async () => { throw new Error("not in this test"); },
       codingModels: async () => { throw new Error("not in this test"); },
-      readVersion: async () => null,
+      readVersion: async () => ({ version: null, worktreeStandard: false }),
+      worktreeSummary: async () => ({ summary: null }),
+      putWorktreePolicy: async () => { throw new Error("not in this test"); },
+      worktreeGc: async () => { throw new Error("not in this test"); },
     };
     ctx.nodeClient = fakeNode;
     const router = createMachinesRouter(ctx);
@@ -241,7 +244,10 @@ describe("Phase D · multi-machine", () => {
       fetchBundle: async () => { throw new Error("not in this test"); },
       cancelRun: async () => { throw new Error("not in this test"); },
       codingModels: async () => { throw new Error("not in this test"); },
-      readVersion: async () => null,
+      readVersion: async () => ({ version: null, worktreeStandard: false }),
+      worktreeSummary: async () => ({ summary: null }),
+      putWorktreePolicy: async () => { throw new Error("not in this test"); },
+      worktreeGc: async () => { throw new Error("not in this test"); },
     };
     const router = createMachinesRouter(ctx);
     const codes: string[] = [];

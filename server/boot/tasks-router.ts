@@ -23,6 +23,7 @@ import { getAppSettings, resolveOutputLanguage, resolveDiscordPresenceEnabled, r
 import { startDiscordPresence } from "../services/discord-presence";
 import { computePresenceCounts } from "../services/profile-stats";
 import { createNodeCheckWorktrees, nodeCheckRoot } from "../services/node-check-worktree";
+import { legacyNodeCheckRoot, sweepScratch } from "../services/worktree-scratch";
 import type { AfterPreviewDelivery } from "./scope";
 import { late } from "./late";
 
@@ -35,6 +36,15 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
   void nodeChecks.sweep()
     .then((gone) => { if (gone.length) console.warn(`[node-checks] ${gone.length} checkout lasciati dal processo prima, tolti: ${gone.map((p) => basename(p)).join(", ")}`); })
     .catch((err) => console.warn("[node-checks] spazzata d'avvio fallita", err));
+  // The other throwaway checkouts (land, realign, integration), and the node checks the
+  // layout before worktree-standard T2 left in $TMPDIR: nothing of this process is in
+  // flight yet, so whatever is there was cut by the previous one.
+  void sweepScratch(runGitCap)
+    .then((gone) => { if (gone.length) console.warn(`[scratch] ${gone.length} checkout lasciati dal processo prima, tolti: ${gone.map((p) => basename(p)).join(", ")}`); })
+    .catch((err) => console.warn("[scratch] spazzata d'avvio fallita", err));
+  void createNodeCheckWorktrees({ git: runGitCap, root: legacyNodeCheckRoot(), resolveHead: (cwd) => resolveCommit(cwd, "HEAD") }).sweep()
+    .then((gone) => { if (gone.length) console.warn(`[node-checks] ${gone.length} checkout del vecchio posto (temp), tolti`); })
+    .catch((err) => console.warn("[node-checks] spazzata del vecchio posto fallita", err));
   const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     scheduledCards,
     taskModelSnapshot: () => {
