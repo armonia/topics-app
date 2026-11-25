@@ -149,6 +149,32 @@ test.describe("@sidebar-tab-states tabs in the column: open, closed, archived", 
     await expect.poll(async () => (await fetchTopic(request, b.id))?.archived, { timeout: 10_000 }).toBe(true);
   });
 
+  test("a closed row under the pointer keeps no background, an open one keeps its own", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABPOS-02" });
+    // 25/11: the hover fill sat a shade above the open tabs' one, so a closed
+    // row under the pointer read as open (and WKWebView leaves a hover on).
+    const a = await createTopic(request, `Hover-A-${Date.now()}`);
+    const b = await createTopic(request, `Hover-B-${Date.now()}`);
+    made.push(a, b);
+    await openChats(request, [a, b]);
+    await openApp(page);
+
+    const ra = row(page, a.id);
+    const rb = row(page, b.id);
+    await rb.hover();
+    await rb.getByTestId("topic-row-close").click();
+    await expect(rb).toHaveAttribute("data-tab-state", "closed", { timeout: 10_000 });
+
+    const fillAlpha = (l: Locator): Promise<number> => l.evaluate((el) => {
+      const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g) ?? [];
+      return m.length >= 4 ? Number(m[3]) : m.length === 3 ? 1 : 0;
+    });
+    await rb.hover();
+    await expect.poll(() => fillAlpha(rb)).toBe(0);
+    await ra.hover();
+    await expect.poll(() => fillAlpha(ra)).toBeGreaterThan(0);
+  });
+
   test("a chat closed inside its project window stays under the project, not archived", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "TABPOS-02" });
     test.setTimeout(60_000);
