@@ -337,7 +337,11 @@ describe("GET /api/usage/projects/quota", () => {
     const ctx = { db, json: (b: unknown, status = 200) => Response.json(b, { status }), errorResponse: (s: number, m: string) => Response.json({ error: m }, { status: s }) } as never;
     const router = createUsageRouter(ctx);
     const req = new Request("http://x/api/usage/projects/quota");
-    const res = await router(req, new URL(req.url), "/api/usage/projects/quota", "GET");
+    // An empty home: the route lists the transcripts under it, and this machine's real ones are gigabytes.
+    const realHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(join(tmpdir(), "quota-home-"));
+    let res: Response | null;
+    try { res = await router(req, new URL(req.url), "/api/usage/projects/quota", "GET"); } finally { process.env.HOME = realHome; }
     expect(res!.status).toBe(200);
     const body = await res!.json() as { cachedAt: string; projects: Array<{ projectPath: string | null; limit: number | null }> };
     expect(typeof body.cachedAt).toBe("string");
