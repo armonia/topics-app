@@ -37,6 +37,15 @@ impl TlWindow for tauri::WebviewWindow {
 pub(crate) fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
     use crate::mac::*;
 
+    // AppKit answers only on the main thread; anywhere else it throws an
+    // NSException that aborts the whole app (see `window_detach`). Every caller
+    // runs there today, so one that does not is a bug: skip and log it instead
+    // of taking the app down with it.
+    if objc2::MainThreadMarker::new().is_none() {
+        eprintln!("[chrome] apply_traffic_lights called off the main thread: skipped");
+        return;
+    }
+
     let ptr = match window.tl_ns_window() {
         Ok(p) => p as id,
         Err(e) => {
@@ -1524,29 +1533,51 @@ pub(crate) async fn window_detach(
 
     #[cfg(target_os = "macos")]
     {
-        // Traffic lights hidden by default (revealed with the Topics menu, same
-        // as main), live-resize frost cover, and register this window's UI
-        // webview so the shortcut forwarder scopes ⌘W to it (never to main).
-        apply_traffic_lights(&win, false);
-        wire_live_resize_cover(&win);
-        register_ui_webview(&win, &label);
-        // Purge THIS window's vibrancy view/cover bookkeeping when it closes. The
-        // maps are keyed by NSWindow pointer; a detached window's address can be
-        // reused by a later window, so a stale entry left behind would hand the new
-        // window freed NSView pointers (setFrame on a dangling view → crash). The
-        // views are freed with the contentView, so we only drop the map entries.
-        if let Ok(p) = win.ns_window() {
-            let wkey = p as usize;
-            win.on_window_event(move |event| {
-                if matches!(event, tauri::WindowEvent::Destroyed) {
-                    vibrancy_views().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
-                    vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
-                    // Unregister this window's live-resize observer so NSNotificationCenter
-                    // stops holding the freed NSWindow pointer (dangling / address-reuse).
-                    unwire_live_resize_cover(wkey);
+        // Everything in this block is AppKit, and this async command runs on a
+        // tokio worker. Off the main thread AppKit throws an NSException, which
+        // Rust cannot catch: the app aborts without reaching the panic hook
+        // (2026-11-25, a pop-out opened by an agent's `request_login`).
+        // `window_detach_space` got this same cure on 2026-08-05. We wait for
+        // the main thread so the window is dressed before the command answers.
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let win_for_main = win.clone();
+        let label_for_main = label.clone();
+        app.run_on_main_thread(move || {
+            let _ = no_abort("window_detach", || {
+                let win = win_for_main;
+                let label = label_for_main;
+                // Traffic lights hidden by default (revealed with the Topics menu,
+                // same as main), live-resize frost cover, and register this
+                // window's UI webview so the shortcut forwarder scopes ⌘W to it
+                // (never to main).
+                apply_traffic_lights(&win, false);
+                wire_live_resize_cover(&win);
+                register_ui_webview(&win, &label);
+                // Purge THIS window's vibrancy view/cover bookkeeping when it closes.
+                // The maps are keyed by NSWindow pointer; a detached window's address
+                // can be reused by a later window, so a stale entry left behind would
+                // hand the new window freed NSView pointers (setFrame on a dangling
+                // view → crash). The views are freed with the contentView, so we only
+                // drop the map entries.
+                if let Ok(p) = win.ns_window() {
+                    let wkey = p as usize;
+                    win.on_window_event(move |event| {
+                        if matches!(event, tauri::WindowEvent::Destroyed) {
+                            vibrancy_views().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
+                            vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
+                            // Unregister this window's live-resize observer so
+                            // NSNotificationCenter stops holding the freed NSWindow
+                            // pointer (dangling / address-reuse).
+                            unwire_live_resize_cover(wkey);
+                        }
+                    });
                 }
+                Ok(())
             });
-        }
+            let _ = tx.send(());
+        })
+        .map_err(|e| format!("main thread: {e}"))?;
+        let _ = rx.recv();
     }
     Ok(label)
 }
@@ -1635,9 +1666,9 @@ pub(crate) async fn window_detach_space(
     // fa `window_detach`. Il 05/08/2026 quel percorso ha ucciso l'app:
     // SIGABRT su un `tokio-rt-worker` al primo "Sposta in una finestra"
     // (crash report: abort() da tre frame dentro il binario, sopra lo stack di
-    // tokio). Sono chiamate AppKit: fuori dal main thread non hanno garanzie, e
-    // un panic che risale attraverso il confine ObjC non può srotolare — il
-    // processo aborta invece di restituire un errore.
+    // tokio). Sono chiamate AppKit: fuori dal main thread lanciano una NSException,
+    // che Rust non sa catturare (nemmeno `no_abort`): il processo aborta senza
+    // passare dal panic hook. Lo ha rifatto `window_detach` il 25/11.
     //
     // Quindi: `run_on_main_thread` per costruire e vestire la finestra, e
     // `no_abort` attorno a tutto (stessa medicina di `window_focus_label` e dei
@@ -2146,5 +2177,36 @@ mod reveal_window_tests {
     #[test]
     fn nothing_to_raise_is_reported_not_guessed() {
         assert_eq!(window_to_reveal(&[]), None);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod traffic_lights_thread_tests {
+    use super::{apply_traffic_lights, TlWindow};
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// Records whether anything asked it for its NSWindow, which is the first
+    /// AppKit step `apply_traffic_lights` takes.
+    struct FakeWindow(AtomicBool);
+    impl TlWindow for FakeWindow {
+        fn tl_ns_window(&self) -> tauri::Result<*mut std::ffi::c_void> {
+            self.0.store(true, Ordering::SeqCst);
+            Ok(std::ptr::null_mut())
+        }
+        fn tl_is_fullscreen(&self) -> tauri::Result<bool> {
+            Ok(false)
+        }
+    }
+
+    // libtest runs every test on a spawned thread, never on the main one, so
+    // this is exactly the tokio-worker call that aborted the app on 2026-11-25.
+    #[test]
+    fn off_the_main_thread_appkit_is_never_reached() {
+        let win = FakeWindow(AtomicBool::new(false));
+        apply_traffic_lights(&win, false);
+        assert!(
+            !win.0.load(Ordering::SeqCst),
+            "apply_traffic_lights reached the NSWindow from a non-main thread"
+        );
     }
 }
