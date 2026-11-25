@@ -31,19 +31,31 @@
 # `.git/worktrees/<id>/topics-owner` (v2: creator, session, machine), lock
 # `claude-code:<session id>`. Remove writes the tag `archive/wt-<name>` on HEAD
 # first (with any uncommitted change on top of it) and removes nothing when the
-# tag does not read back.
+# tag does not read back, when HEAD has no commit yet but the folder holds
+# something, or when the lock names another session.
+#
+# ONE FOLDER, ONE SESSION. A name is claimed with `mkdir`, which is atomic: two
+# creates asking for the same name at once get two folders. A folder already
+# there is handed back only to the Claude Code session its lock names (a
+# resume); any other caller gets the next free suffix (`name-2`, `name-3`...), so
+# no session ever exits with the removal of another session's live folder.
 #
 # OWNERSHIP, THE GC'S ONLY PROOF. Inside the root every folder made here also
 # gets Topics' ledger entry, `{root}/.topics-owned/{slug}/{name}` (and the root
-# its sentinel `{root}/.topics-worktree-root`), written BEFORE `git worktree add`,
-# the same files `server/services/worktree-root-ledger.ts` writes for Topics' own
-# worktrees. Without it the cleanup only lists a folder: a checkout whose `.git`
-# went missing would stay forever, and one a person made by hand next to it must
-# never be moved. `register` writes the same proof for a checkout it is told
-# about inside the root; `remove` refuses a worktree that carries no proof at all.
+# its sentinel `{root}/.topics-worktree-root`), the same files
+# `server/services/worktree-root-ledger.ts` writes for Topics' own worktrees.
+# Without it the cleanup only lists a folder: a checkout whose `.git` went
+# missing would stay forever, and one a person made by hand next to it must
+# never be moved. So the entry is written only once `git worktree add` succeeded
+# and the lock holds: a hook killed halfway leaves no entry that a folder made
+# by hand under that name could pass for. `register` writes the same proof for
+# a checkout it is told about inside the root; `remove` refuses a worktree that
+# carries no proof at all.
 #
-# POSIX sh, git and curl; jq when present, sed otherwise. No path or name of a
-# person in here: everything comes from the environment or the server.
+# POSIX sh (macOS, Linux, Git Bash on Windows), git 2.17 or later (`worktree
+# remove`; no flag of a newer one) and curl; jq when present, sed otherwise.
+# No path or name of a person in here: everything comes from the environment
+# or the server.
 #   TOPICS_HOME            Topics' home (default ~/.topics): token and default root
 #   TOPICS_WORKTREES_DIR   the root when the server does not answer
 #   TOPICS_APP_URL         the server (default https://127.0.0.1:3333)
@@ -144,10 +156,12 @@ wt_native() {
 }
 
 # Git's common dir of the repository holding $1, physical. Fails outside a repo.
+# Git may print it relative to $1, so it is resolved from there:
+# `--path-format=absolute` would do it, but only from git 2.31 on.
 wt_common_dir() {
-  _c="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  _c="$(git -C "$1" rev-parse --git-common-dir 2>/dev/null)" || return 1
   [ -n "$_c" ] || return 1
-  wt_physical "$_c"
+  (cd "$1" 2>/dev/null && cd "$_c" 2>/dev/null && pwd -P)
 }
 
 # The main checkout of a common dir (`<repo>/.git` -> `<repo>`), empty for a bare one.
@@ -209,7 +223,16 @@ wt_is_worktree_of() {
   [ "$_o" = "$2" ]
 }
 
-wt_admin_dir() { git -C "$1" rev-parse --path-format=absolute --git-dir 2>/dev/null; }
+# The admin folder of the worktree at $1 (`<common>/worktrees/<id>`), physical,
+# resolved from $1 like the common dir.
+wt_admin_dir() {
+  _g="$(git -C "$1" rev-parse --git-dir 2>/dev/null)" || return 1
+  [ -n "$_g" ] || return 1
+  (cd "$1" 2>/dev/null && cd "$_g" 2>/dev/null && pwd -P)
+}
+
+# The lock reason in admin folder $1, one line. Only meaningful when `$1/locked` exists.
+wt_lock_reason() { tr -d '\r\n' < "$1/locked" 2>/dev/null; }
 
 wt_marker_creator() {
   _a="$(wt_admin_dir "$1")" || return 0
@@ -297,11 +320,54 @@ wt_copy_includes() { # src_top dst
 # Create: the one path shared by the hook and `topics-worktree add`.
 # ---------------------------------------------------------------------------
 
-# A failed `git worktree add`: with no folder left, its ledger entry would only
-# wait for somebody else's folder of the same name, so it goes too.
-wt_add_failed() {
-  [ -e "$1" ] || { _e="$(wt_owned_entry "$1")" && rm -f "$_e"; }
-  wt_die "git worktree add failed for $1"
+# The folder $1 is a worktree of common dir $2 that Claude Code session $3 made:
+# claude-code marker, and a lock naming that very session. Only then is it handed
+# back (a resume); a folder of another session is never shared.
+wt_held_by_session() { # path common session
+  [ -n "$3" ] || return 1
+  wt_is_worktree_of "$1" "$2" || return 1
+  [ "$(wt_marker_creator "$1")" = claude-code ] || return 1
+  _ha="$(wt_admin_dir "$1")" || return 1
+  [ -f "$_ha/locked" ] && [ "$(wt_lock_reason "$_ha")" = "claude-code:$3" ]
+}
+
+# `git worktree add` of the folder $2 on branch $3, for the repository at $1:
+# the branch when it exists, else a new one from the base ref. WT_MADE_BRANCH
+# says which: a rollback may delete only a branch this run made, never one that
+# was there before (it may carry somebody's unpushed commits).
+wt_add() { # cwd path branch
+  WT_MADE_BRANCH=""
+  if git -C "$1" rev-parse --verify --quiet "refs/heads/$3" >/dev/null 2>&1; then
+    git -C "$1" worktree add "$2" "$3" >&2
+  else
+    WT_MADE_BRANCH=1
+    git -C "$1" worktree add -b "$3" "$2" "$(wt_base_ref "$1")" >&2
+  fi
+}
+
+# A worktree of this hook's whose folder vanished without the remove hook (rm,
+# Finder) stays "missing but locked" for git, and its name with it, forever.
+# Its folder holds nothing left to lose, the commits stay on its branch: the
+# lock is lifted and the entry pruned, so the name can be made again. Only for
+# a `claude-code:` lock in an admin folder whose marker says claude-code; fails,
+# touching nothing, for anything else. $3 is the empty folder just claimed, so
+# the registered path resolves (git may store it relative to the admin folder).
+wt_lift_vanished() { # cwd common path
+  [ -e "$3/.git" ] && return 1
+  for _vg in "$2"/worktrees/*/gitdir; do
+    [ -f "$_vg" ] || continue
+    _va="$(dirname "$_vg")"
+    _vt="$(cd "$_va" 2>/dev/null && cd "$(dirname "$(tr -d '\r\n' < "$_vg")")" 2>/dev/null && pwd -P)" || continue
+    [ "$_vt" = "$3" ] || continue
+    [ -f "$_va/locked" ] && [ -r "$_va/topics-owner" ] || return 1
+    case "$(wt_lock_reason "$_va")" in claude-code:*) ;; *) return 1 ;; esac
+    [ "$(wt_json_field "$(cat "$_va/topics-owner")" creator)" = claude-code ] || return 1
+    wt_log "the claude-code worktree registered at $3 vanished: unlocking and pruning it"
+    git -C "$1" worktree unlock "$3" >/dev/null 2>&1 || return 1
+    git -C "$1" worktree prune >/dev/null 2>&1
+    return 0
+  done
+  return 1
 }
 
 # $1 cwd, $2 wanted name, $3 creator, $4 session id, $5 transcript. Prints the path.
@@ -325,35 +391,31 @@ wt_create() {
     _parent="$(wt_physical "$_main/.claude/worktrees")"
   fi
 
-  # A folder already there: reprinted when it is ours for this repository (the
-  # same name asked twice), otherwise the next free suffix.
-  _base="$_name"; _i=2
-  while [ -e "$_parent/$_name" ]; do
-    if wt_is_worktree_of "$_parent/$_name" "$_common" && [ "$(wt_marker_creator "$_parent/$_name")" = "$_creator" ]; then
-      wt_print_path "$_parent/$_name"
-      return 0
-    fi
-    _name="$_base-$_i"; _i=$((_i + 1))
-  done
-  _path="$_parent/$_name"
-  _branch="worktree-$_name"
-
-  # The proof the cleanup asks before it ever moves this folder, written before
-  # git touches the disk (the fallback under the repository is not a root).
-  if [ -n "$_owned_root" ]; then
-    wt_mark_owned "$_owned_root" "$WT_SLUG" "$_name" "$_creator" || wt_log "ledger entry not written for $_path"
-  fi
-
   # The post-checkout hook of the new worktree must not register it under
   # another creator before this script does.
   TOPICS_WORKTREE_REGISTER=skip
   export TOPICS_WORKTREE_REGISTER
-  if git -C "$_cwd" rev-parse --verify --quiet "refs/heads/$_branch" >/dev/null 2>&1; then
-    git -C "$_cwd" worktree add "$_path" "$_branch" >&2 || wt_add_failed "$_path"
-  else
-    _base_ref="$(wt_base_ref "$_cwd")"
-    git -C "$_cwd" worktree add -b "$_branch" "$_path" "$_base_ref" >&2 || wt_add_failed "$_path"
-  fi
+
+  # The name, claimed with `mkdir` (see the header): git takes the empty folder
+  # as its target. A folder already there goes back only to the Claude Code
+  # session its lock names; anything else takes the next free suffix.
+  _base="$_name"; _i=2
+  while :; do
+    _path="$_parent/$_name"
+    if mkdir "$_path" 2>/dev/null; then
+      wt_add "$_cwd" "$_path" "worktree-$_name" && break
+      wt_lift_vanished "$_cwd" "$_common" "$_path" && wt_add "$_cwd" "$_path" "worktree-$_name" && break
+      rmdir "$_path" 2>/dev/null
+      wt_die "git worktree add failed for $_path"
+    fi
+    [ -e "$_path" ] || wt_die "cannot create $_path"
+    if [ "$_creator" = claude-code ] && wt_held_by_session "$_path" "$_common" "$_sid"; then
+      wt_print_path "$_path"
+      return 0
+    fi
+    _name="$_base-$_i"; _i=$((_i + 1))
+  done
+  _branch="worktree-$_name"
 
   _top="$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null)"
   [ -n "$_top" ] && wt_copy_includes "$_top" "$_path"
@@ -363,9 +425,14 @@ wt_create() {
   if [ "$_creator" = "claude-code" ]; then
     if ! git -C "$_cwd" worktree lock --reason "claude-code:${_sid:-unknown}" "$_path" >&2; then
       git -C "$_cwd" worktree remove --force "$_path" >/dev/null 2>&1
-      git -C "$_cwd" branch -D "$_branch" >/dev/null 2>&1
+      [ -n "$WT_MADE_BRANCH" ] && git -C "$_cwd" branch -D "$_branch" >/dev/null 2>&1
       wt_die "could not lock $_path: removed the half-made worktree"
     fi
+  fi
+  # The proof the cleanup asks before it ever moves this folder, only now that
+  # the checkout exists and holds (the fallback under the repository is not a root).
+  if [ -n "$_owned_root" ]; then
+    wt_mark_owned "$_owned_root" "$WT_SLUG" "$_name" "$_creator" || wt_log "ledger entry not written for $_path"
   fi
   wt_register "$_path" "$_creator" "$_sid" "$_tr" "$_branch" "$_name" >/dev/null 2>&1 \
     || wt_log "Topics did not answer: the cleanup registers $_path on its own"
@@ -405,8 +472,8 @@ wt_snapshot() { # path head
     commit-tree "$_st" -p "$2" -m "worktree removed with uncommitted changes" 2>/dev/null
 }
 
-wt_remove() { # path
-  _p="$1"
+wt_remove() { # path session_id
+  _p="$1"; _sid="$2"
   [ -n "$_p" ] || return 0
   if [ ! -e "$_p" ]; then wt_unregister "$_p"; return 0; fi
   [ -d "$_p/.git" ] && wt_die "refusing: $_p is a main checkout"
@@ -414,10 +481,14 @@ wt_remove() { # path
   _p="$(wt_physical "$_p")"
   _common="$(wt_common_dir "$_p")" || wt_die "cannot read the repository of $_p"
   _admin="$(wt_admin_dir "$_p")" || wt_die "cannot read the admin folder of $_p"
+  # The hook's lock is lifted only by the session it names: the folder of a
+  # session still at work is never removed because another one exits.
   if [ -f "$_admin/locked" ]; then
-    case "$(cat "$_admin/locked")" in
-      claude-code:*) ;;
-      *) wt_die "refusing: $_p is locked by somebody else ($(cat "$_admin/locked"))" ;;
+    _lock="$(wt_lock_reason "$_admin")"
+    case "$_lock" in
+      "claude-code:${_sid:-unknown}") ;;
+      claude-code:*) wt_die "refusing: $_p belongs to another Claude Code session ($_lock)" ;;
+      *) wt_die "refusing: $_p is locked by somebody else ($_lock)" ;;
     esac
   fi
   # Nothing reaches deletion without Topics' proof: the owner marker a creator
@@ -434,6 +505,12 @@ wt_remove() { # path
     _tag="$(wt_archive_tag "$_common" "$(wt_sanitize_name "$(basename "$_p")")" "$_keep")" \
       || wt_die "archive tag not written for $_p: nothing removed"
     wt_log "archived $_keep as $_tag"
+  else
+    # No commit yet (`git checkout --orphan`): nothing to archive on, so anything
+    # in the index or the folder, ignored files included, would go unarchived.
+    _unborn="$(git -C "$_p" status --porcelain --ignored 2>/dev/null)" \
+      || wt_die "cannot read the state of $_p: nothing removed"
+    [ -z "$_unborn" ] || wt_die "$_p has no commit yet and holds files that cannot be archived: nothing removed"
   fi
   wt_git_repo "$_common" worktree unlock "$_p" >/dev/null 2>&1
   wt_git_repo "$_common" worktree remove --force "$_p" >&2
@@ -524,7 +601,7 @@ wt_main() {
       ;;
     remove)
       _in="$(cat)"
-      wt_remove "$(wt_json_field "$_in" worktree_path)"
+      wt_remove "$(wt_json_field "$_in" worktree_path)" "$(wt_json_field "$_in" session_id)"
       ;;
     add) wt_cmd_add "$@" ;;
     register) wt_cmd_register "$@" ;;
