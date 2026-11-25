@@ -6,6 +6,7 @@ import { getMediaUrl } from '../../lib/api';
 import { isVideoPath, isPreviewablePath } from '../../lib/mediaKind';
 import { EvidenceViewer } from './EvidenceViewer';
 import { buildEvidenceSlides } from './taskMedia';
+import { preloadBesideEdge } from './useScrollEdges';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 
 /**
@@ -338,6 +339,7 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
     />
   ) : (
     <img
+      ref={variant === 'card' ? preloadBesideEdge : undefined}
       src={url}
       alt={expandable ? tr('board.preview.deliveryAlt') : ''}
       loading="lazy"
