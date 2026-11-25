@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  SIDEBAR_INDENT_STEP, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, SECTION_H, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sidebarRowCard,
+  SIDEBAR_INDENT_STEP, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sectionCard, sectionIsland, sidebarRowCard,
 } from './selectionStyles';
 
 /**
@@ -159,20 +159,37 @@ describe('le due famiglie di altezza, e le tre misure interne', () => {
     // usavano `gap-2`: la costante era in minoranza rispetto ai suoi clienti.
     expect(risolvi(ROW_GAP, 'gap')).toEqual({ wide: 8, compact: 8 });
     expect(SECTION_CARD).toContain(ROW_GAP);
-    expect(SECTION_CARD).toContain(SECTION_H);
+    expect(SECTION_CARD).toContain(ROW_H);
     expect(SECTION_CARD).toContain(ROW_PX);
   });
 
-  test("l'intestazione di sezione prende un numero da ciascuna famiglia", () => {
-    // E i due vengono da due VINCOLI diversi, non da due gusti (vedi SECTION_H):
-    //  · col mouse è una card a una riga sola → la misura di CARD_H;
-    //  · col dito è un bersaglio in una colonna → la misura di ROW_H, cioè i
-    //    44px del minimo iOS. `SECTION_CARD` stava a 36: otto sotto la soglia,
-    //    ed era l'unica cosa premibile in quella colonna a esserlo.
-    const sezione = risolvi(SECTION_H, 'h');
-    expect(sezione.wide).toBe(risolvi(CARD_H, 'h').wide);
-    expect(sezione.compact).toBe(risolvi(ROW_H, 'h').compact);
-    expect(sezione.compact).toBe(44);
+  test("a section's header is as tall as a row, the touch floor included", () => {
+    // 25/11: the island headers with the tabs' heights and spacings. They used
+    // to take 28 with the mouse from CARD_H; facing the column's rows at 34,
+    // the same column read as two measures.
+    const heights = SECTION_CARD.split(/\s+/).filter((c) => /^(?:md:|coarse:)?h-/.test(c));
+    expect(heights.join(' ')).toBe(ROW_H);
+    expect(heights).toContain('coarse:h-11');
+    // No margin of its own: the island carries the inset, a row's 6px.
+    expect(SECTION_CARD).not.toMatch(/(?:^|\s)m-\d/);
+  });
+
+  test('no ground at rest: a closed section and a row that is not a tab paint nothing', () => {
+    // 25/11: "if not active in some way, no background, as the tabs should
+    // already do". A class that paints at rest starts with `bg-` or carries a
+    // width variant of it (`max-md:bg-`); hover and dark variants are not rest.
+    const atRest = (cls: string) => cls.split(/\s+/).filter((c) => /^(?:max-md:|md:)?bg-/.test(c));
+    expect(atRest(sectionCard(false))).toEqual([]);
+    expect(atRest(sectionIsland(false))).toEqual([]);
+    expect(sectionIsland(false)).not.toContain('edge-lit');
+    expect(atRest(sidebarRowCard({}))).toEqual([]);
+    expect(atRest(sidebarRowCard({ tab: 'closed' }))).toEqual([]);
+    // Open, the island is the card, with the open tabs' resting ground.
+    expect(atRest(sectionIsland(true))).toEqual(['bg-black/[0.05]']);
+    expect(sectionIsland(true)).toContain('edge-lit');
+    // The pointer: a closed header lights its ink, an open one takes the rows' hover.
+    expect(sectionCard(false)).not.toContain('hover:bg-');
+    expect(sectionCard(true)).toContain('hover:bg-black/[0.05]');
   });
 
   test("l'aria DENTRO non è quella FRA: due domande, due numeri", () => {

@@ -245,7 +245,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
     });
   });
 
-  test("la riga «File» chiusa ha il suo bordo, e Processi si apre su qualcosa", async ({ page, request }) => {
+  test("la riga «File» chiusa è una riga senza fondo, e Processi si apre su qualcosa", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "PRAIL-01" });
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
@@ -256,28 +256,29 @@ test.describe("sidebar progetto: la rail collassata", () => {
     const win = page.locator(`[data-testid="project-window"][data-project-path="${PROJ}"]`);
     await expect(win).toHaveCount(1, { timeout: 15000 });
 
-    // «File» chiusa deve leggersi come una riga, non come un titolo sospeso sul
-    // vuoto. Ci arrivava con un `border-b` che compariva solo da chiusa; ora ci
-    // arriva perche' E' UNA CARD — fondo suo, angoli, rientro — in tutti e due
-    // gli stati. «Gli accordion della sidebar progetto diventano delle card,
-    // come le tab» (Attilio, 09/08), e fra card impilate una linea ripete cio'
-    // che fondo e distanza dicono gia'.
+    // A closed "File" is a row like a closed tab (25/11: no background unless
+    // it is active in some way): no ground of its own at rest, the island
+    // around it carries the inset, and no line under it. Read with the pointer
+    // parked off it, colours settled: under the pointer it lights its ink.
     const filesRow = win.locator('[data-testid="project-sidebar-files"]');
     await expect(filesRow).toBeVisible({ timeout: 10000 });
-    await filesRow.click();
-    const card = await filesRow.evaluate((el) => {
+    if ((await filesRow.getAttribute("aria-expanded")) === "true") await filesRow.click();
+    await expect(filesRow).toHaveAttribute("aria-expanded", "false");
+    await page.mouse.move(900, 500);
+    const read = () => filesRow.evaluate((el) => {
       const cs = getComputedStyle(el);
+      const island = el.closest("[data-section-island]");
       return {
         fondo: cs.backgroundColor,
+        fondoIsola: island ? getComputedStyle(island).backgroundColor : "none",
         raggio: cs.borderRadius,
-        rientro: parseFloat(cs.marginLeft),
+        rientro: island ? parseFloat(getComputedStyle(island).marginLeft) : 0,
         bordoSotto: parseFloat(cs.borderBottomWidth) || 0,
       };
     });
-    expect(card.fondo, "da chiusa la riga ha un fondo suo").not.toMatch(/rgba\(0, 0, 0, 0\)/);
-    expect(card.raggio, "ed e' arrotondata come una tab").not.toBe("0px");
-    expect(card.rientro, "ed e' rientrata dai lati come ogni altra card").toBeGreaterThan(0);
-    expect(card.bordoSotto, "e NON ha piu' una linea sotto").toBe(0);
+    await expect.poll(read, { timeout: 5000 }).toEqual({
+      fondo: "rgba(0, 0, 0, 0)", fondoIsola: "rgba(0, 0, 0, 0)", raggio: "8px", rientro: 6, bordoSotto: 0,
+    });
 
     // Aprire «Processi» deve mostrare qualcosa. L'altezza e in pixel e viene
     // salvata: strizzata all'altezza dell'intestazione, la sezione si apriva su

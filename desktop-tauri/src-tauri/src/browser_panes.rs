@@ -983,17 +983,35 @@ pub(crate) fn window_corner_radius() -> f64 {
     if major >= 26 { 16.0 } else { 10.0 }
 }
 
-#[cfg(target_os = "macos")]
-pub(crate) fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f64, h: f64, win_w: f64, win_h: f64, card_radius: f64) {
-    // Attilio's final ruling (2026-07-03): the webview rounds ONLY where it
-    // meets a WINDOW corner — never its own card corners mid-screen. "Meets"
-    // must be tolerant: dividers/insets leave panes a few px short of the
-    // edge, floating cards keep a ~12px margin, and ANY pane closer to the
-    // corner than the window radius still pokes past the window's arc (the
-    // native view is NOT clipped by the window shape). 2px missed real
-    // corners in the tiled layout (square overhang at the window corner).
-    let _ = card_radius; // kept in the invoke contract; eps no longer keys on it
-    let eps: f64 = window_corner_radius() + 2.0;
+/// Which corners of a native page round, and to what radius (points). Pure, so
+/// the rule is tested without a window.
+///
+/// Two regimes:
+/// - **Island** (`card`, 25/11 «Isola, 4 angoli»): the client draws the page as
+///   a card off the window's edges, like the column's islands, and declares its
+///   radius (`data-native-card-radius`). All four corners round to it: the card
+///   is the shape, wherever it sits.
+/// - **Otherwise** Attilio's ruling of 2026-07-03 stands: the webview rounds ONLY
+///   where it meets a WINDOW corner, never its own corners mid-screen. "Meets"
+///   is tolerant: dividers/insets leave panes a few px short of the edge, and
+///   ANY pane closer to the corner than the window radius still pokes past the
+///   window's arc (the native view is NOT clipped by the window shape).
+///
+/// Returns the 4-bit visual code (tl | tr<<1 | bl<<2 | br<<3) and the radius.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub(crate) fn corner_plan(
+    rect: (f64, f64, f64, f64),
+    win: (f64, f64),
+    window_radius: f64,
+    card_radius: f64,
+    card: bool,
+) -> (u8, f64) {
+    if card && card_radius > 0.0 {
+        return (0b1111, card_radius);
+    }
+    let (x, y, w, h) = rect;
+    let (win_w, win_h) = win;
+    let eps: f64 = window_radius + 2.0;
     let flush_left = x <= eps;
     let flush_top = y <= eps;
     let flush_right = win_w > 0.0 && (x + w) >= (win_w - eps);
@@ -1002,11 +1020,17 @@ pub(crate) fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y
     let tr = flush_right && flush_top;
     let bl = flush_left && flush_bottom;
     let br = flush_right && flush_bottom;
-    let radius = window_corner_radius();
+    let visual = (tl as u8) | ((tr as u8) << 1) | ((bl as u8) << 2) | ((br as u8) << 3);
+    (visual, window_radius)
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f64, h: f64, win_w: f64, win_h: f64, card_radius: f64, card: bool) {
+    let (visual, radius) = corner_plan((x, y, w, h), (win_w, win_h), window_corner_radius(), card_radius, card);
+    let (tl, tr, bl, br) = (visual & 1 != 0, visual & 2 != 0, visual & 4 != 0, visual & 8 != 0);
     // Skip the (main-thread) objc round-trip when the corner state is unchanged
     // for this pane — the common case on every drag frame after the first.
-    let visual: u8 = (tl as u8) | ((tr as u8) << 1) | ((bl as u8) << 2) | ((br as u8) << 3);
-    let radius_key: u16 = 0;
+    let radius_key: u16 = (radius * 4.0).round() as u16;
     {
         let mut g = match browser_corner_cache().lock() {
             Ok(g) => g,
@@ -1093,8 +1117,7 @@ pub(crate) fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y
             let mback: u64 = msg_send![layer, maskedCorners];
             let clips: bool = msg_send![layer, masksToBounds];
             eprintln!(
-                "[corner-mask] flush(l{} t{} r{} b{}) tl{} tr{} bl{} br{} flipped={} mask={} -> radius={} maskedBack={} clips={}",
-                flush_left as u8, flush_top as u8, flush_right as u8, flush_bottom as u8,
+                "[corner-mask] tl{} tr{} bl{} br{} flipped={} mask={} -> radius={} maskedBack={} clips={}",
                 tl as u8, tr as u8, bl as u8, br as u8, flipped as u8, mask, rback, mback, clips != NO
             );
             // Hierarchy dump: WHERE does WKWebView's content actually render?
@@ -1469,7 +1492,9 @@ pub(crate) fn browser_open_inner(
         #[cfg(target_os = "windows")]
         let known = wv.url().ok().map(|u| u.to_string()).or_else(|| last_pane_url(&label));
         let current = reused_view_url(known, &url);
-        browser_set_bounds(app, id, x, y, width, height, None)?;
+        // No radius and no island here: the client sends both with its next
+        // bounds, as it always did for the radius.
+        browser_set_bounds(app, id, x, y, width, height, None, None)?;
         return Ok(BrowserOpenAnswer { reused: true, url: current });
     }
     // Parenta la webview alla finestra che OSPITA la pane, non a `main` per
@@ -1774,7 +1799,7 @@ pub(crate) fn browser_open_inner(
         install_nav_state_observer(&wv, &id);
         if let Some((win_w, win_h)) = webview_window_logical_size(&wv) {
             // Card radius unknown at create; the client's first bounds push carries it.
-            apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h, 0.0);
+            apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h, 0.0, false);
         }
     }
     Ok(BrowserOpenAnswer { reused: false, url })
@@ -1806,6 +1831,7 @@ pub(crate) fn browser_navigate_inner(app: tauri::AppHandle, id: String, url: Str
 /// way so HTML overlays show through.
 // ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: layer geometry on WKWebView, plain bounds elsewhere.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn browser_set_bounds(
     app: tauri::AppHandle,
     id: String,
@@ -1816,9 +1842,12 @@ pub(crate) fn browser_set_bounds(
     // Rounded-card radius of the HOST pane (floating-splits cards) — 0/absent =
     // square unless window-flush. Optional so older bundles keep working.
     radius: Option<f64>,
+    // The page is an island (see `corner_plan`): round all four corners to
+    // `radius`. Absent from older bundles, which keep the window-corner rule.
+    card: Option<bool>,
 ) -> Result<(), String> {
     no_abort("browser_set_bounds", move || {
-        browser_set_bounds_inner(app, id, x, y, width, height, radius)
+        browser_set_bounds_inner(app, id, x, y, width, height, radius, card.unwrap_or(false))
     })
 }
 
@@ -1832,6 +1861,7 @@ pub(crate) fn coming_on_screen(prev: Option<(f64, f64, f64, f64)>, next: (f64, f
     next_visible && prev.map_or(true, |p| p.0 <= PARKED_X_THRESHOLD)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn browser_set_bounds_inner(
     app: tauri::AppHandle,
     id: String,
@@ -1840,6 +1870,7 @@ pub(crate) fn browser_set_bounds_inner(
     width: f64,
     height: f64,
     radius: Option<f64>,
+    card: bool,
 ) -> Result<(), String> {
     use tauri::Manager;
     let wv = app
@@ -1880,10 +1911,10 @@ pub(crate) fn browser_set_bounds_inner(
     // when the flush state actually changes (not every drag frame). See apply_browser_corner_mask.
     #[cfg(target_os = "macos")]
     if let Some((win_w, win_h)) = webview_window_logical_size(&wv) {
-        apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h, radius.unwrap_or(0.0));
+        apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h, radius.unwrap_or(0.0), card);
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = radius;
+    let _ = (radius, card);
     Ok(())
 }
 
@@ -1980,12 +2011,14 @@ pub(crate) fn browser_animate_bounds(
     duration_ms: f64,
     timing: [f64; 4],
     radius: Option<f64>,
+    // Same as `browser_set_bounds`: the page is an island.
+    card: Option<bool>,
 ) -> Result<(), String> {
     no_abort("browser_animate_bounds", move || {
         #[cfg(target_os = "macos")]
         let anim_app = app.clone();
         // Commit the final frame first (model value, cache, corner mask).
-        browser_set_bounds_inner(app, id.clone(), x, y, width, height, radius)?;
+        browser_set_bounds_inner(app, id.clone(), x, y, width, height, radius, card.unwrap_or(false))?;
         #[cfg(target_os = "macos")]
         if from_dx.abs() >= 1.0 && duration_ms > 0.0 {
             use tauri::Manager;
@@ -5614,5 +5647,37 @@ mod repaint_nudge_tests {
         assert!(!coming_on_screen(Some(on), (10.0, 20.0, 900.0, 600.0)));
         assert!(!coming_on_screen(Some(on), parked));
         assert!(!coming_on_screen(None, parked));
+    }
+}
+
+#[cfg(test)]
+mod corner_plan_tests {
+    use super::corner_plan;
+
+    const WIN: (f64, f64) = (1720.0, 1410.0);
+
+    /// 25/11: the island page rounds all four corners to its own radius,
+    /// wherever it sits — the inner ones beside the column included.
+    #[test]
+    fn un_isola_arrotonda_i_quattro_angoli_al_suo_raggio() {
+        let island = (634.0, 46.0, 1080.0, 1358.0);
+        assert_eq!(corner_plan(island, WIN, 16.0, 10.0, true), (0b1111, 10.0));
+    }
+
+    /// Without the island signal the ruling of July stands: only the corner
+    /// that meets the window's rounds, to the window's radius.
+    #[test]
+    fn senza_isola_solo_l_angolo_della_finestra() {
+        let slab = (628.0, 40.0, 1092.0, 1370.0);
+        assert_eq!(corner_plan(slab, WIN, 16.0, 0.0, false), (0b1000, 16.0));
+        // A floating card declares a radius but no island: still the window rule.
+        assert_eq!(corner_plan(slab, WIN, 16.0, 10.0, false), (0b1000, 16.0));
+    }
+
+    /// An island with no radius declared is not an island.
+    #[test]
+    fn un_isola_senza_raggio_resta_alla_regola_della_finestra() {
+        let mid = (400.0, 300.0, 200.0, 200.0);
+        assert_eq!(corner_plan(mid, WIN, 16.0, 0.0, true), (0, 16.0));
     }
 }
