@@ -2,7 +2,20 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.102 — 2026-11-25
+
+### Sotto il cofano
+- Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle
+
 ## 2.4.101 — 2026-11-25
+
+### Novità
+- **main-ci** · red-main cards carry a fixed recipe and run on Sonnet
+- **native** · skip a spent account until its reset and retry the turn on the next one
+
+### Correzioni
+- **tests** · run gate-coverage and native-shutdown-notice tests serially
+- **worktrees** · no reap, prune or remove loses work the review found exposed
 
 ### Sotto il cofano
 - Disk budget: fix deadcode-prod/untraced-tests gates, make legacy transcript readers gz-aware
@@ -11,12 +24,24 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Correzioni
 - **sidebar** · a project's tabs show open or closed, and a row opens its own sub-agents
+- **worktree-gc** · judge other tools' fresh rows, lift vanished hook locks, keep git off live sessions
+- **worktree-hook** · one folder per session, atomic name claim, nothing lost on failure
+
+### Sotto il cofano
+- **e2e** · the hand-made land removes a locked worktree the way the reap does
+- drop the spec-flow 0.7.0 intersections step until 0.7.0 is published
 
 ## 2.4.99 — 2026-11-25
 
 ### Correzioni
+- **worktrees** · judge what a folder holds now, and never reap what Topics cannot prove it made
+- **worktrees** · every cross-node and cross-tool door leaves Topics' proof, and nothing is removed without it
 - **split** · count the cells on screen, not the ones the layout remembers
 - **sidebar** · a closed row takes no fill under the pointer
+- **worktrees** · a Topics worktree whose HEAD left its branch is judged by HEAD
+
+### Sotto il cofano
+- dup: keep main's baseline; the lowered one was measured on this Mac, where jscpd counts 360 lines fewer than CI
 
 ## 2.4.98 — 2026-11-24
 
@@ -33,12 +58,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **split** · a narrow cell's empty field stays one line
 - **split** · a closed row dropped on the centre of the pool opens there
 - **split** · keep the lights inset line and count the project row's map
+- **worktrees** · the GC moves only what Topics proves it made, into a quarantine
 
 ### Sotto il cofano
 - **split** · the split redesign change, from what is measured broken today
 - **split** · American names the identifier gate knows, ceilings follow PanelGrid down
 - **split** · the seven split scenarios, done the way a person does them
 - **split** · the change is done, its seven requirements join the layout spec
+- Cancelli rossi della PR cross-nodo: lint del server, codice morto e l'intreccio senza prova
+- Hook di Claude Code: il token non sta più negli argomenti di curl
+- the project-family backfill script is a manual entry point
 - **split** · the narrow-cell check waits on frames and the divider, not on the clock
 - **split** · the narrow-cell scenario is SPLIT-03b
 - **split** · hand the focus to a divider after the last chat took it
@@ -52,8 +81,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **sidebar** · three states inside project windows, gates green, suite on the old layout
 
 ### Sotto il cofano
+- Hook dei worktree: la rimozione archivia anche il lavoro non committato
+- Porta di registrazione: il GC non cancella più rami e checkout altrui
+- Cancelli rossi del ramo: nomi non inglesi e git senza ambiente isolato
+- Prova del ramo cross-nodo: e2e delle impostazioni, sonda con il vero Claude Code, tipi dei finti
 - an open row's circle closes its tab, the stop test and the target-size audit read it
 - Le anteprime accanto al bordo sfumato si caricano da sole: Chromium perde la distanza di caricamento pigro sotto la maschera della riga, e la card saltava di altezza al primo swipe (board-preview-cap rosso 4 su 4)
+- Rimette verdi i rossi della PR dei worktree standard
 
 ## 2.4.96 — 2026-11-24
 
@@ -66,7 +100,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Rossi della CI: celle contate dopo il resize, due any arrivati da main
 - name the requirement the keyed listener registry test covers
 - Rossi ereditati da main: requisito del registro di ascolto, parole fuori dizionario
+- Standard dei worktree e progetti accorpati
 - keep the live AI bridge out of the suite
+- Porta di registrazione dei worktree e regole di percorso per Windows
+- Hook dei worktree di Claude Code e porta per gli altri strumenti
+- Worktree di ogni macchina: il nodo riferisce, il primario manda la policy
+- Hook dei worktree di Claude Code: i file della traccia, separati da T12
+- Intrecci fra funzionalita': ogni incontro dichiarato ha una prova che li nomina tutti e due
 
 ## 2.4.95 — 2026-11-24
 
