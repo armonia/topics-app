@@ -4,6 +4,7 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { unmockChatStream } from "./helpers/sse-helpers";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -35,7 +36,7 @@ hermetic(test);
  *
  * @covers CMD-01
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 test.describe("Escape non ammazza il turno se c'è un modale aperto", () => {
   let topicId: string;

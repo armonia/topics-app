@@ -33,9 +33,10 @@ import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { openProfileMenu } from "./helpers/open-perf-panel";
 import { openHomePanel, openUserMenuLevel } from "./helpers/user-menu";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 type Snapshot = { providers: Array<Record<string, unknown> & { name: string }>; defaultProvider: string | null };
 
