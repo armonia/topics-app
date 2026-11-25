@@ -335,9 +335,9 @@
 
     "client/src/components/Layout/PaneTabBar.tsx": 1718,
 
-    "client/src/components/Layout/PanelGrid.tsx": 2931,
+    "client/src/components/Layout/PanelGrid.tsx": 2944,
 
-    "client/src/components/Layout/StandaloneChatGroup.tsx": 1275,
+    "client/src/components/Layout/StandaloneChatGroup.tsx": 1277,
 
     "client/src/components/Layout/hooks/usePaneOrdering.ts": 820,
 
@@ -360,9 +360,9 @@
 
     "client/src/components/Shared/ModelSelector/ModelList.tsx": 811,
 
-    "client/src/components/Sidebar/PinnedTiles.tsx": 1215,
+    "client/src/components/Sidebar/PinnedTiles.tsx": 1207,
 
-    "client/src/components/Sidebar/TopicTree.tsx": 3283,
+    "client/src/components/Sidebar/TopicTree.tsx": 3290,
 
     "client/src/components/Terminal/SingleTerminalPane.tsx": 1620,
 
@@ -403,7 +403,7 @@
       ]
     },
 
-    "client/src/lib/selectionStyles.ts": 1167,
+    "client/src/lib/selectionStyles.ts": 1171,
 
     "client/src/lib/tabLink.test.ts": 1016,
 
@@ -687,13 +687,6 @@
     "server/utils.ts": 1459,
 
     "shared/board.test.ts": 1313,
-
-    "shared/board.ts": {
-      "lines": 2717,
-      "why": [
-        "2026-10-30, overflow dispatch (card 6d60b323): 2624 on main -> 2637, +13 the board's overflow switch and its \"this Mac only\" mark (dispatchOverflow, dispatchStayLocal), documented where every other board setting is."
-      ]
-    },
 
     "shared/relay-protocol.ts": 1098,
 
