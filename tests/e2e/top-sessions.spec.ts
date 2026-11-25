@@ -30,8 +30,8 @@ const session = (id: string, title: string, over: Partial<TopSession>): TopSessi
 const FIXTURE: TopSessionsResult = {
   generatedAt: new Date().toISOString(),
   sessions: [
-    session("11111111-aaaa", "Cloud simulation", { weekShare: 0.76, origin: "desktop", openMs: 52 * 3_600_000, avgContext: 273_000, dominatesProject: true, hog: true }),
-    session("22222222-bbbb", "Checkout fix", { origin: "cli", model: "claude-sonnet-4", weekShare: 0.1 }),
+    session("11111111-aaaa", "Landing page redesign", { weekShare: 0.76, origin: "desktop", openMs: 52 * 3_600_000, avgContext: 273_000, dominatesProject: true, hog: true }),
+    session("22222222-bbbb", "Checkout payment fix", { origin: "cli", model: "claude-sonnet-4", weekShare: 0.1 }),
   ],
 };
 
@@ -52,7 +52,7 @@ for (const width of [375, 1440]) {
     await expect(section).toBeVisible({ timeout: 30_000 });
     const rows = section.getByTestId("top-session-row");
     await expect(rows).toHaveCount(2);
-    await expect(rows.first()).toContainText("Cloud simulation");
+    await expect(rows.first()).toContainText("Landing page redesign");
     await expect(rows.first()).toContainText("76%");
     await expect(rows.first()).toContainText("opus");
     await expect(rows.first()).toContainText("273k");
@@ -61,7 +61,10 @@ for (const width of [375, 1440]) {
     // only the dominating session carries the badge
     await expect(section.getByTestId("top-session-badge")).toHaveCount(1);
     await expect(rows.first().getByTestId("top-session-badge")).toBeVisible();
-    await page.screenshot({ path: `test-results/top-sessions-${width}.png` });
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await section.screenshot({ path: `test-results/top-sessions-${width}-${scheme}.png` });
+    }
   });
 }
 
