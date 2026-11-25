@@ -1,3 +1,6 @@
+/**
+ * @covers SYSTEM-DISK-01
+ */
 import { describe, expect, test } from "bun:test";
 import { expiredMediaFiles, mediaRetentionDays, type MediaFileStat } from "./media-retention";
 

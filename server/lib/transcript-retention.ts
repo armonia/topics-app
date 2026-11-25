@@ -55,3 +55,21 @@ export function filesToCompress(
   const cutoff = now - compressDays * DAY_MS;
   return files.filter((f) => !f.compressed && f.mtimeMs < cutoff).map((f) => f.id);
 }
+
+/**
+ * Reads a transcript `.jsonl` that may already have been compressed by this
+ * module: tries the plain path first, then `<path>.gz` gunzipped. Two readers
+ * depend on this (`server/utils.ts` legacy search, `server/routes/history.ts`
+ * last-resort migration) — without it, a transcript compressed after this
+ * module's cutoff would silently look deleted to both, losing search hits and
+ * a one-time migration that never gets a second chance.
+ */
+export function readTranscriptJsonl(
+  path: string,
+  deps: { existsSync: (p: string) => boolean; readFileSync: (p: string) => Buffer; gunzipSync: (b: Buffer) => Buffer },
+): string | null {
+  if (deps.existsSync(path)) return deps.readFileSync(path).toString("utf-8");
+  const gzPath = `${path}.gz`;
+  if (deps.existsSync(gzPath)) return deps.gunzipSync(deps.readFileSync(gzPath)).toString("utf-8");
+  return null;
+}
