@@ -37,13 +37,12 @@
  * terzo posto). Montare il sotto-router dove stava `open-pane` — cioè PRIMA di
  * `move-to-project`, `ask-user`, `permission`, `switch-topic` e compagnia, tutte
  * a cinque segmenti — non cambia nessuna precedenza.
- *
  * Il comportamento è una mossa verbatim: cambia solo l'involucro di dispatch.
  */
-import { announceLoginRequest } from "./browser-login-request";
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
+import { announceLoginRequest } from "./browser-login-request";
 import { makeFocusPaneFlow } from "./browser-bridge-focus";
 import { makeOpenPaneFlow, type OpenPaneFlowOptions } from "./browser-open-pane-flow";
 import { maybeOpenPaneForPageOp } from "./browser-auto-open";
@@ -649,7 +648,9 @@ export function createBrowserBridgeRouter(
           // otherwise make getOrCreateContext upsert a phantom headless context.
           const live = collectLiveContextIds(buildTabDeps(browserService));
           if (!live.has(override)) {
-            return json({ error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.` }, 404);
+            return json({
+              error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.`,
+            }, 404);
           }
           contextId = override;
         } else {
@@ -778,7 +779,9 @@ export function createBrowserBridgeRouter(
         if (override) {
           const live = collectLiveContextIds(buildTabDeps(browserService));
           if (!live.has(override)) {
-            return json({ error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.` }, 404);
+            return json({
+              error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.`,
+            }, 404);
           }
           ctxId = override;
         } else {
