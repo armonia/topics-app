@@ -1,7 +1,39 @@
 [
   {
-    "version": "2.4.98",
+    "version": "2.4.100",
     "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a project's tabs show open or closed, and a row opens its own sub-agents",
+          "scope": "sidebar"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.99",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "count the cells on screen, not the ones the layout remembers",
+          "scope": "split"
+        },
+        {
+          "text": "a closed row takes no fill under the pointer",
+          "scope": "sidebar"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.98",
+    "date": "2026-11-24",
     "sections": {
       "new": [
         {

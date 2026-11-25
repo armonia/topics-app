@@ -4437,11 +4437,23 @@ come prima. Una chat chiusa DENTRO una finestra di progetto SHALL restare sotto
 il suo progetto come riga chiusa, non archiviata. Una chat chiusa il cui record
 esce dalla pila delle chiuse (50) SHALL essere archiviata, così sta
 nell'archivio e non sparisce fra i due.
+Le tab di una finestra di progetto, nell'albero e nella fascia di una fissata,
+SHALL avere gli stessi due aspetti: aperta con lo sfondo, chiusa senza; la
+fascia SHALL NOT dipingere un riquadro sotto le sue righe, e le sue righe SHALL
+avere lo stesso passo di quelle dell'albero.
+Una riga chiusa SHALL restare senza sfondo anche sotto il puntatore: lo
+sfondo dice «aperta», e nessuno stato della riga chiusa lo prende in prestito.
 
 #### Scenario: una chat di progetto chiusa resta sotto il progetto
 - **GIVEN** una chat aperta dentro la finestra del suo progetto, con le opzioni di default
 - **WHEN** l'utente preme il cerchio della sua riga
 - **THEN** la riga resta sotto il progetto con il cerchio che archivia, e la chat non è archiviata
+
+#### Scenario: dentro una fissata, solo le tab aperte hanno lo sfondo
+- **GIVEN** un progetto fissato con due chat aperte, la sua fascia aperta
+- **THEN** la fascia non ha sfondo, le due righe sono `open` con lo sfondo e distano 6px
+- **WHEN** l'utente preme il cerchio della seconda
+- **THEN** la riga diventa `closed` senza sfondo, la prima resta con lo sfondo e la chat non è archiviata
 
 #### Scenario: chiudi, riapri, archivia
 - **GIVEN** due chat aperte, con le opzioni di default
@@ -4451,6 +4463,11 @@ nell'archivio e non sparisce fra i due.
 - **THEN** la riga torna `open`
 - **WHEN** la chiude di nuovo e preme il cerchio della riga chiusa
 - **THEN** la riga esce dalla colonna e la chat è archiviata
+
+#### Scenario: la riga chiusa sotto il puntatore
+- **GIVEN** due chat aperte, la seconda chiusa dal cerchio
+- **WHEN** il puntatore sta sulla riga chiusa
+- **THEN** la riga non ha sfondo, mentre quella aperta sotto il puntatore lo ha
 
 ### Requirement: TABPOS-03 — Le fissate si aprono da sole e non si chiudono
 
@@ -4502,11 +4519,15 @@ During a drag exactly one indicator SHALL be painted: on an edge, the area the p
 
 ### Requirement: SPLIT-03 — Una cella divisa dice cosa contiene e chi ha il fuoco
 
-When a surface holds more than one cell and the tabs are on the side, every cell SHALL carry a header with the pane's icon and name, the header of the focused cell SHALL be lit, a click on a header SHALL focus its cell, and the header SHALL drag like a tab. With one cell there SHALL be no header.
+When a surface holds more than one cell and the tabs are on the side, every cell SHALL carry a header with the pane's icon and name, the header of the focused cell SHALL be lit, a click on a header SHALL focus its cell, and the header SHALL drag like a tab. With one cell there SHALL be no header. Cells SHALL be counted on screen: a cell the saved layout keeps for a closed pane SHALL NOT make a lone pane a split cell.
 
 #### Scenario: due celle, due testate
 - **GIVEN** a grid split in two with tabs on the side
 - **THEN** each cell shows a header with its pane's name and only the focused one is lit
+
+#### Scenario: a cell kept for a closed pane
+- **GIVEN** one open chat and a saved layout that still names a cell for a closed one
+- **THEN** no title is lit and none drags
 
 ### Requirement: SPLIT-04 — I divisori si usano da tastiera
 

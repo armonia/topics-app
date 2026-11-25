@@ -2102,12 +2102,18 @@ export function PanelGrid({
   // writes go through the usePanelGridPersistence setters only. This is
   // deliberately stronger than the old flatten-to-one-row-of-columns: horizontal
   // columns collapse into tabs too (the reported "toglie solo i verticali").
+  // Measured on what the screen shows: the live cells, a stacked pane counted
+  // as one more. The saved rows can still name a cell whose pane was closed
+  // (kept so the pane comes back to it), and counting that cell made a lone
+  // pane a "split" one: a lit focus line under its only title, read as a drag
+  // in progress (25/11), and a title that dragged.
   const isGridCollapsed = useMemo(() => {
-    if (soloCellsRaw.length > 0) return false;
-    if (gridRows.length !== 1) return false;
-    const only = gridRows[0];
-    return only.itemKeys.length === 1 && only.itemKeys[0] === 'standalone' && !only.cellStacks;
-  }, [soloCellsRaw, gridRows]);
+    let shown = liveCells.size;
+    for (const row of effectiveGridRows) {
+      for (const stack of Object.values(row.cellStacks ?? {})) shown += stack.items.filter((k) => itemMap.has(k)).length;
+    }
+    return shown <= 1;
+  }, [liveCells, effectiveGridRows, itemMap]);
   const canFlattenGrid = !isGridCollapsed;
   const handleResetGridLayout = useCallback(() => {
     if (isGridCollapsed) return; // already a single full pane → no-op (ctx-menu entry also hides)

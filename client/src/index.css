@@ -71,6 +71,23 @@
   &::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
 }
 
+/* The soft edge of a sideways-scrolling row (the board's columns).
+   An edge fades only while content is hidden past it: `useScrollEdges` turns
+   `data-edge-start` / `data-edge-end` on and off, and with both off the row has
+   no mask at all (no layer, no cost). Static on purpose: no transition, the edge
+   is either soft or it is not. The fade is as wide as the row's own side room
+   (`--edge-room`, set next to the padding it mirrors), so the padding is what
+   fades and a column at rest is never touched by it. */
+@utility scroll-edge-fade {
+  --edge-start: 0px;
+  --edge-end: 0px;
+  &[data-edge-start] { --edge-start: var(--edge-room, 0.75rem); }
+  &[data-edge-end] { --edge-end: var(--edge-room, 0.75rem); }
+  &[data-edge-start], &[data-edge-end] {
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--edge-start), #000 calc(100% - var(--edge-end)), transparent 100%);
+  }
+}
+
 /* LA MISURA DI LETTURA della chat.
    Una riga lunga quanto una pane larga si legge male: l'occhio, tornando a
    capo, perde il rigo. È il motivo per cui ogni superficie di lettura seria —
