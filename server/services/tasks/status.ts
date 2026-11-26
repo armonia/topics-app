@@ -21,7 +21,7 @@ import { checksMemFloorGB } from "../../../shared/checks-memory-floor";
  * there. A card in Todo with the `waiting` chip (a silent node's deferral) is
  * not this: it waits for a seat, so it keeps counting.
  */
-const RESTING_RUN_SQL = "(status = 'in_progress' AND dispatch_state IN ('waiting', 'needs_input'))";
+const RESTING_RUN_SQL = "(status = 'in_progress' AND COALESCE(dispatch_state, '') IN ('waiting', 'needs_input'))";
 
 export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "countRunningOnMachine" | "restingOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend" | "agentSpendClearsAt"> {
   const {

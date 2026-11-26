@@ -1738,7 +1738,11 @@ describe("a remote run that rests gives its seat back", () => {
     h.db.run("UPDATE tasks SET dispatch_state = 'waiting' WHERE id = 'deferred'");
     h.seed("resting", { machineId: PC });
     h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'waiting' WHERE id = 'resting'");
-    expect(h.svc.countOnMachine(PC)).toBe(1);
+    // No chip at all is a card at work, not one at rest (NULL never matches IN).
+    h.seed("no-chip", { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = NULL WHERE id = 'no-chip'");
+    expect(h.svc.countOnMachine(PC)).toBe(2);
+    expect(h.svc.countRunningOnMachine(PC)).toBe(1);
     expect(h.svc.restingOnMachine(PC)).toEqual(["resting"]);
   });
 });
