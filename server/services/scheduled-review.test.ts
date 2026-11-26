@@ -1,3 +1,8 @@
+/**
+ * Decisions of the scheduled review pass, with fake doors.
+ *
+ * @covers LAND-17
+ */
 import { describe, expect, test } from "bun:test";
 import { conflictedFiles, failedTestNames } from "./scheduled-review-inspect";
 import { resolveWorkflowRules } from "../../shared/workflow";

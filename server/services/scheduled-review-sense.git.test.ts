@@ -1,15 +1,20 @@
-/** "Already on main" against a real remote: the fetch comes first, and "could not tell" is never "false". */
+/**
+ * "Already on main" against a real remote: the fetch comes first, and "could not tell" is never "false".
+ *
+ * @covers LAND-17
+ */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { falseMainClaims, isOnMain } from "./scheduled-review-sense";
 
 const root = mkdtempSync(join(tmpdir(), "sense-git-"));
 afterAll(() => { rmSync(root, { recursive: true, force: true }); });
 
 const git = (cwd: string, ...args: string[]): string => {
-  const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
   if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
   return r.stdout.toString().trim();
 };

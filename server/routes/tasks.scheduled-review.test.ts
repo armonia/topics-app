@@ -5,6 +5,8 @@
  * router's own sweep over a real card and real service, with only the checkout, the reviewer model and
  * git replaced (`scheduledReviewDoors`): a green card is cleared and lands, a red one goes back to its agent
  * with the file named, a reviewer's reject stops a card whose tests are green.
+ *
+ * @covers LAND-17
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";

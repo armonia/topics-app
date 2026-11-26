@@ -1,6 +1,8 @@
 /**
  * The scheduled review's gate in the CI phase, and the answer that keeps its question: both live in
  * `createCiPhase`, so they are pinned on it directly with a real service and no git.
+ *
+ * @covers LAND-17
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
