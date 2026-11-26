@@ -225,3 +225,24 @@ describe("the single verdict keeps the column", () => {
     expect(summary).toContain("0 done (debt), 1 in review");
   });
 });
+
+describe("a card taken up again after its land", () => {
+  test("the merge of the previous round does not make the new delivery landed", async () => {
+    // fc74bdd2, 26/11: the card landed once (`merge task <id>` on main), went back
+    // for a second round, and its new commits — outside main — read `landed` in
+    // review because the old merge carries the card's name.
+    const id = "card-ripresa";
+    const base = git(repo, "rev-parse", "main");
+    git(repo, "checkout", "-q", "-b", "topics/ripresa", base);
+    commit(repo, "ripresa.ts", RIGA(10), "primo giro");
+    git(repo, "checkout", "-q", "main");
+    git(repo, "merge", "--no-ff", "-q", "-m", `merge task ${id}: primo giro`, "topics/ripresa");
+    git(repo, "checkout", "-q", "topics/ripresa");
+    const secondo = commit(repo, "ripresa-2.ts", "x\n", "secondo giro");
+    git(repo, "checkout", "-q", "main");
+
+    const b = banco({ id, status: "review", deliveryBranch: "topics/ripresa", deliveryCommit: secondo });
+    await auditOneLanding(b.wiring, id);
+    expect(b.card.landingState).not.toBe("landed");
+  });
+});
