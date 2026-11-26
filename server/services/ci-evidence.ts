@@ -485,6 +485,20 @@ export interface GithubPort {
   openPullRequest(cwd: string, repo: string, branch: string): Promise<Got<PullRequestRef | null>>;
   draftPullRequest(cwd: string, repo: string, branch: string, title: string, body: string): Promise<Got<PullRequestRef>>;
   closePullRequest(cwd: string, repo: string, pr: number, comment: string): Promise<Got<"closed">>;
+  /** Takes a draft pull request out of draft, so GitHub will actually merge it. */
+  markReady(cwd: string, repo: string, pr: number): Promise<Got<"ready">>;
+  /**
+   * Turns on GitHub's own auto-merge (a merge commit, never squash or rebase:
+   * the tree must match the pull_request run that already tested it).
+   * `subject` becomes the merge commit's message, so it keeps following the
+   * `merge task <id>: <title>` convention several callers parse off main
+   * (task-diff-range.ts, landing-audit.ts) instead of GitHub's own default.
+   */
+  enableAutoMerge(cwd: string, repo: string, pr: number, subject: string): Promise<Got<"enabled">>;
+  /** Turns GitHub's auto-merge back off, so a land that gave up is not merged later behind its back. */
+  disableAutoMerge(cwd: string, repo: string, pr: number): Promise<Got<"disabled">>;
+  /** What the pull request looks like right now: still a draft, merged, and the merge commit GitHub produced. */
+  pullRequestState(cwd: string, repo: string, pr: number): Promise<Got<PullRequestState>>;
   /** `deleted`, or `absent` when the remote branch was already gone: both are "nothing left on origin". */
   deleteRemoteBranch(cwd: string, branch: string): Promise<Got<"deleted" | "absent">>;
   runs(repo: string, sha: string): Promise<Got<GithubRun[]>>;
@@ -499,7 +513,8 @@ export interface GithubPort {
   cancelRun(repo: string, runId: number): Promise<Got<void>>;
 }
 
-export type PullRequestRef = { number: number; url: string };
+export type PullRequestRef = { number: number; url: string; /** The commit the pull request currently points at, when the lookup asked for it. */ headRefOid?: string; /** The tip of the base branch the pull request is measured against, when the lookup asked for it. */ baseRefOid?: string };
+export type PullRequestState = { isDraft: boolean; merged: boolean; mergeCommit: string | null; /** Some check of the pull request has not concluded yet. */ checksPending?: boolean };
 export type OpenPullRequest = PullRequestRef & { headRefName: string; title: string };
 
 type Spawned = { code: number; out: string; err: string };
@@ -592,7 +607,7 @@ export function githubPort(): GithubPort {
   // opened only when this lookup finds none, and the cleanup closes whatever it
   // finds, so both doors ask GitHub the same question.
   const openPullRequest: GithubPort["openPullRequest"] = (cwd, repo, branch) => call(
-    ["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number,url", "--limit", "1"], cwd,
+    ["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number,url,headRefOid,baseRefOid", "--limit", "1"], cwd,
     (o) => (JSON.parse(o) as PullRequestRef[])[0] ?? null);
   return {
     openPullRequest,
@@ -630,6 +645,18 @@ export function githubPort(): GithubPort {
     },
     closePullRequest: (cwd, repo, pr, comment) => call(
       ["gh", "pr", "close", String(pr), "--repo", repo, "--comment", comment], cwd, () => "closed" as const),
+    markReady: (cwd, repo, pr) => call(["gh", "pr", "ready", String(pr), "--repo", repo], cwd, () => "ready" as const),
+    enableAutoMerge: (cwd, repo, pr, subject) => call(
+      ["gh", "pr", "merge", String(pr), "--repo", repo, "--merge", "--auto", "--subject", subject, "--body", ""], cwd, () => "enabled" as const),
+    disableAutoMerge: (cwd, repo, pr) => call(
+      ["gh", "pr", "merge", String(pr), "--repo", repo, "--disable-auto"], cwd, () => "disabled" as const),
+    pullRequestState: (cwd, repo, pr) => call(
+      ["gh", "pr", "view", String(pr), "--repo", repo, "--json", "isDraft,state,mergeCommit,statusCheckRollup"], cwd, (o) => {
+        const parsed = JSON.parse(o) as { isDraft: boolean; state: string; mergeCommit: { oid: string } | null; statusCheckRollup?: { status?: string; state?: string }[] | null };
+        // A check run is done when its status is COMPLETED; a commit status when its state is not PENDING/EXPECTED.
+        const checksPending = (parsed.statusCheckRollup ?? []).some((c) => (c.status ? c.status !== "COMPLETED" : c.state === "PENDING" || c.state === "EXPECTED"));
+        return { isDraft: parsed.isDraft, merged: parsed.state === "MERGED", mergeCommit: parsed.mergeCommit?.oid ?? null, checksPending };
+      }),
     deleteRemoteBranch: async (cwd, branch) => {
       const argv = ["git", "push", "origin", "--delete", branch];
       const r = await spawnCapped(argv, cwd);
