@@ -1144,6 +1144,20 @@ describe("verifica del 31/10: i posti di una macchina contano le card che le son
     h.db.run("UPDATE tasks SET archived = 1 WHERE id = 'archiviata'");
     expect(h.svc.countOnMachine(PC)).toBe(2);
   });
+
+  it("una card al lavoro che aspetta una condizione o una persona non tiene il posto; una rinviata in coda sì", () => {
+    const h = harness();
+    h.seed("in-attesa", { machineId: PC });
+    h.seed("chiede", { machineId: PC });
+    h.seed("lavora", { machineId: PC });
+    h.seed("rinviata", { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'waiting' WHERE id = 'in-attesa'");
+    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'needs_input' WHERE id = 'chiede'");
+    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'working' WHERE id = 'lavora'");
+    // The silent-node deferral: back in Todo with the waiting chip, it must keep counting.
+    h.db.run("UPDATE tasks SET dispatch_state = 'waiting' WHERE id = 'rinviata'");
+    expect(h.svc.countOnMachine(PC)).toBe(2);
+  });
 });
 
 describe("verifica del 31/10: le card legate a questa macchina non si spostano", () => {

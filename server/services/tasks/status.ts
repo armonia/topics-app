@@ -918,8 +918,13 @@ overflowToMachine({ taskId, machineId, localMachineId }): Task | null {
     },
 
 countOnMachine(machineId: string): number {
+      // An in-progress card that declared a wait (`waiting`) or asks a person (`needs_input`) has no
+      // turn on the machine: counted, two of them held the PC's four slots and two cards queued
+      // since 20:37 never started (26/11). A deferred card back in Todo still counts: that is the
+      // silent-node deferral (`deferForSilentNode`) that kept a sleeping PC from piling cards.
       const row = db.prepare(
-        "SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status IN ('todo', 'in_progress') AND archived = 0",
+        "SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND archived = 0 AND (status = 'todo'"
+          + " OR (status = 'in_progress' AND coalesce(dispatch_state, '') NOT IN ('waiting', 'needs_input')))",
       ).get(machineId) as { n: number } | null;
       return row?.n ?? 0;
     },
