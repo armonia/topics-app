@@ -177,7 +177,7 @@ MISURA: `bun test server/lib/machine-security.test.ts server/lib/machine-health.
 
 ### Requirement: MACHINE-06 — Il principale passa a un altro computer intero, a senso unico, senza perdere scritture
 
-`bun run primary switch <macchina>` sul principale SHALL fermare i nuovi dispatch, aspettare le card e le chat in volo e parcheggiare in coda con una nota quelle ancora vive allo scadere dell'attesa. Poi SHALL alzare il recinto sulle scritture dei client, copiare il DB con `VACUUM INTO` e verificarlo con `PRAGMA integrity_check`, e spedire al nuovo principale il DB, la cartella di stato (token dei nodi, hash dei token modello, licenza e id di installazione) e i transcript JSONL della CLI delle sessioni dei topic. Il nuovo SHALL accettare solo dal dispositivo del suo canale, verificare hash, integrità e conteggi prima di accettare, e ripartire come principale a epoca+1. Il vecchio, solo dopo quella risposta, SHALL registrare il nuovo principale, mettere da parte il suo DB come `topics.db.prima-<epoca>` e respingere con `primary_moved` ogni scrittura dei client. Un rifiuto esplicito SHALL lasciare tutto com'era; un commit senza risposta SHALL lasciare il vecchio recintato, mai due principali. Due DB non si fondono mai.
+`bun run primary switch <macchina>` sul principale SHALL fermare i nuovi dispatch, aspettare le card e le chat in volo e parcheggiare in coda con una nota quelle ancora vive allo scadere dell'attesa. Poi SHALL alzare il recinto sulle scritture dei client, copiare il DB con `VACUUM INTO` e verificarlo con `PRAGMA integrity_check`, e spedire al nuovo principale il DB, la cartella di stato (token dei nodi, hash dei token modello, licenza e id di installazione) e i transcript JSONL della CLI delle sessioni dei topic. Il nuovo SHALL accettare solo dal dispositivo del suo canale, verificare hash, integrità e conteggi prima di accettare, e ripartire come principale a epoca+1. Il vecchio, solo dopo quella risposta, SHALL registrare il nuovo principale, mettere da parte il suo DB come `topics.db.prima-<epoca>` e respingere con `primary_moved` ogni scrittura dei client. Dallo snapshot al DB messo da parte il vecchio SHALL respingere ogni scrittura, accesso, nodi e WebSocket compresi. Il marcatore di ritiro SHALL stare su disco prima che il commit parta: un commit senza risposta, o un riavvio a metà, SHALL lasciare il vecchio recintato e secondario anche dopo il riavvio, finché `bun run primary reclaim` non lo riprende dopo il controllo dell'altro computer. Un rifiuto esplicito SHALL lasciare tutto com'era. Il pacchetto SHALL partire solo su https o su un tunnel verso 127.0.0.1, con i segreti 0600 in cartelle 0700, e il ricevente SHALL scrivere solo i file di un elenco chiuso. Due DB non si fondono mai.
 
 MISURA: `bun test server/lib/primary-switch.test.ts server/routes/nodes-primary.test.ts` verde; `bun scripts/primary-switch-probe.ts --db <copia di un DB vero>` esce 0.
 
@@ -189,6 +189,11 @@ MISURA: `bun test server/lib/primary-switch.test.ts server/routes/nodes-primary.
 #### Scenario: scrittura sul vecchio dopo il passaggio
 - **WHEN** un client scrive sul vecchio principale, prima o dopo il suo riavvio
 - **THEN** la risposta SHALL essere 409 `primary_moved` con il nuovo principale e l'epoca
+
+#### Scenario: commit accettato e risposta persa
+- **GIVEN** un nuovo principale che accetta il commit e una risposta che non arriva al vecchio
+- **WHEN** ripartono tutti e due
+- **THEN** il nuovo SHALL essere il principale a epoca+1 e il vecchio SHALL essere secondario e respingere le scritture
 
 #### Scenario: una sessione riprende sul nuovo
 - **GIVEN** un topic con una sessione della CLI e il suo transcript

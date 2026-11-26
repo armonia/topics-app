@@ -217,7 +217,8 @@ export function collectTranscripts(db: Pick<Database, "query">, projectsDir: str
       out.push({ name: `transcripts/${toBundlePath(relative(projectsDir, source))}`, source });
     }
   }
-  return out;
+  // A file whose name the receiver's closed list refuses would stop the whole switch: it stays behind.
+  return out.filter((f) => bundleTarget(f.name) !== null);
 }
 
 /** Where a bundle file lands on the receiver. */

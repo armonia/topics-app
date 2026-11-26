@@ -14,14 +14,15 @@
  * Prints one JSON line; exit 0 only when every check holds. Temp folders go.
  */
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createPrimaryRole } from "../server/lib/primary-role";
+import { bootPrimaryChange, retiredRefusal } from "../server/lib/primary-fence";
 import {
   applyPendingPrimaryChange, collectTranscripts, commitIncoming, countRows, DB_NAME, isRefusedWhenRetired,
-  readRetired, snapshotDatabase, writeIncomingChunk,
+  readRetired, type RetiredState, snapshotDatabase, writeIncomingChunk,
 } from "../server/lib/primary-switch";
 import { findCliTranscript } from "../server/lib/subagent-migration";
 import { runPrimarySwitch } from "../server/services/primary-switch-run";
@@ -40,7 +41,7 @@ const side = (label: string) => {
   const appDataDir = join(root, label, "app-data");
   mkdirSync(join(stateDir, "data"), { recursive: true });
   mkdirSync(appDataDir, { recursive: true });
-  return { stateDir, appDataDir, dbPath: join(stateDir, "data", DB_NAME) };
+  return { stateDir, appDataDir, secretsDir: join(stateDir, ".topics-secrets"), dbPath: join(stateDir, "data", DB_NAME) };
 };
 const old = side("old");
 const neu = { ...side("new"), projectsDir: join(root, "new", "claude-projects") };
@@ -71,9 +72,9 @@ try {
   const transcripts = collectTranscripts(db, projectsDir);
   let busy = true;
   let drainRow = "";
-  let fence: unknown = null;
+  let fence: RetiredState | null = null;
   const report = await runPrimarySwitch({
-    db, stateDir: old.stateDir, appDataDir: old.appDataDir, projectsDir, role, localMachineId: local,
+    db, stateDir: old.stateDir, secretsDir: old.secretsDir, appDataDir: old.appDataDir, projectsDir, role, localMachineId: local,
     target: { id: "probe-new", hostname: "probe-new-host", name: "probe" },
     drain: () => {}, undrain: () => {},
     stillWorking: () => {
@@ -96,9 +97,13 @@ try {
   checks.countsEqual = after.tasks === before.tasks && after.topics === before.topics && after.messages === before.messages + 1;
   checks.drainWritePresent = restored.query("SELECT 1 FROM messages WHERE rowid = ?").get(drainRow) !== null;
   restored.close();
-  checks.oldRefusesWrites = fence !== null && isRefusedWhenRetired("/api/tasks", "POST") && !role.isPrimary();
+  const fenced = fence as RetiredState | null;
+  checks.oldRefusesWrites = fenced !== null && isRefusedWhenRetired("/api/tasks", "POST", fenced.phase) && !role.isPrimary();
   db.close();
-  checks.oldSetAside = applyPendingPrimaryChange({ ...old, projectsDir, log: () => {} }) === "set-aside" && readRetired(old.appDataDir) !== null;
+  // The old one restarts: the boot alone sets its DB aside and puts the fence back.
+  bootPrimaryChange("", { ...old, projectsDir });
+  checks.oldSetAside = existsSync(`${old.dbPath}.prima-${report.epoch}`) && readRetired(old.appDataDir)?.phase === "set-aside";
+  checks.oldRefusesAfterRestart = retiredRefusal("/api/tasks", "POST")?.status === 409;
   const sample = transcripts.find((t) => t.name.endsWith(".jsonl") && !t.name.includes("/subagents/"));
   const id = sample?.name.split("/").pop()!.replace(/\.jsonl$/, "");
   const found = id ? findCliTranscript(id, neu.projectsDir) : null;
