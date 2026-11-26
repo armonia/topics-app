@@ -129,6 +129,17 @@ describe("landViaPullRequest", () => {
     expect(got.status).toBe("failed");
   });
 
+  test("checks still running: the land lets go at once and leaves auto-merge on", async () => {
+    const calls: string[] = [];
+    const port = fakePort({
+      pullRequestState: async () => ({ ok: true, value: { isDraft: false, merged: false, mergeCommit: null, checksPending: true } }),
+      disableAutoMerge: async () => { calls.push("off"); return { ok: true, value: "disabled" }; },
+    });
+    const got = await landViaPullRequest(input, port, { ...synced, ...fakeClock(), pollMs: 1 });
+    expect(got).toEqual({ status: "waiting-ci", pr: 7 });
+    expect(calls).toEqual([]);
+  });
+
   test("a deadline with no merge is a failure that names the pull request and turns auto-merge back off", async () => {
     const calls: string[] = [];
     const port = fakePort({ disableAutoMerge: async () => { calls.push("off"); return { ok: true, value: "disabled" }; } });

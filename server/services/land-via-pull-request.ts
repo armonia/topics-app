@@ -28,6 +28,10 @@
  * not be fast forwarded here and the two mains would diverge. The caller falls
  * back to the local merge, which publishes both together.
  *
+ * Checks still running when the land looks: it does not wait for them
+ * (`waiting-ci`), auto-merge stays on and GitHub merges at the verdict. Checks
+ * already concluded: it waits only the time of a merge.
+ *
  * On a timeout the module turns GitHub's auto-merge back off, so the pull
  * request cannot merge later behind a land that already reported failure.
  *
@@ -48,6 +52,8 @@ export type LandViaPrResult =
   | { status: "main-ahead" }
   /** The pull request's base is not the current origin/main: GitHub would merge onto another base, a tree nobody tested. */
   | { status: "base-differs"; prBase: string | null; originMain: string }
+  /** The pull request's checks are still running: auto-merge stays on, GitHub merges at the verdict and a later land finds it merged. The land queue is not held. */
+  | { status: "waiting-ci"; pr: number }
   | { status: "failed"; reason: string };
 
 export type FastForwardMain = (cwd: string, commit: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
@@ -67,7 +73,8 @@ export type LandViaPrDeps = {
 };
 
 const DEFAULT_POLL_MS = 15_000;
-const DEFAULT_DEADLINE_MS = 20 * 60_000;
+// Checks already concluded: GitHub merges within seconds, so two minutes is a refusal, not a wait.
+const DEFAULT_DEADLINE_MS = 2 * 60_000;
 const GIT_TIMEOUT_MS = 30_000;
 
 const realMainIsBehindOrigin: MainIsBehindOrigin = async (cwd) => {
@@ -192,6 +199,8 @@ export async function landViaPullRequest(
     const poll = await port.pullRequestState(input.cwd, repo, pr);
     if (!poll.ok) return failOff(`cannot poll pull request #${pr}: ${poll.error}`);
     if (poll.value.merged) return reportMerged(poll.value.mergeCommit);
+    // Running checks are the CI's time, not the land queue's: leave auto-merge on and let go.
+    if (poll.value.checksPending) return { status: "waiting-ci", pr };
     if (now() >= deadline) {
       const minutes = Math.round(deadlineMs / 60_000);
       const off = await port.disableAutoMerge(input.cwd, repo, pr);

@@ -51,6 +51,9 @@ import { makeSerialQueue } from "../lib/serial-queue";
 import { bundleBreakageReason } from "../lib/client-bundle";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
 
+/** GitHub saying the pull request cannot merge because of a real conflict: the one refusal that stops the land. */
+const GITHUB_CONFLICT = /conflict|not mergeable|merge conflict/i;
+
 export type AutoMergeResult =
   | {
       status: "merged"; commit: string; branch: string; repoPath: string;
@@ -147,6 +150,8 @@ export type LandSkipCode =
   | "auto-land-stopped"
   /** Landing through the branch's pull request failed (GitHub refused or never merged it): the reason is GitHub's, not a merge conflict. */
   | "pull-request-land-failed"
+  /** The pull request checks are still running: auto-merge stays on and the land resumes at the verdict. */
+  | "pull-request-waiting-ci"
   /** A commit of the branch credits an assistant, or has an author other than the repo identity (LAND-13). */
   | "attribution"
   /** The land found nothing to bring over, or no branch, while the delivered commit is not on main: nothing landed, so the card is not accepted. */
@@ -259,6 +264,8 @@ export function landFallout(
       return { status: "review", reason: "l'atterraggio automatico avrebbe pubblicato un commit diverso da quello misurato" };
     case "not-on-main":
       return { status: "review", reason: "il land non ha portato niente e il commit consegnato non è su main" };
+    case "pull-request-waiting-ci":
+      return { status: "review", reason: "la CI della PR è ancora in corso: l'unione automatica resta accesa e il land si riprende al verdetto" };
     case "auto-land-stopped":
       return { status: "review", reason: "l'atterraggio automatico si è fermato prima del merge" };
     default:
@@ -1555,7 +1562,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
          * `cwd` ends up fast-forwarded onto GitHub's merge commit on success,
          * same as a successful local `git merge` leaves it on the merge commit.
          */
-        async function mergeBranchHere(cwd: string): Promise<{ ok: true; viaPr?: boolean } | { ok: false; reason?: string }> {
+        async function mergeBranchHere(cwd: string): Promise<{ ok: true; viaPr?: boolean } | { ok: false; reason?: string; waiting?: boolean }> {
           const tip = pinnedSha ?? (await runGit(cwd, ["rev-parse", "--verify", `${branch}^{commit}`])).stdout.trim();
           if (tip) {
             // GitHub writes this merge commit, so the repo's pre-push never sees it: ask the hook first.
@@ -1569,11 +1576,17 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
               }
               return { ok: true, viaPr: true };
             }
+            if (viaPr.status === "waiting-ci") {
+              // Auto-merge stays on: GitHub merges at the verdict, the next land finds it merged. The queue is not held.
+              return { ok: false, reason: `in attesa della CI della PR #${viaPr.pr}: l'unione automatica resta accesa e il land si riprende al verdetto`, waiting: true };
+            }
             if (viaPr.status === "failed") {
               log(`[automerge] land-via-pull-request failed for ${taskId}: ${viaPr.reason}`);
-              return { ok: false, reason: viaPr.reason };
+              // Only a real conflict reported by GitHub stops the land; any other refusal (a repo setting, gh answering oddly) falls back to the local merge.
+              if (GITHUB_CONFLICT.test(viaPr.reason)) return { ok: false, reason: viaPr.reason };
+              realigned = `GitHub did not take the pull request (${viaPr.reason.slice(0, 200)}), so the land merged locally and main will rerun the CI`;
             }
-            // "no-pr", "head-differs", "base-differs" or "main-ahead": nothing GitHub can merge as is, fall through to the local merge.
+            // "no-pr", "head-differs", "base-differs", "main-ahead" or a refusal: nothing GitHub can merge as is, fall through to the local merge.
           }
           const merge = await runGit(cwd, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
           if (merge.code === 0) return { ok: true };
@@ -1611,7 +1624,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           // --no-ff keeps a merge commit so the landing is auditable even for a FF.
           const merged = await mergeBranchHere(repoPath);
           if (merged.ok) return finishMerged(repoPath, /*live*/ true, cur, merged.viaPr);
-          if (merged.reason) return { status: "skipped", code: "pull-request-land-failed", reason: merged.reason };
+          if (merged.reason) return { status: "skipped", code: merged.waiting ? "pull-request-waiting-ci" : "pull-request-land-failed", reason: merged.reason };
           return { status: "conflict", branch };
         }
 
@@ -1637,7 +1650,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           if (stopped) return stopped;
           const merged = await mergeBranchHere(wtPath);
           if (merged.ok) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD", merged.viaPr);
-          if (merged.reason) return { status: "skipped", code: "pull-request-land-failed", reason: merged.reason };
+          if (merged.reason) return { status: "skipped", code: merged.waiting ? "pull-request-waiting-ci" : "pull-request-land-failed", reason: merged.reason };
           return { status: "conflict", branch };
         } finally {
           await discardWorktree(runGit, repoPath, wtPath);

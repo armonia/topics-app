@@ -514,7 +514,7 @@ export interface GithubPort {
 }
 
 export type PullRequestRef = { number: number; url: string; /** The commit the pull request currently points at, when the lookup asked for it. */ headRefOid?: string; /** The tip of the base branch the pull request is measured against, when the lookup asked for it. */ baseRefOid?: string };
-export type PullRequestState = { isDraft: boolean; merged: boolean; mergeCommit: string | null };
+export type PullRequestState = { isDraft: boolean; merged: boolean; mergeCommit: string | null; /** Some check of the pull request has not concluded yet. */ checksPending?: boolean };
 export type OpenPullRequest = PullRequestRef & { headRefName: string; title: string };
 
 type Spawned = { code: number; out: string; err: string };
@@ -651,9 +651,11 @@ export function githubPort(): GithubPort {
     disableAutoMerge: (cwd, repo, pr) => call(
       ["gh", "pr", "merge", String(pr), "--repo", repo, "--disable-auto"], cwd, () => "disabled" as const),
     pullRequestState: (cwd, repo, pr) => call(
-      ["gh", "pr", "view", String(pr), "--repo", repo, "--json", "isDraft,state,mergeCommit"], cwd, (o) => {
-        const parsed = JSON.parse(o) as { isDraft: boolean; state: string; mergeCommit: { oid: string } | null };
-        return { isDraft: parsed.isDraft, merged: parsed.state === "MERGED", mergeCommit: parsed.mergeCommit?.oid ?? null };
+      ["gh", "pr", "view", String(pr), "--repo", repo, "--json", "isDraft,state,mergeCommit,statusCheckRollup"], cwd, (o) => {
+        const parsed = JSON.parse(o) as { isDraft: boolean; state: string; mergeCommit: { oid: string } | null; statusCheckRollup?: { status?: string; state?: string }[] | null };
+        // A check run is done when its status is COMPLETED; a commit status when its state is not PENDING/EXPECTED.
+        const checksPending = (parsed.statusCheckRollup ?? []).some((c) => (c.status ? c.status !== "COMPLETED" : c.state === "PENDING" || c.state === "EXPECTED"));
+        return { isDraft: parsed.isDraft, merged: parsed.state === "MERGED", mergeCommit: parsed.mergeCommit?.oid ?? null, checksPending };
       }),
     deleteRemoteBranch: async (cwd, branch) => {
       const argv = ["git", "push", "origin", "--delete", branch];

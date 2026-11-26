@@ -96,14 +96,15 @@ describe("land: pre-push refusing the title", () => {
  * for GitHub and the fast forward: it merges locally with the message it got.
  */
 describe("land through the pull request: the message GitHub gets", () => {
-  async function landViaPr(title: string, outcome: "merged" | "failed") {
+  async function landViaPr(title: string, outcome: "merged" | "failed" | "conflict" | "waiting", reason = "auto-merge refused by GitHub") {
     const repo = join(dir, "repo");
     const handed: string[] = [];
     const am = createTaskAutoMerge({
       resolveTaskMerge: () => ({ repoPath: repo, branch: "topics/card", defaultBranch: "main" }),
       landViaPullRequest: async (input): Promise<LandViaPrResult> => {
         handed.push(input.mergeMessage);
-        if (outcome === "failed") return { status: "failed", reason: "auto-merge refused by GitHub" };
+        if (outcome === "failed" || outcome === "conflict") return { status: "failed", reason };
+        if (outcome === "waiting") return { status: "waiting-ci", pr: 7 };
         git(input.cwd, "merge", "--no-ff", "--no-verify", "-m", input.mergeMessage, input.expectedHead);
         return { status: "merged", commit: git(input.cwd, "rev-parse", "HEAD") };
       },
@@ -134,9 +135,20 @@ describe("land through the pull request: the message GitHub gets", () => {
     expect(handed).toEqual(["merge task abc123"]);
   });
 
-  test("a failed land through the pull request is a skip with its real reason, not a conflict", async () => {
-    const { res } = await landViaPr("fix harmless thing", "failed");
-    expect(res).toMatchObject({ status: "skipped", code: "pull-request-land-failed", reason: "auto-merge refused by GitHub" });
+  test("a GitHub refusal that is not a conflict falls back to the local merge", async () => {
+    const { res, msg } = await landViaPr("fix harmless thing", "failed");
+    expect(res).toMatchObject({ status: "merged", branch: "topics/card" });
+    expect(msg).toBe("merge task abc123: fix harmless thing");
+  });
+
+  test("a real conflict reported by GitHub stops the land with its reason", async () => {
+    const { res } = await landViaPr("fix harmless thing", "conflict", "pull request #7 has a merge conflict");
+    expect(res).toMatchObject({ status: "skipped", code: "pull-request-land-failed", reason: "pull request #7 has a merge conflict" });
+  });
+
+  test("checks still running exit at once as waiting for the pull request CI", async () => {
+    const { res } = await landViaPr("fix harmless thing", "waiting");
+    expect(res).toMatchObject({ status: "skipped", code: "pull-request-waiting-ci", reason: expect.stringContaining("#7") });
   });
 
   test("a commit-tree that fails counts as a refusal, never as an unchecked title", async () => {
