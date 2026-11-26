@@ -54,7 +54,7 @@ import { useWaitingQueueStore } from './state/waitingQueue';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { lazyWarm } from './lib/lazyWarm';
 import { loadPanelGrid } from './state/pane/panePreload';
-import { RAISED_CONTROL, ROW_INSET, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
+import { ROW_INSET, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, STRIP_TOGGLE_SURFACE } from './lib/selectionStyles';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
@@ -770,6 +770,7 @@ function App() {
         sidebarContentRef={sidebarContentRef}
         isMobile={isMobile}
         sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={toggleSidebar}
         sidebarWidth={sidebarWidth}
         floatingSplits={appSettings.floatingSplits}
         viewportHeight={viewportHeight}
@@ -934,13 +935,12 @@ function App() {
             top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem',
           }}
         >
-          {/* `RAISED_CONTROL` + `edge-lit`: the SAME button as the «+» and the
-              search, which is the parity asked for («at this point make the
-              sidebar-opening key the same»). It was `bg-surface` + a border,
-              and `--bg-surface` under 768px COLLAPSES onto the chrome (index.css):
-              the only way to reopen the column when no pane is open
-              vanished into the background precisely on the phone. */}
-          <SidebarToggleButton onClick={toggleSidebar} title={`Expand sidebar (${shortcut('B')})`} size="action" className={`edge-lit ${RAISED_CONTROL} rounded-lg shadow-sm`} />
+          {/* The SAME button as the one on the tab strip, a strip tab's
+              surface (25/11: the sidebar's buttons wear the tabs' colours).
+              Not `bg-surface`: under 768px it COLLAPSES onto the chrome
+              (index.css), and the only way to reopen the column when no pane
+              is open vanished into the background precisely on the phone. */}
+          <SidebarToggleButton onClick={toggleSidebar} title={`Expand sidebar (${shortcut('B')})`} size="action" surface={STRIP_TOGGLE_SURFACE} />
         </div>
       )}
 
@@ -954,6 +954,11 @@ function App() {
           or closed. Now the strip is always chrome: it is the edge of the app, and
           the edge of the app is chrome. */}
       <div id="main-content" ref={mainContentRef} role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-chrome"
+        // Where the column's toggle is: in the sidebar header while the
+        // column is open with the mouse layout (SidebarHeader draws it on the
+        // same `!isMobile`), and then the content's own toggle and the room
+        // for it give way (`.column-toggle` in index.css).
+        data-column-toggle={!isMobile && !sidebarCollapsed ? 'header' : 'content'}
         style={{
           contain: 'layout style',
           paddingTop: 'env(safe-area-inset-top, 0px)',

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Kanban, LayoutGrid, List, Search, User, type LucideIcon } from 'lucide-react';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
 import { useMobile } from '@/hooks/useMobile';
@@ -244,7 +244,10 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
 
   // L'altezza pubblicata. Zero quando la barra non c'è — così la banda
   // riservata sparisce insieme a lei invece di restare come spazio morto.
-  useEffect(() => {
+  // A layout effect, not a passive one: the `.scroll-under-chrome::after` spacer
+  // reads this variable, and publishing it after the first paint grew the spacer
+  // a frame later, which the page counted as a layout shift on return to a pane.
+  useLayoutEffect(() => {
     const radice = document.documentElement;
     if (!attivo) {
       radice.style.setProperty(MOBILE_CHROME_H_VAR, '0px');

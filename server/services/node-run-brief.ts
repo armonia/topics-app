@@ -75,19 +75,49 @@ export function nodeRunDescription(description: string | null | undefined, threa
   const own = description ?? "";
   const said = thread.filter((c) => c.content.trim() && (c.kind === "delivery" || (c.kind === "comment" && c.author !== "system")));
   if (said.length === 0) return own;
-  // The newest review comment is the one carried whole: the newest `comment` NOT written by an agent.
-  // An agent posts progress notes on its own card ("starting again from the branch…"); when a server
-  // restart requeued the run after one of them, that note was taken for the review and the reviewer's
-  // 5937-character list was cut to 2000 (22/11). With no human comment, the newest one.
-  const comments = said.flatMap((c, i) => (c.kind === "comment" ? [i] : []));
-  const newestReview = comments.findLast((i) => !isAgentAuthor(said[i]!.author)) ?? comments.at(-1) ?? -1;
+  // Every non-service `comment` written after the card's last `delivery` is the round of this
+  // resend: whoever reviewed it could have replied more than once, and any of those rows could be
+  // the thing a node must act on. All of them are carried whole (sharing the MAX_REVIEW_CHARS
+  // budget), never clipped mid-text, oldest-of-the-round first if the round itself does not fit.
+  //
+  // Picking only "the newest row not written by an agent" and "the newest row overall" (two
+  // candidates, by POSITION) broke on the real case: a reviewer posted a 3.154-character, 10-point
+  // comment and then, seconds later, a 123-character one pointing at it — both `author: "user"`, so
+  // both candidates landed on the SAME short row and the long one was still cut in the middle (card
+  // 596e3d88, 26/11). Picking every comment of the round, instead of two rows by position, carries
+  // both. It also still protects a reviewer who writes through an agent identity (a verifier
+  // sub-session, a mirrored PR review): nothing here looks at who is speaking.
+  const lastDeliveryIdx = said.findLastIndex((c) => c.kind === "delivery");
+  const roundIndices = said.flatMap((c, i) => (i > lastDeliveryIdx && c.kind === "comment" ? [i] : []));
+  const protectedRows = new Set<number>();
+  if (lastDeliveryIdx >= 0) {
+    let budget = MAX_REVIEW_CHARS;
+    for (let k = roundIndices.length - 1; k >= 0; k--) {
+      const i = roundIndices[k]!;
+      const full = entry(said[i]!, MAX_REVIEW_CHARS).length;
+      // The newest row of the round is always carried, even alone over budget: an older row of the
+      // same round only joins if what is left still fits it whole.
+      if (protectedRows.size === 0 || full <= budget) {
+        protectedRows.add(i);
+        budget = Math.max(0, budget - full);
+      } else break;
+    }
+  } else {
+    // Nobody delivered yet on this card: there is no round to anchor on, so fall back to the two
+    // rows by position this function protected before — the newest comment overall, and the newest
+    // not written by an agent, so a self-narration row never crowds out a human's word.
+    const comments = roundIndices;
+    const newestOverall = comments.at(-1) ?? -1;
+    const newestNonAgent = comments.findLast((i) => !isAgentAuthor(said[i]!.author)) ?? newestOverall;
+    for (const i of [newestOverall, newestNonAgent]) if (i >= 0) protectedRows.add(i);
+  }
   // Newest first until the budget is spent, so what falls off is the oldest talk.
-  // The newest review is carried whole and does NOT count against the budget: otherwise a long review
+  // A protected row is carried whole and does NOT count against the budget: otherwise a long review
   // pushes the previous delivery out of the brief.
   const kept: string[] = [];
   let size = 0;
   for (let i = said.length - 1; i >= 0; i--) {
-    if (i === newestReview) {
+    if (protectedRows.has(i)) {
       kept.push(entry(said[i]!, MAX_REVIEW_CHARS));
       continue;
     }

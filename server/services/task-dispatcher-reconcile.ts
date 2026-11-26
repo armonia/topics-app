@@ -8,6 +8,10 @@ import { logActivity } from "../db/activity-log";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { isMirrorCard, BOOT_QUEUED_NOTE, rotateFrom, CHIP_QUEUED, CHIP_WORKING, LIVENESS_DEAD_SWEEPS, RECOVERABLE_DISPATCH_STATES } from "./task-dispatcher-support";
 import type { DispatcherCtx } from "./task-dispatcher-context";
+import { STUCK_SKIP_MS, sweepStuckCards } from "./stuck-card";
+
+/** The stuck-card sweep reads every open card: once in a while is enough. */
+const STUCK_SWEEP_EVERY_MS = 5 * 60_000;
 
 export function createReconcile(ctx: DispatcherCtx) {
   const { RECONCILE_GRACE_MS, commandWaits, deps, graceTimers, heldOffNoted, inFlight, liveTurns, livenessGraceMs, log, memoryHeldCards, recentlyEnded, retryWaits, slotWaits, shared } = ctx.core;
@@ -26,6 +30,8 @@ export function createReconcile(ctx: DispatcherCtx) {
    * backing off, delivering what was produced, or parking. No fifth guard with
    * its own opinion.
    */
+  let lastStuckSweepAt = 0;
+
   function buryDeadRun(taskId: string, runId: number): void {
     if (!ctx.runs.ownsRun(taskId, runId)) return;
     const slot = inFlight.get(taskId)!;
@@ -574,6 +580,39 @@ export function createReconcile(ctx: DispatcherCtx) {
         ctx.queue.emit(t);
       }
     } catch (err) { log("rientro delle card fermate dalla macchina fallito", err); }
+    // 1-quater-quater) A card stuck for an hour with no reason on it gets one
+    //    note from the system, and leaves a machine that does not answer.
+    //    Throttled: it reads every open card.
+    if (Date.now() - lastStuckSweepAt >= STUCK_SWEEP_EVERY_MS) {
+      lastStuckSweepAt = Date.now();
+      try {
+        const machines = deps.overflowMachines?.() ?? [];
+        const ours = (taskId: string): boolean =>
+          inFlight.has(taskId) || slotWaits.has(taskId) || retryWaits.has(taskId) || graceTimers.has(taskId);
+        const spoke = sweepStuckCards({
+          nowMs: Date.now(),
+          machines,
+          loadOf: (machineId) => { try { return deps.svc.countOnMachine(machineId); } catch { return 0; } },
+          busy: ours,
+          svc: deps.svc,
+          requeue: (taskId, skipMachineId, note) => {
+            try { ctx.queue.releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true }); } catch { return false; }
+            const skip = skipMachineId
+              ? { machineId: skipMachineId, until: new Date(Date.now() + STUCK_SKIP_MS).toISOString() }
+              : null;
+            try {
+              ctx.queue.emit(deps.svc.update({
+                taskId, actor: "agent", by: "dispatcher",
+                patch: { machineId: null, ...(skip ? { overflowSkip: skip } : {}) },
+              }));
+            } catch (err) { log(`stuck card ${taskId} kept its fixed machine`, err); }
+            try { deps.svc.addComment({ taskId, author: "system", kind: "service", content: note }); } catch { /* the requeue stands without its line */ }
+            return true;
+          },
+        });
+        for (const s of spoke) log(`stuck card ${s.id}: ${s.requeued ? "requeued" : "reason written"}`);
+      } catch (err) { log("stuck-card sweep failed", err); }
+    }
     // 1-quater-ter) A card parked because its board mapped to no project
     //    directory returns once the directory is found again.
     try {

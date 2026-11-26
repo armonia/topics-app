@@ -20,6 +20,10 @@
  *   bun run scripts/e2e-plan-shards.ts <N> [--out <dir>]
  *     N          numero di shard
  *     --out dir  scrive dir/shard-<i>.txt (un file di spec per riga)
+ *     --only f   (reduced PR plan) f is a JSON file `{ "files": ["a.spec.ts", ...] }`: the plan
+ *                keeps only those of the tier's files, and a piece with nothing in it is written
+ *                as an EMPTY file (the shard step then runs nothing, instead of falling back to
+ *                `--shard=i/N` and running a slice of the whole tier).
  *   Stampa sempre il piano leggibile con i totali per shard.
  *
  * `--out` esiste perché elencare le spec costa: `playwright test --list` deve
@@ -116,6 +120,19 @@ export function selectorCollisions(files: string[]): Array<{ selector: string; m
   return out;
 }
 
+/** The tier's files a reduced plan keeps. */
+export function restrictToOnly(files: string[], only: ReadonlySet<string>): string[] {
+  return files.filter((f) => only.has(f));
+}
+
+/**
+ * The text of a shard file. A piece with nothing in it is the EMPTY string: the shard step then
+ * runs nothing instead of falling back to `--shard=i/N` and running a slice of the whole tier.
+ */
+export function shardFileBody(files: string[]): string {
+  return files.length ? files.map(specSelector).join("\n") + "\n" : "";
+}
+
 /** LPT: dal più lento al più veloce, ognuno nel secchio finora meno carico. */
 export function planShards(
   files: string[],
@@ -160,6 +177,17 @@ if (import.meta.main) {
     process.exit(2);
   }
 
+  const onlyIdx = argv.indexOf("--only");
+  let only: Set<string> | null = null;
+  if (onlyIdx >= 0) {
+    try {
+      only = new Set((JSON.parse(readFileSync(argv[onlyIdx + 1] ?? "", "utf8")) as { files: string[] }).files);
+    } catch (err) {
+      console.error(`[plan] --only unreadable: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  }
+
   let files: string[];
   try {
     files = listSpecFiles();
@@ -171,11 +199,12 @@ if (import.meta.main) {
     console.error("[plan] nessuna spec elencata.");
     process.exit(1);
   }
+  if (only) files = restrictToOnly(files, only);
   // Più shard che file significherebbe secchi vuoti, e uno shard senza elenco
   // non ha modo di dire "non eseguire niente": tornerebbe alla ripartizione
   // nativa e rifarebbe 1/N di TUTTA la suite. Meglio dirlo e lasciare che chi
   // chiama usi `--shard=i/N`, che il caso lo gestisce da solo.
-  if (shards > files.length) {
+  if (!only && shards > files.length) {
     console.error(`[plan] ${shards} shard per ${files.length} file: non pianificabile.`);
     process.exit(1);
   }
@@ -197,7 +226,7 @@ if (import.meta.main) {
     mkdirSync(outDir, { recursive: true });
     buckets.forEach((b, i) => {
       // SELETTORI, non nomi: vedi `specSelector`.
-      writeFileSync(resolve(outDir, `shard-${i + 1}.txt`), b.files.map(specSelector).join("\n") + "\n");
+      writeFileSync(resolve(outDir, `shard-${i + 1}.txt`), shardFileBody(b.files));
     });
   }
 
