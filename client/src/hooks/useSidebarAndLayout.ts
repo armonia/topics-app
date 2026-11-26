@@ -43,6 +43,17 @@ import { mediaQueryMatches } from '../lib/mediaQuery';
  */
 const MOBILE_DRAWER_KEY = 'topics-mobile-drawer-collapsed';
 
+/**
+ * How narrow and how wide the column drags. The narrow end is the width at
+ * which its header still holds the window commands and its four tab buttons,
+ * 34px each since 25/11, on the widest set of commands (Windows, 74px) with
+ * 6px to spare. At the old 180 the bell ran under Search on a Mac, which is
+ * the defect that once sent the bell's clicks to Search (sidebar-header-fit).
+ */
+const SIDEBAR_MIN_W = 248;
+const SIDEBAR_MAX_W = 400;
+const clampSidebarWidth = (width: number): number => Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, width));
+
 function readMobileDrawerCollapsed(): boolean | null {
   try {
     const raw = localStorage.getItem(MOBILE_DRAWER_KEY);
@@ -184,7 +195,8 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   }, []);
 
   // Sidebar width / collapsed — collapsed by default in detached + mobile
-  const [sidebarWidth, setSidebarWidth] = useState(() => appSettings.sidebarWidth || 256);
+  // Clamped on read too: a width saved under an older, lower minimum.
+  const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(appSettings.sidebarWidth || 256));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (isDetached) return true;
     // SUL TELEFONO SI RIAPRE DOVE ERAVAMO, non dove il contenuto suggerisce.
@@ -255,7 +267,7 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
    * gestore del mouse, che vive in un effetto montato una volta sola e di uno
    * stato vedrebbe il valore del primo giro.
    */
-  const sidebarExpandedWidth = useRef(appSettings.sidebarWidthExpanded ?? sidebarWidth);
+  const sidebarExpandedWidth = useRef(clampSidebarWidth(appSettings.sidebarWidthExpanded ?? sidebarWidth));
   useEffect(() => {
     if (!sidebarCollapsed) sidebarExpandedWidth.current = sidebarWidth;
   }, [sidebarCollapsed, sidebarWidth]);
@@ -284,7 +296,7 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   const [wasCollapsed, setWasCollapsed] = useState(sidebarCollapsed);
   if (sidebarCollapsed !== wasCollapsed) {
     setWasCollapsed(sidebarCollapsed);
-    const target = appSettings.sidebarWidthExpanded ?? 0;
+    const target = appSettings.sidebarWidthExpanded ? clampSidebarWidth(appSettings.sidebarWidthExpanded) : 0;
     // In finestra staccata non si persiste niente, quindi `appSettings` non
     // descrive QUESTA finestra: ripristinare da lì imporrebbe la larghezza di
     // un'altra. Lì la colonna resta dov'è.
@@ -360,7 +372,7 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
         sidebarDragOverlay.current = ov;
         // pane-resize-start already fired on mousedown (native views hidden).
       }
-      const newWidth = Math.max(180, Math.min(400, sidebarStartWidth.current + delta));
+      const newWidth = clampSidebarWidth(sidebarStartWidth.current + delta);
       if (sidebarRef.current) {
         sidebarRef.current.style.width = `${newWidth}px`;
         sidebarRef.current.style.opacity = '';
@@ -378,12 +390,12 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
         sidebarRef.current.style.transition = '';
       }
       const delta = e.clientX - sidebarStartX.current;
-      const finalWidth = Math.max(180, Math.min(400, sidebarStartWidth.current + delta));
-      const collapsed = finalWidth <= 180 && delta < -20;
-      // Chiudere NON cancella la misura scelta a mano: `finalWidth` è 180
-      // perché quello è il minimo del trascinamento, non perché qualcuno voglia
-      // una colonna stretta. La larghezza da aperta resta com'era e viene
-      // persistita a parte — è quella che la riapertura ripristina.
+      const finalWidth = clampSidebarWidth(sidebarStartWidth.current + delta);
+      const collapsed = finalWidth <= SIDEBAR_MIN_W && delta < -20;
+      // Closing does NOT erase the width chosen by hand: `finalWidth` is the
+      // minimum because that is where the drag stops, not because anyone wants
+      // a narrow column. The open width stays as it was and is persisted on
+      // its own: it is what reopening restores.
       const expanded = collapsed ? (sidebarExpandedWidth.current || finalWidth) : finalWidth;
       sidebarExpandedWidth.current = expanded;
       setSidebarWidth(finalWidth);
