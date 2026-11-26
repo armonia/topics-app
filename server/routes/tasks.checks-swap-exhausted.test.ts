@@ -8,7 +8,7 @@
  * round buys nothing: the route now takes the CI's result instead, with a
  * note on the thread, and never starts the command a third time.
  */
-import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
