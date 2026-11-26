@@ -2,6 +2,21 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.7 — 2026-11-26
+
+### Correzioni
+- **land** · node deliveries with a null checks_state are measured again, and every mute exit of the meter says why
+- **gates** · ci-impact fixtures no longer read as the file's own @covers
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-26 [skip ci]
+
+## 2.5.6 — 2026-11-26
+
+### Sotto il cofano
+- ci-changes test: teach the evaluator needs.prepare-e2e.outputs.shards (PR value and none)
+- Bloat baseline: task-dispatcher-overflow.test.ts at 1715 after two cards land together
+
 ## 2.5.5 — 2026-11-26
 
 ### Sotto il cofano
@@ -12,23 +27,55 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Correzioni
 - una card ripresa dopo un land non risulta atterrata per il merge del giro prima (#1703)
 
+### Sotto il cofano
+- Follow a symlinked project tab to its real path in pane-store (moved folder, card 6d04b342)
+- Integration test: let the spawned server keep its tunnel ports when run from a worktree
+
 ## 2.5.3 — 2026-11-26
 
+### Correzioni
+- **checks** · a spawnError is unmeasured, not a red bounce
+- **dispatch** · count a node seat only by a run the primary still believes open
+- **board** · the new board requirements are in the spec, and the person-owned word list carries its language marker
+- **node-checks** · give each run its own checkout folder
+
 ### Sotto il cofano
+- Auto-land: a land waiting on the pull request's CI forgets the offer so the sweep asks again at the verdict
 - il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)
 
 ## 2.5.2 — 2026-11-26
 
+### Novità
+- **board** · a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land
+- **board** · a request that repeats an open card is absorbed by it instead of opening a twin
+- **board** · a card stuck for an hour without a reason gets one service note, and leaves a machine that does not answer
+- **board** · a card that spent its attempts with no outcome stays visible in todo with the reason, instead of moving to backlog
+- **board** · the question a delivery carries goes back to the chat that opened the card
+
 ### Correzioni
 - **ui** · the sidebar's buttons are tabs, and every tab lights under the pointer
+- don't let an older comment outrank the newest one when carrying a node's thread
+- **board** · the stuck-card sweep leaves an in-progress card its dispatch chip explains
+- protect every comment of a resend's round, not two rows by position, in node run briefs
 
 ### Sotto il cofano
+- ci-impact: whole-tree guard tests always ride in a reduced unit plan (replay: any-budget was missed)
+- Land via PR: auto-merge off on every failed exit, re-read at the deadline, probe failure is a refusal, moved base reported, gh missing falls back to the local merge
+- Fix the gh-unavailable pattern word boundary
+- never requeue an empty run or bounce a landed card without checking against this Mac's own main
+- Land via PR: a GitHub refusal falls back to the local merge, running checks release the queue, settle wait cut to 2 min
+- **openspec** · board-avanza-da-sola, the seven rules with their bar
 - **e2e** · the narrowest column is 248, and the word hides beside the Windows cluster
+- a rimando after a land is not a closed card, and a job-level red is not always a preexisting one
 
 ## 2.5.1 — 2026-11-25
 
 ### Sotto il cofano
+- Land via PR only on the current origin/main base, switch auto-merge off when the state is unreadable, treat any hook failure as a refusal
+- ci-impact: untraceable files run the whole tier, a failed estimate leaves no judged mark, replay includes --only-changed
 - Fix ci-governor selftest race on SIGSTOP/SIGCONT delivery under load
+- ci-impact-measure: drop the node_modules junction, its removal followed the link
+- Read transcripts by bytes so a cut multi-byte character keeps its line, cap the parsed cache in bytes
 
 ## 2.5.0 — 2026-11-25
 
@@ -38,6 +85,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **ui** · the new comments quote the report in English
+- ci-impact-measure: an unreadable rerun list no longer aborts the replay
 - **ui** · the browser tab in the title row is a portal in flow, not a floating surface
 
 ## 2.4.110 — 2026-11-25
@@ -46,6 +94,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **tauri** · a pop-out window is dressed on the main thread, not on a tokio worker
 - **ui** · a project's browser in front is the title, and its page is an island
 - **tauri** · corner_plan is macOS-only outside tests, like its neighbours
+
+### Sotto il cofano
+- pull requests run the e2e specs and unit tests their diff reaches, main runs everything
+- ci-impact: replay reads the commit's own worktree
 
 ## 2.4.108 — 2026-11-25
 
@@ -60,15 +112,23 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **design** · a project's window with only its title is approved
+- Parse transcripts once and append: the usage meters no longer re-read gigabytes of transcripts into the server heap
+- Keep the parsed transcripts of a whole week, not 600 files
 - spec-flow D20 design system gate with the recorded debt as baseline
 - un contenitore non viene richiesto due volte, e il rimando di una card del nodo torna al nodo
+- Declare what the wait-keeps-branch test covers
+- Declare the pull request land requirement and the test that covers it
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-25 [skip ci]
+- Write in English the two comments main brought in Italian
+- List the wait path's git read in the sync-spawn scan with its reason
+- Run the quota route test on an empty home, not on this machine's gigabytes of transcripts
 - la cura dei contenitori torna d'accordo con i suoi test e con il piano
 - clear four unit reds main carries since today's lands
 - **design** · the board's table view of 25/11 is approved
 - **e2e** · the File section's card is its island, the header a row in it
 - **e2e** · the table view's seed reads like a real board
 - **e2e** · focus-pane carries the daemon token; the rail step is measured to the File island
+- Give the quota route test the room a loaded machine needs
 - **e2e** · the parked-children question starts from a step that was being worked
 - **design** · the title as the real tab and the project islands are approved
 
@@ -89,6 +149,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - test expects per-host tab name, tool-surface golden regenerated (card 27cb396b)
 - Il rifiuto del land non pretende le righe github-ci nemmeno in modo before: la coda CI le misura
+- Ask the pre-push hook about the merge message before GitHub writes it, and cover the pull request land wiring
 - Il test dell'adozione passa dal percorso vero: la figlia rilancia, viene archiviata, il servizio del genitore resta vivo
 - register browser:login-request in outbound schema tests, undo unrelated json reformat
 
@@ -104,6 +165,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.4.104 — 2026-11-25
 
 ### Sotto il cofano
+- Land through the pull request only when local main can follow it, and turn auto-merge off on give-up
 - Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio
 - La compressione notturna tocca solo i transcript delle sessioni, non il lavoro degli agenti
 - E2E-VIDEO-01: dichiara il requisito dei video e2e e il @covers del test
@@ -128,9 +190,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Node deliveries emit task-deliver so the retrospective hook sees them
 - Re-measure the pre-review gate: failures are the 401 auth env, same on the parent commit
 - Re-measure the pre-review gate after bun install restored jscpd
+- mem-report: define G4 (device + server, agents excluded) and print it against the 1200 MB bar
+- Land a card by reusing its pull request's own GitHub auto-merge
 - Land also refuses a delivery whose bar was measured only in part
 - Sub-agent no-news replies on a later turn no longer wake the parent
 - seed-before-navigation uses /manifest.json, not /favicon.ico
+- Allow shared-task-mapping.ts in the topicsRouting passage list after the shared.ts split
+- Lock the lower duplication count in the bloat baseline
 - Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290
 - e2e-video-size test: spawn the running bun binary so it also works on Windows
 - La spazzata del land-push spinge main una volta per repo, e ripete un rifiuto solo se cambia
@@ -139,7 +205,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Land refuses an unmeasured delivery on every path, not only the automatic one
 - Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13
 - declare BROWSER-LOGIN-01, move the login branch out of browser-bridge (card 2d18548c)
+- Drop unused imports from tasks/shared-constants.ts (lint red on main)
+- Land through the pull request only when its head is the commit to land
 - Main verde dopo lo split di tasks/shared.ts: import rimasti e test che leggevano il file vecchio
+- Point the preview-rule test at shared-previews.ts after the split
 
 ## 2.4.102 — 2026-11-25
 
@@ -1183,6 +1252,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - worktree-gc: keep worktrees of running or recently ended sub-agents (#1164)
 - E2E time slack: discount the load two Playwright processes per runner add by design (#1141)
 - **browser** · move focus-pane mount flow into browser-bridge-focus to keep browser-bridge under the bloat limit
+- Publish --mobile-chrome-h before first paint so the scroll spacer does not shift on pane return
 - Il test del refresh a server giù non trovava le tab perché non trovava la pagina: il banco bloccava il service worker (#1172)
 - Split server/services/tasks.ts into tasks/ sibling modules by responsibility (#1165)
 - Usage read: say why the plan usage is unreadable (expired token, endpoint refusal) (#1178)

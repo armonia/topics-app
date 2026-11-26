@@ -31,7 +31,7 @@ import { MAX_FANOUT, isAgentWorking } from "../../shared/board";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
 import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
-import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
+import { findNeighbours, normalizeTaskText, type Neighbour } from "../../shared/task-similarity";
 import type { BoardSettings, BoardSettingsPatch } from "../../shared/board";
 
 import { allWideRows } from "../lib/wide-rows";
@@ -476,6 +476,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         rows.map((r) => ({ id: r.id, text: r.text ?? "", createdAt: r.created_at })),
         { limit },
       );
+    },
+
+    findOpenTwin({ projectId, text, idempotencyKey, rootsOnly }): Task | null {
+      const body = (text ?? "").trim();
+      if (!projectId || (!body && !idempotencyKey)) return null;
+      // Open means alive on the board: not archived, not done. A finished card
+      // is history, and a repeated request after it is new work.
+      const openClause = "project_id = ? AND archived = 0 AND status != 'done'";
+      const rootClause = rootsOnly ? " AND parent_task_id IS NULL" : "";
+      if (idempotencyKey) {
+        const byKey = db.prepare(
+          `SELECT id FROM tasks WHERE ${openClause}${rootClause} AND claude_task_id = ?`,
+        ).get(projectId, idempotencyKey) as { id: string } | undefined;
+        if (byKey) return rowToTask(getTaskRow(byKey.id));
+      }
+      if (!body) return null;
+      const wanted = normalizeTaskText(body);
+      if (!wanted) return null;
+      const rows = db.prepare(
+        `SELECT id, text FROM tasks WHERE ${openClause}${rootClause} ORDER BY created_at ASC`,
+      ).all(projectId) as Array<{ id: string; text: string | null }>;
+      const hit = rows.find((r) => normalizeTaskText(r.text ?? "") === wanted);
+      return hit ? rowToTask(getTaskRow(hit.id)) : null;
     },
 
     isArchived(taskId: string): boolean {

@@ -200,6 +200,12 @@ async function serverSide(): Promise<ServerSideResult> {
   return { rows: rowsFor([...new Set([...scanned, ...bridges])]), fromApi: false, scripts: [], baseUrl: "" };
 }
 
+/**
+ * G4, the memory bar of the consumption budget: device (app plus its WebKit
+ * panes) plus server, agent CLIs excluded. This is the one place it is defined.
+ */
+const G4_BAR_MB = 1200;
+
 const server = await serverSide();
 const serverRows = server.rows;
 
@@ -382,6 +388,7 @@ if (JSON_OUT) {
     metric: "phys_footprint (la colonna Memoria di Monitoraggio Attivita')",
     device: { pid: appPid, totalMB: Math.round(total(appRows)), processes: appRows.length, rows: appRows },
     server: { totalMB: Math.round(total(serverRows)), processes: serverRows.length, rows: serverRows, apiTotalMB: server.apiTotalMB },
+    g4: { mb: Math.round(total(appRows) + total(serverRows)), barMB: G4_BAR_MB, under: total(appRows) + total(serverRows) < G4_BAR_MB },
     agents: { totalMB: Math.round(total(cliRows)), processes: cliRows.length, rows: cliRows },
     scripts: topicsScripts.map((s) => ({ name: s.scriptName, pid: s.pid, ports: s.ports, cwd: s.projectPath, ageMin: Math.round((Date.now() - new Date(s.startedAt).getTime()) / 60000) })),
     external: externalRows.map((r) => ({ pid: r.pid, name: r.name, footprintMB: Math.round(r.footprintMB), port: r.port, cwd: r.cwd, note: "NON NOSTRO" })),
@@ -448,6 +455,8 @@ if (JSON_OUT) {
     console.log(`  TOTALE non nostro: ${extTotal.toFixed(0)} MB — non uccidere questi processi`);
   }
 
+  const g4 = total(appRows) + total(serverRows);
+  console.log(`\nG4 (dispositivo + server, agenti esclusi): ${g4.toFixed(0)} MB su ${G4_BAR_MB}  ${g4 < G4_BAR_MB ? "SOTTO LA BARRA" : "SOPRA LA BARRA"}`);
   console.log(
     `\nTOTALE Topics su questa macchina: ${(total(appRows) + total(serverRows) + total(cliRows)).toFixed(0)} MB\n`,
   );
