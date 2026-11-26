@@ -33,7 +33,7 @@ describe("backup retention", () => {
     const names = [
       "pre-merge-20261117.db",
       "topics-pre-reasoning-translations.db",
-      "pre-openclaw-migration.db",
+      "pre-legacy-migration.db",
       "branches-deleted-20261101.txt",
       "origin-branches-archived-20261101.json",
       "pre-filter-repo",
