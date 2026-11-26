@@ -18,6 +18,9 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// Wide enough for the fake `check-ignore` to answer on a loaded machine (300 ms timed it out
+// too, and gate 1 then refused for the wrong reason), still far below the 30 s `ls-files` hang.
+const CAP_MS = "3000";
 let dir = "";
 let out: { result: { removed: unknown[]; refused: { relPath: string; reason: string }[] }; stillThere: boolean } = {
   result: { removed: [{}], refused: [] },
@@ -36,7 +39,7 @@ beforeAll(async () => {
   const proc = Bun.spawn(["bun", join(import.meta.dir, "worktree-slim.git-hung.fixture.ts"), root], {
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TOPICS_SPAWN_TIMEOUT_CAP_MS: "300" },
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TOPICS_SPAWN_TIMEOUT_CAP_MS: CAP_MS },
   });
   const [text, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   await proc.exited;

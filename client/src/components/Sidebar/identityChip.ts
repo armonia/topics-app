@@ -43,7 +43,7 @@
  * exact value, i.e. a chip that stops answering the pointer. The hover steps
  * are the resting ones plus roughly the same delta again.
  */
-import { ROW_H } from '../../lib/selectionStyles';
+import { ROW_GAP, ROW_H, ROW_PX, SELECTED_SURFACE, SIDEBAR_HOVER } from '../../lib/selectionStyles';
 
 /**
  * THE CHIPS ARE AS BIG AS THE TABS ABOVE THEM.
@@ -64,6 +64,7 @@ import { ROW_H } from '../../lib/selectionStyles';
  *
  * The 34 is therefore no longer written here at all. It arrives as a class
  * string from `selectionStyles`, which is where Tailwind already scans it.
+ * @knipignore used by e2e specs, outside the production graph
  */
 export const CHIP_TARGET_PX = 34;
 
@@ -99,6 +100,26 @@ const CHIP_EMPTY =
  */
 export function chipClass(filled: boolean): string {
   return `${CHIP_BOX} ${filled ? CHIP_FULL : CHIP_EMPTY}`;
+}
+
+/**
+ * YOUR OWN CARD IS A ROW, like the Sistema row above it (25/11: "the user
+ * button and the Sistema button" with the tabs' heights and spacings, and "if
+ * not active in some way, no background").
+ *
+ * It was a FULL chip, a veil and a border at rest, which made it the one thing
+ * at the foot of the column painted while nothing was going on. Now it is a
+ * row: the row's height, padding and gap, no ground and no border at rest, the
+ * rows' hover under the pointer, and the selected row's ground while its menu
+ * is open. The chips of the people around keep theirs: a chip is a slot that
+ * can be empty, and its veil is what tells a full one from an empty one.
+ *
+ * `mt-[3px]` is the half step a row carries: with the Sistema row's own half
+ * it makes the column's 6px between the two.
+ */
+export function meRowClass(open: boolean): string {
+  const ground = open ? `edge-lit ${SELECTED_SURFACE}` : SIDEBAR_HOVER;
+  return `flex ${ROW_H} ${ROW_GAP} ${ROW_PX} items-center rounded-lg mt-[3px] transition-colors ${ground}`;
 }
 
 /**

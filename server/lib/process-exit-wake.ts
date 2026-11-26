@@ -62,6 +62,7 @@ import { launchedSinceRetired, stoppedSubagentChat, wakeVerdict } from "./wake-a
 import { isProviderHeld } from "./provider-hold";
 import { isChatsLastWord, outageCutUnanswered, outageResendAttempt, outageResendOwed } from "./ripresa-boot";
 import type { ResendChain } from "./resend-count";
+import { sleep } from "./unref-sleep";
 
 /** What the topic is told about a process that ended. */
 export interface ProcessExitFacts {
@@ -250,8 +251,6 @@ export function wakeDelivered(db: Pick<Database, "query">, sessionKey: string, p
   return wakeCutByOutage(db, sessionKey, processId) === null;
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.(); });
-
 /**
  * One wake, from the wait to the end of the turn it opened: "sent" comes back
  * once a turn it opened is over uncut by an outage, "capped" once the copies
@@ -393,7 +392,7 @@ export function startProcessExitWakes(d: ProcessExitWakeDeps): void {
   for (const r of waiting.splice(0)) schedule(d, r);
 }
 
-/** Every wake scheduled so far has settled. For tests. */
+/** @internal Every wake scheduled so far has settled. For tests. */
 export async function processExitWakesIdle(): Promise<void> {
   while (chains.size) await Promise.all([...chains.values()]);
 }

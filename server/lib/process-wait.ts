@@ -217,7 +217,3 @@ export function closeWatchesOfSession(sessionKey: string): void {
   for (const [id, w] of watches) if (w.sessionKey === sessionKey) watches.delete(id);
 }
 
-/** Quante attese sono aperte in tutto. Usato dai test e dalle diagnostiche. */
-export function countWatches(): number {
-  return watches.size;
-}

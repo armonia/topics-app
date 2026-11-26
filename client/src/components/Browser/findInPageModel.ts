@@ -48,14 +48,6 @@ export function clampMatchCounter(index: number, total: number): { index: number
   return { index: i, total: t };
 }
 
-/** «3/12», e «0/0» quando non c'è niente da trovare. L'indice viene sempre
- *  riportato dentro il totale: la barra non deve poter dire «14/12» nemmeno per
- *  un giro, se il conteggio è appena scesso. */
-export function formatMatchCounter(index: number, total: number): string {
-  const c = clampMatchCounter(index, total);
-  return `${c.index}/${c.total}`;
-}
-
 /** What the find bar shows (FIND-01): «3 di 12» / «3 of 12» from the i18n key
  *  `find.counter`, and «oltre 1000» / «over 1000» (`find.counter.over`) when
  *  the engine stopped counting positions past its limit. */

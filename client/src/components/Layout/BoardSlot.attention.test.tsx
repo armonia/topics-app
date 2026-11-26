@@ -11,7 +11,7 @@
 import { test, expect, beforeEach } from 'bun:test';
 import { mount } from '../../test/reactHarness';
 import { attentionActions, useAttentionStore } from '../../state/attention';
-import { chromeAttentionTotal } from '../../state/attentionTotal';
+import { chromeAttentionSubjects } from '../../state/attentionTotal';
 import { inboxModel } from '../../lib/inboxModel';
 import { BoardRowSummary } from '../Sidebar/BoardStatusCounts';
 import { setBoardTasks, __resetBoardTasks } from '../../lib/boardTasksStore';
@@ -45,7 +45,7 @@ test('one card in review and one parked: the general board tab says 2, as the in
   const inbox = inboxModel(rows, {}, [], [{ id: 'r1', text: 'Review me' }, { id: 'k1', text: 'Parked' }]).waiting.length;
   expect(String(badge?.props['data-notification-count'])).toBe('2');
   expect(inbox).toBe(2);
-  expect(chromeAttentionTotal(rows, {}, [])).toBe(2);
+  expect(chromeAttentionSubjects(rows, {}, []).length).toBe(2);
 });
 
 /** The number the Board row draws on its first count (`board-count-review`), or null. */

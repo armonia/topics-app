@@ -1088,6 +1088,14 @@ export interface WSBrowserFocusPaneMessage {
   type: 'browser:focus-pane';
   contextId: string;
 }
+/** An agent needs the person to log in: raise the tab, optionally detached. */
+export interface WSBrowserLoginRequestMessage {
+  type: 'browser:login-request';
+  contextId: string;
+  url: string;
+  detached: boolean;
+  topicId?: string;
+}
 /**
  * Pane / sidebar UI state replicated across windows (Phase 30 PANE-02).
  * Split into init (full snapshot keyed by store key) vs updated (single
@@ -1326,6 +1334,7 @@ export type WSMessage =
   | WSBrowserOpenTaskTabMessage
   | WSBrowserClosePaneMessage
   | WSBrowserFocusPaneMessage
+  | WSBrowserLoginRequestMessage
   | WSUIStateInitMessage
   | WSUIStateUpdatedMessage
   | WSProjectMessage
@@ -1555,7 +1564,7 @@ export interface AppSettings {
   rustPtyBridgeEnabled: boolean;
   fontSize: number;       // 12-18
   messageDensity: 'compact' | 'comfortable';
-  sidebarWidth: number;   // 180-400
+  sidebarWidth: number;   // SIDEBAR_MIN_W-SIDEBAR_MAX_W (useSidebarAndLayout)
   sidebarCollapsed: boolean;
   /**
    * La larghezza a cui la sidebar torna quando si RIAPRE, in px.
@@ -1665,6 +1674,26 @@ export interface AppSettings {
    * Costs nothing while closed, polls only while open.
    */
   showLiveTerminals: boolean;
+  /**
+   * Where the open tabs are listed on a desktop: in the sidebar column
+   * (`side`) or in the strip across the top of the window (`top`). Never both:
+   * `lib/tabsPlacement.ts` decides, and with the column closed the strip comes
+   * back whatever the choice. The phone ignores it. Surfaced in the View level.
+   * `both` is the layout of before 24/11 (strip AND full column): the View
+   * level does not offer it, the e2e suite written against it runs on it.
+   */
+  tabsPosition: 'side' | 'top' | 'both';
+  /**
+   * Closing a tab archives it (the old two-state model: open or archived).
+   * Off by default: a closed tab stays in the column as a closed row (no
+   * background) until it is archived, for every kind of tab. View level.
+   */
+  closeArchives: boolean;
+  /**
+   * A pinned tab can be closed. Off by default: a pinned tab has no close
+   * command and ⌘W leaves it open, so the pins are always at hand. View level.
+   */
+  pinnedClosable: boolean;
 }
 
 // Qui c'erano due descrizioni senza lettori. `ScriptProcess`: la UI degli

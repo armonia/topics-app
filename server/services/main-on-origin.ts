@@ -57,19 +57,31 @@ export async function pushMainToOrigin(repoPath: string, run: GitRunner = mainPu
  * The periodic half: every land that stayed behind (push timed out, network
  * down, origin diverged and then realigned) is pushed again, fast-forward
  * only. `onPushed` lets the caller turn the cards' `unpushed` into `landed`.
+ *
+ * Worktrees of one repository share one `main`: it is pushed once, from the
+ * first of them, and `onPushed` is told for every one (each can be a project
+ * with its own cards). On 25/11 the eleven worktrees of one repo each pushed
+ * the same main every 10 minutes, and a pre-push hook refused it eleven times.
  */
 export async function sweepUnpushedMains(
   repos: string[],
   onPushed: (repoPath: string, n: number) => void,
   run: GitRunner = mainPushGit,
 ): Promise<Array<{ repo: string; result: MainPush }>> {
-  const out: Array<{ repo: string; result: MainPush }> = [];
+  const groups = new Map<string, string[]>();
   for (const repo of repos) {
+    const common = await run(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).catch(() => null);
+    const key = common?.code === 0 && common.stdout.trim() ? common.stdout.trim() : repo;
+    groups.set(key, [...(groups.get(key) ?? []), repo]);
+  }
+  const out: Array<{ repo: string; result: MainPush }> = [];
+  for (const [first, ...rest] of groups.values()) {
     let result: MainPush;
-    try { result = await pushMainToOrigin(repo, run); }
+    try { result = await pushMainToOrigin(first, run); }
     catch (e) { result = { ok: false, reason: e instanceof Error ? e.message : String(e) }; }
-    if (result.ok) onPushed(repo, result.pushed);
-    out.push({ repo, result });
+    // Only the worktree that pushed counts the commits; the others just learn that main is on origin.
+    if (result.ok) { onPushed(first, result.pushed); for (const r of rest) onPushed(r, 0); }
+    out.push({ repo: first, result });
   }
   return out;
 }

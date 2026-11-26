@@ -140,7 +140,7 @@ describe('the wait before a retry and the running tool', () => {
     // A second `<LiveToolLine>` in the card would print «Bash · bun run test:unit» twice.
     expect(src).not.toContain('<LiveToolLine');
     expect(src).not.toContain('card-live-tool');
-    expect(live).toContain('export function LiveToolLine');
+    expect(live).not.toContain('LiveToolLine');
   });
 });
 

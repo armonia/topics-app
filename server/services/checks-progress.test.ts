@@ -16,7 +16,7 @@
  * @covers KANBAN-15
  */
 import { describe, test, expect } from "bun:test";
-import { parseChecksJson, parseChecksProgress } from "./tasks";
+import { parseChecksJson, parseChecksProgress } from "./tasks-checks";
 
 describe("parseChecksJson — le due forme convivono", () => {
   test("la forma VECCHIA (array nudo) continua a leggersi", () => {

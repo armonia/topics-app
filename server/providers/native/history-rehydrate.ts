@@ -28,6 +28,7 @@ import type { ToolCall } from "../../../shared/types";
 import { toolCallResultText } from "../../../shared/lean-tool-call";
 import type { AgentMessage, Block } from "./agent-loop";
 import { clipToolResult, compact, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS } from "./compaction";
+import { redactDeep, redactSecrets } from "../../lib/secret-redaction";
 import { pathFromImageCaption } from "./image-normalize";
 
 /** Una riga di conversazione come sta nel DB. */
@@ -295,7 +296,7 @@ function expandToolCalls(content: string, calls: readonly ToolCall[], partial: b
     const before = content.slice(cursor, at);
     cursor = at;
     const uses: Block[] = round.calls.map((tc) => ({
-      type: "tool_use", id: apiToolId(tc.id), name: apiToolName(tc.name), input: tc.args ?? {},
+      type: "tool_use", id: apiToolId(tc.id), name: apiToolName(tc.name), input: redactDeep(tc.args ?? {}),
     }));
     out.push({ role: "assistant", content: [...toBlocks(before), ...uses] });
     out.push({ role: "user", content: round.calls.map(resultBlock) });
@@ -352,7 +353,7 @@ function resultBlock(tc: ToolCall): Block {
     return { type: "tool_result", tool_use_id: apiToolId(tc.id), content: NO_RESULT_RECORDED, is_error: true };
   }
   const isError = tc.status === "error" || text === undefined;
-  const body = text !== undefined ? rewriteStaleImageCaption(text) : error!;
+  const body = redactSecrets(text !== undefined ? rewriteStaleImageCaption(text) : error!);
   return {
     type: "tool_result",
     tool_use_id: apiToolId(tc.id),

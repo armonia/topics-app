@@ -56,7 +56,7 @@ export function renderOrgPage(org: 'armonia' | 'euro', ctx: ScreenCtx) {
       </Card>
     );
   } else {
-    const clients: Array<{ id: OrgKey; to: string }> = [{ id: 'nocera', to: P.flows() }, { id: 'sarim', to: P.sarimFlows() }];
+    const clients: Array<{ id: OrgKey; to: string }> = [{ id: 'nocera', to: P.flows() }, { id: 'orbit', to: P.orbitFlows() }];
     extra = (
       <Card icon={Workflow} title={p.configuresTitle}>
         <ul className="-mx-1.5 flex flex-col">

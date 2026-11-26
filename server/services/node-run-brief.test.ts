@@ -68,6 +68,62 @@ describe("nodeRunDescription", () => {
     expect(capped.length).toBeLessThan(MAX_REVIEW_CHARS + 1_500);
   });
 
+  it("una nota di avanzamento dell'agente, scritta dopo la revisione, non prende il posto della revisione", () => {
+    // 22/11: the run restarted after the agent's own «Riparto dal codice…» note, which was then taken for // allow-italian: quoted note text
+    // the review, and the reviewer's list reached the node cut to 2.000 characters.
+    const review = `REVISIONE-INIZIO\n${"difetto riga\n".repeat(400)}REVISIONE-FINE`;
+    expect(review.length).toBeGreaterThan(MAX_COMMENT_CHARS);
+    const out = nodeRunDescription("d", [
+      comment({ author: "agent:a1", kind: "delivery", content: "CONSEGNA PRECEDENTE" }),
+      comment({ author: "user", content: review }),
+      comment({ author: "agent:b2", content: "Riparto dal codice già nel ramo" }),
+    ]);
+    expect(out).toContain("REVISIONE-FINE");
+    expect(out).not.toContain("[...cut");
+    expect(out).toContain("Riparto dal codice");
+    // A thread where only agents spoke keeps the old rule: the newest comment travels whole.
+    const agentsOnly = nodeRunDescription("", [comment({ author: "agent:b2", content: review })]);
+    expect(agentsOnly).toContain("REVISIONE-FINE");
+  });
+
+  it("un revisore automatico, anche se parla come un agente, non è la chiacchiera dell'agente che ha consegnato (596e3d88, 26/11)", () => {
+    // 10 numbered points, over 2.000 characters: all ten must arrive, even
+    // with an older human aside in the thread and a delivery from an agent
+    // different from the one writing the review.
+    const points = Array.from({ length: 10 }, (_, i) =>
+      `${i + 1}. Punto numero ${i + 1} con un bel po' di testo per allungare la frase e farla assomigliare a un vero punto di revisione dettagliato e lungo, cosi' da arrivare a piu' di duemila caratteri totali nel commento completo, superando quindi il vecchio tetto di MAX_COMMENT_CHARS.`);
+    const review = points.join("\n");
+    expect(review.length).toBeGreaterThan(MAX_COMMENT_CHARS);
+    expect(review.length).toBeLessThan(MAX_REVIEW_CHARS);
+    const out = nodeRunDescription("d", [
+      comment({ author: "user", kind: "comment", content: "guarda questo per favore" }),
+      comment({ author: "agent:worker1", kind: "delivery", content: "CONSEGNA PRECEDENTE" }),
+      comment({ author: "agent:revisore1", kind: "comment", content: review }),
+    ]);
+    for (const p of points) expect(out).toContain(p);
+    expect(out).not.toContain("[...cut");
+  });
+
+  it("due commenti umani consecutivi dopo una consegna arrivano entrambi interi (596e3d88, 26/11)", () => {
+    // The real case: a 3.154-character, 10-point comment, then a short one written seconds later by
+    // the SAME author pointing at it. Both `author: "user"`, both `kind: "comment"`: picking "the
+    // newest row" and "the newest row not written by an agent" lands on the same short row twice,
+    // and the long one used to stay cut in the middle.
+    const points = Array.from({ length: 10 }, (_, i) =>
+      `${i + 1}. Punto numero ${i + 1} con un bel po' di testo per allungare la frase e farla assomigliare a un vero punto di revisione dettagliato e lungo, cosi' da arrivare a piu' di duemila caratteri totali nel commento completo, superando quindi il vecchio tetto di MAX_COMMENT_CHARS.`);
+    const review = points.join("\n");
+    expect(review.length).toBeGreaterThan(MAX_COMMENT_CHARS);
+    expect(review.length).toBeLessThan(MAX_REVIEW_CHARS);
+    const out = nodeRunDescription("d", [
+      comment({ author: "agent:worker1", kind: "delivery", content: "CONSEGNA PRECEDENTE" }),
+      comment({ author: "user", kind: "comment", content: review }),
+      comment({ author: "user", kind: "comment", content: "Dieci correzioni nel commento sopra, guarda tutti i punti" }),
+    ]);
+    for (const p of points) expect(out).toContain(p);
+    expect(out).toContain("Dieci correzioni nel commento sopra");
+    expect(out).not.toContain("[...cut");
+  });
+
   it("la revisione più recente non consuma il budget: la consegna precedente resta anche con una revisione lunga", () => {
     // A 10.000-character review used to spend the thread budget and push the previous delivery out.
     const review = `REVISIONE-INIZIO\n${"difetto riga\n".repeat(700)}REVISIONE-FINE`;

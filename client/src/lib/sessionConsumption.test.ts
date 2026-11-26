@@ -1,6 +1,6 @@
 /** @covers USAGE-26 */
 import { describe, expect, test } from 'bun:test';
-import { clockOf, formatTps, readConsumption, shareFraction } from './sessionConsumption';
+import { clockOf, formatTps, readConsumption } from './sessionConsumption';
 
 describe('readConsumption', () => {
   test('a wrong-typed answer is an empty one, not a crash', () => {
@@ -37,8 +37,5 @@ describe('formatters', () => {
     expect(formatTps(0)).toBe('0');
     expect(formatTps(3.46)).toBe('3,5');
     expect(formatTps(142.6)).toBe('143');
-  });
-  test('a share is a fraction', () => {
-    expect(shareFraction({ id: 'server', mb: 1, totalMB: 3, of: 3, cpuPct: null })).toBe('1/3');
   });
 });

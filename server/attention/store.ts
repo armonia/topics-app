@@ -239,7 +239,7 @@ let loadedFrom: Database | "memory" | null = null;
 /** The person's sockets and what each has in front, for the epoch born seen. */
 const focus = new Map<string, { subject: string | null; awake: boolean }>();
 
-/** Tests only: forget everything; `keepRows` keeps the in-memory table, as a restart would. */
+/** @internal Tests only: forget everything; `keepRows` keeps the in-memory table, as a restart would. */
 export function resetAttentionStore(opts: { keepRows?: boolean } = {}): void {
   for (const e of entries.values()) if (e.graceTimer) clearTimeout(e.graceTimer);
   entries.clear();
@@ -1004,14 +1004,6 @@ export function setClosed(subject: string, flags: { archived?: boolean; deleted?
   }
   return recompose(subject, { live: true });
 }
-
-/** The topic of a board agent (rule 2): its card is the subject. */
-export function setDispatched(subject: string, dispatched: boolean): AttentionSnapshot {
-  const e = entryOf(subject);
-  e.live.dispatched = dispatched;
-  return recompose(subject, { live: true });
-}
-
 export type ProcessEndCause = "session-end" | "pty-exit" | "cli-exit" | "reaper" | "lifetime-cap" | "crash" | "swap-kill" | "restart";
 
 /**

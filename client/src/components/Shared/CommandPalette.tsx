@@ -3,6 +3,7 @@ import {
   Search, Moon, Sun, Monitor, File, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog, Gauge, Workflow, BarChart3, Blocks, Bot, Layers, ScrollText} from 'lucide-react';
 import { useHubEverRead } from '../../state/hubLive';
 import { openUserMenu } from '../../lib/openUserMenu';
+import { openSystemPlace } from '../System/systemNav';
 import { openProcessesLog } from '../../state/processesLog';
 import { EmptyState } from './EmptyState';
 import { ClaudeIcon } from './ClaudeIcon';
@@ -482,7 +483,7 @@ export function CommandPalette({
         ['usage', 'usage.open', 'usage.openHint', <BarChart3 size={14} />, utility('dashboard')],
         ['processes', 'processes.open', 'processes.openHint', <MonitorCog size={14} />, utility('processes')],
         ['agents', 'agentsJobs.open', 'agentsJobs.openHint', <Bot size={14} />, () => openUserMenu('agents')],
-        ['context', 'palette.context', 'palette.contextHint', <Layers size={14} />, () => openUserMenu('context')],
+        ['context', 'palette.context', 'palette.contextHint', <Layers size={14} />, () => openSystemPlace('harness')],
         ['features', 'features.open', 'features.openHint', <Blocks size={14} />, utility('features')],
         ['log', 'palette.log', 'palette.logHint', <ScrollText size={14} />, () => openProcessesLog()],
         ['automations', 'automations.open', 'automations.openHint', <Workflow size={14} />, utility('automations')],

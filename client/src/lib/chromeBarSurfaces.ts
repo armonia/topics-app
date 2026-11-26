@@ -1,4 +1,4 @@
-import { PANE_TYPES, type PaneType } from '../state/pane/types';
+import { type PaneType } from '../state/pane/types';
 
 /**
  * THE INVENTORY OF WHAT LIVES UNDER THE CHROME BAR, as data instead of prose.
@@ -59,9 +59,6 @@ import { PANE_TYPES, type PaneType } from '../state/pane/types';
 
 /** The background tier a layout cell paints under a pane (Tailwind class, '' = transparent). */
 export type CellBgTier = '' | 'pane-frost' | 'bg-surface';
-
-/** WCAG 2.1 AA for body text. The bar every surface in this table has to clear. */
-export const AA_TEXT = 4.5;
 
 export interface SurfaceContrast {
   /** Worst-case ratio over the sweep, dark theme. */
@@ -211,6 +208,7 @@ export const CHROME_BAR_SURFACES: readonly ChromeBarSurface[] = [
       'accounts',
       'automations',
       'agents',
+      'system-page',
       'features',
     ],
     cellBg: 'bg-surface',
@@ -248,9 +246,4 @@ const BY_PANE_TYPE: ReadonlyMap<PaneType, ChromeBarSurface> = (() => {
  */
 export function surfaceForPaneType(type: PaneType): ChromeBarSurface {
   return BY_PANE_TYPE.get(type) ?? CHROME_BAR_SURFACES[CHROME_BAR_SURFACES.length - 1];
-}
-
-/** Every pane type the table does not cover. Empty is the invariant. */
-export function paneTypesWithoutSurface(): PaneType[] {
-  return PANE_TYPES.filter((type) => !BY_PANE_TYPE.has(type));
 }

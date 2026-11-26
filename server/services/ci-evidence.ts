@@ -69,6 +69,7 @@ import { GATES_CI_CHECK, NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type R
 import { lowPriorityArgv } from "../lib/low-priority";
 import { ChecksInterruptedError } from "./checks-gate";
 import { cardTag, supersedePreviousDelivery } from "./ci-supersede";
+import { CI_PUSH_TIMEOUT_MS, type CiStep, pushRejectedAsNonFastForward, reportStepFault } from "./ci-evidence-fault";
 import { reviewChecksStopping } from "./review-checks-brakes";
 
 /** No verdict this long after the push is NOT MEASURED (42 min measured in a 10-PR burst). */
@@ -171,11 +172,6 @@ export type CiEvidence =
 export function repoFromRemote(url: string): string | null {
   const m = url.trim().match(/^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/(?:[^@/]+@)?github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/);
   return m ? m[1]! : null;
-}
-
-/** `git push --porcelain` refused the ref because the remote moved on. */
-export function pushRejectedAsNonFastForward(porcelainOut: string): boolean {
-  return /\[rejected\] \((non-fast-forward|fetch first)\)/.test(porcelainOut);
 }
 
 /**
@@ -407,6 +403,20 @@ export function ciRemeasurable(rows: readonly CheckRun[]): boolean {
   return rows.some((r) => r.notMeasured === true && r.transient === true);
 }
 
+/**
+ * A CI ROW BELONGS TO THE HEAD IT WAS READ ON. A row that names the head of its
+ * run and that head is not the commit being measured is evidence of an earlier
+ * delivery (a green run of the previous tip next to a queued run of the new one),
+ * and writing it as a verdict of this commit lands code nobody measured. It
+ * becomes a transient NOT MEASURED row, so the round is measured again.
+ */
+export function ciRowOfThisHead(row: CheckRun, check: ReviewCheck, commit: string | null): CheckRun {
+  if (!row.ciCommit || !commit) return row;
+  const n = Math.min(row.ciCommit.length, commit.length);
+  if (n >= 7 && row.ciCommit.slice(0, n) === commit.slice(0, n)) return row;
+  return ciNotMeasured(check, `the CI evidence describes commit ${row.ciCommit.slice(0, 8)}, not ${commit.slice(0, 8)}`, { transient: true });
+}
+
 /** A SKIPPED row: nothing of this card's own to measure. `ok: true`, so the review gate lets the delivery through; `skipped: true`, so the card never reads it as a verdict GitHub never gave. */
 export function ciSkipped(check: ReviewCheck, reason: string): CheckRun {
   return { name: check.name, cmd: check.cmd, ok: true, code: 0, ms: 0, timedOut: false, skipped: true, tail: `SKIPPED: ${reason}` };
@@ -430,6 +440,7 @@ export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { ki
   if (outcome.kind === "pass") {
     return {
       name: check.name, cmd: check.cmd, ok: true, code: 0, ms, timedOut: false,
+      ...(outcome.run ? { ciCommit: outcome.run.head_sha } : {}),
       tail: [`${label} green on the pull request CI`, ...contextLines(outcome.run, ctx), jobList].join("\n"),
     };
   }
@@ -441,6 +452,7 @@ export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { ki
   return {
     name: check.name, cmd: check.cmd, ok: false, code: 1, ms, timedOut: false,
     ...(elsewhere ? { ciRunRed: elsewhere } : {}),
+    ...(outcome.run ? { ciCommit: outcome.run.head_sha } : {}),
     tail: [
       `${label} red on the pull request CI: ${outcome.failed.map((j) => j.name).join(", ")}`,
       ...(elsewhere ? [`look there first, the shards stop when unit or gates is red: ${elsewhere}`] : []),
@@ -473,6 +485,20 @@ export interface GithubPort {
   openPullRequest(cwd: string, repo: string, branch: string): Promise<Got<PullRequestRef | null>>;
   draftPullRequest(cwd: string, repo: string, branch: string, title: string, body: string): Promise<Got<PullRequestRef>>;
   closePullRequest(cwd: string, repo: string, pr: number, comment: string): Promise<Got<"closed">>;
+  /** Takes a draft pull request out of draft, so GitHub will actually merge it. */
+  markReady(cwd: string, repo: string, pr: number): Promise<Got<"ready">>;
+  /**
+   * Turns on GitHub's own auto-merge (a merge commit, never squash or rebase:
+   * the tree must match the pull_request run that already tested it).
+   * `subject` becomes the merge commit's message, so it keeps following the
+   * `merge task <id>: <title>` convention several callers parse off main
+   * (task-diff-range.ts, landing-audit.ts) instead of GitHub's own default.
+   */
+  enableAutoMerge(cwd: string, repo: string, pr: number, subject: string): Promise<Got<"enabled">>;
+  /** Turns GitHub's auto-merge back off, so a land that gave up is not merged later behind its back. */
+  disableAutoMerge(cwd: string, repo: string, pr: number): Promise<Got<"disabled">>;
+  /** What the pull request looks like right now: still a draft, merged, and the merge commit GitHub produced. */
+  pullRequestState(cwd: string, repo: string, pr: number): Promise<Got<PullRequestState>>;
   /** `deleted`, or `absent` when the remote branch was already gone: both are "nothing left on origin". */
   deleteRemoteBranch(cwd: string, branch: string): Promise<Got<"deleted" | "absent">>;
   runs(repo: string, sha: string): Promise<Got<GithubRun[]>>;
@@ -487,7 +513,8 @@ export interface GithubPort {
   cancelRun(repo: string, runId: number): Promise<Got<void>>;
 }
 
-export type PullRequestRef = { number: number; url: string };
+export type PullRequestRef = { number: number; url: string; /** The commit the pull request currently points at, when the lookup asked for it. */ headRefOid?: string; /** The tip of the base branch the pull request is measured against, when the lookup asked for it. */ baseRefOid?: string };
+export type PullRequestState = { isDraft: boolean; merged: boolean; mergeCommit: string | null; /** Some check of the pull request has not concluded yet. */ checksPending?: boolean };
 export type OpenPullRequest = PullRequestRef & { headRefName: string; title: string };
 
 type Spawned = { code: number; out: string; err: string };
@@ -580,7 +607,7 @@ export function githubPort(): GithubPort {
   // opened only when this lookup finds none, and the cleanup closes whatever it
   // finds, so both doors ask GitHub the same question.
   const openPullRequest: GithubPort["openPullRequest"] = (cwd, repo, branch) => call(
-    ["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number,url", "--limit", "1"], cwd,
+    ["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number,url,headRefOid,baseRefOid", "--limit", "1"], cwd,
     (o) => (JSON.parse(o) as PullRequestRef[])[0] ?? null);
   return {
     openPullRequest,
@@ -600,7 +627,7 @@ export function githubPort(): GithubPort {
       const argv = ["git", "push", "--porcelain",
         ...(lease ? [`--force-with-lease=refs/heads/${branch}:${lease}`] : []),
         "origin", `${sha}:refs/heads/${branch}`];
-      const r = await spawnCapped(argv, cwd);
+      const r = await spawnCapped(argv, cwd, CI_PUSH_TIMEOUT_MS);
       if (r.code === 0) return { ok: true, value: "pushed" };
       if (!lease && pushRejectedAsNonFastForward(`${r.out}\n${r.err}`)) return { ok: true, value: "non-fast-forward" };
       return failed(argv, r);
@@ -618,6 +645,18 @@ export function githubPort(): GithubPort {
     },
     closePullRequest: (cwd, repo, pr, comment) => call(
       ["gh", "pr", "close", String(pr), "--repo", repo, "--comment", comment], cwd, () => "closed" as const),
+    markReady: (cwd, repo, pr) => call(["gh", "pr", "ready", String(pr), "--repo", repo], cwd, () => "ready" as const),
+    enableAutoMerge: (cwd, repo, pr, subject) => call(
+      ["gh", "pr", "merge", String(pr), "--repo", repo, "--merge", "--auto", "--subject", subject, "--body", ""], cwd, () => "enabled" as const),
+    disableAutoMerge: (cwd, repo, pr) => call(
+      ["gh", "pr", "merge", String(pr), "--repo", repo, "--disable-auto"], cwd, () => "disabled" as const),
+    pullRequestState: (cwd, repo, pr) => call(
+      ["gh", "pr", "view", String(pr), "--repo", repo, "--json", "isDraft,state,mergeCommit,statusCheckRollup"], cwd, (o) => {
+        const parsed = JSON.parse(o) as { isDraft: boolean; state: string; mergeCommit: { oid: string } | null; statusCheckRollup?: { status?: string; state?: string }[] | null };
+        // A check run is done when its status is COMPLETED; a commit status when its state is not PENDING/EXPECTED.
+        const checksPending = (parsed.statusCheckRollup ?? []).some((c) => (c.status ? c.status !== "COMPLETED" : c.state === "PENDING" || c.state === "EXPECTED"));
+        return { isDraft: parsed.isDraft, merged: parsed.state === "MERGED", mergeCommit: parsed.mergeCommit?.oid ?? null, checksPending };
+      }),
     deleteRemoteBranch: async (cwd, branch) => {
       const argv = ["git", "push", "origin", "--delete", branch];
       const r = await spawnCapped(argv, cwd);
@@ -683,7 +722,7 @@ export type AwaitCiDeps = {
  * server stops the checks.
  */
 export async function awaitCiEvidence(
-  input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[] },
+  input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[]; onFault?: (step: CiStep, error: string) => void },
   deps: AwaitCiDeps = {},
 ): Promise<CheckRun[]> {
   const port = deps.port ?? githubPort();
@@ -714,6 +753,8 @@ export async function awaitCiEvidence(
   // A cause that passes by itself: the same commit measured again can still give a verdict.
   const notYet = (reason: string, ctx: RunContext & { run?: GithubRun | null } = {}): CheckRun[] =>
     notMeasured(reason, { ...ctx, transient: true });
+  const fault = (step: CiStep, reason: string, transient = false): CheckRun[] =>
+    (reportStepFault({ taskId: input.taskId, sha }, step, reason, input.onFault), transient ? notYet(reason) : notMeasured(reason));
   const skipped = (reason: string): CheckRun[] => checks.map((c) => settled.get(c) ?? ciSkipped(c, reason));
 
   halt();
@@ -732,7 +773,7 @@ export async function awaitCiEvidence(
 
   halt();
   const pushed = await port.push(cwd, sha, branch.value);
-  if (!pushed.ok) return notYet(`push failed: ${pushed.error}`);
+  if (!pushed.ok) return fault("push", `push failed: ${pushed.error}`, true);
   if (pushed.value === "non-fast-forward") {
     const head = await port.remoteHead(cwd, branch.value);
     if (!head.ok || !head.value) return notMeasured(`push rejected and the remote head is unreadable${head.ok ? "" : `: ${head.error}`}`);
@@ -742,7 +783,7 @@ export async function awaitCiEvidence(
       return notMeasured(`the remote branch ${branch.value} has commits this worktree never had (${head.value.slice(0, 8)}): left untouched`);
     }
     const forced = await port.push(cwd, sha, branch.value, head.value);
-    if (!forced.ok || forced.value !== "pushed") return notMeasured(`push with lease failed${forced.ok ? "" : `: ${forced.error}`}`);
+    if (!forced.ok || forced.value !== "pushed") return fault("push", `push with lease failed${forced.ok ? "" : `: ${forced.error}`}`);
   }
 
   const pr = await port.draftPullRequest(cwd, repo.value, branch.value,
@@ -753,7 +794,7 @@ export async function awaitCiEvidence(
   // between main and <branch>"): local `main` was behind, or the commits are already
   // on the remote. Nothing for a CI run to measure, same outcome as no own commit.
   if (!pr.ok && /no commits between/i.test(pr.error)) return skipped(NO_OWN_COMMIT);
-  if (!pr.ok) return notYet(`cannot open or find the draft pull request: ${pr.error}`);
+  if (!pr.ok) return fault("draft-pr", `cannot open or find the draft pull request: ${pr.error}`, true);
   await supersedePreviousDelivery(port, { cwd, repo: repo.value, taskId: input.taskId, branch: branch.value, sha, pr: pr.value, baseBranch: CI_BASE_BRANCH })
     .catch(() => undefined);
   const ctx: RunContext = { repo: repo.value, prUrl: pr.value.url };

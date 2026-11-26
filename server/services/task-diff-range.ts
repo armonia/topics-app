@@ -110,28 +110,6 @@ function lines(out: string): string[] {
   return out.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
-/**
- * La gamma di un worktree VIVO: dal padre del più vecchio commit proprio fino
- * all'albero di lavoro.
- *
- * Finisce sull'albero e non sulla punta del ramo di proposito, ed è l'unica
- * differenza voluta rispetto a `worktreeDiffStat`: quello misura una CONSEGNA
- * (che per contratto è ciò che sta su un commit), questo disegna il pannello che
- * si guarda MENTRE l'agente lavora — un file appena scritto e non ancora
- * committato è la cosa che il reviewer vuole vedere per prima.
- *
- * Nessun commit proprio ⇒ la base è `HEAD`: resta esattamente il lavoro non
- * committato, che è la risposta giusta per una card che ha appena cominciato.
- *
- * `null` = non misurabile (HEAD staccato, git in errore) — mai una gamma a caso.
- */
-export async function worktreeOwnRange(
-  cwd: string,
-  opts: TaskDiffRangeOptions & { branch?: string | null } = {},
-): Promise<TaskDiffRange | null> {
-  return (await worktreeRange(cwd, opts))?.range ?? null;
-}
-
 /** `worktreeOwnRange`, plus whether the branch still has a commit of its own. */
 async function worktreeRange(
   cwd: string,

@@ -876,11 +876,17 @@ arrivata dopo, e NON SHALL spegnere un `needs-you`.
 
 ### Requirement: NOTIF-ONE-02 — I numeri globali contano soggetti, non messaggi
 
-Il numero globale (Dock, tray, badge PWA) e il numero della inbox SHALL essere LO STESSO
-numero: i soggetti accesi (ATTN-01), ognuno una volta sola, qualunque sia il numero dei
-suoi messaggi o delle sue righe di cronologia. Una card in review o parcheggiata vale 1.
-Le righe di cronologia NON SHALL entrare nel numero. Le righe e le tab POSSONO mostrare il
-numero dei messaggi della chat accesa.
+Il numero globale (Dock, tray, badge PWA), il bottone della campanella e la tab «Ora»
+SHALL essere LO STESSO numero, a pannello chiuso come aperto: le righe che «Ora» elenca.
+Sono i soggetti accesi (ATTN-01), ognuno una volta sola, qualunque sia il numero dei
+suoi messaggi o delle sue righe di cronologia, più le righe dell'hub quando risponde
+(HUBBR-06: attese, automazioni che aspettano o rotte, quote, servizi). Una card in review
+o parcheggiata vale 1. Le righe di cronologia NON SHALL entrare nel numero. Le righe e le
+tab POSSONO mostrare il numero dei messaggi della chat accesa.
+
+Il numero SHALL leggersi intero fino a 999; da 1.000 SHALL dire le migliaia con un
+decimale («1,2K») e da 10.000 senza («12K»). «99+» resta solo negli slot compatti delle
+tab, che hanno 20 px.
 
 La inbox SHALL elencare ogni soggetto contato, e SHALL dire «Niente da guardare» solo
 quando non ce n'è nessuno.
@@ -888,6 +894,14 @@ quando non ce n'è nessuno.
 #### Scenario: due chat, sei messaggi
 - **WHEN** una chat finita ha 4 non letti e un'altra 2
 - **THEN** il numero globale e la inbox SHALL dire 2
+
+#### Scenario: l'hub risponde mentre la campanella legge le automazioni
+- **WHEN** i contatori delle automazioni dell'hub arrivano mentre una lettura è in corso
+- **THEN** la lista delle automazioni SHALL essere letta subito dopo, e il bottone chiuso SHALL dire il numero di righe che il pannello aperto elenca
+
+#### Scenario: più di 99 righe
+- **WHEN** «Ora» elenca 233 righe
+- **THEN** il Dock, il bottone e la tab «Ora» SHALL dire 233, non «99+»
 
 #### Scenario: una card in review senza notifica
 - **WHEN** una card entra in review e nessuna riga del registro la nomina
@@ -1756,7 +1770,6 @@ numero NON SHALL venire da una cache locale.
 - **WHEN** la card parcheggiata viene rimessa in coda
 - **THEN** la tab board SHALL dire 1
 
-## MODIFIED Requirements
 ### Requirement: ATTN-05 — «Finito» vale una volta, solo con qualcosa dentro, e si spegne guardandolo
 
 Un turno che finisce con un messaggio visibile e nessun compito in volo SHALL portare il

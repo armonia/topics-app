@@ -44,7 +44,7 @@ export function listStateFor(topicId: string, count: number): StateSnapshot | un
   return entry && entry.count === count ? entry.state : undefined;
 }
 
-/** Test seam: the module keeps state across tests in one process. */
+/** @internal Test seam: the module keeps state across tests in one process. */
 export function clearListStates(): void {
   entries.clear();
 }

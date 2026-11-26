@@ -127,6 +127,7 @@ export function startProcessDetection(ctx: AppContext, getSessions: DetectionSou
  * The loop is module state and every test file of a run shares the process:
  * left running, it closed as `killed` the background shells a LATER file
  * registered without a live CLI, in the middle of that file's assertions.
+ * @internal
  */
 export function stopProcessDetectionForTests(): void {
   _detectionLoop++;

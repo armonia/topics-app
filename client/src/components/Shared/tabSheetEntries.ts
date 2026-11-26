@@ -23,7 +23,8 @@ import type { ComponentType } from 'react';
 import {
   Hand, CornerUpLeft, ArrowUpRight, Search, Square, Settings, RotateCw, FileText, Wrench,
   MonitorSmartphone, PanelTop, LayoutGrid, X, Pin, PinOff, Link2, Maximize2, Maximize, Minimize2,
-  Columns2, Rows2, Layers, Check, Plus, ExternalLink, Combine, Trash2, Code2,
+  Columns2, Layers, Check, Plus, ExternalLink, Combine, Trash2, Code2,
+  PanelRight, PanelLeft, PanelBottom, Proportions,
 } from 'lucide-react';
 
 type Glyph = ComponentType<{ size?: number; className?: string }>;
@@ -122,7 +123,11 @@ export interface TabSheetModel {
   layout?: {
     zoom?: { zoomed: boolean; toggle: (scope: 'derived' | 'cell') => void };
     splitRight?: () => void;
+    splitLeft?: () => void;
     splitDown?: () => void;
+    splitUp?: () => void;
+    /** Every divider of the surface at even shares, splits kept. */
+    equalize?: () => void;
     resetLayout?: () => void;
     moveToGroup?: {
       groups: Array<{ id: string; name: string; current: boolean }>;
@@ -145,9 +150,6 @@ export const DEVICE_LABEL_KEY: Record<'desktop' | 'mobile' | 'tablet' | 'auto' |
   desktop: 'tabSheet.device.desktop', mobile: 'tabSheet.device.mobile', tablet: 'tabSheet.device.tablet',
   auto: 'tabSheet.device.auto', custom: 'tabSheet.device.custom',
 };
-
-/** The first level may not grow past this many rows (TABSHEET-02). */
-export const FIRST_LEVEL_MAX_ROWS = 11;
 
 const action = (a: Omit<SheetAction, 'kind'>): SheetAction => ({ kind: 'action', ...a });
 const control = (id: SheetControl['id']): SheetControl => ({ kind: 'control', id });
@@ -185,11 +187,6 @@ function tidyDividers(entries: SheetEntry[]): SheetEntry[] {
   }
   while (out.length > 0 && out[out.length - 1].kind === 'divider') out.pop();
   return out;
-}
-
-/** The rows a person counts on a level: everything but the dividers. */
-export function rowCount(entries: readonly SheetEntry[]): number {
-  return entries.filter((e) => e.kind !== 'divider').length;
 }
 
 function pinLabel(t: TabSheetModel['t'], scope: 'single' | 'project' | 'tab', pinned: boolean): string {
@@ -290,8 +287,12 @@ export function buildTabSheetEntries(m: TabSheetModel): SheetEntry[] {
       }
     }
     rows.push(divider('d-split'));
-    if (l.splitRight) rows.push(action({ id: 'split-right', label: t('tab.menu.splitRight'), icon: Columns2, onSelect: l.splitRight, testId: 'tab-sheet-split-right' }));
-    if (l.splitDown) rows.push(action({ id: 'split-down', label: t('tab.menu.splitDown'), icon: Rows2, onSelect: l.splitDown, testId: 'tab-sheet-split-down' }));
+    // The four sides, each with the glyph of where the pane goes (SPLIT-05).
+    if (l.splitRight) rows.push(action({ id: 'split-right', label: t('tab.menu.splitRight'), icon: PanelRight, onSelect: l.splitRight, testId: 'tab-sheet-split-right' }));
+    if (l.splitLeft) rows.push(action({ id: 'split-left', label: t('tab.menu.splitLeft'), icon: PanelLeft, onSelect: l.splitLeft, testId: 'tab-sheet-split-left' }));
+    if (l.splitDown) rows.push(action({ id: 'split-down', label: t('tab.menu.splitDown'), icon: PanelBottom, onSelect: l.splitDown, testId: 'tab-sheet-split-down' }));
+    if (l.splitUp) rows.push(action({ id: 'split-up', label: t('tab.menu.splitUp'), icon: PanelTop, onSelect: l.splitUp, testId: 'tab-sheet-split-up' }));
+    if (l.equalize) rows.push(action({ id: 'equalize', label: t('tab.menu.equalize'), icon: Proportions, onSelect: l.equalize, testId: 'tab-sheet-equalize' }));
     if (l.resetLayout) rows.push(action({ id: 'reset-layout', label: t('tab.menu.resetLayout'), icon: LayoutGrid, onSelect: l.resetLayout, title: t('tab.flattenSplits'), testId: 'tab-sheet-reset-layout' }));
     rows.push(divider('d-move'));
     if (l.moveToGroup) {

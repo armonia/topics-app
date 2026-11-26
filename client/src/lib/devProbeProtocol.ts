@@ -89,6 +89,7 @@ export async function readProbeFlag(flagKey: string): Promise<boolean> {
  * Test-only — drops the shared snapshot so the next `readProbeFlag` subscribes
  * again. The promise is module-level by design (one subscription for three
  * probes), which in a test file means one frame would arm every case after it.
+ * @internal
  */
 export function __resetArmingSnapshotForTests(): void {
   armingSnapshot = null;

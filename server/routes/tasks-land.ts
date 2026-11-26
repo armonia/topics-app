@@ -17,6 +17,7 @@ import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
 import { createReviewSweep } from "./tasks-review-sweep";
+import { createNothingToLand } from "./tasks-land-nothing";
 
 /** What a queued land is asked besides landing. */
 export interface LandRunOpts {
@@ -407,6 +408,33 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     } catch (err) { console.warn(`[land] nota «niente da atterrare» non scritta per ${taskId}:`, err); }
   }
 
+  const nothingToLand = createNothingToLand({ svc, broadcastToAll, opts, explain: explainNothingToLand });
+
+  /**
+   * A card whose delivery no bar ever measured does not land on a board that declares one.
+   * Deliveries planted from another machine arrived with `checks` and `checks_state` null
+   * and went straight onto main, turning its gates red.
+   */
+  function unmeasuredStop(projectId: string, taskId: string): string | null {
+    const t = svc.get(taskId, { projectId })?.task;
+    if (!t) return null;
+    let declared: Array<{ cmd: string; name: string }> = [];
+    try { declared = svc.getBoardSettings(projectId).reviewChecks; } catch { return null; }
+    if (!declared.length) return null;
+    const rows = t.checks ?? [];
+    if (t.checksState == null && rows.length === 0) {
+      return "la consegna non ha nessun check misurato (checks nullo) su una board che ne dichiara: non atterra finché la barra non gira sul suo commit";
+    }
+    // A partial bar (say gates measured, the unit job never) is the same hole: the card cannot land on it.
+    // With a CI phase the `github-ci:*` rows are not on the card at land time: in `after` mode they are written once
+    // the land is done, in `before` mode the queue measured the integration commit and lands on its green.
+    const expected = ciPhase.boardCiMode(projectId) !== "off" ? declared.filter((d) => !d.cmd.startsWith("github-ci:")) : declared;
+    const missing = rows.length ? expected.filter((d) => !rows.some((r) => r.cmd === d.cmd)) : [];
+    return missing.length
+      ? `la barra della board non è stata misurata per intero (mancano: ${missing.map((m) => m.name).join(", ")}): non atterra finché non gira`
+      : null;
+  }
+
   /** A land waits while the CI of main is red, unless the card is the one repairing it. */
   async function redMainStop(projectId: string, taskId: string): Promise<string | null> {
     if (!opts?.mainCiPort) return null;
@@ -454,6 +482,19 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     // main" button — the fix stays reachable, the closed decision does not
     // get reverted to reach it.
     const closedByHuman = task.status === "done" && task.doneActor === "human";
+    // Every path stops here, the manual land included: the hook below only runs for the automatic one.
+    const unmeasured = unmeasuredStop(projectId, taskId);
+    if (unmeasured) {
+      try {
+        svc.addComment({
+          taskId, author: "system", kind: "service",
+          content: `Land rifiutato prima del merge: ${unmeasured}. La card resta in review.`,
+        });
+        const fresh = svc.get(taskId, { projectId })?.task;
+        if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
+      } catch (err) { console.warn(`[land] nota di rifiuto non scritta per ${taskId}:`, err); }
+      return { outcome: "skipped", reason: unmeasured };
+    }
     try {
       const recheck = landOpts?.recheck;
       const res = await autoMerge.tryMerge(taskId, task.text, {
@@ -461,16 +502,12 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         commit: toMerge,
         ...(landOpts?.noRealign ? { noRealign: true } : {}),
         // Only passed when there is something to check, so the old tryMerge contract holds.
-        ...(recheck || opts?.mainCiPort
-          ? {
-              beforeMerge: async (sha: string) => {
-                // The repair card of a red main is the one land that must go through.
-                const stop = await redMainStop(projectId, taskId).catch(() => null);
-                if (stop) return stop;
-                return recheck ? recheck(sha).catch((err) => `the recheck failed: ${String(err)}`) : null;
-              },
-            }
-          : {}),
+        beforeMerge: async (sha: string) => {
+          // The repair card of a red main is the one land that must go through.
+          const stop = await redMainStop(projectId, taskId).catch(() => null);
+          if (stop) return stop;
+          return recheck ? recheck(sha).catch((err) => `the recheck failed: ${String(err)}`) : null;
+        },
       });
       // The automatic land stopped itself right before the merge (nobody pressed "Landa", so no "Land NON riuscito").
       if (res.status === "skipped" && res.code === "auto-land-stopped") {
@@ -483,6 +520,9 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         } catch (err) { console.warn(`[land] nota di arresto non scritta per ${taskId}:`, err); }
         return { outcome: "skipped", reason: res.reason };
       }
+      // The pull request's checks are still running and GitHub merges it at the verdict: the next sweep asks the
+      // automatic land again, which finds the PR merged and fast-forwards. Without this the commit stays "already offered".
+      if (res.status === "skipped" && res.code === "pull-request-waiting-ci") autoLander.forget(taskId);
       // Il ramo era vecchio e il land l'ha riportato al passo con main da sé: è
       // un commit che nessun umano ha fatto, quindi lo si dice — e per PRIMO,
       // perché è successo prima di tutto il resto.
@@ -710,8 +750,9 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         // "nothing" = the branch has no commits main lacks BY ANCESTRY. That is
         // the exact claim that cost us the `watching` phase — verify it against
         // the repo (content, not ancestry) before destroying anything.
+        const verifiedEmpty = await nothingToLand.branchHasNoOwnCommits(taskId);
         await reapAfterLand(taskId, "nothing");
-        explainNothingToLand(projectId, taskId, "il ramo non porta commit che main non abbia");
+        nothingToLand.settle(projectId, taskId, "il ramo non porta commit che main non abbia", { recheck: landOpts?.recheck, verifiedEmpty });
       } else if (res.status === "conflict") {
         // La card ESCE da `done`, e la riga di storico deve dire perché. Prima
         // diceva "user → In corso": la stessa riga che scrive un umano quando
@@ -761,7 +802,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
           sendBackAfterLand(
             projectId, taskId,
             rc
-              ? `Il tuo ramo è indietro di ${rc.behind} commit su main e il land ha provato a riportare main dentro il ramo: ha fatto CONFLITTO su questi file: ${elenco}. Nel tuo worktree fai \`git merge main\`, risolvi quei file (non ce ne sono altri: il merge è stato annullato, quindi riparti da zero), committa la fusione, poi rimetti in review con update_task(status="review"). Il commit di consegna resta un antenato del ramo, quindi il land ripartirà da solo dalla punta. Resta vietato toccare main: niente push, niente merge verso main.`
+              ? `Il tuo ramo è indietro di ${rc.behind} commit su main e il land ha provato a riportare main dentro il ramo: ha fatto CONFLITTO su questi file: ${elenco}. Nel tuo worktree fai \`git fetch origin && git merge origin/main\` (su un nodo il \`main\` locale è vecchio e non mostra il conflitto), risolvi quei file (non ce ne sono altri: il merge è stato annullato, quindi riparti da zero), committa la fusione, poi rimetti in review con update_task(status="review"). Il commit di consegna resta un antenato del ramo, quindi il land ripartirà da solo dalla punta. Resta vietato toccare main: niente push, niente merge verso main.`
               : 'Il merge automatico del tuo branch su main è andato in conflitto. Rifai la BASE del tuo ramo sul main aggiornato (`git rebase main`: il tronco è il main LOCALE, perché è lì che il land fonde, e il land ci porta dentro `origin/main` da solo prima di toccare il tuo ramo), NON un merge di main dentro il ramo: risolvi i conflitti durante la rebase, ricommitta, poi rimetti in review con update_task(status="review"). Resta vietato toccare main: niente push, niente merge verso main.',
           );
         }
@@ -789,7 +830,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         // da fare. `no-branch` (`fall.status === null`) non è un fallimento:
         // non c'era niente da atterrare, e la card si accetta.
         if (!fall.status) {
-          explainNothingToLand(projectId, taskId, "non c'era nessun ramo da atterrare");
+          nothingToLand.settle(projectId, taskId, "non c'era nessun ramo da atterrare", { recheck: landOpts?.recheck, verifiedEmpty: true });
         } else if (cur && cur.status === "done" && cur.doneActor === "human") {
           // Same guard as the `conflict` branch, same reason: `landingState`
           // (written below, unconditionally) is enough to surface the "not

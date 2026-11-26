@@ -91,6 +91,10 @@ describe("classifyResultEvent — l'evento finale della CLI", () => {
 });
 
 describe("classifyTurnError — la promise del turno morta", () => {
+  it("reads the Claude CLI usage-limit sentence as a rate-limit, resumed by itself", () => {
+    const info = classifyTurnError(new Error("You've hit your limit · resets 3pm (Europe/Rome)"));
+    expect(info).toMatchObject({ end: "error", cause: "rate-limit" });
+  });
   it("il tetto a orologio del dispatcher", () => {
     const info = classifyTurnError(new Error("turn exceeded wall-clock timeout"));
     expect(info.end).toBe("cancelled");
@@ -224,6 +228,11 @@ describe("classifyTurnError — il limite dell'API", () => {
   it("any other API error stays a provider error", () => {
     expect(classifyTurnError("API 400: invalid_request_error").cause).toBe("provider-error");
     expect(classifyTurnError("ai-bridge: ack timeout").cause).toBe("provider-error");
+  });
+
+  it("a spent credit balance (a 400 from the API) is a `rate-limit` end, not an error", () => {
+    const msg = 'API 400: {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}} (retried 27 times over 600s without success)';
+    expect(classifyTurnError(msg).cause).toBe("rate-limit");
   });
 
   it("costs no attempt on a card, and has a sentence of its own", () => {

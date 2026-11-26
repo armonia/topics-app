@@ -20,6 +20,8 @@
  * lives in `agent-loop.ts`.
  */
 
+import { isCreditExhausted } from "../../../shared/credit-exhausted";
+
 export interface RetryPolicy {
   /**
    * Attempts in total, the first one included.
@@ -56,9 +58,18 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
 /** A `retry-after` asking for more than this is asking us to give up instead. */
 const RETRY_AFTER_CAP_MS = 60_000;
 
-/** The API answered with a status that is not 2xx. */
+/**
+ * The API answered with a status that is not 2xx. `body` is the raw answer:
+ * the message may be translated or cut (`spiegaErrore`), and the retry
+ * decision on a 400 reads the API's own words.
+ */
 export class ApiHttpError extends Error {
-  constructor(message: string, readonly status: number, readonly retryAfterMs: number | null = null) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterMs: number | null = null,
+    readonly body: string = "",
+  ) {
     super(message);
     this.name = "ApiHttpError";
   }
@@ -128,6 +139,11 @@ export function isTransientStatus(status: number): boolean {
 export function classifyFailure(err: unknown): RetryVerdict {
   if (err instanceof ApiHttpError) {
     if (err.status === 401) return { kind: "reauth", reason: "API 401" };
+    // Treated as a saturated 429: backoff now, and once the attempts run out
+    // the turn ends as `rate-limit` (stop-reason.ts), which resumes by itself.
+    if (isCreditExhausted(err.status, err.body || err.message)) {
+      return { kind: "retry", reason: "API 400 credit exhausted", retryAfterMs: err.retryAfterMs };
+    }
     if (isTransientStatus(err.status)) {
       return { kind: "retry", reason: `API ${err.status}`, retryAfterMs: err.retryAfterMs };
     }
@@ -222,6 +238,13 @@ export interface RetryRoundContext {
    * notice with the hour on it.
    */
   onSaturated?: (retryAfterMs: number | null) => Promise<number | null>;
+  /**
+   * Asked when the account that sent the request is spent (a 400 for credit, or
+   * a 429 with a published end): returns the token of the next account, null
+   * when there is nothing to switch to. It throws when every account is spent,
+   * and that error ends the round: no more attempts.
+   */
+  onAccountExhausted?: (staleToken: string, untilMs: number | null) => Promise<string | null>;
 }
 
 /**
@@ -285,7 +308,27 @@ export async function retryRound<T>(run: (token: string) => Promise<T>, ctx: Ret
         // The STATUS survives the new message: the recovery above the loop
         // keys on it (a 413 after a retried 529 is still a 413 for
         // `recoverFromImageFailure`, not a plain Error it cannot recognise).
-        throw err instanceof ApiHttpError ? new ApiHttpError(detail, err.status, err.retryAfterMs) : new Error(detail);
+        throw err instanceof ApiHttpError ? new ApiHttpError(detail, err.status, err.retryAfterMs, err.body) : new Error(detail);
+      }
+
+      // A spent account is not transient either: the next account takes the
+      // same request at once, and a 429's end is read only once.
+      let spentUntil: number | null = null;
+      let saturationRead = false;
+      let spent = verdict.reason === "API 400 credit exhausted";
+      if (verdict.reason === "API 429" && ctx.onSaturated && ctx.onAccountExhausted) {
+        spentUntil = await ctx.onSaturated(verdict.retryAfterMs);
+        saturationRead = true;
+        spent = spentUntil != null && spentUntil - Date.now() > policy.capMs;
+      }
+      if (spent && ctx.onAccountExhausted) {
+        const next = await ctx.onAccountExhausted(auth.token, spentUntil);
+        if (next) {
+          auth.token = next;
+          console.warn(`[native] ${verdict.reason}: account spent, switching to the next one (attempt ${attempt + 1}/${policy.maxAttempts})`);
+          ctx.onRetry?.({ attempt, maxAttempts: policy.maxAttempts, delayMs: 0, reason: verdict.reason });
+          continue;
+        }
       }
 
       // A 429 with a spent usage window is not transient: its end is a clock,
@@ -293,7 +336,7 @@ export async function retryRound<T>(run: (token: string) => Promise<T>, ctx: Ret
       // ends as `rate-limit` (see stop-reason.ts) and whoever resumes it
       // (`provider-hold.ts` readers) waits for that hour instead of retrying.
       if (verdict.reason === "API 429" && ctx.onSaturated) {
-        const untilMs = await ctx.onSaturated(verdict.retryAfterMs);
+        const untilMs = saturationRead ? spentUntil : await ctx.onSaturated(verdict.retryAfterMs);
         if (untilMs != null && untilMs - Date.now() > policy.capMs) {
           throw new ApiHttpError(`API 429: usage window exhausted, resets at ${new Date(untilMs).toISOString()}`, 429, untilMs - Date.now());
         }

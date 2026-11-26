@@ -9,25 +9,32 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 import {
-  STALE_BACKGROUND_MS,
-  UNDELIVERED_AFTER_MS,
   childModel,
   classifyChildTurn,
   emptyTally,
   endingChildTurn,
   forgetTurns,
-  pendingChildTurns,
   pendingTallyTurns,
   promptCount,
   resultKey,
+  STALE_BACKGROUND_MS,
   tallyLines,
   tallyTurnDurationMs,
   turnDurationMs,
+  UNDELIVERED_AFTER_MS,
 } from "./subagent-result";
 
 const fixture = (name: string) =>
   readFileSync(join(import.meta.dir, "../../tests/fixtures/subagent", `${name}.jsonl`), "utf-8").split("\n").filter(Boolean);
 const idle = { turnsReported: 0, seededAt: 0, now: 1_000, undeliveredReported: false };
+type PendingState = Parameters<typeof pendingTallyTurns>[1];
+
+// The whole-transcript view of the pending turns: fold every line, then ask.
+function pendingChildTurns(lines: readonly string[], s: PendingState) {
+  const t = emptyTally();
+  tallyLines(t, lines);
+  return pendingTallyTurns(t, s);
+}
 
 describe("classifyChildTurn", () => {
   test("a finished turn is reported without the process exiting", () => {
@@ -230,7 +237,9 @@ describe("the transcript folded as it grows", () => {
     tallyLines(t, lines);
     forgetTurns(t, 1);
     expect(t.open).toHaveLength(1);
-    expect(pendingTallyTurns(t, { ...idle, turnsReported: 1 })).toEqual(pendingChildTurns(lines, { ...idle, turnsReported: 1 }));
+    expect(pendingTallyTurns(t, { ...idle, turnsReported: 1 }).map((p) => [p.turn, p.outcome.text])).toEqual([
+      [2, "Two tests: a.test.ts and b.test.ts"],
+    ]);
     expect(tallyTurnDurationMs(t, 1)).toBeNull();
   });
 });

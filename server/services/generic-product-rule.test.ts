@@ -10,7 +10,7 @@ import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readDispatcherSource } from "../../tests/helpers/dispatcher-source";
-import { GENERIC_PRODUCT_RULE } from "./task-dispatcher";
+import { GENERIC_PRODUCT_RULE } from "./task-dispatcher-support";
 
 const REPO = join(import.meta.dir, "..", "..");
 const dispatcher = readDispatcherSource();

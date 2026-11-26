@@ -128,7 +128,7 @@ export function resolveBoardPath(db: Database, pathname: string): string {
   return target === id ? pathname : `/api/boards/${encodeURIComponent(target)}${match[2] ?? ""}`;
 }
 
-/** Test hook: lets a test force the next resolve to rescan. */
+/** @internal Test hook: lets a test force the next resolve to rescan. */
 export function resetBoardAliasScan(): void {
   lastMissScan.clear();
 }

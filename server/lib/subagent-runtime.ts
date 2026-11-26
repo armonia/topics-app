@@ -29,7 +29,7 @@ import {
 } from "./subagent-store";
 import type { SubAgentExitInfo } from "../routes/subagent-exit";
 import { parseJsonlLine, splitJsonlChunk } from "./claude-session-state";
-import { openTail, readTail, type FileTail } from "./file-tail";
+import { openTail, readFileEnd, readTail, type FileTail } from "./file-tail";
 import { tryGetProvider } from "../providers";
 
 /** What this module reads of a terminal session: a live child, or one rebuilt from its row. */
@@ -375,6 +375,7 @@ async function watchChildren(): Promise<void> {
 }
 
 /**
+ * @knipignore re-exported by routes/terminal.ts, which an open branch is editing
  * Retire every live child due for it, now. The watch does it on its tick; a
  * test calls it with a clock moved forward instead of waiting 15 minutes.
  */
@@ -386,7 +387,7 @@ export function retireIdleSubAgents(opts: { now?: number; idleMs?: number } = {}
   return retired;
 }
 
-/** Test seam: forget what this process remembers of its children, as a restart does. */
+/** @internal Test seam: forget what this process remembers of its children, as a restart does. */
 export function _forgetSubAgentMemory(): void {
   childRuntime.clear();
   deliveredResultKeys.clear();
@@ -567,7 +568,8 @@ export function chatParentModel(topic: { model?: string | null; provider?: strin
 export function parentTranscriptModel(parent: Pick<ChildRef, 'cwd' | 'claudeSessionId'> | undefined): string | null {
   if (!parent?.claudeSessionId) return null;
   try {
-    const lines = fs.readFileSync(claudeTranscriptPath(parent.cwd, parent.claudeSessionId), "utf-8").split("\n");
+    // The last assistant record sits near the end: the tail, not a transcript of tens of MB.
+    const lines = (readFileEnd(claudeTranscriptPath(parent.cwd, parent.claudeSessionId), 1024 * 1024)?.text ?? "").split("\n");
     for (let i = lines.length - 1; i >= 0; i--) {
       if (!lines[i]!.includes('"assistant"')) continue;
       try {

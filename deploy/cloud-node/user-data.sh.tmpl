@@ -12,6 +12,15 @@ mkdir -p /etc/ssh/sshd_config.d
 printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' > /etc/ssh/sshd_config.d/10-keys-only.conf
 printf 'ClientAliveInterval 15\nClientAliveCountMax 3\n' > /etc/ssh/sshd_config.d/20-client-alive.conf
 sshd -t && systemctl reload ssh
+# logind guard: after PID 1 reconnects to the bus logind stops hearing that session scopes ended,
+# and every ssh logout piles up as "closing" until SessionsMax refuses logins (card e809a470).
+cat > /usr/local/sbin/logind-stale-sessions <<'EOS'
+@LOGIND_GUARD@
+EOS
+chmod 755 /usr/local/sbin/logind-stale-sessions
+printf '[Unit]\nDescription=Restart logind when closed ssh sessions are never released\n[Service]\nType=oneshot\nExecStart=/usr/local/sbin/logind-stale-sessions --heal\n' > /etc/systemd/system/logind-stale-sessions.service
+printf '[Unit]\nDescription=Check for logind sessions stuck in closing\n[Timer]\nOnBootSec=10min\nOnUnitActiveSec=5min\n[Install]\nWantedBy=timers.target\n' > /etc/systemd/system/logind-stale-sessions.timer
+systemctl daemon-reload && systemctl enable --now logind-stale-sessions.timer
 apt-get update -qq
 apt-get install -y -qq @APT@ lsof curl ca-certificates
 # node con la major del Mac, come offload-hetzner

@@ -1,11 +1,15 @@
-/** @covers AGPT-04, USAGE-24 */
+/** @covers AGPT-04, USAGE-24, MP-NET-01 */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { _resetCodexBinCache } from '../lib/codex-bin';
-import { CodexProvider, KILL_GRACE_MS } from './codex';
+import { CodexProvider } from './codex';
+import { KILL_GRACE_MS } from './exec-turn';
 import { ClaudeCodeProvider } from './claude-code';
+import { sharedEgressProxyEnv } from '../lib/egress-proxy';
+
+const PROXY_ENV_KEYS = ['HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy'];
 
 const previousBin = process.env.CODEX_BIN;
 const previousClaudeBin = process.env.TOPICS_CLAUDE_CLI_PATH;
@@ -21,7 +25,7 @@ beforeAll(() => {
 import { spawn } from 'node:child_process';
 if (process.argv.includes('--version')) { console.log('1.0.0'); process.exit(0); }
 const input = await Bun.stdin.text();
-const result = { cwd: process.cwd(), argv: process.argv.slice(2), pid: process.pid };
+const result = { cwd: process.cwd(), argv: process.argv.slice(2), pid: process.pid, proxy: process.env.HTTPS_PROXY ?? null };
 if (input === 'hang') { await Bun.write(${JSON.stringify(marker)}, JSON.stringify(result)); setInterval(() => {}, 1000); }
 else if (input === 'wrapper') { spawn(process.execPath, [${JSON.stringify(native)}], { stdio: 'inherit' }); }
 else if (input === 'fail') { process.exit(3); }
@@ -108,6 +112,20 @@ async function expectGone(pid: number, budgetMs = KILL_GRACE_MS + 2_000): Promis
 const SPAWN_BUDGET_MS = 10_000;
 
 describe('Codex completion with a fake executable', () => {
+  test('a started provider sends the CLI through the loopback egress proxy', async () => {
+    const saved = Object.fromEntries(PROXY_ENV_KEYS.map((k) => [k, process.env[k]]));
+    for (const k of PROXY_ENV_KEYS) delete process.env[k];
+    try {
+      new CodexProvider({ type: 'codex', defaultWorkspace: root }).start();
+      const deadline = Date.now() + 5_000;
+      while (!sharedEgressProxyEnv().HTTPS_PROXY && Date.now() < deadline) await Bun.sleep(10);
+      const run = JSON.parse((await new CodexProvider({ type: 'codex', defaultWorkspace: root }).complete([{ role: 'user', content: 'proxy' }])).content ?? '');
+      expect(run.proxy).toMatch(/^http:\/\/topics:[A-Za-z0-9_-]+@127\.0\.0\.1:\d+$/);
+    } finally {
+      for (const k of PROXY_ENV_KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+    }
+  });
+
   test('per-call model and effort reach isolated argv without mutating defaults', async () => {
     const provider = new CodexProvider({ type: 'codex', model: 'configured-model', defaultWorkspace: root });
     const result = await provider.complete([{ role: 'user', content: 'classify' }], { model: 'gpt-5.6-luna', reasoningEffort: 'low', isolated: true, timeoutMs: SPAWN_BUDGET_MS });

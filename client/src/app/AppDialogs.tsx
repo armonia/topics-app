@@ -8,6 +8,7 @@ import type { useClosedTabs } from '../state/pane/adapters';
 import { createPaneId } from '../state/pane/adapters';
 import { popOutTopic } from '../lib/popOutTopic';
 import { CommandPaletteHost, FileSearch, KeyboardShortcuts, NewTopicModal, TopicContextMenu } from './lazyHosts';
+import { requestSplit } from '../lib/splitCommands';
 
 type PanelState = UsePanelLifecycleReturn['state'];
 type PanelHandlers = UsePanelLifecycleReturn['handlers'];
@@ -105,6 +106,7 @@ export function AppDialogs({
           onStopStreaming={contextMenu.topic.isGlobalOrchestrator ? undefined : () => {
             void stopSession(contextMenu.topic.sessionKey);
           }}
+          onSplit={splitLayoutAvailable ? (side) => requestSplit(contextMenu.topic.id, side) : undefined}
         /></Suspense>
       )}
 

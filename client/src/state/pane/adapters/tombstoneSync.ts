@@ -299,7 +299,9 @@ export function __getUnackedTombstoneSyncKeys(): string[] {
 }
 /** Test-only: the live cross-device browser-close eviction (see the function's
  *  own docstring). Exposed so a unit test can drive it against the pane store
- *  singleton without reconstructing the WS frame path. */
+ *  singleton without reconstructing the WS frame path.
+ * @internal
+ */
 export function __evictRemotelyClosedBrowserPanesForTests(entries: TombstoneEntry[]): void {
   evictRemotelyClosedBrowserPanes(entries);
 }

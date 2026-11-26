@@ -1,6 +1,7 @@
 /** Message rows written to SQLite: appends, partial turns and tool-call updates. */
 import type { Database } from "bun:sqlite";
 import { toolCallsColumnForRow, toolCallsForDisk } from "../../shared/lean-tool-call";
+import { redactDeep } from "../lib/secret-redaction";
 import { decodeCol } from "../../shared/message-blob";
 import { hasMachineMark } from "../../shared/prompt-number";
 import { isReusableHeadstone } from "../lib/empty-turn-headstone";
@@ -10,6 +11,48 @@ import type { AppStatements, DbRow } from "./app-statements";
 import type { MessageThreadReads } from "./message-thread-reads";
 
 export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMessage, metaParams, writeMessage, loadActiveThread }: { db: Database; stmts: AppStatements; parseBlocksCol: MessageThreadReads["parseBlocksCol"]; rowToMessage: MessageThreadReads["rowToMessage"]; metaParams: MessageThreadReads["metaParams"]; writeMessage: MessageThreadReads["writeMessage"]; loadActiveThread: MessageThreadReads["loadActiveThread"] }) {
+  /** Sort order and parent id for a row appended at the end of the active thread. */
+  function nextAppendSlot(sessionKey: string): { maxOrder: number; parentId: string | null } {
+    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as { max_order: number }).max_order;
+    // Only an id is needed, so read lean: without these two options the call
+    // hydrated the whole active branch with parsed blocks and tool_calls, and
+    // every written row paid for it.
+    const activeThread = loadActiveThread(sessionKey, { withBlocks: false, withToolCalls: false });
+    const lastMsg = activeThread.length > 0 ? activeThread[activeThread.length - 1] : null;
+    return { maxOrder, parentId: lastMsg?.id || null };
+  }
+
+  /** Insert parameters of a fully formed message; `live` keeps its partial/streamed flags, otherwise it is stored closed. */
+  function importedRowParams(sessionKey: string, msg: StoredMessage, sortOrder: number, live: boolean) {
+    return {
+      $id: msg.id,
+      $session_key: sessionKey,
+      $role: msg.role,
+      $content: msg.content || '',
+      $thinking: msg.thinking || null,
+      $tool_calls: toolCallsColumnForRow(redactDeep(msg.toolCalls), msg.blocks),
+      $media: msg.media ? JSON.stringify(msg.media) : null,
+      $partial: live && msg.partial ? 1 : 0,
+      $streamed_at: live ? msg.streamedAt || null : null,
+      $plan_status: msg.planStatus || null,
+      $timestamp: msg.timestamp,
+      $sort_order: sortOrder,
+      $parent_id: msg.parentId || null,
+      $branch_index: msg.branchIndex || 0,
+    };
+  }
+
+  /** The columns an update leaves as they are on the row, for the writers that own only content, thinking or tool_calls. */
+  function carriedParams(msg: StoredMessage) {
+    return {
+      $media: msg.media ? JSON.stringify(msg.media) : null,
+      $partial: msg.partial ? 1 : 0,
+      $streamed_at: msg.streamedAt || null,
+      $plan_status: msg.planStatus || null,
+      ...metaParams({}),
+    };
+  }
+
   /**
    * RIMPIAZZA l'intera sessione con `msgs`: cancella ogni messaggio e ogni
    * scelta di ramo, poi reinserisce quello che gli si passa.
@@ -29,23 +72,7 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
       stmts.deleteActiveBranchesBySession.run(sessionKey);
       for (let i = 0; i < msgs.length; i++) {
         const msg = msgs[i];
-        writeMessage(msg.id, msg.blocks, !msg.partial, (col) => stmts.insertMessage.run({
-          $id: msg.id,
-          $session_key: sessionKey,
-          $role: msg.role,
-          $content: msg.content || '',
-          $thinking: msg.thinking || null,
-          $tool_calls: toolCallsColumnForRow(msg.toolCalls, msg.blocks),
-          $media: msg.media ? JSON.stringify(msg.media) : null,
-          $partial: msg.partial ? 1 : 0,
-          $streamed_at: msg.streamedAt || null,
-          $plan_status: msg.planStatus || null,
-          $timestamp: msg.timestamp,
-          $sort_order: i,
-          $parent_id: msg.parentId || null,
-          $branch_index: msg.branchIndex || 0,
-          ...metaParams(msg, col),
-        }));
+        writeMessage(msg.id, msg.blocks, !msg.partial, (col) => stmts.insertMessage.run({ ...importedRowParams(sessionKey, msg, i, true), ...metaParams(msg, col) }));
       }
     })();
   }
@@ -67,15 +94,7 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
     /** The send's key (`clientMessageId`), on the person's row a send stored. Unique per session. */
     clientMessageId?: string,
   ): StoredMessage {
-    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as { max_order: number }).max_order;
-    // Find the last message in the active thread to set as parent.
-    // Serve UN id, quindi si legge magro: senza queste due opzioni la chiamata
-    // idratava tutto il ramo attivo con `blocks` e `tool_calls` riparsati da
-    // JSON — e la paga OGNI riga scritta, cioè ogni prompt umano e ogni
-    // segnaposto assistente aperto a inizio turno.
-    const activeThread = loadActiveThread(sessionKey, { withBlocks: false, withToolCalls: false });
-    const lastMsg = activeThread.length > 0 ? activeThread[activeThread.length - 1] : null;
-    const parentId = lastMsg?.id || null;
+    const { maxOrder, parentId } = nextAppendSlot(sessionKey);
     const stored: StoredMessage = {
       id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex: 0,
       authorPersonId: autore?.authorPersonId ?? null,
@@ -122,37 +141,13 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
       const base = (stmts.getMaxSortOrder.get(sessionKey) as { max_order: number }).max_order as number;
       for (let i = 0; i < msgs.length; i++) {
         const msg = msgs[i]!;
-        writeMessage(msg.id, msg.blocks, true, (col) => stmts.insertMessage.run({
-          $id: msg.id,
-          $session_key: sessionKey,
-          $role: msg.role,
-          $content: msg.content || '',
-          $thinking: msg.thinking || null,
-          $tool_calls: toolCallsColumnForRow(msg.toolCalls, msg.blocks),
-          $media: msg.media ? JSON.stringify(msg.media) : null,
-          $partial: 0,
-          $streamed_at: null,
-          $plan_status: msg.planStatus || null,
-          $timestamp: msg.timestamp,
-          $sort_order: base + 1 + i,
-          $parent_id: msg.parentId || null,
-          $branch_index: msg.branchIndex || 0,
-          ...metaParams(msg, col),
-        }));
+        writeMessage(msg.id, msg.blocks, true, (col) => stmts.insertMessage.run({ ...importedRowParams(sessionKey, msg, base + 1 + i, false), ...metaParams(msg, col) }));
       }
     })();
   }
 
   function createPartialMessage(sessionKey: string, role: "user" | "assistant"): StoredMessage {
-    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as { max_order: number }).max_order;
-    // Find the last message in the active thread to set as parent.
-    // Serve UN id, quindi si legge magro: senza queste due opzioni la chiamata
-    // idratava tutto il ramo attivo con `blocks` e `tool_calls` riparsati da
-    // JSON — e la paga OGNI riga scritta, cioè ogni prompt umano e ogni
-    // segnaposto assistente aperto a inizio turno.
-    const activeThread = loadActiveThread(sessionKey, { withBlocks: false, withToolCalls: false });
-    const lastMsg = activeThread.length > 0 ? activeThread[activeThread.length - 1] : null;
-    const parentId = lastMsg?.id || null;
+    const { maxOrder, parentId } = nextAppendSlot(sessionKey);
     const stored: StoredMessage = {
       id: crypto.randomUUID(), role, content: "", timestamp: new Date().toISOString(),
       partial: true, streamedAt: new Date().toISOString(), parentId, branchIndex: 0,
@@ -331,7 +326,7 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
       $id: msg.id,
       $content: 'content' in updates ? (msg.content || '') : null,
       $thinking: 'thinking' in updates ? (msg.thinking || null) : null,
-      $tool_calls: 'toolCalls' in updates ? toolCallsColumnForRow(msg.toolCalls, updates.blocks) : null,
+      $tool_calls: 'toolCalls' in updates ? toolCallsColumnForRow(redactDeep(msg.toolCalls), updates.blocks) : null,
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
@@ -356,11 +351,7 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
       $content: msg.content,
       $thinking: msg.thinking || null,
       $tool_calls: null,
-      $media: msg.media ? JSON.stringify(msg.media) : null,
-      $partial: msg.partial ? 1 : 0,
-      $streamed_at: msg.streamedAt || null,
-      $plan_status: msg.planStatus || null,
-      ...metaParams({}),
+      ...carriedParams(msg),
     });
     return msg;
   }
@@ -452,12 +443,8 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
       // Owns tool_calls only — see updateToolCallResult.
       $content: null,
       $thinking: null,
-      $tool_calls: mode === 'clear' ? '[]' : toolCallsForDisk(msg.toolCalls),
-      $media: msg.media ? JSON.stringify(msg.media) : null,
-      $partial: msg.partial ? 1 : 0,
-      $streamed_at: msg.streamedAt || null,
-      $plan_status: msg.planStatus || null,
-      ...metaParams({}),
+      $tool_calls: mode === 'clear' ? '[]' : toolCallsForDisk(redactDeep(msg.toolCalls)),
+      ...carriedParams(msg),
     });
     return msg;
   }
@@ -477,11 +464,7 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
         $content: null,
         $thinking: null,
         $tool_calls: '[]',
-        $media: msg.media ? JSON.stringify(msg.media) : null,
-        $partial: msg.partial ? 1 : 0,
-        $streamed_at: msg.streamedAt || null,
-        $plan_status: msg.planStatus || null,
-        ...metaParams({}),
+        ...carriedParams(msg),
       });
       return msg;
     }
@@ -500,12 +483,8 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
         // buffer) must never overwrite the assistant's text.
         $content: null,
         $thinking: null,
-        $tool_calls: toolCallsForDisk(msg.toolCalls),
-        $media: msg.media ? JSON.stringify(msg.media) : null,
-        $partial: msg.partial ? 1 : 0,
-        $streamed_at: msg.streamedAt || null,
-        $plan_status: msg.planStatus || null,
-        ...metaParams({}),
+        $tool_calls: toolCallsForDisk(redactDeep(msg.toolCalls)),
+        ...carriedParams(msg),
       });
     }
     return msg;
@@ -561,12 +540,8 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
       $id: msg.id,
       $content: null,
       $thinking: null,
-      $tool_calls: toolCallsColumnForRow(msg.toolCalls, nextBlocks ?? msg.blocks),
-      $media: msg.media ? JSON.stringify(msg.media) : null,
-      $partial: msg.partial ? 1 : 0,
-      $streamed_at: msg.streamedAt || null,
-      $plan_status: msg.planStatus || null,
-      ...metaParams({}),
+      $tool_calls: toolCallsColumnForRow(redactDeep(msg.toolCalls), nextBlocks ?? msg.blocks),
+      ...carriedParams(msg),
       $blocks: col.value,
     }));
     return msg;

@@ -32,7 +32,8 @@ const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true
 const STOP = join(ROOT, "stop");
 
 const processes = await import("../../server/routes/processes");
-const { commandServices, createProcessesRouter, isChatServerTask, listBackgroundShells, registerBackgroundShell, settleEndedShells } = processes;
+const { commandServices, createProcessesRouter, isChatServerTask, registerBackgroundShell, settleEndedShells } = processes;
+const { listBackgroundShells } = await import("../../server/routes/processes-shells");
 const { configureAttentionStore, getAttention, setBackgroundTasks, turnEnded, turnStarted } = await import("../../server/attention/store");
 const { observeCommandChanged } = await import("../../server/lib/command-background");
 const { setSessionCliPid, clearSessionCliPid } = await import("../../server/providers/session-pids");

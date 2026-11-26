@@ -16,6 +16,7 @@ import type { ContentBlock, TurnEndCause } from '../../types';
  *  server (`getLastAgentText`), e due copie divergono al primo cambio. */
 export { TURN_ERROR_PREFIX as LEGACY_ERROR_PREFIX } from '../../../../shared/board';
 import { TURN_ERROR_PREFIX as LEGACY_ERROR_PREFIX } from '../../../../shared/board';
+import { CREDIT_EXHAUSTED_RE } from '../../../../shared/credit-exhausted';
 
 /**
  * Il verdetto sul turno, o `null` se il turno è andato bene.
@@ -127,6 +128,20 @@ export const TURN_CAUSE_KEY: Record<TurnEndCause, string> = {
   'api-unavailable': 'chat.turnInterrupted.apiUnavailable',
   'broker-died': 'chat.turnInterrupted.brokerDied',
 };
+
+/**
+ * The banner sentence for an interrupted turn. A spent plan and credit balance
+ * ends the turn as `rate-limit` (it resumes by itself, like a saturated
+ * limit), but telling the reader "the API stayed rate-limited" sends them to
+ * the wrong cause: what ran out is the credit, and that is what they can act
+ * on (card ac6d1cad). The verdict text carries the API's own words.
+ */
+export function turnCauseKey(turn: { cause: TurnEndCause; text?: string }): string {
+  if (turn.cause === 'rate-limit' && CREDIT_EXHAUSTED_RE.test(turn.text ?? '')) {
+    return 'chat.turnInterrupted.creditExhausted';
+  }
+  return TURN_CAUSE_KEY[turn.cause];
+}
 
 /**
  * THE SAME VERDICT, BUILT FROM THE EVENT INSTEAD OF THE ROW.

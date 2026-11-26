@@ -94,11 +94,3 @@ export const ADD_MENU_MNEMONICS: Record<AddMenuItemId, string> = {
   // «Apri / Crea progetto» — erano due voci per un solo comportamento.
   'open-project': 'P',
 };
-
-/** Le righe che possono comparire insieme, per scope. Il test di unicità gira
- *  su questi insiemi, non sull'unione: `kanban` e `board` condividono la D
- *  proprio perché non si incontrano mai. */
-export const ADD_MENU_ROWS_BY_SCOPE: Record<'project' | 'standalone', readonly AddMenuItemId[]> = {
-  project: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'muse', 'browser', 'git', 'files', 'kanban'],
-  standalone: ['new-chat', 'shell', 'claude-code', 'codex', 'opencode', 'kimi-code', 'muse', 'browser', 'board', 'dashboard', 'profile', 'open-project'],
-};

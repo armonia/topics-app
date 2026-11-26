@@ -13,6 +13,9 @@
  *
  * Pure on purpose: git, GitHub and the board are the caller's (`MainCiPort`, `MainCiWatchDeps`).
  */
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CI_CONFIG_PATH, spawnCapped, githubPort } from "./ci-evidence";
 import { runGit } from "../lib/run-git";
 
@@ -24,6 +27,51 @@ export interface MainCiVerdict {
   failed: string[];
   /** The run the verdict is read from. */
   url: string | null;
+  /**
+   * The failing `<testcase>`s of the unit suite's own JUnit report (`classname > name`), when the
+   * push run has one. Absent = no report for this run (an older run, a non-push event, the artifact
+   * expired): callers fall back to `failed`, the job names, which conflate every test in the job.
+   */
+  failedTests?: string[];
+}
+
+/** The unit suite's own JUnit artifact, named and shaped by `.github/workflows/ci.yml`. */
+const JUNIT_ARTIFACT_NAME = "specflow-unit-junit";
+const JUNIT_FILE_NAME = "bun-junit.xml";
+
+/** The failing `<testcase>`s of a JUnit XML report, as `classname > name` (or bare `name` with none). */
+export function failingTestNames(xml: string): string[] {
+  const names: string[] = [];
+  const testCasePattern = /<testcase\b([^>]*)(?:\/>|>([\s\S]*?)<\/testcase>)/g;
+  let m: RegExpExecArray | null;
+  while ((m = testCasePattern.exec(xml))) {
+    const attrs = m[1] ?? "";
+    const body = m[2] ?? "";
+    if (!/<failure\b|<error\b/.test(body)) continue;
+    const cls = /\bclassname="([^"]*)"/.exec(attrs)?.[1] ?? "";
+    const name = /\bname="([^"]*)"/.exec(attrs)?.[1] ?? "";
+    names.push(cls ? `${cls} > ${name}` : name);
+  }
+  return names;
+}
+
+/**
+ * The failing test names of a push run's own JUnit artifact, best-effort: `null` on anything short of
+ * the file in hand (no `gh`, no artifact for this run, a report that did not parse). A caller comparing
+ * `null` against `null` learns nothing and falls back to job names — which is the point, not a bug to
+ * guard against here.
+ */
+async function junitFailuresOf(repoPath: string, runId: string): Promise<string[] | null> {
+  const dir = mkdtempSync(join(tmpdir(), "main-ci-junit-"));
+  try {
+    const r = await spawnCapped(["gh", "run", "download", runId, "-n", JUNIT_ARTIFACT_NAME, "-D", dir], repoPath);
+    if (r.code !== 0) return null;
+    return failingTestNames(readFileSync(join(dir, JUNIT_FILE_NAME), "utf8"));
+  } catch {
+    return null;
+  } finally {
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort cleanup */ }
+  }
 }
 
 export interface MainCiCommit { sha: string; subject: string; /** Unix seconds. */ at: number }
@@ -91,6 +139,12 @@ export async function mainRedStop(port: MainCiPort, nowMs: number = Date.now()):
   return null;
 }
 
+/** The model every red-main card runs on: the repair is a recipe, not research. */
+export const MAIN_RED_MODEL = "claude-sonnet-5-5";
+
+/** The run id at the end of a GitHub run URL, or a placeholder when the URL has none. */
+const runId = (url: string): string => /\/runs\/(\d+)/.exec(url)?.[1] ?? "<id>";
+
 /** The failing jobs and the run, as the card reads them. */
 export function describeMainRed(c: MainCiCommit, v: MainCiVerdict): string {
   return [
@@ -98,7 +152,10 @@ export function describeMainRed(c: MainCiCommit, v: MainCiVerdict): string {
     v.failed.length ? `Job rossi: ${v.failed.map((n) => `\`${n}\``).join(", ")}.` : "Nessun job rosso nominato: apri il run.",
     v.url ? `Run: ${v.url}` : "",
     "Nessuna card atterrata ha questo commit sotto la sua misura: è arrivato su main da una chat o a mano. " +
-      "Leggi il log del job rosso (`gh run view <id> --log-failed`), ripara IN AVANTI con un commit nuovo su main (niente revert, niente force), " +
+      "Ricetta fissa, parti da qui senza esplorare: " +
+      "1) `git fetch origin main` e `git merge --ff-only origin/main` nel tuo worktree; " +
+      (v.url ? `2) il log del run rosso: \`gh run view ${runId(v.url)} --log-failed\`; ` : "2) il log del run rosso: `gh run view <id> --log-failed`; ") +
+      "3) ripara IN AVANTI con un commit nuovo su main (niente revert, niente force), " +
       "consegna e la card si chiude con la CI verde.",
   ].filter(Boolean).join("\n\n");
 }
@@ -150,7 +207,8 @@ export function realMainCiPort(repoPath: string): MainCiPort {
       if (run.conclusion !== "failure" && run.conclusion !== "timed_out") return { state: "none", failed: [], url }; // cancelled or skipped: no verdict
       const jobs = await api(`repos/${name}/actions/runs/${String(run.id)}/jobs?filter=latest&per_page=100`) as { jobs?: Array<{ name?: string; conclusion?: string | null }> } | null;
       const failed = (jobs?.jobs ?? []).filter((j) => j.conclusion === "failure" || j.conclusion === "timed_out").map((j) => String(j.name));
-      return { state: "fail", failed, url };
+      const failedTests = await junitFailuresOf(repoPath, String(run.id));
+      return { state: "fail", failed, url, ...(failedTests && failedTests.length ? { failedTests } : {}) };
     },
     async entersAt(commit, sha) {
       // Exit 1 is "no"; a commit this clone does not have (128) is "not this one" too: no card is held back by a guess.

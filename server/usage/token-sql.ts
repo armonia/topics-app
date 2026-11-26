@@ -29,21 +29,3 @@ export const costFromMessage =
 export const costFromTask =
   `(COALESCE(agent_tokens, 0) + ${CACHE_READ_WEIGHT} * COALESCE(agent_cache_read_tokens, 0))`;
 
-/**
- * Quanto CONTESTO è passato, per la riga di `messages` (la rilettura vale uno).
- *
- * Non è `prompt + completion` scritto corto, anche se su una riga BEN FORMATA
- * dà lo stesso numero: la rilettura si toglie e si rimette, esattamente come
- * nel costo. La differenza si vede solo sulle righe storte — rilettura scritta
- * più grande del prompt, che accade su righe vecchie — e lì la scorciatoia
- * dava 110 dove la regola dà 5.010. Due formule per la stessa domanda: è il
- * difetto che questo lavoro ha chiuso, e sarebbe rientrato da qui.
- */
-export const contextFromMessage =
-  `(MAX(0, COALESCE(usage_prompt_tokens, 0) - COALESCE(cache_read_tokens, 0))` +
-  ` + COALESCE(usage_completion_tokens, 0)` +
-  ` + COALESCE(cache_read_tokens, 0))`;
-
-/** Quanto CONTESTO è passato, per la riga di `tasks`. */
-export const contextFromTask =
-  `(COALESCE(agent_tokens, 0) + COALESCE(agent_cache_read_tokens, 0))`;

@@ -11,6 +11,7 @@ import { canonicalTmpRoot, initGitRepo } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
 import { HISTORY_FIRST_PAGE } from "../../shared/history-paging";
 import { splitViaContextMenu } from "./helpers/layout";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -38,7 +39,7 @@ hermetic(test);
  * @covers FILE-FIND-02
  * @covers BROWSER-FIND-04
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 // A directory of its own per run: deleting one the server still watches
 // throws EPERM on Windows and takes the test server down with it.

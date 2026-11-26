@@ -587,6 +587,7 @@ describe("handleMessage", () => {
     const names = tools.map((t) => t.name);
     expect(names).toEqual([
       "open_browser_pane",
+      "request_login",
       "close_browser_pane",
       "browser_list_tabs",
       "browser_focus_tab",
@@ -705,7 +706,7 @@ describe("handleMessage", () => {
       // Aprono, chiudono, spostano o scrivono qualcosa — pane, processi, board,
       // topic, progetti, chat. `browser_focus_tab` è qui di proposito: portare
       // una tab in primo piano cambia ciò che la persona ha davanti.
-      "open_browser_pane", "close_browser_pane", "browser_focus_tab", "import_chrome",
+      "open_browser_pane", "request_login", "close_browser_pane", "browser_focus_tab", "import_chrome",
       "browser_act", "browser_eval", "browser_save_state", "browser_load_state",
       "browser_upload",
       // It reloads or navigates the page before it reads it.
@@ -2253,6 +2254,17 @@ describe("callSendToAgent", () => {
     expect(seen.url).toBe("http://x/api/sessions/s/agents/kid1/send");
     expect(seen.init?.method).toBe("POST");
     expect(JSON.parse(String(seen.init?.body))).toEqual({ input: "hi" });
+  });
+
+  test("a child of another session says whose result wakes and how to follow it", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ ok: true, sent: 2, wakes: "topic:parent-chat" }), { status: 200 }),
+    );
+    const result = await callSendToAgent({ baseUrl: "http://x", sessionKey: "s" }, { agent_id: "kid1", input: "hi" }, fetchImpl);
+    expect(result).toContain("topic:parent-chat");
+    expect(result).toContain("wakes that session, not this one");
+    expect(result).toContain('read_agent(agent_id="kid1")');
+    expect(result).not.toContain("a chat is woken");
   });
 
   test("ownership 404 from the server surfaces as an error", async () => {

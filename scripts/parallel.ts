@@ -29,6 +29,7 @@
  */
 import { spawn } from "node:child_process";
 import { cpus } from "node:os";
+import { shellInvocation } from "./shell-invocation.ts";
 
 export interface PartResult {
   cmd: string;
@@ -47,7 +48,12 @@ function runOne(cmd: string): Promise<PartResult> {
   return new Promise((resolve) => {
     const t0 = Date.now();
     const chunks: Buffer[] = [];
-    const child = spawn("sh", ["-c", cmd], { stdio: ["ignore", "pipe", "pipe"], env: process.env });
+    const { command, args } = shellInvocation(cmd);
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: process.env,
+      windowsVerbatimArguments: process.platform === "win32",
+    });
     child.stdout.on("data", (b: Buffer) => chunks.push(b));
     child.stderr.on("data", (b: Buffer) => chunks.push(b));
     const done = (code: number, extra = "") =>

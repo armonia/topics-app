@@ -17,31 +17,9 @@
  * @covers TAB-BADGE-02, TAB-BADGE-07
  */
 import { describe, test, expect } from 'bun:test';
-import { SEEN_DWELL_MS, attentionFillFor, isSeen } from './signals';
+import { SEEN_DWELL_MS, attentionFillFor } from './signals';
 
 describe('isSeen — la soglia', () => {
-  test('non davanti (null) non è mai visto, per quanto tempo passi', () => {
-    expect(isSeen(null, 0)).toBe(false);
-    expect(isSeen(null, 10_000_000)).toBe(false);
-  });
-
-  test('davanti da meno della soglia: NON visto — è il clic di passaggio', () => {
-    const t0 = 1_000_000;
-    expect(isSeen(t0, t0)).toBe(false);
-    expect(isSeen(t0, t0 + 200)).toBe(false); // clic e via
-    expect(isSeen(t0, t0 + SEEN_DWELL_MS - 1)).toBe(false);
-  });
-
-  test('davanti da almeno la soglia: visto', () => {
-    const t0 = 1_000_000;
-    expect(isSeen(t0, t0 + SEEN_DWELL_MS)).toBe(true);
-    expect(isSeen(t0, t0 + SEEN_DWELL_MS + 5_000)).toBe(true);
-  });
-
-  test('la soglia è iniettabile, così un test non dipende dalla costante', () => {
-    expect(isSeen(0, 300, 500)).toBe(false);
-    expect(isSeen(0, 500, 500)).toBe(true);
-  });
 
   test('la soglia sta fra il clic di passaggio e il ritardo percepibile', () => {
     // Non un numero magico: sotto ~600ms si torna al comportamento di prima,

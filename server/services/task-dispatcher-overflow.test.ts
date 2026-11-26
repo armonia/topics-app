@@ -44,9 +44,11 @@ import {
 import { CloudSetupError } from "../providers/claude-cloud/api";
 import { NODE_DEAD_POLLS, NODE_SETUP_POLLS } from "./task-dispatcher-remote-node";
 import { overflowNoteImmediate } from "./dispatch-overflow";
+import { hangBreaker, wakeBreaker } from "./wake-breaker";
+import type { LifecycleHookRunner } from "./lifecycle-hooks";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { NodeError } from "./node-client";
-import { bundleBranch, plantCarriedBranch } from "./branch-on-origin";
+import { BRANCH_NOWHERE_REASON, bundleBranch, plantCarriedBranch } from "./branch-on-origin";
 import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { delegatedPolicyForTask, putAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import { readFileSync } from "node:fs";
@@ -149,6 +151,8 @@ function harness(opts: {
   noOrigin?: { mac: string; node: string; startedFrom: string[] };
   /** What pushing a card's own branch answers (default: it reaches origin). */
   ensure?: (branch: string) => { ok: true } | { ok: false; reason: string };
+  /** The `node-run` hook that wakes the PC (default: the lane's own). */
+  hooks?: LifecycleHookRunner;
 } = {}) {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
@@ -214,6 +218,7 @@ function harness(opts: {
       plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", commitCount: 1, reason: null }),
       bundleBranch: async ({ branch }) => (opts.noOrigin ? bundleBranch(opts.noOrigin.mac, branch) : null),
       ensureBranchOnOrigin: async ({ branch }) => { pushed.push(branch); return opts.ensure?.(branch) ?? { ok: true }; },
+      ...(opts.hooks ? { hooks: opts.hooks } : {}),
     },
     overflowMachines: machines,
     githubOriginOf: async () => opts.github ?? true,
@@ -502,6 +507,28 @@ describe("overflow: slots 0 svuota la macchina", () => {
   });
 });
 
+describe("a card pinned to a machine at its seats", () => {
+  function runningOverride(h: ReturnType<typeof harness>, n: number) {
+    h.svc.countRunningOnMachine = () => n;
+  }
+  it("stays in todo, no attempt spent, nothing sent to the node", async () => {
+    const h = harness({ floor: false, pcSlots: 2 });
+    h.seed(CARD, { machineId: PC });
+    runningOverride(h, 2);
+    await settleTwoRounds(h);
+    expect(h.task(CARD).status).toBe("todo");
+    expect(h.task(CARD).dispatchAttempts ?? 0).toBe(0);
+    expect(h.created).toEqual([]);
+  });
+  it("starts as soon as a seat is free", async () => {
+    const h = harness({ floor: false, pcSlots: 2 });
+    h.seed(CARD, { machineId: PC });
+    runningOverride(h, 1);
+    await settleTwoRounds(h);
+    expect(h.created.length).toBe(1);
+  });
+});
+
 describe("overflow: il ramo della card, l'origin, il modello", () => {
   it("sul Mac la card con un ramo base fa nascere il worktree da lì, non da main", async () => {
     const h = harness({ floor: false });
@@ -543,6 +570,25 @@ describe("overflow: il ramo della card, l'origin, il modello", () => {
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.task(CARD).status).toBe("todo");
     expect(h.created).toEqual([]);
+  });
+
+  it("un delivery_branch fantasma (né qui né su origin) non tiene ferma la card: ripiega su prior_branch", async () => {
+    const h = harness({ ensure: (branch) => (branch === "topics/imperial-castle" ? { ok: false, reason: BRANCH_NOWHERE_REASON } : { ok: true }) });
+    h.seed(CARD, { deliveryBranch: "topics/imperial-castle" });
+    h.db.run("UPDATE tasks SET prior_branch = 'topics/stealthy-bog' WHERE id = ?", [CARD]);
+    await settleTwoRounds(h);
+    // One round to learn the branch is a phantom, one to push the fallback, one to move.
+    for (let i = 0; i < 3; i++) await h.tick();
+    expect(h.pushed).toContain("topics/stealthy-bog");
+    expect(h.task(CARD).machineId).not.toBeNull();
+  });
+
+  it("un delivery_branch fantasma senza alternative: la card non resta ferma per sempre", async () => {
+    const h = harness({ ensure: () => ({ ok: false, reason: BRANCH_NOWHERE_REASON }) });
+    h.seed(CARD, { deliveryBranch: "topics/imperial-castle" });
+    await settleTwoRounds(h);
+    for (let i = 0; i < 3; i++) await h.tick();
+    expect(h.task(CARD).machineId).not.toBeNull();
   });
 
   it("anche una card mandata a mano sul PC parte dal suo ramo; se non si può pushare, si ferma con il motivo", async () => {
@@ -707,6 +753,118 @@ describe("overflow: il PC addormentato", () => {
     h.seed(CARD);
     await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBeNull();
+  });
+
+  // 21/11: a PC that accepted runs and answered no poll still got cards moved onto it, which then
+  // waited there for hours while other machines had free seats. The hang breaker keeps new ones away.
+  it("un PC svegliabile ma appeso (due corse sepolte di fila) non riceve card nuove", async () => {
+    hangBreaker.failure(PC);
+    hangBreaker.failure(PC);
+    try {
+      const h = harness({ cloudCredit: false, pcOnline: false, pcWakeable: true });
+      h.seed(CARD);
+      await settleTwoRounds(h);
+      expect(h.task(CARD).machineId).toBeNull();
+      expect(h.created).toEqual([]);
+    } finally {
+      hangBreaker.success(PC);
+    }
+  });
+
+  it("una card già legata al PC appeso torna libera invece di aspettarlo", async () => {
+    hangBreaker.failure(PC);
+    hangBreaker.failure(PC);
+    try {
+      const h = harness({ cloudCredit: false, pcOnline: false, pcWakeable: true });
+      h.seed(CARD, { machineId: PC });
+      await settleTwoRounds(h);
+      expect(h.task(CARD).machineId).not.toBe(PC);
+      expect(h.created).toEqual([]);
+    } finally {
+      hangBreaker.success(PC);
+    }
+  });
+});
+
+/** Both breakers are module state: a test that touches them clears both machines (its last tick may launch on the other one). */
+const clearBreakers = () => { for (const id of [CLOUD, PC]) { wakeBreaker.success(id); hangBreaker.success(id); } };
+/** The overflow's moves onto `machineId` from now on: the thread cannot count them, it merges a note repeated within minutes. */
+function countMovesTo(h: ReturnType<typeof harness>, machineId: string): () => number {
+  const real = h.svc.overflowToMachine.bind(h.svc);
+  let n = 0;
+  h.svc.overflowToMachine = (args) => { if (args.machineId === machineId) n += 1; return real(args); };
+  return () => n;
+}
+
+// 21/11: the breaker opened on the PC, and the card the overflow had put there was deferred
+// with its pin until the breaker closed, then went back to the same PC. The system's move is
+// undone at once, and the overflow never picks a blocked machine, the CLOUD included: picked
+// anyway, the card came back to it every tick for the whole window. A person's pin waits.
+describe("il nodo o il Cloud che non si sveglia: la card spostata dal sistema lo lascia e non ci torna, quella fissata a mano lo aspetta", () => {
+  const veto: LifecycleHookRunner = { run: async () => ({ ok: false, reason: "il PC non si sveglia" }) };
+
+  it("spostata dall'overflow, due sveglie fallite: perde il PC senza rinvio, con una nota sola, e il giro dopo va altrove", async () => {
+    const o = { cloudCredit: false, hooks: veto };
+    const h = harness(o);
+    try {
+      h.seed(CARD);
+      await settleTwoRounds(h);
+      expect(h.task(CARD)).toMatchObject({ machineId: PC, overflowedAt: expect.any(String) });
+      // First veto: below the threshold, the card waits for the PC as before. The second opens the breaker.
+      expireWait(h);
+      await h.tick();
+      expect(h.task(CARD)).toMatchObject({ status: "todo", machineId: null, dispatchDeferredUntil: null });
+      expect(h.thread(CARD).match(/Tolta dal nodo bloccato: il nodo «PC Windows» non è pronto/g)).toHaveLength(1);
+      expect(h.thread(CARD)).not.toContain("non gli mando altre card");
+      o.cloudCredit = true;
+      await h.tick();
+      expect(h.task(CARD).machineId).toBe(CLOUD);
+    } finally { clearBreakers(); }
+  });
+
+  it("spostata sul Cloud, due sveglie fallite e nessun'altra macchina: torna qui e il Cloud non la riprende a ogni giro", async () => {
+    const h = harness({ pcOnline: false, hooks: veto });
+    try {
+      h.seed(CARD);
+      await settleTwoRounds(h);
+      expireWait(h);
+      await h.tick();
+      expect(h.task(CARD)).toMatchObject({ status: "todo", machineId: null, dispatchDeferredUntil: null });
+      expect(h.thread(CARD).match(/Tolta dal nodo bloccato: il nodo «Cloud Claude» non è pronto/g)).toHaveLength(1);
+      const movesToCloud = countMovesTo(h, CLOUD);
+      for (let i = 0; i < 5; i++) { h.advance(10_000); await h.tick(); }
+      expect(movesToCloud()).toBe(0);
+      expect(h.task(CARD)).toMatchObject({ status: "todo", machineId: null });
+    } finally { clearBreakers(); }
+  });
+
+  it("spostata sul Cloud appeso (due corse sepolte di fila): va sul PC libero, mai di nuovo sul Cloud", async () => {
+    const h = harness();
+    hangBreaker.failure(CLOUD);
+    hangBreaker.failure(CLOUD);
+    try {
+      h.seed(CARD, { machineId: CLOUD });
+      h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date(h.now()).toISOString(), CARD]);
+      for (let i = 0; i < 6; i++) { await h.tick(); h.advance(10_000); }
+      expect(h.task(CARD).machineId).toBe(PC);
+      expect(h.created).toEqual([{ baseUrl: "https://pc.local", originTaskId: CARD }]);
+      expect(h.thread(CARD)).not.toContain("Spostata su Cloud Claude");
+    } finally { clearBreakers(); }
+  });
+
+  it("fissata a mano sul PC o sul Cloud, due sveglie fallite: resta lì e aspetta che il freno si chiuda", async () => {
+    for (const machine of [PC, CLOUD]) {
+      const h = harness({ cloudCredit: false, hooks: veto });
+      try {
+        h.seed(CARD, { machineId: machine });
+        await h.tick();
+        expireWait(h);
+        await h.tick();
+        const t = h.task(CARD);
+        expect(t).toMatchObject({ status: "todo", machineId: machine });
+        expect(Date.parse(t.dispatchDeferredUntil!) - Date.now()).toBeGreaterThan(10 * 60_000);
+      } finally { clearBreakers(); }
+    }
   });
 });
 
@@ -974,17 +1132,63 @@ describe("verifica del 31/10: i posti di una macchina contano le card che le son
     expect(ids.filter((id) => h.task(id).machineId === PC)).toHaveLength(OVERFLOW_SLOTS.node);
   });
 
-  it("il conteggio legge le card in coda o al lavoro su quella macchina, non quelle chiuse o archiviate", () => {
+  it("il conteggio legge le card in coda o con una corsa aperta su quella macchina, non quelle chiuse o archiviate", () => {
     const h = harness();
     h.seed("in-coda", { machineId: PC });
     h.seed("al-lavoro", { machineId: PC });
     h.seed("chiusa", { machineId: PC });
     h.seed("archiviata", { machineId: PC });
     h.seed("altrove", { machineId: CLOUD });
-    h.db.run("UPDATE tasks SET status = 'in_progress' WHERE id = 'al-lavoro'");
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 1 WHERE id = 'al-lavoro'");
     h.db.run("UPDATE tasks SET status = 'done' WHERE id = 'chiusa'");
     h.db.run("UPDATE tasks SET archived = 1 WHERE id = 'archiviata'");
     expect(h.svc.countOnMachine(PC)).toBe(2);
+  });
+
+  // 26/11: `nodes[].used` in the capacity line counted every card with a
+  // `machine_id` pin, even one the primary had already closed, or one
+  // waiting on something other than the node. A seat now counts only a run
+  // the primary still believes is open.
+  it("una corsa chiusa sul primario libera il posto, anche con machine_id ancora scritto", () => {
+    const h = harness();
+    h.seed("chiusa-ma-pinnata", { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 0 WHERE id = 'chiusa-ma-pinnata'");
+    expect(h.svc.countOnMachine(PC)).toBe(0);
+  });
+
+  it("una card in attesa di qualcosa che non è il nodo (una persona, una condizione) lascia il posto", () => {
+    const h = harness();
+    h.seed("in-attesa-altrove", { machineId: PC });
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'agent', node_run_open = 0 WHERE id = 'in-attesa-altrove'",
+    );
+    expect(h.svc.countOnMachine(PC)).toBe(0);
+  });
+
+  it("una card in attesa del nodo stesso (silenzioso) resta contata", () => {
+    const h = harness();
+    h.seed("in-attesa-del-nodo", { machineId: PC });
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'machine', node_run_open = 0 WHERE id = 'in-attesa-del-nodo'",
+    );
+    expect(h.svc.countOnMachine(PC)).toBe(1);
+  });
+
+  it("4 posti presi con 2 corse aperte sul primario: dopo un giro i posti contati sono 2", () => {
+    const h = harness();
+    h.seed("corsa-1", { machineId: CLOUD });
+    h.seed("corsa-2", { machineId: CLOUD });
+    h.seed("ferma-1", { machineId: CLOUD });
+    h.seed("ferma-2", { machineId: CLOUD });
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 1 WHERE id IN ('corsa-1', 'corsa-2')");
+    // The other two still carry `machine_id` but the primary never opened (or
+    // already closed) a run for them: before the reconciliation, the old SQL
+    // (`status IN ('todo','in_progress')`) counted all four.
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 0 WHERE id = 'ferma-1'");
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'agent', node_run_open = 0 WHERE id = 'ferma-2'",
+    );
+    expect(h.svc.countOnMachine(CLOUD)).toBe(2);
   });
 });
 
@@ -1410,6 +1614,14 @@ describe("overflow: una corsa vuota su un nodo lo salta, non ferma la card sul M
     expect(h.task(CARD).machineId).toBe(PC);
   });
 
+  it("due nodi già saltati restano saltati: la card non rimbalza e resta qui", async () => {
+    const h = harness();
+    h.seed(CARD);
+    h.svc.update({ taskId: CARD, actor: "agent", by: "dispatcher", patch: { overflowSkip: { machineId: `${CLOUD},${PC}`, until: new Date(Date.now() + 3_600_000).toISOString() } } });
+    await settleTwoRounds(h);
+    expect(h.task(CARD).machineId ?? null).toBeNull();
+  });
+
   it("il salto scaduto non conta più", async () => {
     const h = harness();
     h.seed(CARD);
@@ -1423,8 +1635,72 @@ describe("overflow: una corsa vuota su un nodo lo salta, non ferma la card sul M
     const h = harness();
     h.seed(CARD, { machineId: PC });
     h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), CARD]);
-    const ok = returnEmptyNodeRunToTodo({ svc: h.svc, releaseAndEmit: (a) => h.svc.release(a), emit: () => {}, log: () => {} }, h.task(CARD), "PC Windows");
+    const ok = await returnEmptyNodeRunToTodo({ svc: h.svc, releaseAndEmit: (a) => h.svc.release(a), emit: () => {}, log: () => {} }, h.task(CARD), "PC Windows");
     expect(ok).toBe(true);
+    expect(h.task(CARD).stayLocal).toBe(false);
+    expect(h.task(CARD).overflowSkipMachine).toBe(PC);
+  });
+
+  it("il delivery di prima è già dentro main: chiusa, non torna in todo (25/11)", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET delivery_commit = 'deadbeef' WHERE id = ?", [CARD]);
+    const emitted: unknown[] = [];
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: (t) => emitted.push(t),
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("done");
+    expect(emitted.length).toBe(1);
+    expect(h.thread(CARD)).toContain("deadbeef".slice(0, 8));
+    expect(h.thread(CARD)).toContain("già dentro main");
+  });
+
+  it("rimandata dopo il land, corsa vuota: non chiude, va in review con la nota del rimando (26/11)", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'review', delivery_commit = 'deadbeef' WHERE id = ?", [CARD]);
+    h.svc.addComment({ taskId: CARD, author: "user", content: "manca il caso del rosso preesistente, aggiungi il test" });
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(h.task(CARD).reopenedActor).toBe("human");
+    const emitted: unknown[] = [];
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: (t) => emitted.push(t),
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("review");
+    expect(emitted.length).toBeGreaterThan(0);
+    expect(h.thread(CARD)).toContain("manca il caso del rosso preesistente");
+    expect(h.thread(CARD)).toContain("il nodo non ha fatto niente");
+  });
+
+  it("nessun delivery precedente, o non è su main: comportamento di oggi, torna in todo", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET delivery_commit = 'deadbeef', overflowed_at = ? WHERE id = ?", [new Date().toISOString(), CARD]);
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: () => {},
+      log: () => {},
+      deliveryLanded: async () => false,
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("todo");
     expect(h.task(CARD).stayLocal).toBe(false);
     expect(h.task(CARD).overflowSkipMachine).toBe(PC);
   });

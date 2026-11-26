@@ -756,6 +756,16 @@ const browserFocusPaneSchema = z.looseObject({
   contextId: z.string(),
 });
 
+// An agent hit a login wall (request_login): the tab is raised and, when asked,
+// shown in a detached window so the person notices it.
+const browserLoginRequestSchema = z.looseObject({
+  type: z.literal('browser:login-request'),
+  contextId: z.string(),
+  url: z.string(),
+  detached: z.boolean(),
+  topicId: z.optional(z.string()),
+});
+
 // Apertura ACCANTO a una pane esistente: un terminale Claude Code ha chiamato
 // open_browser_pane, e il browser va messo di fianco a CHI l'ha aperto (la
 // chat passa invece dal `browser:navigate` mirato al topic). `paneId` è la
@@ -1551,6 +1561,7 @@ const OUTBOUND_SCHEMAS = {
   'browser:force-open': browserForceOpenSchema,
   'browser:close-pane': browserClosePaneSchema,
   'browser:focus-pane': browserFocusPaneSchema,
+  'browser:login-request': browserLoginRequestSchema,
   'browser:open-near-pane': browserOpenNearPaneSchema,
   'browser:open-task-tab': browserOpenTaskTabSchema,
   'pane:focus-suggest': paneFocusSuggestSchema,
@@ -1613,12 +1624,6 @@ const OUTBOUND_SCHEMAS = {
 } as const;
 
 /**
- * Stable list of outbound types this module knows about. Exposed so tests
- * can lock the registry size (contract guard).
- */
-export const REGISTERED_OUTBOUND_TYPES = Object.keys(OUTBOUND_SCHEMAS).sort();
-
-/**
  * I tipi che il server può mandare — DERIVATI dal registro, non riscritti a
  * mano: aggiungere uno schema aggiunge il tipo, e non c'è modo di scordarsi
  * l'uno o l'altro.
@@ -1643,6 +1648,7 @@ export const OUTBOUND_FRAME_CLASSES: Record<OutboundType, OutboundFrameClass> = 
   'browser:close-pane': 'global',
   'browser:focus-pane': 'global',
   'browser:force-open': 'global',
+  'browser:login-request': 'global',
   'browser:navigate': 'global',
   'browser:open-near-pane': 'global',
   'browser:open-task-tab': 'global',
@@ -1789,11 +1795,3 @@ export function validateOutbound(msg: unknown): ValidationResult {
   return { ok: false, type, error: formatZodIssues(result.error) };
 }
 
-/**
- * Convenience: returns true if the type is known to this module's registry.
- * Useful for tests + dev-mode diagnostics ("which outbound types are still
- * unmodeled?").
- */
-export function isRegisteredOutboundType(type: string): boolean {
-  return type in OUTBOUND_SCHEMAS;
-}

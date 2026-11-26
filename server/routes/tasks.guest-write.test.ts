@@ -11,7 +11,8 @@ import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AppContext } from "../types";
-import { createTasksRouter, matchGuestTaskAction } from "./tasks";
+import { createTasksRouter } from "./tasks";
+import { matchGuestTaskAction } from "./tasks-guests";
 import { putGrant, dropGrant } from "../lib/grants-query";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 

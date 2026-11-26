@@ -54,7 +54,7 @@ import { useWaitingQueueStore } from './state/waitingQueue';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { lazyWarm } from './lib/lazyWarm';
 import { loadPanelGrid } from './state/pane/panePreload';
-import { RAISED_CONTROL, ROW_INSET, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
+import { ROW_INSET, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, STRIP_TOGGLE_SURFACE } from './lib/selectionStyles';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
@@ -72,6 +72,8 @@ import { AppSidebar } from './app/AppSidebar';
 import { TopicsMenuPortal } from './app/TopicsMenuPortal';
 import { AppDialogs } from './app/AppDialogs';
 import { FirstRunAndUpdates } from './app/FirstRunAndUpdates';
+import { tabsPlacement } from './lib/tabsPlacement';
+import { useServerHydrated } from './state/pane/middleware/serverHydrated';
 
 const PanelGrid = lazyWarm(loadPanelGrid, (m) => m.PanelGrid);
 
@@ -392,6 +394,7 @@ function App() {
     if (showSearch) void ensureArchivedTopics();
   }, [showSearch, ensureArchivedTopics]);
   const isPinnedRef = useRefMirror(sidebar.isPinned);
+  const closePolicyRef = useRefMirror({ closeArchives: appSettings.closeArchives, pinnedClosable: appSettings.pinnedClosable });
 
   // READ direction of the preferences: `saveSettings` always did the PUT, but
   // nobody ever read back. Without this, a second device or the desktop shell's
@@ -410,6 +413,7 @@ function App() {
     pruneStaleTerminalPanes: terminals.pruneStaleTerminalPanes,
     terminalOps: terminals.ops,
     isPinnedRef,
+    closePolicyRef,
     onWSMessage, sendWS, windowId,
     chatStreamHandlers: {
       isOwnStream, isSessionStreaming, getSessionMessages, addMessageFromWS, clearSession,
@@ -446,6 +450,28 @@ function App() {
   } = panelLifecycle.handlers;
 
   const { paneSpaceById, goToSpace, activeSpaceWindow, spaceScoped } = useSpaceGroups(openPanels, activeSpaceId);
+
+  // WHERE THE TABS ARE, decided once for the strip and the column, so the two
+  // can never both list them (or both leave them out). The strip shows the
+  // panes of the grid, `visiblePanels`: those are the rows the column skips.
+  // Pins do not close (the View setting): a pin found closed opens again,
+  // once per load, after the server's pane state has arrived so the open
+  // tabs it lists are known. Turning the setting back off runs it again.
+  const paneStateHydrated = useServerHydrated();
+  const pinsOpenedRef = useRef(false);
+  const { openPinsInBackground } = panelLifecycle.handlers;
+  useEffect(() => {
+    if (appSettings.pinnedClosable) { pinsOpenedRef.current = false; return; }
+    if (pinsOpenedRef.current || !paneStateHydrated || topicsLoading || isDetached) return;
+    pinsOpenedRef.current = true;
+    openPinsInBackground(sidebar.pinnedItems);
+  }, [appSettings.pinnedClosable, paneStateHydrated, topicsLoading, isDetached, openPinsInBackground, sidebar.pinnedItems]);
+
+  const placement = tabsPlacement(appSettings.tabsPosition, { phone: isMobile });
+  const stripPaneIds = useMemo(
+    () => (placement.columnSkipsStrip ? new Set(visiblePanels) : undefined),
+    [placement.columnSkipsStrip, visiblePanels],
+  );
 
   // ONE OPENER, so a history row answers the same click whether it fires from
   // the palette or from the user card's quick history dropdown: both host the
@@ -533,11 +559,18 @@ function App() {
     handleArchiveTopicDeferred, handleArchiveProjectDeferred,
     unpinAlsoArchives, handleTogglePin,
     handleCloseTerminalDeferred, handleCloseBrowserDeferred,
+    handleForgetClosedDeferred,
   } = useDeferredActions({
     topics, topicsRef, focusedPanelId, visiblePanels, openPanels, projectOpenPanes,
     handleClosePanel, handleFocusPanel, handleArchiveProject, handleCloseTerminal,
     archiveTopic, browserCtx,
     sidebarIsPinned: sidebar.isPinned, sidebarTogglePin: sidebar.togglePin,
+    pinnedCloseBlocked: panelLifecycle.handlers.pinnedCloseBlocked,
+    closeArchives: appSettings.closeArchives,
+    removeClosedTab,
+    // The desktop title is the real tab and shows the countdown; the phone's
+    // title does not, so there the front still moves on at once.
+    frontOnlyOnTop: !placement.strip && !isMobile,
   });
 
   // Keyboard shortcuts (Phase 3 hook 4, ref-mirror pattern fixes
@@ -737,6 +770,7 @@ function App() {
         sidebarContentRef={sidebarContentRef}
         isMobile={isMobile}
         sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={toggleSidebar}
         sidebarWidth={sidebarWidth}
         floatingSplits={appSettings.floatingSplits}
         viewportHeight={viewportHeight}
@@ -757,6 +791,7 @@ function App() {
         boardInFront={boardInFront}
         handleMobileBoardToggle={handleMobileBoardToggle}
         waitingCount={waitingCount}
+        systemOpen={openPanels.includes('__system-page__')}
       >
           {/* THE GROUPS are cards inside the tree (TopicTree): each one holds
               its own tabs and opens and closes by itself. There is no
@@ -835,6 +870,13 @@ function App() {
             onOpenBoard={handleOpenBoard}
             spaceScoped={spaceScoped}
             paneSpaceById={paneSpaceById}
+            stripPaneIds={stripPaneIds}
+            onCloseTab={handleClosePanelDeferred}
+            onReopenClosedTab={handleReopenClosedTab}
+            onForgetClosedTab={handleForgetClosedDeferred}
+            closeArchives={appSettings.closeArchives}
+            listOrder={sidebar.listOrder}
+            onListOrderChange={sidebar.setListOrder}
           />
           </Suspense>
           )}
@@ -893,13 +935,12 @@ function App() {
             top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem',
           }}
         >
-          {/* `RAISED_CONTROL` + `edge-lit`: the SAME button as the «+» and the
-              search, which is the parity asked for («at this point make the
-              sidebar-opening key the same»). It was `bg-surface` + a border,
-              and `--bg-surface` under 768px COLLAPSES onto the chrome (index.css):
-              the only way to reopen the column when no pane is open
-              vanished into the background precisely on the phone. */}
-          <SidebarToggleButton onClick={toggleSidebar} title={`Expand sidebar (${shortcut('B')})`} size="action" className={`edge-lit ${RAISED_CONTROL} rounded-lg shadow-sm`} />
+          {/* The SAME button as the one on the tab strip, a strip tab's
+              surface (25/11: the sidebar's buttons wear the tabs' colours).
+              Not `bg-surface`: under 768px it COLLAPSES onto the chrome
+              (index.css), and the only way to reopen the column when no pane
+              is open vanished into the background precisely on the phone. */}
+          <SidebarToggleButton onClick={toggleSidebar} title={`Expand sidebar (${shortcut('B')})`} size="action" surface={STRIP_TOGGLE_SURFACE} />
         </div>
       )}
 
@@ -913,6 +954,11 @@ function App() {
           or closed. Now the strip is always chrome: it is the edge of the app, and
           the edge of the app is chrome. */}
       <div id="main-content" ref={mainContentRef} role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-chrome"
+        // Where the column's toggle is: in the sidebar header while the
+        // column is open with the mouse layout (SidebarHeader draws it on the
+        // same `!isMobile`), and then the content's own toggle and the room
+        // for it give way (`.column-toggle` in index.css).
+        data-column-toggle={!isMobile && !sidebarCollapsed ? 'header' : 'content'}
         style={{
           contain: 'layout style',
           paddingTop: 'env(safe-area-inset-top, 0px)',
@@ -994,6 +1040,8 @@ function App() {
           onWSMessage={onWSMessage}
           onUpdateTopic={updateTopic}
           onToggleSidebar={toggleSidebar}
+          tabStrip={placement.strip}
+        pinnedClosable={appSettings.pinnedClosable}
           panelInitialTab={panelInitialTab}
           onPanelInitialTabConsumed={(topicId) => setPanelInitialTab((prev: typeof panelInitialTab) => { const n = { ...prev }; delete n[topicId]; return n; })}
           pendingProjectPane={pendingProjectPane}

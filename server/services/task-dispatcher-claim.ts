@@ -51,6 +51,10 @@ export function createClaim(ctx: DispatcherCtx) {
         continue;
       }
       if (remoteCard(t) && ctx.overflow.pinnedMachineDrained(t)) continue;
+      if (remoteCard(t) && ctx.overflow.pinnedMachineFull(t)) {
+        ctx.hold.queueChip(t);
+        continue;
+      }
       const manualMemoryStartSelected = ctx.queue.manualMemoryStart.selectedTask(projectId) === t.id;
       // COLD ORIGIN CACHE (2026-11-13): the very first tick that asks this
       // project's origin starts an async lookup and answers "unknown" for it,
@@ -64,7 +68,7 @@ export function createClaim(ctx: DispatcherCtx) {
         const delegated = delegatedPolicy(t) !== undefined;
         const localId = (() => { try { return deps.node?.localMachineId?.() ?? null; } catch { return null; } })();
         if (overflowEligible({ ...t, delegated, description: t.description ?? t.descriptionPreview }, settings, localId)
-          && ctx.overflow.overflowOriginUnresolved(t.projectId) && ctx.overflow.anyOverflowSeatElsewhere(localId, t.overflowSkipMachine)) {
+          && ctx.overflow.overflowOriginUnresolved(t.projectId) && ctx.overflow.anyOverflowSeatElsewhere(localId, t.overflowSkipMachines)) {
           try { ctx.queue.emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort: the chip still reads "to do" */ }
           continue;
         }

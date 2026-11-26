@@ -26,6 +26,7 @@ import type { WorkSignal } from './workSignals';
 import { apiFetch } from '../../lib/shell/net';
 import { useHubEverRead, useHubLive } from '@/state/hubLive';
 import { useActiveAgentRows } from '@/state/signals';
+import { useOutsideAgents } from '../../state/atWork';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { PALLINO_ATTESA } from './chromeSignals';
 import type { UserMenuLevel } from '@/lib/openUserMenu';
@@ -190,10 +191,8 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
   useEffect(() => { if (hubPresent) void refreshGateWaits(); }, [hubPresent, needsYouKey]);
   const waitingOnYou = agentRows.awaitingInput.length + useGateWaits();
   // Who works counts the hub's agents outside Topics too (Claude Code elsewhere, Codex, Muse,
-  // sub-agents, workflow agents), as the hub's own «Lavori» did; the Topics tabs it found are already counted.
-  const projectsLive = useHubLive().projects;
-  const outside = hubPresent && !projectsLive?.error ? (projectsLive?.data as { agentsOutside?: unknown } | undefined)?.agentsOutside : 0;
-  const atWork = agentRows.working.length + (typeof outside === 'number' && outside > 0 ? outside : 0);
+  // sub-agents, workflow agents): the same number as the identity pill and the bell's foot (`state/atWork`).
+  const atWork = agentRows.working.length + useOutsideAgents();
   const lastChange = useLastChangeTime();
   const { updateAvailable } = useServiceWorkerUpdate();
   // Only while the menu is open, which is the only time this component exists:
@@ -317,7 +316,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
         icon={Cpu}
         label={tr('statusBar.system.title')}
         testId="menu-system-status"
-        defaultOpen={openLevel === 'agents' || openLevel === 'context'}
+        defaultOpen={openLevel === 'agents'}
         minWidth={312}
         // The tallest level of the menu: the names of what is running, then
         // the numbers. On a short window the two together are more than the
@@ -425,7 +424,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
             answers, so they come in their own chunk, off the first download. */}
         {hubPresent && (
           <Suspense fallback={null}>
-            <HubSystemRows isMobile={isMobile} onNavigate={onNavigate} openContext={openLevel === 'context'} />
+            <HubSystemRows isMobile={isMobile} onNavigate={onNavigate} />
           </Suspense>
         )}
       </SubmenuItem>

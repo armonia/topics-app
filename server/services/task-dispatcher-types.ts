@@ -256,6 +256,10 @@ export interface DispatcherDeps {
    * resumes, unchanged.
    */
   hasLiveSession?: (sessionKey: string) => Promise<boolean>;
+  /** A question of this session still waits on its person (`sessionHasOpenQuestion`).
+   *  A card cut on one is not an interrupted turn to repair: the restart leaves it
+   *  waiting instead of nudging the agent to carry on without the answer. */
+  hasOpenQuestion?: (sessionKey: string) => boolean;
   /** Drive a REATTACH turn to completion (adopt the surviving broker child and
    *  finish it). Injected alongside hasLiveSession. */
   reattach?: (sessionKey: string, opts: { timeoutMs: number; idleMs?: number }) => Promise<TurnEndInfo | void>;
@@ -375,6 +379,12 @@ export interface DispatcherDeps {
    * Assente (test/host degradato) ⇒ cancello spento, comportamento storico.
    */
   deliveryLanded?: (repoPath: string, commit: string) => Promise<boolean | null>;
+  /**
+   * `deliveryLanded` above needs THIS machine's own checkout for a card's project — never a remote
+   * node's, which runs its own repository and can carry a stale `main` of its own. Absent = the
+   * empty-node-run guard that reads it is skipped.
+   */
+  repoPathOfTask?: (taskId: string) => string | null;
   /**
    * Claude sessions running OUTSIDE Topics right now at/under a directory
    * (see services/external-sessions.ts). The dispatcher can only see its OWN
@@ -606,6 +616,10 @@ export interface TaskDispatcher {
   shutdown(): void;
   /** True while a launch for this task is in flight (test/introspection). */
   isInFlight(taskId: string): boolean;
+  /** Moves a card pinned to a machine that cannot run it; true = it moved. The self-check's cure for a dead pin. */
+  reassignFromForbidden(task: Task, settings: { dispatchModel?: string | null }): boolean;
+  /** Publishes a changed card to the open views. */
+  emitTask(task: Task): void;
   /**
    * How many task launches are in flight right now (setup + turn + teardown).
    * The quiescence signal a restart must wait on: a planned restart

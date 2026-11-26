@@ -71,11 +71,6 @@ export function estimateBasis(done: readonly EstimateSample[]): EstimateBasis | 
   return { departureMs: valueAt(xs, DEPARTURE_SHARE), historyMs: xs };
 }
 
-/** The figure at departure alone, or `null` below the sample floor. */
-export function estimateFromHistory(done: readonly EstimateSample[]): number | null {
-  return estimateBasis(done)?.departureMs ?? null;
-}
-
 export interface RevisedEstimate {
   totalMs: number;
   /** The checkpoint that raised the figure last, `null` while the departure figure holds. */
@@ -201,20 +196,6 @@ export function sessionWeight(i: SessionWeightInput): SessionWeight {
     totalBillableTokens: i.billableTokens + kids.billableTokens,
     totalCostCents: i.costCents + kids.costCents,
   };
-}
-
-/** Sums the provider's per-message usage rows of a transcript, one count per message id. */
-export function sumTranscriptUsage(rows: readonly { id: string; input: number; output: number; cacheWrite: number; cacheRead: number }[]) {
-  const seen = new Set<string>();
-  let billable = 0;
-  let cacheRead = 0;
-  for (const r of rows) {
-    if (seen.has(r.id)) continue;
-    seen.add(r.id);
-    billable += r.input + r.output + r.cacheWrite;
-    cacheRead += r.cacheRead;
-  }
-  return { billable, cacheRead };
 }
 
 /** What the provider measured of a session's context, in the shape `sessionWeight` takes. */

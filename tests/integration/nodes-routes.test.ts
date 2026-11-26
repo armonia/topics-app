@@ -343,6 +343,23 @@ describe("nodes routes: ingress of a mirrored card", () => {
     expect(old.archived).toBe(1);
   });
 
+  // The archive does NOT move the status: without `archived` on the wire, the origin server
+  // cannot tell a run still going from one whose card was archived here, and after a restart
+  // it reattaches to it forever (card 4a1a6d3d, 22/11).
+  test("GET di una corsa archiviata dice archived, con lo status ancora in_progress", async () => {
+    const created = await mirror("origin-task-archived");
+    expect(created.status).toBe(201);
+    const runId = created.body.runId as string;
+    ctx.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'working' WHERE id = ?", [runId]);
+
+    const live = await (await call("GET", `/api/nodes/runs/${runId}`)).json() as { status: string; archived: boolean };
+    expect(live).toMatchObject({ status: "in_progress", archived: false });
+
+    ctx.db.run("UPDATE tasks SET archived = 1 WHERE id = ?", [runId]);
+    const gone = await (await call("GET", `/api/nodes/runs/${runId}`)).json() as { status: string; archived: boolean };
+    expect(gone).toMatchObject({ status: "in_progress", archived: true });
+  });
+
   // df5fd8c5, 30/10: a card with a branch of its own restarted from main on the other machine.
   test("il ramo base della card d'origine arriva sulla card specchio; un nome non valido è rifiutato", async () => {
     // Origin is unreachable from this checkout (a fake ssh URL): the branch rides as a bundle.
@@ -531,6 +548,9 @@ describe("nodes routes: ingress of a mirrored card", () => {
       const { runId } = await created.json() as { runId: string };
 
       expect((await call("GET", `/api/nodes/delegated-runs/${runId}`, undefined, DELEGATED_HEADERS)).status).toBe(200);
+      ctx.db.run("UPDATE tasks SET status = 'in_progress', archived = 1 WHERE id = ?", [runId]);
+      const archived = await (await call("GET", `/api/nodes/delegated-runs/${runId}`, undefined, DELEGATED_HEADERS)).json() as { status: string; archived: boolean };
+      expect(archived).toMatchObject({ status: "in_progress", archived: true });
       expect((await call("GET", "/api/nodes/delegated-runs/not-this-run", undefined, DELEGATED_HEADERS)).status).toBe(404);
       expect((await call("DELETE", "/api/nodes/delegated-runs/not-this-run", undefined, DELEGATED_HEADERS)).status).toBe(404);
       expect((await call("GET", "/api/nodes/delegated-runs/not-this-run/bundle", undefined, DELEGATED_HEADERS)).status).toBe(404);

@@ -15,7 +15,8 @@ import { machineCores } from "../lib/machine-cores";
 import { worktreeRealDirt } from "../services/task-automerge";
 import { branchStatusFromRepo, worktreeDiffStat } from "../services/branch-status";
 import { createDetachedTopic } from "../lib/session-control-core";
-import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
+import { buildProjectCandidates, canonicalProjectFor, resolveProjectPath } from "../services/project-path-resolver";
+import { worktreeRootDir } from "../services/worktree-manager";
 import { getDefaultProviderName, tryGetProvider, resolveTurnAlive } from "../providers";
 import { readNativeUsage } from "../providers/native-usage-registry";
 import { automaticDispatchHooks } from "../services/task-auto-model";
@@ -28,19 +29,24 @@ import { totalmem as osTotalmem } from "node:os";
 import { readDelegatedNodeToken } from "../services/node-client";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "../lib/delegated-agent-start";
 import { isCloudBaseUrl, resolveGithubSlug } from "../providers/claude-cloud/node";
-import { bundleBranch, ensureBranchOnOrigin } from "../services/branch-on-origin";
+import { bundleBranchForNode, ensureBranchOnOrigin } from "../services/branch-on-origin";
 import { repoIdentity } from "../lib/git-identity";
 import { githubOriginFrom, overflowMachinesFrom } from "../services/dispatch-overflow";
+import { NODE_BREAKERS_FILE, persistNodeBreakers } from "../services/wake-breaker";
 import { TURN_ERROR_PREFIX } from "../../shared/board";
 import type { AfterHeadlessTurns } from "./scope";
 import { late } from "./late";
 import { isThisServerPrimary } from "../lib/primary-role";
+import { sessionHasOpenQuestion } from "../lib/question-outlives-asker";
+import { decodeCol } from "../../shared/message-blob";
 
 /** Project id -> GitHub owner/repo, filled by the overflow's origin lookup: the cloud's per-repository refusals are read through it. */
 const projectSlugs = new Map<string, string>();
 
 export function bootDispatcher(scope: AfterHeadlessTurns) {
-  const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc } = scope;
+  const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, scheduleEngine, tickScheduledCards, announceTick, taskAttemptStore, turniInVolo, worktreeGc } = scope;
+  // Before the first tick: a node whose breaker was open stays out after the restart every land of server/ causes.
+  persistNodeBreakers(join(ctx.STATE_DIR, NODE_BREAKERS_FILE));
   const taskDispatcher = createTaskDispatcher({
     isActive: isThisServerPrimary,
     stopCardProcesses: stopCardCommandProcesses,
@@ -86,6 +92,12 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     // dentro main, la card si chiude invece di far ripartire un agente sopra
     // codice che c'è già. Stessa risposta che legge l'audit degli atterraggi.
     deliveryLanded: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
+    // The empty-node-run guard reads THIS machine's checkout, same resolver the cloud node lane
+    // already uses for its own repo lookup (`dispatch-prep.ts`, `cloudNode`).
+    repoPathOfTask: (taskId) => {
+      const projectId = dispatcherSvc.get(taskId)?.task.projectId;
+      return projectId ? projectPathForNode(projectId) ?? null : null;
+    },
     // Must match the catch-all dir tasks.ts scaffolds (join(workspaceDir,
     // "generale")): a session resolved here renders standalone, not as a project.
     catchAllProjectPath: join(DISPATCH_WORKSPACE_DIR, "generale"),
@@ -151,7 +163,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     externalSessionsAt: (path) =>
       externalSessions.activeAt(path).map((s) => ({ cwd: s.cwd, branch: s.branch })),
     resolveProject: (projectId) => {
-      const c = resolveProjectPath(
+      const found = resolveProjectPath(
         projectId,
         buildProjectCandidates({
           projectStore: ctx.projectStore,
@@ -159,7 +171,17 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
           extraPaths: dispatchExtraPaths,
         }),
       );
-      if (!c) return null;
+      if (!found) return null;
+      // A worktree is never a project: a card keyed by a worktree folder (or by
+      // an alias of the repo) dispatches on the project that owns the repository,
+      // so the auto-registration below cannot mint a board out of a checkout.
+      const owner = canonicalProjectFor(found.path, ctx.projectStore.list(), {
+        worktreeOwner: (abs) => ctx.worktreeStore.getByAbsPath(abs)?.projectId ?? null,
+        worktreeRoot: worktreeRootDir(),
+      });
+      const c = owner && owner.id !== found.projectStoreId
+        ? { path: owner.path, projectStoreId: owner.id }
+        : found;
       // Worktrees require a ProjectStore row. Ad-hoc projects (path-only
       // candidates) that are git repos get registered on demand, so the default
       // "isola in un worktree" board setting actually works for them instead of
@@ -303,11 +325,12 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       }
     },
     runTurn: runHeadlessTurn,
+    hasOpenQuestion: (sessionKey) => sessionHasOpenQuestion(ctx, sessionKey, decodeCol),
     // ai-bridge restart recovery: the provider answers whether a turn survived in
     // the broker (returns false when the flag is off / provider lacks it), and
     // runHeadlessReattach drives the adopted turn. Both are safe no-ops off-broker.
     hasLiveSession: async (sessionKey) => (await liveTurnOwner(sessionKey)) !== null,
-    reattach: async (sessionKey, opts) => runHeadlessReattach(sessionKey, opts, (await liveTurnOwner(sessionKey)) ?? "claude-code"),
+    reattach: async (sessionKey, opts) => runHeadlessReattach(sessionKey, opts, (await liveTurnOwner(sessionKey)) ?? "claude-code", { dispatched: true }),
     // Liveness net: is the agent CHILD of this session still there? Same probe the
     // stream watchdog uses to tell a thinking-but-mute turn from a dead one (it
     // covers direct AND broker mode — the daemon's `exit` frame flips pp.alive).
@@ -372,7 +395,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       // from this machine's checkout (`branch-on-origin.ts`).
       ensureBranchOnOrigin: ({ projectId, branch }) => ensureBranchOnOrigin(projectPathForNode(projectId), branch),
       // A node that cannot reach origin gets the same branch as a bundle with the run.
-      bundleBranch: ({ projectId, branch }) => bundleBranch(projectPathForNode(projectId), branch),
+      bundleBranch: ({ projectId, branch }) => bundleBranchForNode(projectPathForNode(projectId), branch),
       // The `node-run` hook starts in the project's checkout on this machine,
       // the same path the planter reads the origin from and plants into.
       projectPathOf: projectPathForNode,
@@ -483,7 +506,9 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
   });
   late.taskDispatcher = taskDispatcher;
 
-  const scheduledCardsTimer = setInterval(() => { if (isThisServerPrimary()) tickScheduledCards(); }, 15_000);
+  const scheduledCardsTimer = scheduleEngine.start(isThisServerPrimary, announceTick);
+  // A command that was running when the server stopped is read again now, not 15 s from now (R12).
+  if (isThisServerPrimary()) tickScheduledCards();
 
   return { scheduledCardsTimer, taskDispatcher };
 }

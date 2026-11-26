@@ -78,7 +78,7 @@ test.describe.serial("Add menu — sistema", () => {
     // con quel false salvato mostrava sette voci su otto e nessuna diagnosi.
     await resetPaneStore(request, []);
     await page.addInitScript(() =>
-      localStorage.setItem("app-settings", JSON.stringify({ enableNewChat: false })),
+      localStorage.setItem("app-settings", JSON.stringify({ ...JSON.parse(localStorage.getItem("app-settings") ?? "{}"), enableNewChat: false })),
     );
     await cleanApp(page);
 

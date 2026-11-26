@@ -39,6 +39,7 @@
  * the remote run starts FROM that branch, pushed to origin first. A branch that
  * cannot reach origin keeps the card here (`overflowBranchReady`).
  */
+import { CLAUDE_CODING_PROVIDERS, taskModelSelection } from "../../shared/task-coding-models";
 
 /**
  * How many overflowed or hand-sent cards a machine runs at once before the
@@ -67,6 +68,8 @@ export interface OverflowMachine {
   refused?: boolean;
   /** Free RAM the node last reported, in MB (optional heartbeat field). */
   freeMemoryMb?: number;
+  /** Coding model ids the node reported it runs; absent = not reported, which never excludes it. */
+  models?: readonly string[];
 }
 
 /** Free RAM kept for the node's own use, and what one working card takes (measured). */
@@ -84,6 +87,34 @@ export function effectiveSlots(m: OverflowMachine): number {
   return Math.max(0, Math.min(declared, byRam));
 }
 
+/**
+ * Does this machine lack the card's model? Only a node that REPORTED its models and a full model id
+ * outside that list says yes: an alias (`sonnet`), an empty choice and a node that never reported
+ * all read as «can run», because refusing on a guess would strand cards.
+ */
+export function machineLacksModel(m: OverflowMachine, selection: string | null | undefined): boolean {
+  if (m.kind !== "node" || !m.models || m.models.length === 0) return false;
+  // Same reading as the runner: `gpt-*`, `codex` and `codex:`/`muse:` cards say nothing about a Claude list.
+  const { provider, model: picked } = taskModelSelection(selection?.trim().toLowerCase());
+  if (provider && !CLAUDE_CODING_PROVIDERS.includes(provider)) return false;
+  const model = (picked ?? "").trim();
+  if (!model || model === "auto" || model === "opus" || model === "sonnet" || model === "haiku") return false;
+  return !m.models.some((id) => id.toLowerCase() === model);
+}
+
+/**
+ * Is this text a machine saying «I have no coding agent for that model»? It is a verdict on the
+ * machine, not a failed start: the same card starts fine elsewhere. Matches the node's own words,
+ * also those of a node that retried twice before parking.
+ */
+export function isModelUnavailable(text: unknown): boolean {
+  const s = text instanceof Error ? text.message : typeof text === "string" ? text : "";
+  return /No coding agent is available for model|selected coding runtime .* cannot run model/i.test(s);
+}
+
+/** How long a machine that lacked a model stays skipped for that card. */
+export const MODEL_SKIP_MS = 6 * 60 * 60_000;
+
 /** What the overflow knows about one card when it chooses where to send it. */
 export interface OverflowChoice {
   /** The Claude plan has credit (no provider hold). */
@@ -94,7 +125,7 @@ export interface OverflowChoice {
   model: string | null;
   /** Live cards on that machine (Todo or in progress, this round's moves included). */
   load: (machineId: string) => number;
-  /** A node whose recent wakes failed (`wake-breaker.ts`): not a sleeping target for now. */
+  /** A machine, node or cloud, with a breaker open (`wake-breaker.ts`): not chosen for now. */
   wakeBlocked?: (machineId: string) => boolean;
 }
 
@@ -126,16 +157,19 @@ export function pickOverflowMachine(
   opts: OverflowChoice,
 ): OverflowMachine | null {
   const room = (m: OverflowMachine) => opts.load(m.id) < effectiveSlots(m);
-  const online = machines.filter((m) => m.online && room(m));
+  // A machine with a breaker open is never chosen, ONLINE included and the cloud
+  // included: the heartbeat says the machine answers, not that a run starts there
+  // (14/11: a cloud node online with a refusing hook, one card bounced 542 times
+  // in 47 h). The cloud's breakers open too (its `node-run` hook, its buried runs),
+  // and the remote lane takes an overflowed card off a blocked machine at once on
+  // the word of this filter: chosen anyway, the card came back every tick (21/11).
+  const online = machines.filter((m) => m.online && room(m) && !opts.wakeBlocked?.(m.id) && !machineLacksModel(m, opts.model));
   if (opts.cloudCredit && opts.githubOrigin && cloudRunsModel(opts.model)) {
     const cloud = online.find((m) => m.kind === "cloud");
     if (cloud) return cloud;
   }
-  // A node with its wake breaker open is never chosen, ONLINE included: the
-  // heartbeat says the machine answers, not that a run starts there (14/11: a
-  // cloud node online with a refusing hook, one card bounced 542 times in 47 h).
-  return online.find((m) => m.kind === "node" && !opts.wakeBlocked?.(m.id))
-    ?? machines.find((m) => m.kind === "node" && !m.online && m.wakeable && !opts.wakeBlocked?.(m.id) && room(m))
+  return online.find((m) => m.kind === "node")
+    ?? machines.find((m) => m.kind === "node" && !m.online && m.wakeable && !opts.wakeBlocked?.(m.id) && room(m) && !machineLacksModel(m, opts.model))
     ?? null;
 }
 
@@ -194,7 +228,7 @@ const MIRROR_KEY_PREFIX = "node-run:";
  */
 /**
  * A card whose text names this Mac's own files (the home folder, launchd): a node has none of them, and the run
- * comes back empty. Measured 10/11: five cards on ~/.claude/jarvis came back empty from the PC twice in 2-5 min.
+ * comes back empty. Measured 10/11: five cards on <harness-home> came back empty from the PC twice in 2-5 min.
  */
 const MAC_ONLY_PATH = /(^|[\s`'"(])(~\/|\/Users\/)|\bLaunchAgents\b|\blaunchd\b|\blaunchctl\b/;
 export function namesMacOnlyPaths(task: { text?: string | null; description?: string | null }): boolean {
@@ -249,6 +283,8 @@ export interface OverflowMachineRow {
   status: string;
   /** Declared cards-at-once, when the person set one. */
   slots?: number | null;
+  /** Models the node reported on its last probe. */
+  models?: readonly string[] | null;
 }
 
 /**
@@ -271,7 +307,7 @@ export function overflowMachinesFrom(input: {
     if (!m.baseUrl) continue;
     out.push(input.isCloud(m.baseUrl)
       ? { id: m.id, name: m.name, kind: "cloud", online: input.cloudEnabled && m.status === "online" && input.environmentOk !== false, ...(input.environmentOk === false ? { refused: true } : {}) }
-      : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable, ...(m.slots != null ? { slots: m.slots } : {}) });
+      : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable, ...(m.slots != null ? { slots: m.slots } : {}), ...(m.models ? { models: m.models } : {}) });
   }
   return out;
 }

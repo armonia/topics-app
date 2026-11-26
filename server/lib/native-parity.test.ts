@@ -13,8 +13,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  claudeMemoryDir, readClaudeMemoryIndex, recallMemoryContext, nativeWorkingDir,
-  readUserRules, readUserRulesSource, listSkills, skillsBlock, thinkingBudgetFor, thinkingConfigFor, clampMaxTokens, DEFAULT_MAX_TOKENS,
+  claudeMemoryDir, readClaudeMemoryIndex, recallMemoryContext, nativeWorkingDir, readUserRulesSource, listSkills, skillsBlock, thinkingBudgetFor, thinkingConfigFor, clampMaxTokens, DEFAULT_MAX_TOKENS,
 } from "./native-parity";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
@@ -25,26 +24,6 @@ beforeEach(() => {
   mkdirSync(join(home, ".claude"), { recursive: true });
 });
 afterEach(() => rmSync(home, { recursive: true, force: true }));
-
-describe("readUserRules", () => {
-  it("torna null se il file non c'è (non una stringa vuota: chi chiama deve poter saltare il blocco)", () => {
-    expect(readUserRules(home)).toBeNull();
-  });
-
-  it("espande un import @~/... perché è lì che stanno le regole vere", () => {
-    writeFileSync(join(home, ".claude", "CLAUDE.md"), "# Regole\n@~/.claude/TOOLS.md\nfine\n");
-    writeFileSync(join(home, ".claude", "TOOLS.md"), "usa trash, non rm");
-    const out = readUserRules(home)!;
-    expect(out).toContain("usa trash, non rm");
-    expect(out).not.toContain("@~/.claude/TOOLS.md");
-    expect(out).toContain("fine");
-  });
-
-  it("un import che non esiste resta scritto com'era invece di sparire", () => {
-    writeFileSync(join(home, ".claude", "CLAUDE.md"), "@~/manca.md\n");
-    expect(readUserRules(home)).toContain("@~/manca.md");
-  });
-});
 
 describe("le regole vengono dall'hub ~/.agents quando c'e'", () => {
   it("legge ~/.agents/AGENTS.md e non CLAUDE.md: una copia sola, quella che leggono gli altri harness", () => {

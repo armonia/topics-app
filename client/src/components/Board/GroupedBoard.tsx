@@ -26,7 +26,7 @@ function countsOf(node: GroupNode, columns: readonly WorkflowColumn[]): { counts
   return { counts, total: node.count };
 }
 
-export function GroupedBoard({ groups, levels, columns, showColumnCounts, wide, collapsed, onToggle, forceOpenPath, labelOf, nameById, pathById, draftAbove, renderLeaf }: {
+export function GroupedBoard({ groups, levels, columns, showColumnCounts, wide, framed = false, collapsed, onToggle, forceOpenPath, labelOf, nameById, pathById, draftAbove, renderLeaf }: {
   groups: readonly GroupNode[];
   levels: readonly GroupKey[];
   columns: readonly WorkflowColumn[];
@@ -34,6 +34,8 @@ export function GroupedBoard({ groups, levels, columns, showColumnCounts, wide, 
   showColumnCounts: boolean;
   /** The list view caps the reading width. */
   wide: boolean;
+  /** Each top-level group is drawn as a card holding its header and its leaf («Columns: one» = stacked project cards). */
+  framed?: boolean;
   collapsed: ReadonlySet<string>;
   onToggle: (path: string) => void;
   /** The group holding the composer's ghost stays open even if folded, or the ghost would vanish. */
@@ -59,7 +61,7 @@ export function GroupedBoard({ groups, levels, columns, showColumnCounts, wide, 
         data-testid={top && level === 'project' ? 'board-lane' : 'board-group'}
         data-project-id={top && level === 'project' ? node.key : undefined}
         data-group-path={node.path} data-group-level={level} data-collapsed={folded || undefined}
-        className={`flex shrink-0 flex-col gap-2 ${frame} ${top ? '' : 'pl-3'}`}
+        className={`flex shrink-0 flex-col gap-2 ${frame} ${top ? (framed ? 'rounded-lg border border-app-border bg-black/5 dark:bg-white/5 p-2' : '') : 'pl-3'}`}
       >
         <ProjectGroupHeader
           projectId={isProject ? node.key : NO_VALUE}

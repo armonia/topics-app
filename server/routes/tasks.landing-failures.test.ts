@@ -136,16 +136,14 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
     expect(r).toEqual([]);
   });
 
-  test("«non c'era niente da atterrare» NON chiude la card: lo dice e la lascia in review", async () => {
-    // The control on the two tests above: no bounce back to the agent, because
-    // there is nothing to repair. But no closure either: a land that carried
-    // nothing anywhere is not proof the work is on main, and only a confirmed
-    // merge takes a card out of review. If the work is already over there by
-    // somebody else's hand, the human who approves is the one who says so.
+  test("«non c'era niente da atterrare» dopo un land chiesto da una persona: la card si chiude, con la nota", async () => {
+    // A person's land is an explicit approval; a branch that carries no code
+    // has nothing to merge, so the card closes with the reason instead of
+    // staying in review for an approval that would only land again.
     const { id, db: d, rt } = await landSkipping("no-branch");
     const t = createTaskService(d).get(id)!;
-    expect(t.task.status).toBe("review");
-    expect(t.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
+    expect(t.task.status).toBe("done");
+    expect(t.comments.some((c) => c.content.includes("Niente da fondere"))).toBe(true);
     // The reply a caller reads never says "accepted" for a land that did not happen.
     const settled = await (await call(rt, "GET", `/api/boards/pX/tasks/${id}/land`))!.json();
     expect(settled.landing?.reason ?? "").not.toMatch(/accettat/i);
@@ -271,6 +269,6 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
       db.prepare("UPDATE tasks SET delivery_commit = NULL WHERE id = ?").run(taskId);
     });
     const t = createTaskService(d).get(id)!;
-    expect(t.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
+    expect(t.comments.some((c) => c.content.includes("Niente da fondere"))).toBe(true);
   });
 });

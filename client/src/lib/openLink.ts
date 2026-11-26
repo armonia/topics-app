@@ -118,7 +118,9 @@ let lastUrl = '';
 let lastAt = 0;
 
 /** Test seam: the dedupe is process-wide state, so a test that opens the same
- *  URL twice on purpose has to be able to forget the first one. */
+ *  URL twice on purpose has to be able to forget the first one.
+ * @internal
+ */
 export function resetOpenLinkDedupeForTest(): void {
   lastUrl = '';
   lastAt = 0;

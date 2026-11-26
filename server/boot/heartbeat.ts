@@ -45,6 +45,8 @@ export async function bootHeartbeat(scope: AfterRouters2) {
     tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
     touch: (machineId) => ctx.machineStore.touchNode(machineId),
     onRefreshed: (machine) => ctx.broadcastToAll({ type: "machine:upserted", machine, payload_version: 1 }),
+    recordReported: (machineId, input) => ctx.machineStore.recordReported(machineId, input),
+    recordWorktreeReport: (machineId, report) => ctx.machineStore.recordWorktreeReport(machineId, report),
     isCloud: isCloudBaseUrl,
     log: (message, err) => console.warn(`[Heartbeat] ${message}`, err),
   });

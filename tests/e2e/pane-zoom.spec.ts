@@ -287,7 +287,7 @@ async function seedGrid(page: Page, request: APIRequestContext, opts: SeedOption
     request.put(`${BASE}/api/ui-state/panel-order`, { data: { order: paneIds, pinned: paneIds }, ignoreHTTPSErrors: true }).catch(() => {}),
   ]);
 
-  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
   await page.evaluate(
     ({ gridKey, spaceKey, spawnerKey, grid, spawnerMap }) => {
       localStorage.removeItem("topics-open-panels");
@@ -1279,11 +1279,12 @@ test.describe("La cornice e la griglia sotto", () => {
     await seedThreeCells(page, request);
     await page.keyboard.press("Escape");
 
-    // Close the column, using the command that lives in the top-left cell. It
+    // Close the column, using the command in its own header (25/11: before
+    // the bell; the top-left cell's one shows only once the column is away). It
     // SLIDES OUT — a `fixed` element pushed off by a transform — so it never
     // goes `hidden`, and the `data-open` attribute belongs to the MOBILE scrim,
     // not to the column. What the column does publish is its geometry.
-    await page.locator('[data-testid="sidebar-reopen"]').first().click();
+    await page.getByTestId("sidebar-collapse").click();
     await expect
       .poll(() => page.locator("[data-sidebar]").boundingBox().then((b) => Math.round(b?.x ?? 0)), { timeout: 5_000 })
       .toBeLessThan(0);

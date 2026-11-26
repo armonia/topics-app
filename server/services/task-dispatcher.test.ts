@@ -13,10 +13,21 @@ import { join } from "node:path";
 import { commitIsIn } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, UNRESOLVED_PROJECT_PARK_REASON, REQUEUE_PARKED_LABEL, REVIEW_CARD_FIELDS, REVIEW_CARD_NO_DECISION, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, UNRESOLVED_PROJECT_PARK_REASON, REQUEUE_PARKED_LABEL, REVIEW_CARD_FIELDS, REVIEW_CARD_NO_DECISION, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
-import { createTaskDispatcher, longCommandsRule, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
+import { createTaskDispatcher, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
+import { longCommandsRule, rotateFrom } from "./task-dispatcher-support";
+
+/** Cuts the PREVIEW_RULE block out of a composed envelope by STRUCTURE (first line "REVIEW EVIDENCE", last "One single gate"), not by searching for the constant: a test that looks for the constant it just interpolated cannot fail. */
+function extractPreviewRule(envelope: string): string | null {
+  const lines = envelope.split(/\r?\n/);
+  const from = lines.findIndex((l) => l.startsWith('REVIEW EVIDENCE'));
+  if (from < 0) return null;
+  const to = lines.findIndex((l, i) => i >= from && l.startsWith('One single gate'));
+  if (to < 0) return null;
+  return lines.slice(from, to + 1).join("\n");
+}
 import type { ResourceFloorVerdict } from "./dispatch-capacity";
 
 /**
@@ -3556,7 +3567,7 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
     expect(notes).toHaveLength(0);
   });
 
-  it("nessuna sesta copia: il testo dei rami esiste solo in shared/board.ts", () => {
+  it("nessuna sesta copia: il testo dei rami esiste solo in shared/board-base.ts", () => {
     // Il marcatore è una riga della costante. Chi riscrive la regola a mano in
     // un altro file la ricopia quasi certamente da qui — e questo test lo vede.
     const MARK = "· DIAGRAM .svg";
@@ -3573,7 +3584,7 @@ describe("PREVIEW_RULE — una stringa sola, in tutti gli envelope", () => {
       }
     };
     for (const r of roots) walk(join(repo, r));
-    expect(hits.sort()).toEqual(["server/services/task-dispatcher.test.ts", "shared/board.ts"]);
+    expect(hits.sort()).toEqual(["server/services/task-dispatcher.test.ts", "shared/board-base.ts"]);
   });
 });
 
@@ -3589,10 +3600,10 @@ describe("la coda deve dire il vero", () => {
     await h.dispatcher.tick(PID);
     await flush();
     const t = h.task("t1")!;
-    expect(t.status).toBe("backlog");        // fuori dalla coda
+    expect(t.status).toBe("todo");           // resta visibile, mai in backlog
     expect(t.dispatchState).toBe("failed");  // e lo dice
     const riga = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
-    expect(riga).toContain("Budget dei tentativi finito");
+    expect(riga).toContain("2 tentativi senza esito");
     // La riga dice cosa è successo e cosa fare. NON manda a cercare un guasto:
     // «guarda cosa lo fa fallire» presumeva un difetto da trovare, e ci finiva
     // dentro anche chi aveva soltanto dichiarato due attese.
@@ -3600,6 +3611,23 @@ describe("la coda deve dire il vero", () => {
     expect(riga).toContain("Rimettilo in Todo");
     expect(riga).not.toContain("guarda cosa lo fa fallire");
     expect(h.turns.length).toBe(0);          // nessun turno sprecato
+  });
+
+  it("tre giri a vuoto: la card esce dalla coda con il motivo, resta in Todo, e la nota è una sola", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 3 });
+    await h.dispatcher.tick(PID);
+    await flush();
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");
+    expect(t.dispatchState).toBe("failed");
+    expect(t.dispatchError).toContain("3 tentativi senza esito");
+    const notes = h.svc.get("t1")!.comments.filter((c) => c.content.includes("3 tentativi senza esito"));
+    expect(notes).toHaveLength(1);
+    expect(h.turns.length).toBe(0);
   });
 
   it("…ma chi ASPETTA non è esaurito: la finestra scorre, il parcheggio no", async () => {

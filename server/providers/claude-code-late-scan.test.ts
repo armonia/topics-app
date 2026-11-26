@@ -101,7 +101,8 @@ afterAll(async () => {
  */
 async function restartWithScanCapped(sessionKey: string, firstTurn: (p: any) => Promise<void>) {
   const { ClaudeCodeProvider } = await import("./claude-code");
-  const { getAiBridgeClient, BridgeAckStalled } = await import("../lib/ai-bridge-client");
+  const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+const { BridgeAckStalled } = await import("../lib/ai-bridge-errors");
   const client: any = getAiBridgeClient();
   const first = await newProvider();
   await firstTurn(first);

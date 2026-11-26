@@ -15,13 +15,17 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  worktreeOwnRange,
   landedMergeRange,
   deliveryCommitRange,
   resolveTaskDiffRange,
   revsOfRange,
 } from "./task-diff-range";
 import { defaultRunGit } from "./own-commits";
+
+/** The live range of a worktree, through the public resolver (no repo path: the live anchor answers). */
+async function worktreeOwnRange(cwd: string, opts: { branch?: string | null; mainRef?: string } = {}) {
+  return resolveTaskDiffRange({ taskId: "t", worktree: { cwd, branch: opts.branch ?? null }, mainRef: opts.mainRef });
+}
 
 const ENV = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
 
@@ -70,7 +74,7 @@ describe("task-diff-range", () => {
     expect(r).not.toBeNull();
     expect(await filesOf(dir, r!.range)).toEqual(["mio.ts"]);
 
-    // La domanda vecchia — `merge-base main HEAD` — intestava entrambi.
+    // La domanda vecchia (`merge-base main HEAD`) intestava entrambi.
     const oldBase = await git(dir, ["merge-base", "main", "topics/card"]);
     expect(await filesOf(dir, oldBase)).toEqual(["mio.ts", "roba-di-un-altro.ts"]);
   });

@@ -16,7 +16,7 @@ export interface ChronicleDeps {
   hasQuestion: (content: string) => boolean;
 }
 
-const CHRONICLE_BLOCKS = new Set(['process-exit', 'goal-nudge', 'goal-stop', 'machine-stop', 'background-notice']);
+const CHRONICLE_BLOCKS = new Set(['process-exit', 'goal-nudge', 'hook-nudge', 'goal-stop', 'machine-stop', 'background-notice']);
 
 const isChronicleMessage = (msg: Pick<ChatMessage, 'blocks'>): boolean =>
   (msg.blocks ?? []).some((b) => CHRONICLE_BLOCKS.has(b.kind));

@@ -13,7 +13,7 @@ import { type ReviewCheck } from "../services/review-checks";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { type MemoryFloor } from "../services/review-checks-brakes";
 import { type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
-import type { ScheduledCardsService } from "../services/scheduled-cards";
+import type { ScheduledCardsService } from "../schedule/cards-service";
 import type { IntegrationMeasure } from "../services/integration-queue";
 import { type NodeDeliveryCheckout } from "../services/node-delivery-meter";
 import { type TaskFile } from "../../shared/task-labels";

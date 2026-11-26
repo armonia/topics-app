@@ -55,6 +55,16 @@ import { rowsBack, type BackRow } from "../lib/background-notice";
 import { hasMachineMark } from "../../shared/prompt-number";
 import { stoppedSubagentChat } from "../lib/wake-adoption";
 
+/** How a continuation sent through the chat route marks its `user` row. */
+export type ContinuationMark = "goal-nudge" | "ripresa" | "hook-nudge";
+
+/** The body fields that mark the row, one per mark (`lib/user-row-marks.ts` reads them). */
+function continuationMarkFields(mark: ContinuationMark | undefined, attempt: number): Record<string, number> {
+  if (mark === "ripresa") return { ripresa: attempt };
+  if (mark === "hook-nudge") return { hookNudge: attempt };
+  return { goalNudge: attempt };
+}
+
 export interface GoalContinuationDeps {
   db: Database;
   /**
@@ -76,9 +86,11 @@ export interface GoalContinuationDeps {
     /**
      * How the row is marked. `goal-nudge` (default) is the loop chasing an
      * objective; `ripresa` is the one-shot resume after OUR tool budget, drawn
-     * by the client as a resume line, not as a goal continuation it never had.
+     * by the client as a resume line, not as a goal continuation it never had;
+     * `hook-nudge` is the turn a `turn-end` hook asked for
+     * (`services/hook-continuation.ts`), drawn as the hook's own line.
      */
-    mark?: "goal-nudge" | "ripresa";
+    mark?: ContinuationMark;
   }) => Promise<void>;
   /** Push the topic's current goal to every client (`goal:updated`). */
   announce: (topicId: string) => void;
@@ -547,6 +559,40 @@ export function goalContinuationForChatRoute(deps: {
   const { ctx } = deps;
   let route: ChatRouteLike | null = null;
 
+  // THE ONE DOOR BACK INTO THE CHAT, shared by the goal loop and the user's
+  // `turn-end` hook (`services/hook-continuation.ts`): both send a MESSAGE, and
+  // the route does what it always does with one (see the header).
+  const resend: GoalContinuationDeps["resend"] = async ({ sessionKey, text, attempt, mark }) => {
+    if (!route) return;
+    const url = new URL("http://localhost/api/chat");
+    // The mark is what keeps the row honest: the message has to be a `user`
+    // one (the only role a provider answers) and the block is what stops the
+    // transcript from showing the human saying it. `goalNudge` draws the
+    // objective's continuation; `ripresa` draws the same resume line the boot
+    // uses, because a turn cut by our tool budget IS a resume, not a goal;
+    // `hookNudge` draws the line of the hook that asked for the turn.
+    const marks = continuationMarkFields(mark, attempt);
+    const resp = await route(
+      new Request(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: text }], ...marks }),
+      }),
+      url, "/api/chat", "POST",
+    );
+    // Refused (a 409: a wake took the session while the judge thought) is not
+    // sent: say so, instead of logging a continuation nobody received.
+    if (resp && !resp.ok) throw new Error(`the chat route answered ${resp.status}`);
+    // The stream is drained to the end: the route finalizes the row when the
+    // turn is over, not when it starts, and that finalization ends in this
+    // same hook and decides whether to continue once more. Reading it is what
+    // makes the loop sequential instead of a fan-out.
+    if (resp?.body) {
+      const reader = resp.body.getReader();
+      while (true) { const { done } = await reader.read(); if (done) break; }
+    }
+  };
+
   const onTurnEnd = createGoalContinuation({
     db: ctx.db,
     // The judge runs on the TOPIC's provider, at its cheapest tier where the
@@ -560,35 +606,7 @@ export function goalContinuationForChatRoute(deps: {
       const answer = await provider.complete([{ role: "user", content: prompt }], { ...cheap, purpose: "goal-judge" });
       return answer.content ?? "";
     },
-    resend: async ({ sessionKey, text, attempt, mark }) => {
-      if (!route) return;
-      const url = new URL("http://localhost/api/chat");
-      // The mark is what keeps the row honest: the message has to be a `user`
-      // one (the only role a provider answers) and the block is what stops the
-      // transcript from showing the human saying it. `goalNudge` draws the
-      // objective's continuation; `ripresa` draws the same resume line the boot
-      // uses, because a turn cut by our tool budget IS a resume, not a goal.
-      const marks = mark === "ripresa" ? { ripresa: attempt } : { goalNudge: attempt };
-      const resp = await route(
-        new Request(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: text }], ...marks }),
-        }),
-        url, "/api/chat", "POST",
-      );
-      // Refused (a 409: a wake took the session while the judge thought) is not
-      // sent: say so, instead of logging a continuation nobody received.
-      if (resp && !resp.ok) throw new Error(`the chat route answered ${resp.status}`);
-      // The stream is drained to the end: the route finalizes the row when the
-      // turn is over, not when it starts, and that finalization ends in this
-      // same hook and decides whether to continue once more. Reading it is what
-      // makes the loop sequential instead of a fan-out.
-      if (resp?.body) {
-        const reader = resp.body.getReader();
-        while (true) { const { done } = await reader.read(); if (done) break; }
-      }
-    },
+    resend,
     announce: (topicId) => {
       ctx.broadcastToAll({ type: "goal:updated", topicId, goal: getActiveGoal(ctx.db, topicId) });
     },
@@ -603,6 +621,8 @@ export function goalContinuationForChatRoute(deps: {
     /** The route hands itself over on the first request it serves. */
     useRoute(handler: ChatRouteLike) { route ??= handler; },
     onTurnEnd,
+    /** Send a marked continuation through the route (the `turn-end` hook's door). */
+    resend,
     stopWaiting: onTurnEnd.stopWaiting,
     /**
      * THE GOALS THAT WAITED, BACK AFTER A RESTART. The waiting turns and their

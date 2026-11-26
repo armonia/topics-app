@@ -9,19 +9,20 @@ import type { KeyboardEvent } from 'react';
 
 /** Menus, popovers, toasts: above the page, below a modal. */
 export const LAYER_FLOAT = 'z-[9999]';
-/** Dialogs and the command palette: above every popover. */
+/** @knipignore used by the ui kit and its gallery, outside the production graph. Dialogs and the command palette: above every popover. */
 export const LAYER_MODAL = 'z-[10000]';
 
 /** The frosted card of a menu or popover, with the shared 90ms entrance. */
 export const FLOAT_SURFACE = 'glass-surface rounded-lg border border-app-border shadow-lg popover-enter';
 
-/** The dimmed veil behind a modal surface, fading in with it. */
+/** @knipignore used by the ui kit and its gallery, outside the production graph. The dimmed veil behind a modal surface, fading in with it. */
 export const MODAL_VEIL = 'absolute inset-0 bg-black/30 backdrop-blur-[2px] modal-backdrop-enter dark:bg-black/50';
 
 /**
  * A ref callback that focuses the element once it is mounted, without
  * scrolling the page to it. Module level, so its identity never changes and
  * React calls it on mount only, not on every render.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
  */
 export function focusOnMount(el: HTMLElement | null) {
   el?.focus({ preventScroll: true });
@@ -32,6 +33,7 @@ export function focusOnMount(el: HTMLElement | null) {
  * (an `autoFocus` field, a confirm button): children mount first, so their
  * focus is already in place when this runs. Keys pressed afterwards bubble
  * through the surface, which is how Escape reaches its `onKeyDown`.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
  */
 export function focusSurface(el: HTMLElement | null) {
   if (el && !el.contains(el.ownerDocument.activeElement)) el.focus({ preventScroll: true });
@@ -44,7 +46,7 @@ export function focusFirstItem(el: HTMLElement | null) {
   (first ?? el).focus({ preventScroll: true });
 }
 
-/** Keeps the highlighted row of a list in view as the arrows move it. */
+/** @knipignore used by the ui kit and its gallery, outside the production graph. Keeps the highlighted row of a list in view as the arrows move it. */
 export function revealOnMount(el: HTMLElement | null) {
   el?.scrollIntoView({ block: 'nearest' });
 }

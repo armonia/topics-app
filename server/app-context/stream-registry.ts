@@ -9,6 +9,7 @@ import { announceTurnEnded } from "../lib/turn-ended";
 import type { TurnLedger } from "../lib/turn-ledger";
 import type { ActiveStream, ToolCall } from "../types";
 import type { DbRow } from "./app-statements";
+import { redactDeep } from "../lib/secret-redaction";
 
 export function createStreamRegistry({ db, activeStreams, turnLedger }: { db: Database; activeStreams: Map<string, ActiveStream>; turnLedger: TurnLedger }) {
   // --- Streams (in-memory, unchanged) ---
@@ -149,7 +150,7 @@ export function createStreamRegistry({ db, activeStreams, turnLedger }: { db: Da
           // INTERA, quindi e' una scrittura come le altre. Le tool call che
           // arrivano fin qui sono gia' magre (le ha scritte questo stesso
           // percorso), ma una riga vecchia riaperta da un riavvio no.
-          if (c) { tcStr = encodeCol(toolCallsForDisk(toolCalls) ?? "null") ?? null; changed = true; }
+          if (c) { tcStr = encodeCol(toolCallsForDisk(redactDeep(toolCalls)) ?? "null") ?? null; changed = true; }
         }
         // The client renders tool state from `blocks` (the timeline) when
         // present, so finalize the block copy too or the spinner keeps ticking.
@@ -176,7 +177,7 @@ export function createStreamRegistry({ db, activeStreams, turnLedger }: { db: Da
               interrupted.push(b.toolCall as ToolCall);
             }
           }
-          if (c) { blStr = encodeCol(blocksForDisk(bl) ?? "null") ?? null; changed = true; }
+          if (c) { blStr = encodeCol(blocksForDisk(redactDeep(bl)) ?? "null") ?? null; changed = true; }
         }
         // The row carries both copies: this write is the last one of the turn,
         // so it is also where the duplicate goes. What the column held is

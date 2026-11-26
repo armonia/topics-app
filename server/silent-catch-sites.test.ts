@@ -7,12 +7,11 @@
  */
 import { describe, test, expect, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, readFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDatabase, initDatabase } from "./db";
 import { createAppContext } from "./utils";
-import { browserStateBaseDir, deleteStorageState } from "./browser-state-store";
 import { markGroupStopping, commandProcessGroupStopPath } from "./lib/command-process-groups";
 import { attachMediaOfTurn } from "./lib/attach-media-of-turn";
 import { drainOutput } from "./lib/drain-output";
@@ -277,23 +276,6 @@ describe("command process groups: stop marker", () => {
     try {
       markGroupStopping(processId);
       expect(logged(warn)).toContain(processId);
-    } finally {
-      warn.mockRestore();
-    }
-  });
-});
-
-describe("deleteStorageState", () => {
-  test("a storage.json that cannot be unlinked is reported and thrown", async () => {
-    isolate();
-    const dir = join(browserStateBaseDir(), "undeletable");
-    // A non-empty directory where the file should be: existsSync is true, unlink throws.
-    mkdirSync(join(dir, "storage.json"), { recursive: true });
-    writeFileSync(join(dir, "storage.json", "x"), "x");
-    const warn = spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      await expect(deleteStorageState("undeletable")).rejects.toBeDefined();
-      expect(warn).toHaveBeenCalled();
     } finally {
       warn.mockRestore();
     }

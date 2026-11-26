@@ -21,7 +21,7 @@
  *     that means migration 012 was never applied and we MUST NOT silently coalesce.
  */
 import type { AppContext, RouteHandler } from "../types";
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { projectPathTokensIn } from "../services/known-project-dirs";
@@ -173,7 +173,15 @@ export function dropVanishedProjectPanes(payload: unknown, key?: string): unknow
 
   const PREFIX = "project:";
   const twinOf = (p: string): string | null => {
-    if (existsSync(p)) return null;
+    if (existsSync(p)) {
+      // A moved folder leaves a symlink at the old address: the tab must follow
+      // it to the real path, because the sidebar groups topics by exact path.
+      try {
+        if (!lstatSync(p).isSymbolicLink()) return null;
+        const real = realpathSync(p);
+        return real !== p ? real : null;
+      } catch { return null; }
+    }
     const c = join(homedir(), "Projects", basename(p));
     return c !== p && existsSync(c) ? c : null;
   };
@@ -696,11 +704,6 @@ export const UI_STATE_INIT_EXCLUDED_PREFIXES = [
   "dev-layout-probe-result",
   "dev-storage-probe-result",
 ] as const;
-
-/** Vero se la chiave è esclusa dallo snapshot `ui-state:init` (gemello JS del WHERE sotto). */
-export function isExcludedFromUiStateInit(key: string): boolean {
-  return UI_STATE_INIT_EXCLUDED_PREFIXES.some((p) => key.startsWith(p));
-}
 
 // Nessun `_` o `%` nei prefissi ⇒ nessun escape da fare nel LIKE.
 const INIT_EXCLUSION_WHERE = UI_STATE_INIT_EXCLUDED_PREFIXES.map(() => "key NOT LIKE ?").join(" AND ");

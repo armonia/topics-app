@@ -41,6 +41,7 @@ export const PANE_TYPES = [
   'accounts',
   'automations',
   'agents',
+  'system-page',
   'features',
 ] as const;
 
@@ -354,7 +355,11 @@ export type PaneAction =
     }
   | {
       type: 'HYDRATE_FROM_SNAPSHOT';
-      payload: { snapshot: Partial<PaneState> & { seq: number; server_seq?: number } };
+      payload: {
+        snapshot: Partial<PaneState> & { seq: number; server_seq?: number };
+        /** The snapshot is this device's own (boot read of `pane-store-v2`): its draft panes are kept. */
+        ownDrafts?: boolean;
+      };
     }
   | { type: 'PANE_ID_REMAP'; payload: { from: string; to: string; updates?: Partial<Pane> } }
   /**

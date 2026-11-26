@@ -10,17 +10,15 @@ import { agentCardGaps, incompleteCardNotice } from "../../shared/agent-card-con
 
 import { WORKFLOW_COLUMNS } from "../../shared/workflow";
 
-import { createTasksShared, MACHINE_RETRY_CAP, STATUSES, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, commentAsksHuman, VALID_EFFORT, clampInt, TaskServiceError, GLOBAL_SETTINGS_KEY } from "./tasks/shared";
+import { createTasksShared, STATUSES, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, commentAsksHuman, VALID_EFFORT, clampInt, TaskServiceError, GLOBAL_SETTINGS_KEY } from "./tasks/shared";
 export {
-  MACHINE_RETRY_CAP, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, commentAsksHuman,
-  TaskServiceError,
+  UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, commentAsksHuman, TaskServiceError,
 };
 import { createCommentsMethods } from "./tasks/comments";
 import { createLandMethods } from "./tasks/land";
 import { createDeliveryMethods } from "./tasks/delivery";
 import { createWorktreeMethods } from "./tasks/worktree";
 import { createStatusMethods } from "./tasks/status";
-export { parseChecksJson, parseChecksProgress, deliveryNotesInFlight } from "./tasks/shared";
 
 // The statuses and the thread's shape live in `shared/board.ts`, so the client
 // reads them from the same declaration instead of rewriting them. `export type
@@ -33,11 +31,14 @@ import { MAX_FANOUT, isAgentWorking } from "../../shared/board";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
 import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
-import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
+import { findNeighbours, normalizeTaskText, type Neighbour } from "../../shared/task-similarity";
 import type { BoardSettings, BoardSettingsPatch } from "../../shared/board";
 
 import { allWideRows } from "../lib/wide-rows";
 import type { Task, CreateTaskInput, ListTasksInput } from "./task-shapes";
+import { inheritedSettingsBoardId, mergedBoardIds } from "../../shared/project-family";
+import { loadFamilyRows } from "./project-family-rows";
+import { readBoardSettingsRow } from "./board-settings-row";
 
 import { withCardAttention } from "../attention/card-sync";
 import { CHECKS_RUNNING_SQL } from "../lib/task-timer-reads";
@@ -65,8 +66,7 @@ export type Actor = "human" | "agent";
  *   indistinguishable from rest, and only a human could unstick it.
  */
 export {
-  ARCHIVE_PARKED_LABEL, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL,
-  isLandActionLabel, isPublishActionLabel,
+  LAND_ACTION_LABEL, isLandActionLabel, isPublishActionLabel,
 } from "../../shared/board";
 
 export type { Task, UpdateTaskPatch } from "./task-shapes";
@@ -358,8 +358,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const params: any[] = [];
       if (input.scope === "project") {
         if (!input.projectId) throw new TaskServiceError("invalid_input", "scope=project requires projectId");
-        clauses.push("project_id = ?");
-        params.push(input.projectId);
+        const family = input.includeChildBoards ? mergedBoardIds(loadFamilyRows(db), input.projectId) : [input.projectId];
+        if (family.length > 1) {
+          clauses.push("project_id IN (SELECT value FROM json_each(?))");
+          params.push(idParam(family));
+        } else {
+          clauses.push("project_id = ?");
+          params.push(input.projectId);
+        }
       }
       // UNO STATO CHE NON ESISTE È UN ERRORE, NON UNA BOARD VUOTA. Le rotte
       // passavano `?status=` così com'era arrivato (`as any`), quindi
@@ -470,6 +476,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         rows.map((r) => ({ id: r.id, text: r.text ?? "", createdAt: r.created_at })),
         { limit },
       );
+    },
+
+    findOpenTwin({ projectId, text, idempotencyKey, rootsOnly }): Task | null {
+      const body = (text ?? "").trim();
+      if (!projectId || (!body && !idempotencyKey)) return null;
+      // Open means alive on the board: not archived, not done. A finished card
+      // is history, and a repeated request after it is new work.
+      const openClause = "project_id = ? AND archived = 0 AND status != 'done'";
+      const rootClause = rootsOnly ? " AND parent_task_id IS NULL" : "";
+      if (idempotencyKey) {
+        const byKey = db.prepare(
+          `SELECT id FROM tasks WHERE ${openClause}${rootClause} AND claude_task_id = ?`,
+        ).get(projectId, idempotencyKey) as { id: string } | undefined;
+        if (byKey) return rowToTask(getTaskRow(byKey.id));
+      }
+      if (!body) return null;
+      const wanted = normalizeTaskText(body);
+      if (!wanted) return null;
+      const rows = db.prepare(
+        `SELECT id, text FROM tasks WHERE ${openClause}${rootClause} ORDER BY created_at ASC`,
+      ).all(projectId) as Array<{ id: string; text: string | null }>;
+      const hit = rows.find((r) => normalizeTaskText(r.text ?? "") === wanted);
+      return hit ? rowToTask(getTaskRow(hit.id)) : null;
     },
 
     isArchived(taskId: string): boolean {
@@ -781,7 +810,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     getBoardSettings(projectId: string): BoardSettings {
-      const r = db.prepare("SELECT * FROM board_settings WHERE project_id = ?").get(projectId) as any;
+      const r = readBoardSettingsRow(db, projectId);
+      // A project merged into a parent (accorpa) without a row of its own takes
+      // the parent's DISPLAY settings only (the language of its cards), since its
+      // cards are read on the parent's board. Never how it dispatches, merges or
+      // deploys: those act on the child's own repository, and a parent's
+      // auto-merge or deploy command run there would be a choice nobody made.
+      const inheritedLanguage = r ? null : (() => {
+        const from = inheritedSettingsBoardId(loadFamilyRows(db), projectId);
+        return from ? readBoardSettingsRow(db, from)?.language ?? null : null;
+      })();
       return {
         projectId,
         autoDispatch: readGlobalDispatch(),
@@ -803,7 +841,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // ON unless a person switched it off: an absent column or row is the default.
         dispatchOverflow: r?.dispatch_overflow == null ? true : !!r.dispatch_overflow,
         dispatchStayLocal: !!r?.dispatch_stay_local,
-        language: r?.language ?? "inherit",
+        language: r?.language ?? inheritedLanguage ?? "inherit",
         // NULL = 1: una board che non ha mai sentito parlare di fan-out dispaccia
         // un agente per task, com'è sempre stato.
         dispatchFanOut: Math.max(1, r?.dispatch_fanout ?? 1),

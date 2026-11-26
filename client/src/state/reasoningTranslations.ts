@@ -108,7 +108,7 @@ export async function requestReasoningTranslation(content: string): Promise<void
   }
 }
 
-/** Test seam: back to an empty store. */
+/** @internal Test seam: back to an empty store. */
 export function resetReasoningTranslations(): void {
   entries.clear();
   asked.clear();

@@ -1,0 +1,37 @@
+/**
+ * WHERE THE TABS ARE: in one place, never in two.
+ *
+ * On a desktop the open surfaces were listed twice, in the sidebar column and
+ * in the strip across the top of the window (asked on 24/11: tabs on top and
+ * at the side make no sense together, the person picks one). The phone had
+ * already dropped the strip for the same reason (see the `mobile` prop of
+ * `StandaloneChatGroup`). This is the one function that answers, so the strip
+ * and the column cannot disagree about which of them holds the tabs.
+ */
+import type { AppSettings } from '../types';
+
+export type TabsPosition = AppSettings['tabsPosition'];
+
+export interface TabsPlacement {
+  /** The strip of tabs across the top of the window is drawn. Without it the
+   *  row on top says the name of the surface in front. */
+  strip: boolean;
+  /** The column leaves out the rows the strip already shows. */
+  columnSkipsStrip: boolean;
+}
+
+export function tabsPlacement(
+  position: TabsPosition,
+  { phone }: { phone: boolean },
+): TabsPlacement {
+  // The phone keeps its own grammar whatever the desktop chose: the column is
+  // the list of surfaces and the row on top says the name of the one in front.
+  if (phone) return { strip: false, columnSkipsStrip: false };
+  if (position === 'top') return { strip: true, columnSkipsStrip: true };
+  if (position === 'both') return { strip: true, columnSkipsStrip: false };
+  // Tabs at the side stay at the side with the column closed too: the strip
+  // coming back on top made two places again (25/11: one or the other).
+  // The title row keeps the surface in front and the button that reopens the
+  // column, which is where the other tabs are.
+  return { strip: false, columnSkipsStrip: false };
+}

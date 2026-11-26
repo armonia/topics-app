@@ -1,5 +1,6 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 import { stepMatchIndex } from '../components/Browser/findInPageModel';
+import { createKeyedListeners } from '../lib/keyedListeners';
 
 /**
  * ⌘F inside the pane you are on: one bar (`Shared/FindBar`), one finder per
@@ -77,7 +78,7 @@ interface Entry {
 const finders = new Map<string, Entry>();
 const fallbacks = new Map<string, () => void>();
 const states = new Map<string, FindState>();
-const listeners = new Map<string, Set<() => void>>();
+const listeners = createKeyedListeners<string>();
 const searchSeq = new Map<string, number>();
 const debounce = new Map<string, ReturnType<typeof setTimeout>>();
 /** The async search still on its way, per pane: a step waits for it. */
@@ -87,8 +88,7 @@ const focusBefore = new Map<string, { focus(): void; isConnected?: boolean } | n
 let nextToken = 1;
 
 function notify(paneId: string): void {
-  const subs = listeners.get(paneId);
-  if (subs) for (const fn of [...subs]) fn();
+  listeners.emit(paneId);
 }
 
 function patch(paneId: string, next: Partial<FindState>): void {
@@ -102,13 +102,7 @@ export function getFindState(paneId: string): FindState {
 }
 
 export function subscribeFind(paneId: string, fn: () => void): () => void {
-  let set = listeners.get(paneId);
-  if (!set) { set = new Set(); listeners.set(paneId, set); }
-  set.add(fn);
-  return () => {
-    set!.delete(fn);
-    if (set!.size === 0) listeners.delete(paneId);
-  };
+  return listeners.subscribe(paneId, fn);
 }
 
 /** React binding: the bar state of one pane. */
@@ -349,7 +343,7 @@ export function resolveFindPane(
   return known(focusedPanelId) ? focusedPanelId : (focusedTabIds[0] ?? focusedPanelId ?? null);
 }
 
-/** Test hook. */
+/** @internal Test hook. */
 export function _resetFindRegistry(): void {
   for (const t of debounce.values()) clearTimeout(t);
   finders.clear(); fallbacks.clear(); states.clear(); listeners.clear(); searchSeq.clear(); debounce.clear(); focusBefore.clear(); inflight.clear();

@@ -13,7 +13,7 @@
   * @covers CCLI-02
  */
 import { describe, expect, test } from "bun:test";
-import { buildSafeEnv } from "./claude-code";
+import { buildSafeEnv } from "./claude/cli-launch";
 import { ASK_TRANSPORT_CEILING_MS } from "../lib/ask-user-bridge";
 
 describe("buildSafeEnv", () => {

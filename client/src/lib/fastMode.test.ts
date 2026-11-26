@@ -5,7 +5,7 @@
  * @covers FAST-MODE-01
  */
 import { describe, it, expect } from 'bun:test';
-import { fastModeUi, fastModeReasonText } from './fastMode';
+import { fastModeUi } from './fastMode';
 import type { ProvidersSnapshot } from '../types';
 
 const snap = (
@@ -82,20 +82,5 @@ describe('fastModeUi', () => {
       snapshot: s, requested: false,
       providerOverride: { provider: 'codex', model: 'gpt-5.5' },
     })).not.toBeNull();
-  });
-});
-
-describe('fastModeReasonText', () => {
-  it('ogni motivo della CLI ha la sua frase, non un generico', () => {
-    for (const r of [
-      'sdk_opt_in_required', 'not_first_party', 'model_not_allowed', 'disabled_by_env',
-      'extra_usage_disabled', 'free', 'preference', 'network_error', 'pending',
-    ]) {
-      expect(fastModeReasonText(r)).not.toBe(fastModeReasonText('unknown'));
-    }
-  });
-
-  it('un motivo nuovo non lascia il tooltip vuoto', () => {
-    expect(fastModeReasonText('motivo-che-non-esiste-ancora')).toBe(fastModeReasonText('unknown'));
   });
 });

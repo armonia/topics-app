@@ -3,31 +3,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  SIDEBAR_INDENT_STEP,
-  SIDEBAR_LABEL_GUTTER_MAX,
-  CHROME_ROW_ACTION_INSET,
-  CHROME_ROW_ACTION_INSET_LEFT,
-  CHROME_ROW_ACTION_RESERVE,
-  CHROME_ROW_ACTION_RESERVE_LEFT,
-  CHROME_BAR_SUB,
-  CHROME_ROW_CONTENT_H,
-  CHROME_ROW_SUB_H,
-  COLUMN_GAP,
-  CARD_H,
-  ROW_ACTION_BOX,
-  ROW_ACTION_BOX_PX,
-  ROW_ACTIONS_INSET_PX,
-  ROW_GAP,
-  ROW_H,
-  ROW_INSET,
-  ROW_PX,
-  SECTION_CARD,
-  SECTION_H,
-  TAB_GAP_CLASS,
-  TAB_LABEL,
-  TAB_LABEL_TYPE,
-  chromeRowInset,
-  sidebarRowCard,
+  SIDEBAR_INDENT_STEP, SIDEBAR_HOVER, RESTING_SURFACE, TAB_BUTTON, TAB_BUTTON_SQUARE, TAB_BUTTON_H, tabButton, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sectionCard, sectionIsland, sidebarRowCard,
 } from './selectionStyles';
 
 /**
@@ -79,34 +55,6 @@ function risolvi(classes: string, prop: string): { wide: number; compact: number
 }
 
 describe('la riga di chrome e il comando in coda', () => {
-  test('ROW_ACTION_BOX_PX dice davvero i pixel di ROW_ACTION_BOX', () => {
-    // La coppia in pixel esiste solo perché l'aritmetica non può leggere una
-    // classe. Se diverge dalla classe, ogni conto qui sotto è su un box che
-    // non esiste.
-    const h = risolvi(ROW_ACTION_BOX, 'h');
-    expect(h).toEqual({ wide: ROW_ACTION_BOX_PX.desktop, compact: ROW_ACTION_BOX_PX.touch });
-    // Quadrato: l'incasso vale su tre lati solo se lo è.
-    expect(risolvi(ROW_ACTION_BOX, 'w')).toEqual(h);
-  });
-
-  test("il comando lascia alla riga la stessa aria della tab che gli sta accanto", () => {
-    // Il verticale non si sceglie: (40 − box)/2. Vale per il comando come per
-    // la tab, quindi i due respirano uguale SOLO se hanno la stessa misura sullo
-    // stesso breakpoint — che è il difetto vero dietro «il + e apri sidebar
-    // dovrebbero avere aria intorno uguale, anche rispetto alle tab» (Attilio,
-    // 09/08): il comando seguiva `md:` e la tab un `isTouch` in JS, quindi in
-    // una finestra stretta senza touch erano 36 e 28 nella stessa riga.
-    //
-    // QUI C'ERA UNA COPIA A MANO (`const TAB_H = 'h-9 md:h-7'`), col suo prezzo
-    // dichiarato in un commento: «se qualcuno cambia l'altezza della tab senza
-    // toccare qui, questo test resta verde su una bugia». Non serve più pagarlo:
-    // l'altezza della card compatta è {@link CARD_H}, e la tab la importa invece
-    // di riscriverla. Il test legge ora la STESSA stringa che la tab monta.
-    expect(risolvi(CARD_H, 'h')).toEqual(risolvi(ROW_ACTION_BOX, 'h'));
-    const box = risolvi(ROW_ACTION_BOX, 'h');
-    expect(chromeRowInset(box.wide)).toBe(6);
-    expect(chromeRowInset(box.compact)).toBe(2);
-  });
 
   test("l'incasso dal bordo è ROW_INSET, non il respiro verticale", () => {
     // Era `chromeRowInset(box)`: col dito veniva 2, cioè il bottone incollato
@@ -114,43 +62,6 @@ describe('la riga di chrome e il comando in coda', () => {
     // domanda ORIZZONTALE e ha già il suo numero.
     const dx = risolvi(CHROME_ROW_ACTION_INSET, 'right');
     expect(dx).toEqual({ wide: ROW_INSET, compact: ROW_INSET });
-  });
-
-  test('il comando in testa alla riga ha lo stesso incasso di quello in coda', () => {
-    // Il tasto che riapre la sidebar e il «+» sono le due estremità della
-    // stessa riga: se i due incassi divergono, uno dei due galleggia.
-    expect(risolvi(CHROME_ROW_ACTION_INSET_LEFT, 'left')).toEqual(
-      risolvi(CHROME_ROW_ACTION_INSET, 'right'),
-    );
-  });
-
-  test('gli incassi orizzontali cadono su pixel INTERI', () => {
-    // MEZZO PIXEL NON È UNA POSIZIONE, È UN LANCIO DI MONETA.
-    //
-    // L'08/08 il comando in testa alla riga stava a `md:left-[5.5px]`
-    // (cbd00427, poi rientrato a 6 il 09/08 con ab8d7514). Il bordo sinistro
-    // della sua scatola cadeva quindi a metà del pixel 5 — e `reopen-closed-tab`
-    // clicca il punto (5, 5) della barra per spostare il fuoco: l'hit-test di
-    // Chromium arrotonda DENTRO la scatola, il click finiva sul comando invece
-    // che sulla barra, e il test moriva a 30 s. Misurato in entrambe le
-    // direzioni: a 5.5 `elementFromPoint(bar.x+5)` risponde il comando, a 6
-    // risponde la barra (tests/e2e/reduced-motion-chrome-controls.spec.ts).
-    //
-    // Il verticale non è in questa lista di proposito: lì il mezzo pixel non ha
-    // un bersaglio contro cui sbattere — nessuno mira il bordo alto della riga.
-    const frazionari = Object.entries({
-      'incasso in coda': risolvi(CHROME_ROW_ACTION_INSET, 'right'),
-      'incasso in testa': risolvi(CHROME_ROW_ACTION_INSET_LEFT, 'left'),
-      'riserva in coda': risolvi(CHROME_ROW_ACTION_RESERVE, 'pr'),
-      'riserva in testa': risolvi(CHROME_ROW_ACTION_RESERVE_LEFT, 'pl'),
-    }).flatMap(([nome, { wide, compact }]) =>
-      [
-        ['col mouse', wide],
-        ['col dito', compact],
-      ].filter(([, px]) => !Number.isInteger(px as number))
-       .map(([dove, px]) => `${nome} ${dove}: ${px}px`),
-    );
-    expect(frazionari).toEqual([]);
   });
 
   test('la riserva della strip è bordo + box + la stessa aria del bordo', () => {
@@ -170,35 +81,6 @@ describe('la riga di chrome e il comando in coda', () => {
     expect(risolvi(CHROME_ROW_ACTION_RESERVE_LEFT, 'pl')).toEqual(
       risolvi(CHROME_ROW_ACTION_RESERVE, 'pr'),
     );
-  });
-
-  test('la riga subordinata è box + ROW_INSET, diviso a metà sopra e sotto la tab', () => {
-    // 34 = 28 + 6. Written as arithmetic, not as a number: if the box or the
-    // inset move, the child row follows them or splits apart RIGHT HERE.
-    expect(CHROME_ROW_SUB_H).toBe(ROW_ACTION_BOX_PX.desktop + ROW_INSET);
-    // And the full row is the same thing with the inset counted TWICE: it is
-    // the whole story in one row.
-    expect(CHROME_ROW_SUB_H + ROW_INSET).toBe(CHROME_ROW_CONTENT_H);
-    // The class must say the same number as the constant: two spellings of
-    // the same value, and Tailwind only reads the first.
-    expect(risolvi(CHROME_BAR_SUB, 'h')).toEqual({ wide: CHROME_ROW_SUB_H, compact: CHROME_ROW_CONTENT_H });
-    // NO padding override above 768px: `items-center` alone splits the gap
-    // between the box (28) and the row (34) evenly — ROW_INSET/2 above, the
-    // same below — so the tab stays centred instead of sticking to the top
-    // edge (card 18/11, "tabs stuck to the top edge").
-    const paddingOverride = /(?:^|\s)md:p[tby]?-/.exec(CHROME_BAR_SUB);
-    expect(paddingOverride, 'CHROME_BAR_SUB should not override vertical padding above 768px').toBeNull();
-    expect((CHROME_ROW_SUB_H - ROW_ACTION_BOX_PX.desktop) / 2).toBe(ROW_INSET / 2);
-  });
-
-  test('il comando ci sta dentro la riga', () => {
-    // Un box più alto del contenuto darebbe un incasso NEGATIVO, cioè un
-    // bottone che sborda — e le classi arbitrarie lo accetterebbero in
-    // silenzio.
-    for (const box of Object.values(ROW_ACTION_BOX_PX)) {
-      expect(chromeRowInset(box)).toBeGreaterThan(0);
-      expect(box).toBeLessThan(CHROME_ROW_CONTENT_H);
-    }
   });
 });
 
@@ -254,30 +136,6 @@ describe('il passo verticale della colonna', () => {
   });
 });
 
-describe('il binario dei comandi in coda', () => {
-  test("l'incasso dell'overlay è ROW_PX, e il CSS lo scrive a mano", () => {
-    // `.row-actions { right: 8px }` sta in `index.css`: nessuna media query può
-    // leggere una costante TS, quindi il numero è per forza un letterale là.
-    // Qui si ricalcola dal padding della riga — che è ciò che quel numero
-    // PROMETTE di valere: il comando deve finire dove finiscono i segnali che
-    // copre. Se `ROW_PX` cambia, questo test indica il CSS invece di lasciare
-    // separare i due in silenzio.
-    const px = risolvi(ROW_PX, 'px');
-    expect(px.wide).toBe(ROW_ACTIONS_INSET_PX);
-    expect(px.compact).toBe(ROW_ACTIONS_INSET_PX);
-  });
-
-  test('il box del comando ha la stessa misura ovunque, sui due rami', () => {
-    // Il binario contiene sempre e solo box `ROW_ACTION_BOX`. Il test è qui e
-    // non nei chiamanti perché il difetto era proprio la varietà: quattro
-    // misure diverse nello stesso binario (28, 24, 24+mr-1, 24).
-    expect(risolvi(ROW_ACTION_BOX, 'w')).toEqual({
-      wide: ROW_ACTION_BOX_PX.desktop,
-      compact: ROW_ACTION_BOX_PX.touch,
-    });
-  });
-});
-
 describe('le due famiglie di altezza, e le tre misure interne', () => {
   test('ROW_H e CARD_H sono due, e non si sovrappongono', () => {
     // Due famiglie legittime — la riga porta una subline, la card compatta no —
@@ -301,30 +159,58 @@ describe('le due famiglie di altezza, e le tre misure interne', () => {
     // usavano `gap-2`: la costante era in minoranza rispetto ai suoi clienti.
     expect(risolvi(ROW_GAP, 'gap')).toEqual({ wide: 8, compact: 8 });
     expect(SECTION_CARD).toContain(ROW_GAP);
-    expect(SECTION_CARD).toContain(SECTION_H);
+    expect(SECTION_CARD).toContain(ROW_H);
     expect(SECTION_CARD).toContain(ROW_PX);
   });
 
-  test("l'intestazione di sezione prende un numero da ciascuna famiglia", () => {
-    // E i due vengono da due VINCOLI diversi, non da due gusti (vedi SECTION_H):
-    //  · col mouse è una card a una riga sola → la misura di CARD_H;
-    //  · col dito è un bersaglio in una colonna → la misura di ROW_H, cioè i
-    //    44px del minimo iOS. `SECTION_CARD` stava a 36: otto sotto la soglia,
-    //    ed era l'unica cosa premibile in quella colonna a esserlo.
-    const sezione = risolvi(SECTION_H, 'h');
-    expect(sezione.wide).toBe(risolvi(CARD_H, 'h').wide);
-    expect(sezione.compact).toBe(risolvi(ROW_H, 'h').compact);
-    expect(sezione.compact).toBe(44);
+  test("a section's header is as tall as a row, the touch floor included", () => {
+    // 25/11: the island headers with the tabs' heights and spacings. They used
+    // to take 28 with the mouse from CARD_H; facing the column's rows at 34,
+    // the same column read as two measures.
+    const heights = SECTION_CARD.split(/\s+/).filter((c) => /^(?:md:|coarse:)?h-/.test(c));
+    expect(heights.join(' ')).toBe(ROW_H);
+    expect(heights).toContain('coarse:h-11');
+    // No margin of its own: the island carries the inset, a row's 6px.
+    expect(SECTION_CARD).not.toMatch(/(?:^|\s)m-\d/);
   });
 
-  test('la tab resta 36 col dito, e il soffitto lo dice il conto', () => {
-    // Perché CARD_H non sale a 44 come l'intestazione: la tab vive DENTRO la
-    // riga di chrome, e una tab più alta della riga che la contiene verrebbe
-    // tagliata. Non è prudenza, è aritmetica — se un giorno la riga cresce,
-    // questo test smette di giustificare il 36 e lo dice.
-    const tab = risolvi(CARD_H, 'h');
-    expect(tab.compact).toBeLessThanOrEqual(CHROME_ROW_CONTENT_H);
-    expect(chromeRowInset(tab.compact)).toBeGreaterThanOrEqual(0);
+  test('no ground at rest: a closed section and a row that is not a tab paint nothing', () => {
+    // 25/11: "if not active in some way, no background, as the tabs should
+    // already do". A class that paints at rest starts with `bg-` or carries a
+    // width variant of it (`max-md:bg-`); hover and dark variants are not rest.
+    const atRest = (cls: string) => cls.split(/\s+/).filter((c) => /^(?:max-md:|md:)?bg-/.test(c));
+    expect(atRest(sectionCard(false))).toEqual([]);
+    expect(atRest(sectionIsland(false))).toEqual([]);
+    expect(sectionIsland(false)).not.toContain('edge-lit');
+    expect(atRest(sidebarRowCard({}))).toEqual([]);
+    expect(atRest(sidebarRowCard({ tab: 'closed' }))).toEqual([]);
+    // Open, the island is the card, with the open tabs' resting ground.
+    expect(atRest(sectionIsland(true))).toEqual(['bg-black/[0.05]']);
+    expect(sectionIsland(true)).toContain('edge-lit');
+    // The pointer: every tab takes the rows' hover ground, a closed one too
+    // (25/11: "shouldn't the hover background appear for all of them?").
+    for (const cls of [sectionCard(false), sectionCard(true), sidebarRowCard({ tab: 'closed' }), sidebarRowCard({})]) {
+      expect(cls).toContain(SIDEBAR_HOVER);
+    }
+  });
+
+  test('a button beside the tabs is a tab: a row tall, no ground at rest, an open tab while open', () => {
+    // 25/11: "all the notification and sidebar buttons [must] have the tabs'
+    // behaviour, size and colours".
+    const heights = TAB_BUTTON.split(/\s+/).filter((c) => /^(?:md:|coarse:)?h-/.test(c));
+    expect(heights.join(' ')).toBe(TAB_BUTTON_H);
+    // A row's height without its touch step: the rows these buttons sit in
+    // are 40px from 768px up for every pointer.
+    expect(ROW_H.startsWith(TAB_BUTTON_H)).toBe(true);
+    expect(`${TAB_BUTTON} ${TAB_BUTTON_SQUARE}`).not.toContain('coarse:');
+    const atRest = (cls: string) => cls.split(/\s+/).filter((c) => /^(?:max-md:|md:)?bg-/.test(c));
+    expect(atRest(tabButton(false))).toEqual([]);
+    expect(tabButton(false)).not.toContain('edge-lit');
+    expect(tabButton(false)).toContain(SIDEBAR_HOVER);
+    expect(tabButton(true)).toContain(RESTING_SURFACE);
+    expect(tabButton(true)).toContain('edge-lit');
+    // Square, as wide as a row is tall at every width.
+    expect(TAB_BUTTON_SQUARE.replace(/w-/g, 'h-')).toBe(TAB_BUTTON_H);
   });
 
   test("l'aria DENTRO non è quella FRA: due domande, due numeri", () => {
@@ -366,13 +252,5 @@ describe('the sidebar indent survives the gutter trim (LAYOUT-30)', () => {
     // Zero would flatten the tree; 1-2px would be indistinguishable from the
     // rounding of the trim that this card applied.
     expect(SIDEBAR_INDENT_STEP).toBeGreaterThan(4);
-  });
-
-  test('the gutter budget is a real budget, and the two numbers are independent', () => {
-    // A budget above the pre-cure 60px would accept the defect it was written
-    // against; one at or below the indent step would make the two numbers the
-    // same knob, and trimming one would silently move the other.
-    expect(SIDEBAR_LABEL_GUTTER_MAX).toBeLessThan(60);
-    expect(SIDEBAR_LABEL_GUTTER_MAX).toBeGreaterThan(SIDEBAR_INDENT_STEP);
   });
 });

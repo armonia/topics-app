@@ -176,8 +176,6 @@ export const NOUNS: readonly string[] = Object.freeze([
   "wren", "yarn", "yarrow", "yew", "yonder", "zephyr", "zinnia", "zircon",
 ]);
 
-export const NAME_REGEX = /^[a-z]+-[a-z]+(-[0-9a-f]{4})?$/;
-
 const MAX_RETRIES = 5;
 
 /**

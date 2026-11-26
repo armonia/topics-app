@@ -49,9 +49,10 @@ import { canonicalTmpRoot, E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { createTopic, deleteTask, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { openSceneInSidebar, seedScene, type Scene } from "./helpers/shot-scene";
 import { projectIdForPath } from "../../shared/board";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ mode: "serial", timeout: 150_000 });
 
 const HOUR = 3_600_000;

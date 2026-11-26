@@ -5,14 +5,13 @@
  * Code, Codex, jcode, Jarvis), the files that make it, the sources read on
  * demand, the duplicated lines, the rules with an old date, and the hub's last
  * check for rules that contradict each other. Pure functions over the hub's
- * JSON (~/.claude/jarvis/tools/usage-hub/src/context.mjs): defensive, a field
+ * JSON (<harness-home>/tools/usage-hub/src/context.mjs): defensive, a field
  * the hub renamed is dropped, never thrown on.
  *
  * Names stay the hub's own labels («CLAUDE.md globale», «TOOLS.md»); a path is
  * shown only with a file's text, once opened, where it says where to edit it.
  */
-import { MAIN_AGENT, agentName } from './agentSessions';
-import { LEGACY_DATA_DIR_NAME } from '../../../shared/legacy-data-dir';
+import { MAIN_AGENT, agentName, agentOfPath } from './agentSessions';
 
 type Raw = Record<string, unknown>;
 
@@ -219,8 +218,6 @@ export interface UnlistedRef {
 }
 
 const OWNERS: Record<string, string> = { '.claude': 'Claude Code', '.jcode': 'jcode', '.codex': 'Codex', '.agents': 'Agents' };
-/** The agents' home: its files belong to the agent of their workspace (`workspace-gtm` is Visione). */
-const AGENT_HOME = LEGACY_DATA_DIR_NAME;
 const KINDS: Record<string, UnlistedRef['kind']> = { AGENTS: 'rules', CLAUDE: 'rules', USER: 'profile', MEMORY: 'memory' };
 
 /**
@@ -235,12 +232,12 @@ export function unlistedRef(ref: string): UnlistedRef {
   const file = parts.pop() ?? ref;
   const name = file.replace(/\.[a-z0-9]+$/i, '');
   const root = parts[0] ?? '';
+  // A file in an agent's home (`~/.topics/agents/<id>/...`) is that agent's.
+  const agent = agentOfPath(ref);
   let owner = '';
   if (root === 'Projects' && parts[1]) owner = parts[1];
-  else if (root === AGENT_HOME) {
-    const ws = parts[1] ? /^workspace-(.+)$/.exec(parts[1]) : null;
-    owner = agentName(ws?.[1] ?? MAIN_AGENT);
-  } else if (OWNERS[root]) {
+  else if (agent) owner = agentName(agent);
+  else if (OWNERS[root]) {
     const ws = parts[1] && /^workspace-(.+)$/.exec(parts[1]);
     owner = ws && ws[1] ? `${OWNERS[root]} ${ws[1]}` : OWNERS[root];
   } else owner = parts[parts.length - 1] ?? '';

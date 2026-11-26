@@ -117,12 +117,8 @@ export function readTurnEnd(sessionKey: string): RecordedTurnEnd | undefined {
   return lastTurnEnd.get(sessionKey);
 }
 
-/** Solo per i test: azzera tutto. */
+/** @internal Solo per i test: azzera tutto. */
 export function resetTurnEndRegistry(): void {
   lastTurnEnd.clear();
 }
 
-/** Solo per i test/diagnostica: quante fini non ritirate ci sono. */
-export function turnEndRegistrySize(): number {
-  return lastTurnEnd.size;
-}

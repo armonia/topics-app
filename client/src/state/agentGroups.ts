@@ -11,6 +11,9 @@ import { useActiveAgentRows } from './signals';
 import { getTopicPreview } from './topicPreviews';
 import { apiFetch } from '../lib/shell/net';
 import { agentTopicIds, groupAgentSessions, isErrorText, type AgentGroup } from '../lib/agentSessions';
+import type { ChannelPlace } from '../../../shared/channel-origin';
+
+export type { ChannelPlace };
 
 let titlesCache: Record<string, string> | null = null;
 
@@ -34,6 +37,28 @@ export function useChannelTitles(): Record<string, string> {
     return () => { alive = false; };
   }, []);
   return titles;
+}
+
+let placesCache: Record<string, ChannelPlace> | null = null;
+
+/** Where each chat/thread lives (Discord server, channel, thread title), read once per window:
+ *  the Agents channel tree (Configure › Canali e chat) groups chats under their server with it. */
+export function useChannelPlaces(): Record<string, ChannelPlace> {
+  const [places, setPlaces] = useState<Record<string, ChannelPlace>>(placesCache ?? {});
+  useEffect(() => {
+    if (placesCache) return;
+    let alive = true;
+    void apiFetch('/api/agent-channels/places', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { places?: Record<string, ChannelPlace> } | null) => {
+        if (!body?.places) return;
+        placesCache = body.places;
+        if (alive) setPlaces(placesCache);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return places;
 }
 
 export function useAgentGroups(): AgentGroup[] {

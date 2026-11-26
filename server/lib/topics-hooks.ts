@@ -39,6 +39,7 @@ export const TOPICS_HOOK_EVENTS = [
 // an older CLI; the live watch signal is the `PreToolUse` of `Monitor`
 // (`server/lib/claude-session-state.ts`). Install removes our stale entries for
 // these events and uninstall cleans them up too.
+/** @knipignore used by scripts/install-claude-hooks.ts, outside the production graph */
 export const RETIRED_HOOK_EVENTS = ["MonitorArmed", "MonitorClosed"] as const;
 
 // Registered with `async: true`, so Claude Code does not wait for them. The
@@ -125,6 +126,47 @@ export function topicsHookEntry(scriptPath: string, event: string): HookEntry {
 export function topicsHooksSettings(scriptPath: string): { hooks: HooksBlock } {
   const hooks: HooksBlock = {};
   for (const event of TOPICS_HOOK_EVENTS) hooks[event] = [{ hooks: [topicsHookEntry(scriptPath, event)] }];
+  return { hooks };
+}
+
+/**
+ * THE WORKTREE HOOKS (change worktree-standard, track T9): where a Claude Code
+ * worktree is born. With WorktreeCreate configured the CLI hands the whole job to
+ * `scripts/claude-hooks/worktree-hook.sh`, which puts it under Topics' worktree
+ * root with the owner marker and a `claude-code:` lock, and registers it; the
+ * GC then knows whose it is. WorktreeRemove archives HEAD as a tag first.
+ *
+ * Kept apart from `TOPICS_HOOK_EVENTS` because they are a different kind of hook:
+ * synchronous (the CLI waits for the path printed on stdout, an async hook would
+ * return nothing), with their own timeouts, and switchable on their own
+ * (`claude_worktree_hooks`).
+ */
+export const WORKTREE_HOOK_EVENTS = ["WorktreeCreate", "WorktreeRemove"] as const;
+type WorktreeHookEvent = (typeof WORKTREE_HOOK_EVENTS)[number];
+
+/** The script's own argument for each event. */
+const WORKTREE_HOOK_VERB: Record<WorktreeHookEvent, string> = { WorktreeCreate: "create", WorktreeRemove: "remove" };
+
+/**
+ * Seconds per event. The CLI documents no default for these two, so they are
+ * explicit: create may wait 5 s on a fetch and then copy the
+ * `.worktreeinclude` files; remove archives, deletes and prunes.
+ */
+export const WORKTREE_HOOK_TIMEOUT_S: Record<WorktreeHookEvent, number> = { WorktreeCreate: 120, WorktreeRemove: 60 };
+
+export function topicsWorktreeHookEntry(scriptPath: string, event: WorktreeHookEvent): HookEntry {
+  return {
+    type: "command",
+    command: topicsHookCommand(scriptPath, WORKTREE_HOOK_VERB[event]),
+    timeout: WORKTREE_HOOK_TIMEOUT_S[event],
+    topics_app: true,
+  };
+}
+
+/** The `hooks` block of the two worktree events. No `matcher`: these events take none. */
+export function topicsWorktreeHooksSettings(scriptPath: string): { hooks: HooksBlock } {
+  const hooks: HooksBlock = {};
+  for (const event of WORKTREE_HOOK_EVENTS) hooks[event] = [{ hooks: [topicsWorktreeHookEntry(scriptPath, event)] }];
   return { hooks };
 }
 

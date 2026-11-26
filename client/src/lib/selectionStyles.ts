@@ -110,9 +110,24 @@ export const TAB_SELECTED_SURFACE =
 export const TAB_SELECTED_SURFACE_SOFT =
   'bg-[var(--tab-bg-soft)] text-app-text-secondary';
 
+/** The tab in front drawn as a window's title (tabs at the side): no fill and
+ *  no edge at rest (`.tab-as-title` in index.css), the selected tab's fill
+ *  under the pointer. */
+export const TAB_AS_TITLE_SURFACE =
+  'tab-as-title bg-transparent hover:bg-[var(--tab-bg-sel)]';
+
+/** The column's toggle where it sits on the tab strip (the column away, or
+ *  no pane open): a strip tab at rest, its surface, edge and ink (25/11: the
+ *  sidebar's buttons wear the tabs' colours). */
+export const STRIP_TOGGLE_SURFACE =
+  `edge-lit ${TAB_RESTING_SURFACE} text-app-text-secondary hover:text-app-text`;
+
 export const RESTING_FILL_MOBILE = 'max-md:bg-black/[0.08] max-md:dark:bg-white/[0.10]';
+/** The open tabs' resting ground on its own, for a surface that holds rows
+ *  (an open island) and so takes no hover of its own: the rows inside it do. */
+const RESTING_FILL = 'bg-black/[0.05] dark:bg-white/[0.06]';
 export const RESTING_SURFACE =
-  'bg-black/[0.05] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.10] ' +
+  `${RESTING_FILL} hover:bg-black/[0.08] dark:hover:bg-white/[0.10] ` +
   // SOTTO I 768px IL RIALZO CRESCE, e prende il posto di una linea.
   //
   // Attilio ha chiesto «una linea separatrice per ogni tab principale, se ha
@@ -451,9 +466,10 @@ export const ROW_INSET = 6;
  * itself would move the scroller down, and nothing would ever pass behind.
  *
  * Two names, one number, and the number is only ever written here: the sidebar
- * declares the property, the scrolling column reads it. On a desktop it is
- * `0px` and the row is back in the flow, where it has a ground and nothing
- * passes behind it.
+ * declares the property, the scrolling column reads it. On a desktop the row is
+ * back in the flow, where it has a ground and nothing passes behind it, and the
+ * property is half of {@link COLUMN_GAP}: the other half of the step between
+ * the header's buttons (a row tall in a 40px row) and the first card.
  *
  * 56 is `h-14`, the height the header row has on a touch screen: two 44px
  * commands plus {@link ROW_INSET} above and below.
@@ -588,50 +604,95 @@ export const ROW_H = 'h-11 md:h-[34px] coarse:h-11';
 export const CARD_H = 'h-9 md:h-7';
 
 /**
- * L'INTESTAZIONE DI UNA SEZIONE — e i due numeri vengono da due vincoli diversi,
- * che è il motivo per cui non poteva prendere né l'una né l'altra famiglia.
+ * A chrome BUTTON drawn as a tab of the column: the bell, search, «+» and the
+ * column's toggle in the sidebar header (25/11, the owner: "all the
+ * notification and sidebar buttons [must] have the tabs' behaviour, size and
+ * colours"). A row's height and a row's corner, never narrower than it is
+ * tall; an icon-only one is square ({@link TAB_BUTTON_SQUARE}), one with a
+ * shortcut grows to hold it. Its ground comes from {@link tabButton}.
  *
- *  · 28 col mouse, come {@link CARD_H}: una riga di testo sola, nessuna subline.
- *    Un'intestazione alta quanto le righe che introduce non si legge come
- *    un'intestazione — e le DUE intestazioni di sezione dell'app stavano a
- *    34 (colonna principale, che usava `ROW_H`) e 28 (colonna di progetto, che
- *    usa `SECTION_CARD`): la stessa cosa, due misure, in due colonne che si
- *    guardano affiancate.
- *  · 44 col dito, come {@link ROW_H}: è un bersaglio che si preme, e sta in una
- *    colonna, dove i 44px del minimo iOS ci stanno. `SECTION_CARD` era a 36 —
- *    otto sotto la soglia — e in quella colonna era l'unica cosa premibile a
- *    esserlo.
+ * The height is {@link TAB_BUTTON_H}, a row's WITHOUT the `coarse:` step of
+ * {@link ROW_H}: the rows these buttons sit in (the sidebar header, the
+ * window's title row) are 40px from 768px up whatever the pointer, and the
+ * column's drag minimum counts 34px buttons. A 44px button on a touch laptop
+ * would stick out of the row and, on Windows, run under Search.
  *
- * Perché {@link CARD_H} resta 36 col dito e non sale anche lei: la tab della
- * barra vive DENTRO la riga di chrome, che è alta 40 ({@link CHROME_ROW_CONTENT_H}).
- * Una tab da 44 non ci sta — la taglierebbe l'`overflow-hidden` della barra — e
- * i 44 lì si recuperano con `tap-expand-y`, che proietta l'area senza toccare il
- * box. Cioè: non sono due gusti, è che una delle due superfici ha un soffitto.
+ * It replaces the raised, always-visible control ({@link RAISED_CONTROL}) in
+ * that header: a tab has no ground at rest, so neither does a button beside
+ * the tabs.
  */
-export const SECTION_H = 'h-11 md:h-7';
+export const TAB_BUTTON_H = 'h-11 md:h-[34px]';
+export const TAB_BUTTON =
+  `${TAB_BUTTON_H} min-w-11 md:min-w-[34px] rounded-lg flex items-center justify-center flex-shrink-0 transition-colors duration-instant`;
+export const TAB_BUTTON_SQUARE = 'w-11 md:w-[34px]';
 
 /**
- * L'INTESTAZIONE DI UNA SEZIONE È UNA CARD, come tutto il resto.
+ * The tab button's ink and ground. At rest, a closed tab: no ground, the
+ * secondary ink, the rows' hover ground under the pointer. Active (its panel
+ * or menu is open), an open tab: its resting ground with the edge that goes
+ * with a ground, and the full ink.
+ */
+export function tabButton(active: boolean): string {
+  return active
+    ? `edge-lit ${RESTING_SURFACE} text-app-text`
+    : `text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
+}
+
+/**
+ * The SHAPE of a section's header: a row's height, padding, gap and type. Its
+ * ink and ground come from {@link sectionCard}, which knows if it is open.
  *
- * «Facciamo diventare gli accordion della sidebar progetto delle card, come le
- * tab» (Attilio, 09/08). Erano tre righe a tutta larghezza — `h-8 px-3`, testo a
- * 12px secondario, un `border-b` sotto quella chiusa e due `h-[1px]` fra le
- * sezioni — cioè l'ULTIMA superficie dell'app rimasta fuori dalla grammatica
- * delle card: rientrata da nessun lato, con la sua tipografia e i suoi fili.
+ * AS TALL AS A ROW, {@link ROW_H} itself (25/11: "everything consistent, the
+ * heights and spacings of the island triggers too, like the tabs and like the
+ * user and Sistema buttons"). It used to sit between the two families, 28 with
+ * the mouse like {@link CARD_H} and 44 with the finger, on the idea that a
+ * header as tall as its rows does not read as a header. With the tabs at the
+ * side the island headers and the column's rows face each other, and the owner
+ * asked for one measure, the touch floor included (`coarse:`).
  *
- * Adesso è la stessa card di una tab e di una riga della colonna: stesso fondo a
- * riposo, stesso corpo, stesso incasso laterale (`mx-1.5` = ROW_INSET), stesso
- * mezzo passo verticale (`my-[3px]` = COLUMN_GAP/2), stesso raggio. E i fili se
- * ne vanno da soli: fra card impilate una linea ripete ciò che fondo e distanza
- * dicono già — è la regola che questo file dichiara in testa a `sidebarRowCard`.
+ * No margin of its own: the island around it ({@link SECTION_ISLAND}) carries
+ * the inset, so the header's box starts where the island starts, 6px off the
+ * column like a row, and two closed sections stand a row's step apart.
  *
- * Vive qui e non in `ProjectSidebar` perché le intestazioni sono TRE e stanno in
- * DUE file (Git ha la sua dentro `GitChanges`): due copie della stessa
- * grammatica divergono al primo che viene ritoccato da solo.
+ * It lives here and not in `ProjectSidebar` because the headers are THREE in
+ * TWO files (Git has its own inside `GitChanges`).
  */
 export const SECTION_CARD =
-  `group edge-lit flex items-center ${ROW_GAP} ${ROW_PX} ${SECTION_H} ${TAB_LABEL} ${RESTING_SURFACE} ` +
-  'rounded-lg mx-1.5 my-[3px] transition-colors cursor-pointer select-none flex-shrink-0 overflow-hidden';
+  `group flex items-center ${ROW_GAP} ${ROW_PX} ${ROW_H} ${TAB_LABEL_TYPE} ` +
+  'rounded-lg transition-colors cursor-pointer select-none flex-shrink-0 overflow-hidden';
+
+/**
+ * A section's header with its state, read like a TAB in the column: open, the
+ * full ink over the island's ground; closed, no ground at rest and the
+ * secondary ink. Both take the rows' hover ground under the pointer, as every
+ * tab does (`sidebarRowCard({ tab: 'closed' })`).
+ */
+export function sectionCard(open: boolean): string {
+  return open
+    ? `${SECTION_CARD} text-app-text ${SIDEBAR_HOVER}`
+    : `${SECTION_CARD} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
+}
+
+/**
+ * A section of a project's column as an ISLAND (25/11: single islands, each
+ * like a card of its own, not all in one sidebar). The SHAPE: off the column by
+ * a row's inset, a row's step from the next one. Its ground comes from
+ * {@link sectionIsland}.
+ *
+ * `rounded-xl` and not a row's `rounded-lg`: an open island is a panel that
+ * holds rows, and its corner was approved on 25/11 (split-da-zero pins it).
+ */
+export const SECTION_ISLAND = 'rounded-xl overflow-hidden mx-1.5 my-[3px]';
+
+/**
+ * The island with its state. Open, it is the card: the open tabs' resting
+ * ground and the edge that goes with a ground. Closed, it is only its header,
+ * and a closed header has no ground (25/11: "if not active in some way, no
+ * background, as the tabs should already do").
+ */
+export function sectionIsland(open: boolean): string {
+  return open ? `${SECTION_ISLAND} edge-lit ${RESTING_FILL}` : SECTION_ISLAND;
+}
 /** Indent added per nesting level for sidebar child rows (px). */
 export const SIDEBAR_INDENT_STEP = 16;
 
@@ -722,6 +783,7 @@ export const ROW_GLYPH_SLOT = `w-[18px] self-stretch shrink-0 flex items-center 
  * Since 03/09 (card 058ea722) it is the ceiling of the rows WITH a glyph only:
  * a row without one draws no glyph box any more and comes in at
  * {@link SIDEBAR_LABEL_GUTTER_BARE_MAX}.
+ * @knipignore used by e2e specs, outside the production graph
  */
 export const SIDEBAR_LABEL_GUTTER_MAX = 52;
 
@@ -732,6 +794,7 @@ export const SIDEBAR_LABEL_GUTTER_MAX = 52;
  * 03/09: the accordion, one gap, the name. What separates it from
  * {@link SIDEBAR_LABEL_GUTTER_MAX} is exactly one glyph box plus its gap,
  * which is the only thing allowed to move a name to the right.
+ * @knipignore used by e2e specs, outside the production graph
  */
 export const SIDEBAR_LABEL_GUTTER_BARE_MAX = 30;
 
@@ -831,35 +894,6 @@ export const ROW_CHEVRON_SLOT = `${ROW_CHEVRON_SLOT_BARE} ${ROW_LEAD_TIGHTEN}`;
 export const ROW_ACTION_BOX = 'w-9 h-9 md:w-7 md:h-7';
 
 /**
- * L'ALTEZZA UTILE DELLA RIGA DI CHROME, e il respiro che lascia a ciò che ci sta
- * dentro.
- *
- * ED È 40, NON PIÙ 39, da quando la riga non porta il `border-b`: quel pixel di
- * bordo mangiava l'altezza del contenuto e rompeva la divisione — (39 − 28)/2 =
- * 5,5 sopra e sotto contro i 6 di lato, cioè mezzo pixel di scarto fra il
- * respiro verticale e quello orizzontale dello STESSO bottone. Con la barra
- * diventata vetro (`.pane-chrome-bar`) il contenuto vale 40 e il conto torna.
- *
- * `chromeRowInset` NON decide niente: RIPORTA. Lo spazio verticale attorno a un
- * box dentro questa riga non è una scelta, cade fuori dall'aritmetica — e serve
- * saperlo per una ragione sola, controllare che il comando e la TAB che gli sta
- * accanto lascino lo stesso respiro. Ci stanno entrambi a 28 col mouse (6 e 6) e
- * a 36 col dito (2 e 2), perché ora hanno la stessa misura e lo stesso
- * breakpoint: il bloccaggio è in `selectionStyles.test.ts`.
- */
-export const CHROME_ROW_CONTENT_H = 40;
-export function chromeRowInset(box: number): number {
-  return (CHROME_ROW_CONTENT_H - box) / 2;
-}
-/** I due box di {@link ROW_ACTION_BOX} in pixel, e il loro incasso. Espressi
- *  qui perché servono in CLASSI (`md:`), non in uno stile in linea: il
- *  breakpoint che decide il box deve essere lo STESSO che decide la riserva a
- *  destra della strip, o su qualche dispositivo i due si disallineano — cosa
- *  che un predicato JS (`isMobile` vale <768, ma <1024 se il puntatore è
- *  grossolano) non garantirebbe. */
-export const ROW_ACTION_BOX_PX = { touch: 36, desktop: 28 } as const;
-
-/**
  * QUANTO IL COMANDO STA LONTANO DAL BORDO DELLA RIGA — ed è {@link ROW_INSET},
  * non il respiro verticale.
  *
@@ -878,12 +912,6 @@ export const ROW_ACTION_BOX_PX = { touch: 36, desktop: 28 } as const;
  * `ROW_INSET` e fallisce appena i due si separano.
  */
 export const CHROME_ROW_ACTION_INSET = 'right-[6px]';
-/** Lo stesso incasso, specchiato: il comando che apre la sidebar sta in TESTA
- *  alla riga come il «+» sta in coda. Era `pl-1` su un box da 24px forzato con
- *  due `!important` — «è troppo piccolo e deve essere allineato graficamente al
- *  tasto di aggiunta» (Attilio, 08/08). Stesso box, stesso incasso, stessa
- *  scatola rialzata: le due estremità della riga si leggono come una coppia. */
-export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[6px]';
 /**
  * DOVE SI FERMA LA STRIP: bordo + comando + un'aria uguale a quella del bordo.
  *
@@ -952,43 +980,6 @@ export const CHROME_BAR = 'pane-chrome-bar chrome-glass flex items-center h-10 f
  *  dell'incasso — l'uguaglianza la controlla `selectionStyles.test.ts`. */
 export const CHROME_BAR_H = 40;
 export const CHROME_BAR_H_VAR = { '--chrome-bar-h': `${CHROME_BAR_H}px` } as CSSProperties;
-
-/**
- * THE SUBORDINATE ROW: shorter than the app's, but the tab stays centred like
- * everywhere else — same gap above and below.
- *
- * A project window has two chrome rows: the app's, with the project TAB, and
- * below it the project's own, with its panes. Each used to carry its own 6px
- * of air, so between the tab above (ending at y=34) and the card below
- * (starting at y=46) ran TWELVE px, while every other pair of app cards has
- * six. «Still see the tab bars too far apart» (Attilio, 09/08): the child row
- * dropped to 34 = box(28) + ROW_INSET(6) with the inset all at the tail
- * (`md:pb-[6px]`), so as not to repeat the air the row above had already
- * spent. That fixed the gap between the rows, but it pushed the tab to the
- * TOP edge of its own row — "tabs stuck to the top edge" (card 18/11):
- * `items-center` centres inside whatever space is left AFTER padding-bottom,
- * and with the box (28) equal to that space (34-6) there was nothing left to
- * centre within.
- *
- * Now the inset splits in two (3 above, 3 below): the tab is centred in ITS
- * OWN row again, like every other one. The gap between the two rows grows
- * from 6 to 9 (the 6 below the app row plus the 3 above this one), but that
- * stays far from the doubled 12 of before — and a lopsided tab is more
- * visible than a gap three px wider.
- *
- * ABOVE 768px ONLY: with touch the tab is 36 and the row already leaves 2 on
- * each side (symmetric there too, never the problem), and 36 in 34 would not
- * fit anyway (the bar's `overflow-hidden` would clip it). There it stays 40.
- *
- * `--chrome-bar-h` can NOT stay the inline style of {@link CHROME_BAR_H_VAR}:
- * no media query reaches an inline style, and that variable feeds both the
- * panes' top inset (`paneCellTopInset`) and the gap above the conversation.
- * It becomes a pair of utilities at the SAME breakpoint as `md:h-[34px]` —
- * not a hand-written `@media (min-width: 768px)`: `md:` is 48rem, and with a
- * different root font-size the two predicates would drift apart. The same
- * mismatch already paid for once (tab 28 and command 36 on the same row).
- */
-export const CHROME_ROW_SUB_H = ROW_ACTION_BOX_PX.desktop + ROW_INSET;
 export const CHROME_BAR_SUB =
   'pane-chrome-bar chrome-glass flex items-center h-10 md:h-[34px] flex-shrink-0 overflow-hidden min-w-0';
 /** La variabile, per la card che possiede una barra subordinata. Va al POSTO di
@@ -1059,15 +1050,6 @@ export const ROW_ACTION_GLYPH = 16;
 export const ROW_CARD = 'row-card';
 export const ROW_TRAIL = 'row-trail';
 export const ROW_ACTIONS = 'row-actions';
-/** L'incasso destro del GLIFO di {@link ROW_ACTIONS}, scritto in `index.css`
- *  come letterale (nessuna media query legge una costante TS). Vale
- *  {@link ROW_PX} risolto in pixel — il bordo interno del contenuto, dove si
- *  fermano anche i segnali quieti che il comando copre — e il CSS ci sottrae
- *  metà della differenza fra scatola e glifo, così è il cerchio disegnato ad
- *  atterrare lì, non la sua scatola. L'uguaglianza la ricalcola
- *  `selectionStyles.test.ts`: se il padding della riga cambia, il test indica il
- *  CSS invece di lasciarli separare. */
-export const ROW_ACTIONS_INSET_PX = 8;
 
 /**
  * ARCHIVIATO È FATTO, ED È UNO STATO SOLO.
@@ -1141,20 +1123,19 @@ export const TREE_ROW_CARD = `mx-1.5 rounded-md transition-colors ${SIDEBAR_HOVE
  * caller keeps its own height / padding-left (depth indent) / content.
  */
 export function sidebarRowCard(
-  { focused, open, attention, nested }:
+  { focused, open, attention, tab }:
   { focused?: boolean; open?: boolean; attention?: AttentionTier | null;
     /**
-     * Riga ANNIDATA — una sotto-tab dentro un progetto aperto.
+     * A top-level row that stands for a TAB, and whether that tab is open.
      *
-     * Cambia una cosa sola: niente fondo del riposo. «Quando apri una tab
-     * pinnata che ha delle sotto-tab, quelle sono wrappate da card, forse si
-     * può togliere» (Attilio, 08/08) — e ha ragione: a quel punto le card sono
-     * due, una dentro l'altra, e la seconda non aggiunge niente perché
-     * l'indentazione ha già detto dove sta. La FORMA resta, così la riga
-     * selezionata o in hover si accende come le sorelle di primo livello: è il
-     * riposo a doversi zittire, non la selezione.
+     * Open: the resting fill of a pinned tile (`RESTING_SURFACE`) at every
+     * width, so an open tab reads the same in the column, pinned or not.
+     * Closed: no fill at any width, the phone included, so a glance tells the
+     * open tabs from the closed rows waiting to be archived (asked on 24/11:
+     * open tabs wear the background of the pinned ones). Absent on rows that
+     * are not tabs (sections, nested rows): they keep the rules below.
      */
-    nested?: boolean },
+    tab?: 'open' | 'closed' },
 ): string {
   // Card SHAPE (rounded, inset, spaced) is always on; the FILL follows the
   // color system — background only when selected (SELECTED_SURFACE), needing you
@@ -1170,44 +1151,15 @@ export function sidebarRowCard(
   // della tabbar, gap-0.5 = 2px» — ed è rimasto vero per un giorno: il passo
   // verticale è salito a sei, quello orizzontale no, e la stessa card in fila
   // respirava un terzo di quanto respira impilata. Adesso il numero è uno solo.
-  // Sotto i 768px la card porta anche il FONDO DEL RIPOSO, e i valori sono
-  // quelli di `RESTING_SURFACE` (ramo `max-md:`): nella stessa colonna una
-  // tessera fissata e una riga devono essere la stessa cosa, ed era la loro
-  // differenza a far sembrare «brutto» il filetto separatore che c'era prima.
   //
-  // Ci è arrivato per due strade sbagliate: prima un `divide-y` (una linea fra
-  // le righe), poi una regola CSS che dipingeva la riga INTERA da bordo a bordo
-  // — «sono full width i progetti invece di essere card». Il posto giusto è
-  // qui, sulla scatola che è già rientrata e arrotondata: stesso colore, ma
-  // disegnato dove c'è una card e non una fascia.
-  //
-  // STAVA NEL `base`, E ERA UN BACO: L'ORDINE DELLA STRINGA NON È LA CASCATA.
-  //
-  // Qui c'era scritto «sta nel base e non fra i rami del fill, quindi
-  // selezione, attenzione e hover — che arrivano dopo nella stringa — lo
-  // coprono senza gare di specificità». Falso, e verificabile: `cn()` è clsx
-  // puro (nessun tailwind-merge), quindi base e fill restano ENTRAMBI
-  // sull'elemento, e a specificità pari vince chi il bundle emette per ultimo.
-  // Le utility `max-md:` stanno in fondo al foglio, dentro la loro media query;
-  // `bg-black/[0.06]` (selezione), `bg-amber-500` e `bg-[#0a84ff]` (attenzione)
-  // stanno migliaia di byte più su. Vinceva il riposo.
-  //
-  // Effetto, sul telefono e solo lì: quattro stati e UN fondo. La riga
-  // selezionata, quella che ti aspetta in ambra e quella finita in blu si
-  // dipingevano tutte come una a riposo. L'ho visto nella mia stessa misura a
-  // 390×844 senza riconoscerlo — una riga in semibold (cioè su un fill di
-  // attenzione) con fondo `oklab(0 0 0 / 0.08)`, identico alle vicine.
-  //
-  // Il riposo scende quindi nei DUE rami che non dipingono niente, ed è la
-  // stessa forma che tessera e tab hanno sempre avuto: un ternario che sceglie
-  // UNA superficie, mutuamente esclusiva (PinnedTile, PaneTabBar). Le righe
-  // concatenavano: stessa grammatica, due meccanismi.
+  // NO GROUND AT REST, AT ANY WIDTH (25/11: "if not active in some way, no
+  // background, as the tabs should already do"). Below 768px the rows that
+  // are not tabs (Board, Automazioni, Agenti, Sistema, section headers) used
+  // to carry the pinned tiles' resting fill, measured on 18/08 to tell the
+  // cards apart once page and chrome are one surface. Since 24/11 a ground
+  // says "open": a closed tab has none on the phone too, and a Board row with
+  // one read as an open tab beside closed ones. The pinned tiles keep theirs.
   const base = 'mx-1.5 my-[3px] rounded-lg overflow-hidden transition-colors duration-instant relative';
-  // Il fondo del riposo si porta dietro il suo BORDO, e solo dove il fondo c'è:
-  // `edge-lit-mobile` (index.css) vive dentro la stessa media query di
-  // `max-md:`, quindi sul desktop — dove la riga a riposo è trasparente — non
-  // disegna niente. Senza, tessera e tab avevano la card chiusa e la riga no.
-  const riposo = nested ? '' : ` ${RESTING_FILL_MOBILE} edge-lit-mobile`;
   // L'ATTENZIONE PRECEDE la selezione, e non è un cambio di priorità: è che
   // FOCUS WINS non si decide più qui.
   //
@@ -1228,6 +1180,21 @@ export function sidebarRowCard(
   // Con un fill sotto, invece, è la stessa card della tab selezionata.
   if (attention) return `${base} edge-lit ${attentionSurface(attention)}`;
   if (focused) return `${base} edge-lit ${SELECTED_SURFACE}`;
-  if (open) return `${base}${riposo} text-app-text ${SIDEBAR_HOVER}`;
-  return `${base}${riposo} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
+  if (tab === 'open') return `${base} edge-lit ${RESTING_SURFACE} text-app-text`;
+  // A closed row has no ground at rest and the same hover ground as every
+  // other tab (25/11, the owner: "shouldn't the hover background appear for
+  // all of them?"). It had none, the pointer included, for two reasons that
+  // are now handled where they happen instead of by a missing hover:
+  //  - the row that a click just closed stays under the pointer, and with a
+  //    ground it looked as if the close did nothing: `hoverQuiet.ts` marks it
+  //    `data-hover-quiet` until the pointer leaves it;
+  //  - WKWebView keeps a hover on after the pointer leaves the window: the
+  //    closed rows' hover ground waits for the pointer to be in the window
+  //    (`html[data-pointer-away]` in index.css).
+  // `closed-tab-row` is the handle of those two rules, on this branch only: a
+  // closed row with an attention fill returned above, and its fill is a
+  // signal, not a hover ground, so nothing may cancel it.
+  if (tab === 'closed') return `${base} closed-tab-row text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
+  if (open) return `${base} text-app-text ${SIDEBAR_HOVER}`;
+  return `${base} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }

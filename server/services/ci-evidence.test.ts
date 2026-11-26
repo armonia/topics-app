@@ -23,7 +23,6 @@ import {
   readUnitEvidence,
   UNIT_STEP,
   repoFromRemote,
-  pushRejectedAsNonFastForward,
   type AwaitCiDeps,
   type GithubJob,
   type GithubPort,
@@ -97,8 +96,6 @@ describe("readE2eEvidence", () => {
     expect(repoFromRemote("git@github.com:armonia/topics-app.git")).toBe("armonia/topics-app");
     expect(repoFromRemote("https://github.com/armonia/topics-app")).toBe("armonia/topics-app");
     expect(repoFromRemote("git@gitlab.com:a/b.git")).toBeNull();
-    expect(pushRejectedAsNonFastForward("!\trefs/x:refs/heads/b\t[rejected] (non-fast-forward)")).toBe(true);
-    expect(pushRejectedAsNonFastForward("=\trefs/x:refs/heads/b\t[up to date]")).toBe(false);
   });
 });
 
@@ -188,6 +185,10 @@ function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; calls: Ca
     // Re-runs are counted in `ci-evidence-wait.test.ts`; here the port only has to be complete.
     rerun: async () => ({ ok: true, value: undefined }),
     openPullRequests: async () => ({ ok: true, value: [] }), branchRuns: async () => ({ ok: true, value: [] }), cancelRun: async () => ({ ok: true, value: undefined }),
+    markReady: async () => ({ ok: true, value: "ready" }),
+    enableAutoMerge: async () => ({ ok: true, value: "enabled" }),
+    disableAutoMerge: async () => ({ ok: true, value: "disabled" }),
+    pullRequestState: async () => ({ ok: true, value: { isDraft: false, merged: false, mergeCommit: null } }),
     ...over,
   };
   // Keep the counters when a test overrides a counted method.
@@ -282,6 +283,30 @@ describe("awaitCiEvidence with the e2e row", () => {
     expect(clock.now() - pushedAt).toBeGreaterThanOrEqual(CI_E2E_DEADLINE_MS);
     expect(clock.now() - pushedAt).toBeLessThan(CI_E2E_DEADLINE_MS + 2 * 60_000);
     expect(row.tail).toContain("actions/runs/10");
+  });
+
+  // The barra of the inherited-green card: the new head's run is queued while the
+  // previous head has a green run on the same pull request.
+  test("a green run of the previous head next to a queued run of ours is never a pass", async () => {
+    const clock = fakeClock();
+    const previous = "b".repeat(40);
+    const { port } = fakePort({
+      runs: async () => ({ ok: true, value: [
+        run({ id: 5, head_sha: previous }),
+        run({ id: 11, status: "queued", conclusion: null }),
+      ] }),
+      jobs: async (_repo, runId) => ({ ok: true, value: runId === 5 ? green : [] }),
+    });
+    const row = await e2eRow(input, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    expect(row.ok).toBe(false);
+    expect(row.notMeasured).toBe(true);
+  });
+
+  test("a CI row names the head of the run it was read from", async () => {
+    const { port } = fakePort();
+    const row = await e2eRow(input, { port, now: fakeClock().now, sleep: fakeClock().sleep, stopping: () => false });
+    expect(row.ok).toBe(true);
+    expect(row.ciCommit).toBe(SHA);
   });
 
   test("no run after the grace and a conflicting pull request end the wait before the deadline", async () => {
@@ -477,7 +502,7 @@ describe("contracts", () => {
     expect(ci).toMatch(/^ {2}prepare-e2e:$/m);
     const e2e = ci.slice(ci.search(/^ {2}e2e:$/m));
     expect(ci.search(/^ {2}e2e:$/m)).toBeGreaterThan(0);
-    expect(e2e).toMatch(/^ {4}needs: \[changes, prepare-e2e, hcloud\]$/m); // hcloud: the Hetzner server the first shards run on, if any // `changes` says whether any shard is needed (scripts/ci-changes.ts)
+    expect(e2e).toMatch(/^ {4}needs: \[changes, prepare-e2e, hcloud, client-bundle\]$/m); // client-bundle: the client built once, a shard builds it when missing // hcloud: the Hetzner server the first shards run on, if any // `changes` says whether any shard is needed (scripts/ci-changes.ts)
     expect(e2e).toContain("E2E_TIER: pr");
     expect(e2e).toContain("matrix.shard == 0 && github.event_name == 'pull_request' }}"); // a gate may stand in front of it
     expect(e2e).toContain("bun run check:e2e-touched --base=\"origin/${{ github.base_ref }}\"");

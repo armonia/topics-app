@@ -16,7 +16,7 @@ import { createCommandRunsRoute } from "./command-runs";
 import { isWatchedBySession } from "../lib/process-wait";
 import { pushBackgroundChanged } from "../lib/command-background";
 import { isPidAlive } from "../lib/pid-liveness";
-import { commandGroupHooks, commandServiceWatch, settlePersonRun, settleWakeReadInTurn, startCommandProcess, stopCommand } from "./processes-commands";
+import { commandGroupHooks, commandServiceWatch, settleJobRun, settlePersonRun, settleWakeReadInTurn, startCommandProcess, stopCommand } from "./processes-commands";
 import { bumpProcessDetection } from "./processes-detection";
 import { addToRecent, appendOutput, trimRecent } from "./processes-output";
 import { SCRIPTS_CACHE_TTL, exitPathOf, invalidateScriptsCache, loadProcessRegistry, logPathOf, pidStartTime, saveState } from "./processes-persist";
@@ -24,13 +24,13 @@ import { SCRIPTS_CACHE_TTL, exitPathOf, invalidateScriptsCache, loadProcessRegis
 import "./processes-restore";
 import { finishBackgroundShell, sweepOrphanedShellTree } from "./processes-shells";
 import { broadcastScriptsUpdate, getPortsForProcesses, notifyScriptOutput, publicRow } from "./processes-snapshot";
-import { MAX_RECENT, type ScriptProcess, isPersonRun, recentScripts, runningScripts, scriptsResponseCache, setScriptsResponseCache, setBroadcastCtx } from "./processes-state";
+import { MAX_RECENT, type ScriptProcess, isJobRun, isPersonRun, recentScripts, runningScripts, scriptsResponseCache, setScriptsResponseCache, setBroadcastCtx } from "./processes-state";
 
 export { commandBackgroundWork, commandServices, topicCommandProcesses, liveCommandsOf, isChatServerTask, commandWakeState, stopCommandWakesOf, sessionsAwaitingCommandWake } from "./processes-commands";
-export { DETECTION_INTERVAL_MS, DETECTION_INTERVAL_MAX_MS, GHOST_CWD_PROBE_MIN_INTERVAL_MS, processDetectionViewIsOpen, ghostCwdProbeDue, nextDetectionDelay, startProcessDetection, stopProcessDetectionForTests, bumpProcessDetection } from "./processes-detection";
-export { logPathOf, readoptVerdict, loadProcessRegistry } from "./processes-persist";
-export { registerPreviewProcess, trackedScriptPidTrees, unregisterPreviewProcess, registerBackgroundShell, settleEndedShells, noteBackgroundShellOutput, closeBackgroundShell, listBackgroundShells, esitoShellMorta, captureShellTree, sweepOrphanedShellTree } from "./processes-shells";
-export { listOwnedScripts, listSessionOwnedProcesses, listUnownedScriptPids, getScriptsSnapshot } from "./processes-snapshot";
+export { startProcessDetection } from "./processes-detection";
+export { loadProcessRegistry } from "./processes-persist";
+export { registerPreviewProcess, trackedScriptPidTrees, unregisterPreviewProcess, registerBackgroundShell, settleEndedShells, noteBackgroundShellOutput, closeBackgroundShell } from "./processes-shells";
+export { listOwnedScripts, listSessionOwnedProcesses, listUnownedScriptPids } from "./processes-snapshot";
 export {
   stopCardCommandProcesses, stopTopicCommandProcesses,
 } from "./command-process-lifecycle";
@@ -42,7 +42,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
   reconcileClosedCommandProcesses(ctx.db);
   // The people's runs that ended before there was a database to close their row in (boot):
   // every one closed first, the rows past MAX_RECENT dropped after.
-  for (const sp of recentScripts) if (isPersonRun(sp)) settlePersonRun(sp);
+  for (const sp of recentScripts) { if (isPersonRun(sp)) settlePersonRun(sp); else if (isJobRun(sp)) settleJobRun(sp); }
   if (recentScripts.length > MAX_RECENT) { trimRecent(); saveState(); }
 
   async function readJSON(req: Request): Promise<any> {
@@ -201,7 +201,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
   /** Build the `{ scripts }` payload, optionally filtered to one project path. */
   async function serializeScripts(filterCwd?: string, withPorts = true): Promise<{ scripts: any[] }> {
     // Scoped to a session = the agent asking (`list_processes`): a person's run is not its to see.
-    const match = (sp: ScriptProcess) => !filterCwd || (sp.projectPath === filterCwd && !isPersonRun(sp));
+    const match = (sp: ScriptProcess) => !filterCwd || (sp.projectPath === filterCwd && !isPersonRun(sp) && !isJobRun(sp));
     const running = Array.from(runningScripts.values()).filter(match);
     // One batched port lookup for all running pids (shared lsof + ps snapshot,
     // single pass over the cached port list) instead of per-process. Without
@@ -519,7 +519,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         const r = resolveSessionCwd(sessionKey);
         if ("error" in r) return r.error;
         const sp = getScript(m[2]);
-        if (!sp || sp.projectPath !== r.path || isPersonRun(sp)) {
+        if (!sp || sp.projectPath !== r.path || isPersonRun(sp) || isJobRun(sp)) {
           return json({ error: "Process not found in this project" }, 404);
         }
         const offset = parseInt(url.searchParams.get("offset") || "0", 10);
@@ -548,7 +548,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         if ("error" in r) return r.error;
         const id = decodeURIComponent(m[2]);
         const sp = getScript(id) ?? getScript(shellProcessKey(sessionKey, id));
-        if (!sp || sp.projectPath !== r.path || isPersonRun(sp)) {
+        if (!sp || sp.projectPath !== r.path || isPersonRun(sp) || isJobRun(sp)) {
           return json({ error: "Process not found in this project" }, 404);
         }
 
@@ -605,7 +605,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         const r = resolveSessionCwd(decodeURIComponent(m[1]));
         if ("error" in r) return r.error;
         const sp = runningScripts.get(m[2]);
-        if (!sp || sp.projectPath !== r.path || isPersonRun(sp)) {
+        if (!sp || sp.projectPath !== r.path || isPersonRun(sp) || isJobRun(sp)) {
           return json({ error: "Process not found in this project or already stopped" }, 404);
         }
         if (!killRunningScript(sp)) {

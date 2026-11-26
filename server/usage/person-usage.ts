@@ -26,6 +26,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { findClaudeTranscript } from "../lib/claude-transcript-path";
+import { readTranscript } from "./transcript-calls";
 import { channelOnlyPeople } from "../lib/person-identities";
 import type { PeopleUsage, PeopleUsageMeta, PersonRequestRow, PersonUsageDetail, PersonUsageRow } from "../../shared/person-usage";
 
@@ -129,31 +130,14 @@ export function requestTextOf(content: string): string {
 
 export type TranscriptReader = (cwd: string, claudeSessionId: string) => Array<{ ts: number; usage: TokenUsage }>;
 
-/** The calls of a Claude Code transcript: one per `message.id` (per-block lines repeat). */
+/** The calls of a Claude Code transcript: one per `message.id` (per-block lines repeat). Parsed once per file and appended to, see `readTranscript`. */
 export const readTranscriptCalls: TranscriptReader = (cwd, sid) => {
   const file = findClaudeTranscript(cwd, sid);
   if (!file) return [];
-  let raw: string;
-  try { raw = readFileSync(file, "utf8"); } catch { return []; }
-  const seen = new Set<string>();
-  const out: Array<{ ts: number; usage: TokenUsage }> = [];
-  for (const line of raw.split("\n")) {
-    if (!line.includes('"usage"')) continue;
-    let o: { type?: string; uuid?: string; timestamp?: string; message?: { id?: string; usage?: Record<string, number | undefined> } };
-    try { o = JSON.parse(line); } catch { continue; }
-    const u = o?.message?.usage;
-    if (o?.type !== "assistant" || !u) continue;
-    const id = o.message?.id ?? o.uuid;
-    if (id && seen.has(id)) continue;
-    if (id) seen.add(id);
-    const ts = Date.parse(o.timestamp ?? "");
-    if (!Number.isFinite(ts)) continue;
-    out.push({ ts, usage: {
-      input: u.input_tokens ?? 0, output: u.output_tokens ?? 0,
-      cacheWrite: u.cache_creation_input_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0,
-    } });
-  }
-  return out;
+  return readTranscript(file).map((c) => ({
+    ts: c.ts,
+    usage: { input: c.tokens.input, output: c.tokens.output, cacheWrite: c.tokens.cacheWrite, cacheRead: c.tokens.cacheRead },
+  }));
 };
 
 export interface CollectOptions {
@@ -170,12 +154,12 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
   // Author lines per session: also before the window, a long session works for whoever wrote yesterday.
   const lines = new Map<string, AuthorMark[]>();
   // Rows written by the machine (subagent results, end of a process, goal
-  // nudge) continue the work of whoever asked for it: they do not change the author.
+  // nudge, turn-end hook nudge) continue the work of whoever asked for it: they do not change the author.
   const users = db.query(`SELECT id, session_key sk, timestamp ts, author_person_id pid, substr(content, 1, 4000) text,
       (blocks LIKE '%"kind":"dispatched-envelope"%' AND content NOT LIKE '%<messaggio da=%') machine
     FROM messages WHERE role = 'user' AND timestamp > ? AND timestamp <= ?
       AND (blocks IS NULL OR (blocks NOT LIKE '%"kind":"subagent-result"%' AND blocks NOT LIKE '%"kind":"process-exit"%'
-        AND blocks NOT LIKE '%"kind":"goal-nudge"%'))
+        AND blocks NOT LIKE '%"kind":"goal-nudge"%' AND blocks NOT LIKE '%"kind":"hook-nudge"%'))
     ORDER BY timestamp`)
     .all(iso(o.sinceMs - 7 * 24 * HOUR_MS), iso(o.untilMs)) as Array<{ id: string; sk: string; ts: string; pid: string | null; text: string; machine: number }>;
   for (const u of users) {

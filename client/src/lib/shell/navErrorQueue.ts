@@ -60,7 +60,7 @@ export interface NavErrorFreshness {
  * layer never saw. Anything unparseable falls back to a trimmed string compare
  * rather than throwing: an entry we cannot canonicalise must still be comparable.
  */
-function sameTarget(a: string, b: string): boolean {
+export function sameTarget(a: string, b: string): boolean {
   if (!a || !b) return false;
   return canonicalize(a) === canonicalize(b);
 }

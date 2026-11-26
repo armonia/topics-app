@@ -8,9 +8,7 @@
  * keeps the cards of its project in that same order. Grouping never reorders.
  */
 import type { BoardTask } from '../../lib/board';
-import { sortProjectGroups } from '../../../../shared/project-order';
 import { waitOnPerson } from '../../../../shared/waits-on-person';
-import type { DraftPlacement } from './draftPreview';
 
 export interface BoardLane {
   projectId: string;
@@ -40,73 +38,6 @@ export function taskWaitsOnPerson(task: BoardTask): boolean {
     dispatch_error: task.dispatchError,
     awaitingAnswer: task.awaitingAnswer,
   }, []) !== null;
-}
-
-/** A lane with every column present and no card in it. */
-export function emptyLane(projectId: string, columnIds: readonly string[]): BoardLane {
-  return {
-    projectId,
-    columns: new Map(columnIds.map((id) => [id, []])),
-    counts: Object.fromEntries(columnIds.map((id) => [id, 0])),
-    total: 0,
-    waiting: false,
-  };
-}
-
-/** The lanes in the shared project order: waiting for the person first, then by name. */
-function sortLanes(lanes: readonly BoardLane[], nameOf: (projectId: string) => string): BoardLane[] {
-  return sortProjectGroups(lanes, (lane) => nameOf(lane.projectId), (lane) => lane.waiting);
-}
-
-/**
- * The lanes plus, when the composer's ghost belongs to a project that has no
- * card yet, a temporary empty lane of that project in its sorted place. The
- * lane exists only while the ghost does.
- */
-export function withDraftLane(
-  lanes: readonly BoardLane[],
-  placement: DraftPlacement | null,
-  columnIds: readonly string[],
-  nameOf: (projectId: string) => string,
-): BoardLane[] {
-  if (placement?.kind !== 'new-lane' || lanes.some((l) => l.projectId === placement.projectId)) return [...lanes];
-  return sortLanes([...lanes, emptyLane(placement.projectId, columnIds)], nameOf);
-}
-
-/**
- * Splits the board's columns into one lane per project.
- *
- * Lanes follow the project order shared with the Plan (`sortProjectGroups`):
- * a project with a card waiting for the person first, then by NAME (via
- * `nameOf`), not by size. A lane that jumps up the board every time one of its
- * cards is created is a lane nobody finds twice in the same place. Ties on the
- * name fall back to the id, so two boards with the same name keep a stable order.
- */
-export function splitIntoLanes(
-  byColumn: ReadonlyMap<string, readonly BoardTask[]>,
-  columnIds: readonly string[],
-  nameOf: (projectId: string) => string,
-  waitsOf: (task: BoardTask) => boolean = taskWaitsOnPerson,
-): BoardLane[] {
-  const lanes = new Map<string, BoardLane>();
-  const laneOf = (projectId: string): BoardLane => {
-    let lane = lanes.get(projectId);
-    if (!lane) {
-      lane = emptyLane(projectId, columnIds);
-      lanes.set(projectId, lane);
-    }
-    return lane;
-  };
-  for (const columnId of columnIds) {
-    for (const task of byColumn.get(columnId) ?? []) {
-      const lane = laneOf(task.projectId);
-      lane.columns.get(columnId)!.push(task);
-      lane.counts[columnId] += 1;
-      lane.total += 1;
-      if (waitsOf(task)) lane.waiting = true;
-    }
-  }
-  return sortLanes([...lanes.values()], nameOf);
 }
 
 /**

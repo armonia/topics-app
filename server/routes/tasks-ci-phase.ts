@@ -14,7 +14,7 @@ import { runGit } from "../lib/run-git";
 import { awaitCiEvidence, closeCiDraft, spawnCapped } from "../services/ci-evidence";
 import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
 import { measureIntegration } from "../services/integration-measure";
-import { describeMainRed, mainRedKey, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
+import { describeMainRed, MAIN_RED_MODEL, mainRedKey, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
 import { personPlace } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
 import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict } from "../services/red-bounce";
@@ -333,7 +333,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
    * card carried is the card's own business (`bounced`, `asked`), and the watch of main must not open a
    * second card for it. A `green` card does not hold a red back: the measure said green, the push said red.
    */
-  type AfterMark = { commit: string; who: "human" | "auto" | null; repo: string | null; at: string; settled?: "green" | "bounced" | "asked" };
+  type AfterMark = { commit: string; who: "human" | "auto" | null; repo: string | null; at: string; settled?: "green" | "bounced" | "asked" | "faulted" };
 
   function readAfter(taskId: string): AfterMark | null {
     try {
@@ -398,11 +398,73 @@ export function createCiPhase(deps: CiPhaseDeps) {
   }
 
   /**
+   * Was main already red, on the same JOB, before this card's own commit entered it? Each landed card
+   * pushes to main on its own (the comment above `bisectAfterLand` says so), so the commit right before
+   * this one's own push IS the previous card's push — reading its verdict tells whether the red
+   * predates this card instead of guessing from the batch. `null` = cannot tell (no port, no commit, the
+   * push is not among main's recent history, or the one before it answered green/pending): the caller
+   * bounces as it always did.
+   *
+   * A JOB can hold many tests: the same job red before and after proves nothing by itself when a
+   * DIFFERENT test broke it (25/11, second review) — and while main stays red, it would call every card
+   * after it innocent forever. So when both verdicts carry `failedTests` (the unit suite's own JUnit
+   * report, `main-ci-watch.ts`), the comparison is by TEST: preexisting only if every test failing now
+   * was already failing before. Without names on either side (an older run, the artifact gone) the job
+   * overlap is the only signal left, and `byTest: false` says so for the note on the card.
+   */
+  async function wasPreexistingRed(projectId: string, taskId: string): Promise<{ failedBefore: string[]; byTest: boolean } | null> {
+    if (!deps.mainCiPort) return null;
+    const port = await deps.mainCiPort(projectId).catch(() => null);
+    if (!port) return null;
+    const commit = readAfter(taskId)?.commit ?? deps.svc.get(taskId, { projectId })?.task?.deliveryCommit ?? null;
+    if (!commit) return null;
+    const recent = await port.recent().catch(() => null);
+    if (!recent || !recent.length) return null;
+    const oldestFirst = [...recent].reverse();
+    let idx = -1;
+    for (let i = 0; i < oldestFirst.length; i++) {
+      if (await port.entersAt(commit, oldestFirst[i]!.sha).catch(() => false)) { idx = i; break; }
+    }
+    if (idx <= 0) return null; // not found, or nothing landed before it in this window
+    const mine = await port.verdict(oldestFirst[idx]!.sha).catch(() => null);
+    if (!mine || mine.state !== "fail") return null;
+    const before = await port.verdict(oldestFirst[idx - 1]!.sha).catch(() => null);
+    if (!before || before.state !== "fail") return null;
+    if (mine.failedTests && mine.failedTests.length && before.failedTests) {
+      const allOld = mine.failedTests.every((t) => before.failedTests!.includes(t));
+      return allOld ? { failedBefore: before.failedTests, byTest: true } : null;
+    }
+    const overlap = mine.failed.some((j) => before.failed.includes(j));
+    return overlap ? { failedBefore: before.failed, byTest: false } : null;
+  }
+
+  /**
    * A red on main after the land: the card leaves `done` and goes back to its agent with the log, the
    * same round count as a red before the land (`bouncesSinceHuman`, `MAX_AUTO_BOUNCES`). Its work is
    * ALREADY on main and its branch is reaped, so the agent starts from the updated main and fixes forward.
    */
   async function bounceAfterLand(projectId: string, taskId: string, why: string): Promise<void> {
+    // The red already existed, same job, before this card landed: it is not this card's fault, and
+    // reopening it would blame the wrong work (25/11, the same bounce family as the empty-run guard).
+    const pre = await wasPreexistingRed(projectId, taskId).catch(() => null);
+    if (pre) {
+      settleAfter(taskId, "green");
+      const t = deps.svc.get(taskId, { projectId })?.task;
+      if (t) {
+        try {
+          deps.svc.addComment({
+            taskId, author: "system", kind: "service",
+            content: pre.byTest
+              ? `La CI di main è rossa, ma sugli stessi test di prima (${pre.failedBefore.join(", ") || "nessuno nominato"}): ` +
+                "non è il rosso di questa card, resta atterrata."
+              : `La CI di main è rossa, ma lo era già prima di questa card (${pre.failedBefore.join(", ") || "stesso job"}, nomi dei test non disponibili): ` +
+                "non è il rosso di questa card, resta atterrata.",
+          });
+        } catch { /* best-effort */ }
+        deps.broadcast({ type: "task:updated", projectId, task: t });
+      }
+      return;
+    }
     const mark = readAfter(taskId);
     settleAfter(taskId, "bounced");
     const got = deps.svc.get(taskId, { projectId });
@@ -435,9 +497,47 @@ export function createCiPhase(deps: CiPhaseDeps) {
     }
   }
 
+  /**
+   * Who broke a red `landed` batch: each card already landed as its own push to main, and that push
+   * already ran the board's CI once — read it back, in landing order, instead of rebuilding anything.
+   * The oldest red one is the culprit; a later commit is red too (it carries the bug forward) but is not
+   * what broke it. `null` when the port is missing, a card's commit cannot be placed among main's recent
+   * pushes, or the verdict needed is not in yet (pending): the caller falls back to bouncing everyone.
+   */
+  async function bisectAfterLand(projectId: string, taskIds: string[]): Promise<{ guilty: string[]; why: Record<string, string> } | null> {
+    if (!deps.mainCiPort) return null;
+    const port = await deps.mainCiPort(projectId).catch(() => null);
+    if (!port) return null;
+    const marks = taskIds.map((id) => ({ id, commit: readAfter(id)?.commit ?? null }));
+    if (marks.some((m) => !m.commit)) return null;
+    const recent = await port.recent().catch(() => null);
+    if (!recent || !recent.length) return null;
+    const oldestFirst = [...recent].reverse();
+    const located: Array<{ id: string; sha: string; at: number }> = [];
+    for (const m of marks) {
+      let found: { sha: string; at: number } | null = null;
+      for (const c of oldestFirst) {
+        if (await port.entersAt(m.commit!, c.sha).catch(() => false)) { found = c; break; }
+      }
+      if (!found) return null; // not among main's recent pushes: cannot place it, let the fallback decide
+      located.push({ id: m.id, sha: found.sha, at: found.at });
+    }
+    located.sort((a, b) => a.at - b.at);
+    for (const l of located) {
+      const v = await port.verdict(l.sha).catch(() => null);
+      if (!v || v.state === "pending" || v.state === "none") return null; // not an answer yet: no guess
+      if (v.state === "fail") {
+        const jobs = v.failed.length ? ` (${v.failed.join(", ")})` : "";
+        return { guilty: [l.id], why: { [l.id]: `la CI del push su main \`${l.sha.slice(0, 8)}\` è rossa${jobs}${v.url ? `: ${v.url}` : ""}` } };
+      }
+    }
+    return null; // every landed commit of the batch measured green on its own push: no culprit to name here
+  }
+
   const afterQueue = createIntegrationQueue({
     landed: true,
     collectMs: deps.integrationCollectMs,
+    bisect: (projectId, taskIds) => bisectAfterLand(projectId, taskIds),
     measure: (projectId, taskIds) => measureCards(projectId, taskIds, {
       commitOf: (id) => readAfter(id)?.commit ?? null,
       repoOf: async (id) => readAfter(id)?.repo ?? (await deps.integrationRepo?.(id).catch(() => null)) ?? null,
@@ -452,6 +552,14 @@ export function createCiPhase(deps: CiPhaseDeps) {
     giveUp: (projectId, taskId, why) => {
       settleAfter(taskId, "asked");
       askPersonAfter(projectId, taskId, `La CI dopo il land non dà un esito: ${why.split("\n")[0]!.slice(0, 220)}. Il lavoro è già su main.`);
+    },
+    // The board could not measure it, round after round: the mark closes, one note says so, the card stays done.
+    abandon: (_projectId, taskId, why) => {
+      settleAfter(taskId, "faulted");
+      deps.svc.addComment({
+        taskId, author: "system", kind: "service", replaces: ["CI non misurata"],
+        content: `CI dopo il land non misurata, smetto di riprovare: ${why.slice(0, 220)}. Il lavoro è già su main e la card resta chiusa; il guasto è della board, la CI di main lo misura comunque al push.`,
+      });
     },
     stillWanted: (_projectId, taskId) => {
       const mark = readAfter(taskId);
@@ -473,7 +581,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
     for (const r of rows) {
       let mark: AfterMark;
       try { mark = JSON.parse(r.ci_after) as AfterMark; } catch { continue; }
-      if (mark.settled === "green" || !mark.commit || Date.parse(mark.at) < recent) continue;
+      if (mark.settled === "green" || mark.settled === "faulted" || !mark.commit || Date.parse(mark.at) < recent) continue;
       if (await port.entersAt(mark.commit, sha).catch(() => false)) return true;
     }
     return false;
@@ -499,7 +607,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
         const key = mainRedKey(projectId, commit.sha);
         if (deps.db.query("SELECT 1 FROM tasks WHERE claude_task_id = ?").get(key)) return false;
         const task = deps.svc.create({
-          projectId, text: mainRedTitle(commit.sha), status: "todo", createdBy: "cron:main-ci", idempotencyKey: key,
+          projectId, text: mainRedTitle(commit.sha), status: "todo", createdBy: "cron:main-ci", idempotencyKey: key, model: MAIN_RED_MODEL,
           description: describeMainRed(commit, verdict),
           bar: "La CI del push su main è verde su un commit che contiene la riparazione.",
         });

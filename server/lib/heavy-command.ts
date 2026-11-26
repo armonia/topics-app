@@ -15,7 +15,7 @@ const HEAVY: RegExp[] = [
   /playwright\s+test/,
   new RegExp(String.raw`(^|[^\w-])(vitest|jest)${END}`),
   /cypress\s+run/,
-  new RegExp(`${PKG}(test|e2e|build|typecheck|type-check|lint|knip|check:deadcode)([:\\s;&|)\`]|$)`),
+  new RegExp(`${PKG}(test|e2e|build|typecheck|type-check|lint|knip|check:deadcode(-prod)?)([:\\s;&|)\`]|$)`),
   /(^|[\s;&|(])spec-flow\s/,
   /pytest/,
   /cargo(\s+\+\S+)?\s+(tauri\s+)?(test|nextest|build|check|clippy|run|bench|install)/,

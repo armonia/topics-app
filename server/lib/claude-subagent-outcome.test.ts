@@ -11,7 +11,7 @@
  * @covers SUBAGENT-04, SUBAGENT-05
  */
 import { describe, expect, test } from "bun:test";
-import { classifySubAgentTranscript, transcriptHasPrompt } from "./claude-subagent-transcript";
+import { transcriptHasPrompt } from "./claude-subagent-transcript";
 
 const PROMPT = "Mappa dove finisce il tool_result del provider nativo e riporta i file";
 
@@ -22,14 +22,8 @@ const preamble = [
   j({ type: "system", subtype: "informational", content: "AGENTS.md loaded" }),
 ];
 const prompt = (text = PROMPT) => j({ type: "user", message: { role: "user", content: text } });
-const say = (text: string, stop: "end_turn" | "tool_use" | null) =>
-  j({ type: "assistant", message: { role: "assistant", stop_reason: stop, content: [{ type: "text", text }] } });
-const toolUse = () =>
-  j({ type: "assistant", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "Read", input: {} }] } });
 const toolResult = () =>
   j({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] } });
-const apiError = (text: string) =>
-  j({ type: "assistant", isApiErrorMessage: true, message: { model: "<synthetic>", role: "assistant", stop_reason: "stop_sequence", content: [{ type: "text", text }] } });
 
 describe("transcriptHasPrompt: a transcript file is not a delivered prompt", () => {
   test("the start-up records alone do not count (d6158ec6, c82359c1: zero user records)", () => {
@@ -46,64 +40,3 @@ describe("transcriptHasPrompt: a transcript file is not a delivered prompt", () 
   });
 });
 
-describe("classifySubAgentTranscript", () => {
-  test("a turn closed by end_turn is completed, with the final text", () => {
-    const lines = [...preamble, prompt(), toolUse(), toolResult(), say("Report: 3 files", "end_turn")];
-    expect(classifySubAgentTranscript(lines, "stopped")).toEqual({ status: "completed", partial: false, text: "Report: 3 files" });
-  });
-
-  test("a stop mid-turn is stopped and partial, and the working sentence is not the outcome", () => {
-    const lines = [...preamble, prompt(), say("Sto mappando dove il tool_result finisce", "tool_use"), toolUse(), toolResult()];
-    expect(classifySubAgentTranscript(lines, "stopped")).toEqual({
-      status: "stopped", partial: true, text: "Sto mappando dove il tool_result finisce",
-      reason: { code: "stopped-by-parent" },
-    });
-  });
-
-  test("a prompt that never arrived is undelivered, not a silent finish", () => {
-    expect(classifySubAgentTranscript(preamble, "stopped")).toEqual({
-      status: "undelivered", partial: false, text: "", reason: { code: "no-prompt" },
-    });
-  });
-
-  test("a prompt with no answer yet, stopped 7 s after the spawn, is a stop with nothing to quote", () => {
-    expect(classifySubAgentTranscript([...preamble, prompt()], "stopped")).toEqual({
-      status: "stopped", partial: false, text: "", reason: { code: "stopped-by-parent" },
-    });
-  });
-
-  test("a spend limit is a failure carrying its line", () => {
-    const lines = [...preamble, prompt(), toolUse(), toolResult(), apiError("You've hit your monthly spend limit")];
-    expect(classifySubAgentTranscript(lines, "stopped")).toEqual({
-      status: "failed", partial: false, text: "",
-      reason: { code: "api-error", detail: "You've hit your monthly spend limit" },
-    });
-  });
-
-  test("a follow-up turn cut mid-way is partial even when the first turn had finished", () => {
-    const lines = [...preamble, prompt(), say("Primo report", "end_turn"), prompt("Ora il secondo file"), say("Apro il secondo", "tool_use")];
-    expect(classifySubAgentTranscript(lines, "closed")).toEqual({
-      status: "stopped", partial: true, text: "Apro il secondo", reason: { code: "tab-closed" },
-    });
-  });
-
-  test("a PTY that died on its own mid-turn is a failure with its exit code", () => {
-    const lines = [...preamble, prompt(), say("Lancio i test", "tool_use")];
-    expect(classifySubAgentTranscript(lines, "exited", 137)).toEqual({
-      status: "failed", partial: true, text: "Lancio i test", reason: { code: "exit-code", exitCode: 137 },
-    });
-  });
-
-  test("a terminal lost to a restart is lost, and no transcript is named as such", () => {
-    expect(classifySubAgentTranscript([...preamble, prompt(), toolUse()], "lost").status).toBe("lost");
-    expect(classifySubAgentTranscript(null, "lost")).toEqual({
-      status: "lost", partial: false, text: "", reason: { code: "no-transcript" },
-    });
-  });
-
-  test("an Escape marker keeps the turn open instead of counting as a new prompt", () => {
-    const interruptMarker = j({ type: "user", message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] } });
-    const lines = [...preamble, prompt(), say("Leggo i file", "tool_use"), interruptMarker];
-    expect(classifySubAgentTranscript(lines, "stopped")).toMatchObject({ status: "stopped", partial: true, text: "Leggo i file" });
-  });
-});

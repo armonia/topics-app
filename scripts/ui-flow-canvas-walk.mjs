@@ -19,8 +19,8 @@
  *   - consorzio.html#/flussi/nocera-pec                        edit (PEC flow, 7 lanes)
  *   - consorzio.html#/da-fare/card/PEC-2418/flusso             read
  *   - app.html#/flussi/pec/esecuzioni/e-0412                   run
- *   - sarim.html#/flussi/sarim-segnalazioni                    edit (5 lanes)
- *   - sarim.html#/da-fare/card/SG-4124/flusso                  read
+ *   - orbit.html#/flussi/orbit-segnalazioni                    edit (5 lanes)
+ *   - orbit.html#/da-fare/card/SG-4124/flusso                  read
  *
  *   c1  the same component from every entrance: one canvas per view, the mode
  *       the entrance asks for, a split with at least two lanes
@@ -70,17 +70,17 @@ const VIEWS = [
   { id: "consorzio-editor", entry: "consorzio", path: "/flussi/nocera-pec", mode: "edit" },
   { id: "consorzio-card", entry: "consorzio", path: "/da-fare/card/PEC-2418/flusso", mode: "read" },
   { id: "app-esecuzione", entry: "app", path: "/flussi/pec/esecuzioni/e-0412", mode: "run" },
-  { id: "sarim-editor", entry: "sarim", path: "/flussi/sarim-segnalazioni", mode: "edit" },
-  { id: "sarim-card", entry: "sarim", path: "/da-fare/card/SG-4124/flusso", mode: "read" },
+  { id: "orbit-editor", entry: "orbit", path: "/flussi/orbit-segnalazioni", mode: "edit" },
+  { id: "orbit-card", entry: "orbit", path: "/da-fare/card/SG-4124/flusso", mode: "read" },
 ];
-const START = { app: "/panoramica", sarim: "/da-fare", consorzio: "/da-fare" };
+const START = { app: "/panoramica", orbit: "/da-fare", consorzio: "/da-fare" };
 const viewById = (id) => VIEWS.find((v) => v.id === id);
 const TAKEN_VIEWS = VIEWS.filter((v) => v.mode !== "edit");
 
 /* ---------- servers and pages ---------- */
 
 const servers = {};
-for (const entry of ["consorzio", "sarim", "app"]) servers[entry] = await serveDist(SCRIPT, entry, DIST);
+for (const entry of ["consorzio", "orbit", "app"]) servers[entry] = await serveDist(SCRIPT, entry, DIST);
 const closeAll = () => Object.values(servers).forEach((s) => s.close());
 
 const errors = [];
@@ -450,7 +450,7 @@ async function c6(_e, phoneEnv) {
   return { problems, measure: log.join("; ") };
 }
 
-/* Runs in the page before its own scripts: counts what is live (the same counter as ui-sarim-stability.mjs). */
+/* Runs in the page before its own scripts: counts what is live (the same counter as ui-orbit-stability.mjs). */
 const INSTRUMENT = () => {
   const keyOf = (target, type, fn, opts) => {
     const capture = typeof opts === "boolean" ? opts : !!opts?.capture;

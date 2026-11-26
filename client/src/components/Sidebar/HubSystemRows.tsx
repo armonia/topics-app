@@ -9,7 +9,6 @@
  * strings are not. Each tail is a number out of the document its row opens
  * (`state/hubDocs`), so the level or the view finds it already read.
  */
-import { lazy, Suspense } from 'react';
 import { Blocks, Layers, MonitorCog } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
@@ -20,17 +19,12 @@ import { HUB_CONTEXT_DOC, HUB_FEATURES_DOC, useHubDoc } from '../../state/hubDoc
 import { useHubLive } from '../../state/hubLive';
 import { macStrain } from '../../lib/hubSystem';
 import { WARNING_TEXT } from '../../lib/popoverStyles';
-import { SubmenuItem } from '../Shared/SubmenuItem';
+import { openSystemPlace } from '../System/systemNav';
 import { menuRowClass } from './menuRow';
 import { shortTokens } from '../../lib/formatTokens';
 
 addCatalogue('it', HUB_CONTEXT_IT);
 addCatalogue('en', HUB_CONTEXT_EN);
-
-const ContextLevel = lazy(async () => {
-  const { ContextLevel: Body } = await import('./ContextLevel');
-  return { default: Body };
-});
 
 /** The map changes once a day: reopening System within ten minutes reads nothing. */
 const FEATURES_MAX_AGE_MS = 10 * 60_000;
@@ -49,11 +43,9 @@ function behindOf(data: unknown): number | null {
 export interface HubSystemRowsProps {
   isMobile: boolean;
   onNavigate?: () => void;
-  /** The palette asked for the context level: it opens with the menu. */
-  openContext?: boolean;
 }
 
-export function HubSystemRows({ isMobile, onNavigate, openContext = false }: HubSystemRowsProps) {
+export function HubSystemRows({ isMobile, onNavigate }: HubSystemRowsProps) {
   const tr = useT();
   const locale = useLocale();
   const context = useHubDoc(HUB_CONTEXT_DOC, true, 60_000);
@@ -65,20 +57,12 @@ export function HubSystemRows({ isMobile, onNavigate, openContext = false }: Hub
   const tail = 'flex-shrink-0 text-app-text-secondary tabular-nums';
   return (
     <>
-      <SubmenuItem
-        icon={Layers}
-        label={tr('hubContext.open')}
-        testId="menu-system-context"
-        defaultOpen={openContext}
-        minWidth={400}
-        maxWidth={420}
-        className={isMobile ? 'min-h-[calc(100dvh-3rem)]' : 'max-h-[min(80vh,640px)] overflow-y-auto'}
-        tail={base !== null ? <span data-testid="menu-system-context-tail" className={tail}>{tr('hubContext.tail', { n: shortTokens(base, locale) })}</span> : undefined}
-      >
-        <Suspense fallback={<div className="min-h-24 px-3 py-2 text-mini text-app-text-muted">{tr('hubContext.reading')}</div>}>
-          <ContextLevel onNavigate={onNavigate} />
-        </Suspense>
-      </SubmenuItem>
+      {/* The agents' context is the Harness section of the System page now. */}
+      <button type="button" className={menuRowClass(isMobile)} data-testid="menu-system-context" onClick={() => { onNavigate?.(); openSystemPlace('harness'); }}>
+        <Layers size={14} className="flex-shrink-0 text-app-text-secondary" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate text-left">{tr('hubContext.open')}</span>
+        {base !== null && <span data-testid="menu-system-context-tail" className={tail}>{tr('hubContext.tail', { n: shortTokens(base, locale) })}</span>}
+      </button>
       <button type="button" className={menuRowClass(isMobile)} data-testid="menu-system-processes" onClick={() => openUtility('processes', onNavigate)}>
         <MonitorCog size={14} className="flex-shrink-0 text-app-text-secondary" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate text-left">{tr('processes.open')}</span>

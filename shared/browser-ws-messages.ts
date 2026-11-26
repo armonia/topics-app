@@ -412,14 +412,6 @@ export function parseBrowserWsMessage(value: unknown): ParseResult {
   return { ok: false, error };
 }
 
-/**
- * Type guard booleano, retrocompatibile. Il codice nuovo preferisca
- * `parseBrowserWsMessage`, che porta con sé il contesto dell'errore.
- */
-export function isBrowserWsMessage(value: unknown): value is BrowserWsMessage {
-  return browserWsMessageSchema.safeParse(value).success;
-}
-
 /** Serializza e spedisce: va bene sia sul ServerWebSocket di Bun sia sul WebSocket del browser. */
 export function sendBrowserWsMessage<T extends { send: (data: string) => void }>(
   ws: T,

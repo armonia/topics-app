@@ -18,8 +18,11 @@ type Mcp = AgentToolsInventory['mcp'][number];
  * disk, the agent CLIs, and where the machines live. It reads the same
  * inventory an agent gets from `topics tools`, so the screen and the agents
  * never describe two different worlds.
+ *
+ * Inside System > Tools it gets the agents, and each server then lists who
+ * uses it; each agent shows «can use» or «inherited», and «Limit» opens its tool filter.
  */
-export function AgentToolsPage() {
+export function AgentToolsPage({ agents, onLimit }: { agents?: { id: string; name: string }[]; onLimit?: (agentId: string) => void } = {}) {
   const t = useT();
   const [inv, setInv] = useState<AgentToolsInventory | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +117,22 @@ export function AgentToolsPage() {
               <span className="block truncate text-app-text-muted">
                 {m.source} · {t('agentTools.toolCount', { n: m.toolCount })}{m.reason ? ` · ${m.reason}` : ''}
               </span>
+              {agents && onLimit && (
+                <ul data-testid={`agent-tools-users-${m.name}`} className="mt-1 space-y-0.5">
+                  {inv.agents.map((a) => {
+                    const allowed = m.agents.includes(a.id);
+                    const own = a.filter.mode === 'selected';
+                    return (
+                      <li key={a.id} data-testid="agent-tools-user" data-access={allowed ? (own ? 'own' : 'inherited') : 'none'} className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-app-text">{agents.find((x) => x.id === a.id)?.name || a.name || a.id}</span>
+                        <span className="text-app-text-muted">{t(allowed ? (own ? 'system.tools.canUse' : 'system.tools.inherited') : 'system.tools.cannotUse')}</span>
+                        <button type="button" data-testid="agent-tools-limit" title={t('system.tools.limitTitle')} onClick={() => onLimit(a.id)} className={`${TEXT_BUTTON} text-app-text hover:bg-app-hover`}>{t('system.tools.limit')}</button>
+                      </li>
+                    );
+                  })}
+                  {inv.agents.length === 0 && <li className="text-app-text-muted">{t('system.tools.noUsers')}</li>}
+                </ul>
+              )}
             </span>
             <span data-testid={`agent-tools-mcp-${m.name}-state`} className="flex-shrink-0 text-app-text-muted">{t(`agentTools.state.${m.state}`)}</span>
             <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dot(m.state)}`} />
@@ -149,6 +168,7 @@ export function AgentToolsPage() {
       </ul>
 
       <div className={`${heading} border-t border-app-border mt-1`}>{t('agentTools.clis')}</div>
+      {inv.clis.length === 0 && <p data-testid="agent-tools-clis-empty" className={hint}>{t('agentTools.none')}</p>}
       <ul>
         {inv.clis.map((c) => (
           <li key={c.id} data-testid={`agent-tools-cli-${c.id}`} data-installed={c.installed ? 'true' : 'false'} className={ROW}>
@@ -173,6 +193,7 @@ export function AgentToolsPage() {
       </p>
 
       <div className={`${heading} border-t border-app-border mt-1`}>{t('agentTools.sources')}</div>
+      {inv.sources.length === 0 && <p className={hint}>{t('agentTools.none')}</p>}
       <ul>
         {inv.sources.map((s) => (
           <li key={`${s.kind}:${s.label}`} className={`group ${ROW} text-app-text-muted`}>

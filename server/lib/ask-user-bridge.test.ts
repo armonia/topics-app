@@ -1,7 +1,7 @@
 /**
  * @covers ASK-02
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import {
   waitForAnswer,
   deliverAnswer,
@@ -13,6 +13,8 @@ import {
   pendingAskVerdict,
   AskWaitError,
   bufferedAnswerFits,
+  askStillPolled,
+  ASK_POLL_LIVE_MS,
 } from "./ask-user-bridge";
 
 // Each test uses a UNIQUE sessionKey so the module-level maps don't bleed
@@ -251,3 +253,53 @@ describe("ask-user-bridge — a buffered answer belongs to its question", () => 
     cancelAsk(k);
   });
 });
+
+describe("ask-user-bridge — askStillPolled: a question that is still being asked for", () => {
+  afterEach(() => setSystemTime());
+
+  test("an open ask is polled from the moment it opens", () => {
+    const k = key();
+    beginAsk(k);
+    expect(askStillPolled(k)).toBe(true);
+    endAsk(k);
+  });
+
+  test("no ask, no answer: a session that never asked is not polled", () => {
+    expect(askStillPolled(key())).toBe(false);
+  });
+
+  test("a closed ask stops being polled", () => {
+    const k = key();
+    beginAsk(k);
+    endAsk(k);
+    expect(askStillPolled(k)).toBe(false);
+  });
+
+  test("a leg that keeps coming renews it, whatever the age of the question", () => {
+    const k = key();
+    const opened = Date.now();
+    beginAsk(k);
+    // Ten hours later, the bridge has been back every few seconds.
+    for (let t = 25_000; t <= 10 * 3_600_000; t += 3_600_000) {
+      setSystemTime(new Date(opened + t));
+      beginAsk(k);
+      expect(askStillPolled(k)).toBe(true);
+    }
+    endAsk(k);
+  });
+
+  test("an ask nobody comes back for is a leftover once the window is over", () => {
+    const k = key();
+    const opened = Date.now();
+    beginAsk(k);
+    setSystemTime(new Date(opened + ASK_POLL_LIVE_MS - 1_000));
+    expect(askStillPolled(k)).toBe(true);
+    setSystemTime(new Date(opened + ASK_POLL_LIVE_MS + 1_000));
+    expect(askStillPolled(k)).toBe(false);
+    // Still registered: the leftover is for the gate to distrust, not to erase
+    // (no clock ends a question).
+    expect(hasPendingAsk(k)).toBe(true);
+    endAsk(k);
+  });
+});
+

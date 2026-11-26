@@ -141,6 +141,42 @@ function asGrantLevel(v: unknown): GrantLevel {
 }
 
 /**
+ * The OR-of-equalities clause over a set of principals, one `IN` per subject
+ * kind (see `grantRowsFor` for why not a tuple `IN`). `prefix` is the table
+ * alias ("g." in a join). `leadingArgs` are the bound values that come before
+ * the clause in the query. `null` when no principal carries an id.
+ */
+function principalMatch(
+  principals: readonly Principal[],
+  prefix: string,
+  leadingArgs: (string | number)[] = [],
+): { sql: string; args: (string | number)[] } | null {
+  const perKind = new Map<SubjectKind, string[]>();
+  for (const p of principals) {
+    if (!p?.id) continue;
+    const ids = perKind.get(p.kind) ?? [];
+    ids.push(p.id);
+    perKind.set(p.kind, ids);
+  }
+  if (perKind.size === 0) return null;
+
+  const branches: string[] = [];
+  const args = [...leadingArgs];
+  for (const [kind, ids] of perKind) {
+    branches.push(`(${prefix}subject_type = ? AND ${prefix}subject_id IN (${ids.map(() => "?").join(",")}))`);
+    args.push(kind, ...ids);
+  }
+  return { sql: branches.join(" OR "), args };
+}
+
+const rowToGrant = (r: Record<string, unknown>): GrantRow => ({
+  subjectType: String(r.subject_type) as SubjectKind,
+  subjectId: String(r.subject_id),
+  level: asGrantLevel(r.level),
+  grantedAt: Number(r.granted_at ?? 0),
+});
+
+/**
  * Le righe che riguardano QUESTI principali su QUESTA risorsa, la più forte per
  * prima.
  *
@@ -163,40 +199,22 @@ export function grantRowsFor(
 ): GrantRow[] {
   if (principals.length === 0) return [];
 
-  const perTipo = new Map<SubjectKind, string[]>();
-  for (const p of principals) {
-    if (!p?.id) continue;
-    const lista = perTipo.get(p.kind) ?? [];
-    lista.push(p.id);
-    perTipo.set(p.kind, lista);
-  }
-  if (perTipo.size === 0) return [];
-
   const resourceIds = resourceType === "project"
     ? resolveProject(resourceId).aliases
     : [resourceId];
-  const rami: string[] = [];
-  const args: (string | number)[] = [resourceType, ...resourceIds];
-  for (const [kind, ids] of perTipo) {
-    rami.push(`(subject_type = ? AND subject_id IN (${ids.map(() => "?").join(",")}))`);
-    args.push(kind, ...ids);
-  }
+  const match = principalMatch(principals, "", [resourceType, ...resourceIds]);
+  if (!match) return [];
 
   const righe = db.query(
     `SELECT subject_type, subject_id, level, granted_at
        FROM grants
       WHERE resource_type = ?
         AND resource_id IN (${resourceIds.map(() => "?").join(",")})
-        AND (${rami.join(" OR ")})
+        AND (${match.sql})
       ORDER BY (level = 'deny') DESC, granted_at ASC`,
-  ).all(...args) as Array<Record<string, unknown>>;
+  ).all(...match.args) as Array<Record<string, unknown>>;
 
-  return righe.map((r) => ({
-    subjectType: String(r.subject_type) as SubjectKind,
-    subjectId: String(r.subject_id),
-    level: asGrantLevel(r.level),
-    grantedAt: Number(r.granted_at ?? 0),
-  }));
+  return righe.map(rowToGrant);
 }
 
 /**
@@ -336,43 +354,6 @@ function capFromContainer(inherited: GrantLevel | null): GrantLevel | null {
 }
 
 /**
- * TUTTE le ragioni per cui questi principali vedono la risorsa, non solo la
- * prima. La ragione è il SOGGETTO su cui la riga è stata scritta — questo
- * dispositivo, la sua persona, una sua organizzazione — e un elenco che si
- * ferma alla prima non risponde alla domanda: toglierne una lascerebbe
- * l'accesso in piedi per un'altra, senza che niente lo dica.
- */
-export function reasonsFor(
-  db: Db,
-  principals: readonly Principal[],
-  resourceType: ResourceType,
-  resourceId: string,
-  resolveProject?: ProjectIdentityResolver,
-): GrantRow[] {
-  const dirette = grantRowsFor(db, principals, resourceType, resourceId, resolveProject);
-  if (dirette.length > 0) return dirette.filter((r) => r.level !== "deny");
-
-  // Nessuna riga sulla risorsa: la ragione puo' essere il contenitore, e va
-  // detta - un elenco di ragioni che non nomina il progetto lascerebbe chi
-  // guarda a togliere un accesso che non e' li'.
-  //
-  // The level reported is the one IN FORCE on this resource, capped exactly
-  // as `levelFor` caps it: this list is what the owner's sharing panel reads,
-  // and a panel that echoed the container's own `edit` would describe a power
-  // the gate does not grant - the mirror image of the bug the cap closes.
-  const dentro = containerOf(db, resourceType, resourceId, resolveProject);
-  if (!dentro) return [];
-  return grantRowsFor(db, principals, dentro.tipo, dentro.id, resolveProject)
-    .filter((r) => r.level !== "deny")
-    .map((r) => ({
-      ...r,
-      level: capFromContainer(r.level) ?? r.level,
-      viaType: dentro.tipo,
-      viaId: dentro.id,
-    }));
-}
-
-/**
  * Cosa vedono questi principali, di un certo tipo di risorsa.
  *
  * Le righe `deny` sono sottratte qui e non ignorate: un elenco che le
@@ -387,26 +368,13 @@ export function grantedResourceIds(
 ): string[] {
   if (principals.length === 0) return [];
 
-  const perTipo = new Map<SubjectKind, string[]>();
-  for (const p of principals) {
-    if (!p?.id) continue;
-    const lista = perTipo.get(p.kind) ?? [];
-    lista.push(p.id);
-    perTipo.set(p.kind, lista);
-  }
-  if (perTipo.size === 0) return [];
-
-  const rami: string[] = [];
-  const args: (string | number)[] = [resourceType];
-  for (const [kind, ids] of perTipo) {
-    rami.push(`(subject_type = ? AND subject_id IN (${ids.map(() => "?").join(",")}))`);
-    args.push(kind, ...ids);
-  }
+  const match = principalMatch(principals, "", [resourceType]);
+  if (!match) return [];
 
   const righe = db.query(
     `SELECT resource_id, level FROM grants
-      WHERE resource_type = ? AND (${rami.join(" OR ")})`,
-  ).all(...args) as Array<{ resource_id: string; level: string }>;
+      WHERE resource_type = ? AND (${match.sql})`,
+  ).all(...match.args) as Array<{ resource_id: string; level: string }>;
 
   const canonicalId = (id: string) => resourceType === "project" ? resolveProject(id).boardId : id;
   const negati = new Set(righe.filter((r) => r.level === "deny").map((r) => canonicalId(r.resource_id)));
@@ -433,25 +401,12 @@ function deniedResourceIds(
   resolveProject: ProjectIdentityResolver = (id) => canonicalProjectIdentity(db, id),
 ): Set<string> {
   const out = new Set<string>();
-  const perTipo = new Map<SubjectKind, string[]>();
-  for (const p of principals) {
-    if (!p?.id) continue;
-    const lista = perTipo.get(p.kind) ?? [];
-    lista.push(p.id);
-    perTipo.set(p.kind, lista);
-  }
-  if (perTipo.size === 0) return out;
-
-  const rami: string[] = [];
-  const args: (string | number)[] = [resourceType];
-  for (const [kind, ids] of perTipo) {
-    rami.push(`(subject_type = ? AND subject_id IN (${ids.map(() => "?").join(",")}))`);
-    args.push(kind, ...ids);
-  }
+  const match = principalMatch(principals, "", [resourceType]);
+  if (!match) return out;
   const righe = db.query(
     `SELECT resource_id FROM grants
-      WHERE resource_type = ? AND level = 'deny' AND (${rami.join(" OR ")})`,
-  ).all(...args) as Array<{ resource_id: string }>;
+      WHERE resource_type = ? AND level = 'deny' AND (${match.sql})`,
+  ).all(...match.args) as Array<{ resource_id: string }>;
   for (const r of righe) {
     out.add(resourceType === "project" ? resolveProject(r.resource_id).boardId : r.resource_id);
   }
@@ -544,12 +499,7 @@ export function subjectsOf(
       ORDER BY granted_at ASC`,
   ).all(resourceType, ...resourceIds) as Array<Record<string, unknown>>;
 
-  const rows = righe.map((r) => ({
-    subjectType: String(r.subject_type) as SubjectKind,
-    subjectId: String(r.subject_id),
-    level: asGrantLevel(r.level),
-    grantedAt: Number(r.granted_at ?? 0),
-  }));
+  const rows = righe.map(rowToGrant);
   if (resourceType !== "project") return rows;
 
   // A legacy UUID row and a canonical board-id row are one permission. Merge
@@ -620,29 +570,16 @@ export function holdsGrantOnTaskPreview(
 ): boolean {
   if (principals.length === 0 || !suffissoPercorso) return false;
 
-  const perTipo = new Map<SubjectKind, string[]>();
-  for (const p of principals) {
-    if (!p?.id) continue;
-    const lista = perTipo.get(p.kind) ?? [];
-    lista.push(p.id);
-    perTipo.set(p.kind, lista);
-  }
-  if (perTipo.size === 0) return false;
-
-  const rami: string[] = [];
-  const args: (string | number)[] = [];
-  for (const [kind, ids] of perTipo) {
-    rami.push(`(g.subject_type = ? AND g.subject_id IN (${ids.map(() => "?").join(",")}))`);
-    args.push(kind, ...ids);
-  }
-  args.push(`%${escapeLike(suffissoPercorso)}`);
+  const match = principalMatch(principals, "g.");
+  if (!match) return false;
+  match.args.push(`%${escapeLike(suffissoPercorso)}`);
 
   return !!db.query(
     `SELECT 1 FROM grants g JOIN tasks t ON t.id = g.resource_id
-      WHERE (${rami.join(" OR ")})
+      WHERE (${match.sql})
         AND g.resource_type = 'task' AND g.level != 'deny'
         AND t.preview_image LIKE ? ESCAPE '\\'`,
-  ).get(...args);
+  ).get(...match.args);
 }
 
 /** `%`, `_` e `\` perdono il loro potere. Senza, un nome di file che ne contiene

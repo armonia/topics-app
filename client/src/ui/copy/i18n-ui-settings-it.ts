@@ -537,7 +537,7 @@ export const SETTINGS_COPY_IT: SettingsCopy = {
     fallbackReply: 'il ricorrente',
   },
   compliance: {
-    scopes: { nocera: 'Consorzio di Nocera', sarim: 'SARIM', topics: 'Topics' },
+    scopes: { nocera: 'Consorzio di Nocera', orbit: 'ORBIT', topics: 'Topics' },
     groups: {
       documents: 'Documenti e archivio · dal pacchetto di settore',
       personal: 'Dati personali e sicurezza',

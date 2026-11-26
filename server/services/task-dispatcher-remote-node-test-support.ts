@@ -209,6 +209,12 @@ export function harness(nodeOverrides: NodeFakeOptions = {}, depOverrides: Parti
     nowMs: () => now,
     task: () => svc.get(TASK)!.task,
     comments: () => svc.get(TASK)!.comments,
+    /**
+     * A SERVER RESTART: same db, same node, a brand-new dispatcher — so
+     * `inFlight` and every other in-memory slot are gone, exactly what
+     * `queueAfterRestart` must tell apart from a run still open on the node.
+     */
+    restart: () => { dispatcher.shutdown(); return createTaskDispatcher(deps); },
     /** A todo that names the node: the only difference from any other card. */
     seed: (id: string = TASK) => {
       const ts = new Date(now).toISOString();

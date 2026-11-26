@@ -26,29 +26,6 @@ export interface FastModeUi {
 }
 
 /**
- * Le ragioni, con le parole della CLI tradotte una a una. Nessuna frase
- * generica: un «non disponibile» senza il perché manda l'utente a cercare un
- * guasto che non c'è.
- */
-const REASON_TEXT: Record<string, string> = {
-  sdk_opt_in_required:
-    "Fast mode non è disponibile nell'Agent SDK, ed è così che Topics lancia la CLI per le chat.",
-  not_first_party: 'Fast mode è disponibile solo usando l’API Anthropic diretta.',
-  model_not_allowed: 'Il modello di questa chat non è fra quelli permessi dalla tua organizzazione.',
-  disabled_by_env: "Fast mode è spenta dall'ambiente in cui gira la CLI.",
-  extra_usage_disabled: 'Fast mode è spenta: i crediti extra sono disabilitati.',
-  free: 'Fast mode non è inclusa in questo piano.',
-  preference: 'Fast mode è spenta nelle preferenze di Claude Code.',
-  network_error: 'Non riesco a verificare la disponibilità della fast mode (rete).',
-  pending: 'Sto verificando se la fast mode è disponibile…',
-  unknown: 'Fast mode non è disponibile.',
-};
-
-export function fastModeReasonText(reason: string): string {
-  return REASON_TEXT[reason] ?? REASON_TEXT.unknown;
-}
-
-/**
  * Che cosa mostrare sul bottone, o `null` per NON mostrarlo affatto.
  *
  * Se la fast mode non è servibile il bottone non esiste: un comando spento con

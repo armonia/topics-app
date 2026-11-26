@@ -40,10 +40,6 @@ export function enqueueAnnouncement(state: AnnounceQueueState, item: AnnounceIte
   return { items: [...withoutDup, item] };
 }
 
-export function removeAnnouncement(state: AnnounceQueueState, taskId: string): AnnounceQueueState {
-  return { items: state.items.filter((i) => i.taskId !== taskId) };
-}
-
 /** What to say next — a single item (with its own listenable reply) or a
  *  rollup (no spoken reply expected: it names several tasks at once). */
 export type NextAnnouncement =

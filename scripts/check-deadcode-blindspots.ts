@@ -112,7 +112,9 @@ export function readKnipWorkspaces(knipJsonc: string): WorkspaceGlobs[] {
     // Il `!` in coda dice «questo È un entrypoint anche se non lo importa
     // nessuno»: è un modificatore di knip, non parte del glob.
     entry: (ws.entry ?? []).map((p) => p.replace(/!$/, "")),
-    project: ws.project ?? [],
+    // Production-only exclusions (`!pattern!`) are not part of the development
+    // project this probe walks; a trailing `!` on the rest only scopes it to --production.
+    project: (ws.project ?? []).filter((p) => !p.startsWith("!")).map((p) => p.replace(/!$/, "")),
     ignore: ws.ignore ?? [],
   }));
 }

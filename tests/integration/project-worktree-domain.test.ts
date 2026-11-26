@@ -91,10 +91,6 @@ const worktreesRoutePromise = (async () => {
   const { createWorktreesRouter } = await import("../../server/routes/worktrees");
   return { createWorktreesRouter };
 })();
-const namingPromise = (async () => {
-  const { generateWorktreeName, NAME_REGEX } = await import("../../server/utils/worktree-naming");
-  return { generateWorktreeName, NAME_REGEX };
-})();
 
 describe("Phase A · Project + Worktree domain", () => {
 
@@ -395,16 +391,6 @@ describe("Phase A · Project + Worktree domain", () => {
     });
   });
 
-  describe("Naming generator (regression coverage)", () => {
-    test("generates filesystem-safe names, NAME_REGEX-compliant", async () => {
-      const { generateWorktreeName, NAME_REGEX } = await namingPromise;
-      for (let i = 0; i < 200; i++) {
-        const name = generateWorktreeName();
-        expect(name).toMatch(NAME_REGEX);
-        expect(name.length).toBeLessThan(31);
-      }
-    });
-  });
 });
 
 afterAll(() => {

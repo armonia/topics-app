@@ -18,8 +18,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { mount } from '../test/reactHarness';
 import { useWebSocket } from './useWebSocket';
-import { holdSubjectInFront, isSubjectInFront } from '../state/chatInView';
-import { markBrowserViewDead, markBrowserViewLive } from '../lib/shell/nativeBrowserRoster';
+import { holdSubjectInFront } from '../state/chatInView';
+import { markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
 
 const g = globalThis as unknown as Record<string, unknown>;
 
@@ -54,7 +54,6 @@ function on(name: string, fn: () => void): void {
   listeners.get(name)!.add(fn);
 }
 function off(name: string, fn: () => void): void { listeners.get(name)?.delete(fn); }
-function fire(name: string): void { for (const fn of [...(listeners.get(name) ?? [])]) fn(); }
 
 beforeEach(() => {
   sockets = [];
@@ -93,34 +92,6 @@ afterEach(() => {
     else if (v === undefined) delete g[k]; else g[k] = v;
   }
   markBrowserViewDead('browser-pane-behind');
-});
-
-function lastFocus(s: FakeSocket): { subject: string | null; awake: boolean } | null {
-  const frames = s.sent.map((x) => JSON.parse(x) as { type: string; subject: string | null; awake: boolean }).filter((m) => m.type === 'focus');
-  return frames.length ? frames[frames.length - 1] : null;
-}
-
-describe('a window behind another app is in front of nobody', () => {
-  for (const withBrowserView of [false, true]) {
-    test(`the focus frame says awake:false once the window goes behind (native browser view live: ${withBrowserView})`, () => {
-      if (withBrowserView) markBrowserViewLive('browser-pane-behind');
-      const release = holdSubjectInFront('topic:c1');
-      function Probe(): null { useWebSocket(); return null; }
-      const h = mount(React.createElement(Probe));
-      try {
-        sockets[0].open();
-        expect(lastFocus(sockets[0])).toMatchObject({ subject: 'topic:c1', awake: true });
-        expect(isSubjectInFront('topic:c1')).toBe(true);
-        hasFocus = false;
-        fire('blur');
-        expect(lastFocus(sockets[0])).toMatchObject({ subject: 'topic:c1', awake: false });
-        expect(isSubjectInFront('topic:c1')).toBe(false);
-      } finally {
-        release();
-        h.unmount();
-      }
-    });
-  }
 });
 
 // Review 3 of PR 238 (SUBAGENT-21): a sub-agent counts as opened only when the

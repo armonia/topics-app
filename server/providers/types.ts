@@ -136,7 +136,8 @@ export type SideCallPurpose =
   | "task-plan"
   | "chat-reply"
   | "voice-call"
-  | "readable-view";
+  | "readable-view"
+  | "topics-check";
 
 export interface CompletionResult {
   content: string;

@@ -27,14 +27,12 @@
  *   bun scripts/prompt-ab.ts --rescore <referto>    # ricalcola, zero chiamate
  */
 
-import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { readVote, type JudgeVote, type ModelTier } from "../server/services/task-model-picker";
-import { buildClaudeOneshotArgs } from "../server/providers/claude/args";
+import { JUDGE_MODEL, disagreement, judge, tally } from "./judge-common";
 import { PROMPT_ARMS, type PromptArm } from "./prompt-ab.arms";
 
-const JUDGE_MODEL = "claude-haiku-4-5";
 
 /**
  * La batteria. Il bersaglio è `token-live-json` — lo stesso identico testo su
@@ -79,41 +77,6 @@ const CASES: Case[] = [
       "Scorrendo indietro nella cronologia di una chat che sta ancora ricevendo token, ogni tanto la vista viene ributtata in fondo. Non succede sempre e non si sa cosa lo scateni. Trovare la causa e sistemarla senza rompere l'auto-scroll di chi sta in fondo.",
   },
 ];
-
-/** Una chiamata al giudice, com'è in produzione: haiku, --print, zero MCP. */
-function judge(prompt: string): Promise<string> {
-  const args = buildClaudeOneshotArgs({ permissionMode: "bypassPermissions", model: JUDGE_MODEL, emptyMcpConfigPath: null });
-  return new Promise((resolve, reject) => {
-    const proc = spawn("claude", args, { stdio: ["pipe", "pipe", "pipe"] });
-    let out = "", err = "";
-    proc.stdout.on("data", (d) => { out += d; });
-    proc.stderr.on("data", (d) => { err += d; });
-    proc.on("error", reject);
-    proc.on("close", (code) => {
-      if (code !== 0) return reject(new Error(`claude exited ${code}: ${err.slice(0, 200)}`));
-      try { resolve(String(JSON.parse(out).result ?? "")); } catch { resolve(out); }
-    });
-    proc.stdin.end(prompt);
-  });
-}
-
-/** Stessa matematica di `effort-variance.ts`: la probabilità che due estrazioni
- *  indipendenti diano verdetti diversi, senza reimmissione. */
-function disagreement(labels: string[]): number {
-  const n = labels.length;
-  if (n < 2) return 0;
-  const counts = new Map<string, number>();
-  for (const l of labels) counts.set(l, (counts.get(l) ?? 0) + 1);
-  let same = 0;
-  for (const c of counts.values()) same += c * (c - 1);
-  return 1 - same / (n * (n - 1));
-}
-
-function tally(labels: string[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const l of labels) out[l] = (out[l] ?? 0) + 1;
-  return out;
-}
 
 /**
  * L'intervallo di Wilson al 95% su una proporzione. Serve perché la domanda del

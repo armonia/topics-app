@@ -11,6 +11,7 @@ import type { AgentAction } from '../../../shared/agent-action';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { rollupAction, subjectActionFrom, useAgentActionStore, type ActionEntry } from './agentActions';
 import { useTaskTopicId } from './taskSessions';
+import { useTopicAtWork } from './childWork';
 import {
   terminalBelongsToProject,
   useProjectAwaitingInput,
@@ -20,7 +21,6 @@ import {
   useTerminalLoading,
   useTopicAwaitingInput,
   useTopicBackgroundTasks,
-  useTopicInProgress,
   useTopicLoading,
 } from './signals';
 
@@ -33,13 +33,16 @@ import {
 
 /** The action of a chat, or undefined when it does not work. */
 export function useTopicAction(topicId: string | undefined): AgentAction | undefined {
-  const inProgress = useTopicInProgress(topicId);
+  // At work by the same rule as its tab: a turn, its left-running work, or its agents.
+  const { atWork, agents } = useTopicAtWork(topicId);
   const turnOpen = useTopicLoading(topicId);
   const waiting = useTopicAwaitingInput(topicId);
   const tasks = useTopicBackgroundTasks(topicId);
   const live = useAgentActionStore((s) => (topicId ? s.actions.get(topicId)?.action : undefined));
   const fromPhase = useSignalsStore((s) => (topicId ? s.sessionActivity.get(topicId)?.action : undefined));
-  return subjectActionFrom({ inProgress, turnOpen, waiting, live, fromPhase, tasks });
+  // No turn open and agents at work under it: they are what moves, whatever else it waits on.
+  if (agents > 0 && !turnOpen && !waiting) return 'delegate';
+  return subjectActionFrom({ inProgress: atWork, turnOpen, waiting, live, fromPhase, tasks });
 }
 
 /**

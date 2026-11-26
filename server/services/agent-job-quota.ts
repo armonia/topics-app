@@ -72,6 +72,7 @@ import { readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./
 import { resolveAgentRuntime } from "./app-settings";
 import { topicSessionKeyMatchesSql } from "./agent-census";
 import { topicsHome } from "./daemon-state";
+import { worktreeCargoEnv } from "./worktree-for-agent";
 
 /** Cosa sa lo spawn del topic che sta per far partire. */
 export type DispatchBinding = {
@@ -349,7 +350,7 @@ const OWNER_MARKER = ".owner-db";
 const lastWritten = new Map<string, number>();
 let lastGcAt = Number.NEGATIVE_INFINITY;
 
-/** Test seam: forget what was written and when the channels were last swept. */
+/** @internal Test seam: forget what was written and when the channels were last swept. */
 export function _resetJobQuotaState(): void {
   lastWritten.clear();
   lastGcAt = Number.NEGATIVE_INFINITY;
@@ -384,7 +385,7 @@ function writeLiveQuotaIfChanged(sessionKey: string, jobs: number): boolean {
   return writeLiveQuota(sessionKey, n);
 }
 
-/** Il numero letto dagli shim, per i test e per chi vuole verificare a mano. */
+/** @knipignore used by scripts/job-quota-live-demo.ts, outside the production graph. Il numero letto dagli shim, per i test e per chi vuole verificare a mano. */
 export function readLiveQuota(sessionKey: string): number | null {
   try {
     const testo = readFileSync(join(quotaChannelDir(sessionKey), "jobs"), "utf8");
@@ -517,6 +518,9 @@ export function applyJobQuota(db: Database, sessionKey: string, env: Record<stri
   const congelato = resolveJobQuotaEnv(db, sessionKey);
   if (!congelato) return null;
   Object.assign(env, congelato);
+  // One Rust build directory per project (`worktree-for-agent.ts`): `target/` is
+  // the one weight a worktree clone does not share.
+  Object.assign(env, worktreeCargoEnv(db, sessionKey));
   claimChannelRoot(db);
   const jobs = Number(congelato.CARGO_BUILD_JOBS);
   writeLiveQuota(sessionKey, jobs);

@@ -21,8 +21,8 @@ con i nodi pronti; dopo un riallineamento del codice lo forza. Cosa e dove sta i
 NODO PERMANENTE (Attilio, Discord 10/11 23:31): topics-permanent-node, un cx53 sempre acceso nel progetto topics-nodes,
 fa da runner della CI di topics-app e da nodo di Topics sul posto 1. Finché esiste, il pool non accende
 nodi a richiesta (e `hetzner-tetto puo` li rifiuta comunque): il posto 1 è lui, mai cancellato, e le card
-che vi entrano sono 2 mentre la CI lavora, 4 quando è ferma. Topics ha la precedenza anche sulla CPU
-(ci.slice con peso basso, deploy/permanent-node/ci-runners.sh).
+che vi entrano sono 2 mentre la CI lavora, 4 quando è ferma. La CI ha la precedenza sulla CPU, Topics
+prende il server quando la CI è ferma (ci.slice a 500, topics.service a 100, deploy/permanent-node/ci-runners.sh).
 
 Posti, non server: il posto N è la riga `machines` con base_url http://127.0.0.1:(3400+N), stabile fra
 una vita e l'altra (stesso hostname = stessa riga). Ogni vita è un server Hetzner nel progetto
@@ -310,11 +310,20 @@ def known_file(ip):
 _SERVER_OF_IP = {}
 
 
+# One shared connection per node: every short command used to be a fresh ssh login, ~5 a minute,
+# each one a logind session on the node (card e809a470). Multiplexed commands are channels of
+# the same session. ServerAliveInterval kills a dead master in ~45 s instead of hanging callers.
+MUX_DIR = os.path.join(HOME, ".ssh", "cm")
+MUX = ["-o", "ControlMaster=auto", "-o", f"ControlPath={MUX_DIR}/topics-node-%C", "-o", "ControlPersist=10m",
+       "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+
+
 def ssh(ip, cmd, timeout=120, inp=None):
     known = known_file(ip)
     os.makedirs(os.path.dirname(known), exist_ok=True)
+    os.makedirs(MUX_DIR, mode=0o700, exist_ok=True)
     return subprocess.run(["ssh", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "IPQoS=af41", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-                           "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", "-o", "LogLevel=ERROR",
+                           *MUX, "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", "-o", "LogLevel=ERROR",
                            f"root@{ip}", cmd], capture_output=True, text=True, timeout=timeout, input=inp)
 
 
@@ -375,7 +384,9 @@ def recipe():
     node_major = subprocess.run(["node", "-v"], capture_output=True, text=True).stdout.strip().lstrip("v").split(".")[0] or "22"
     with open(os.path.join(HERE, "user-data.sh.tmpl")) as f:
         t = f.read()
-    return (t.replace("@APT@", " ".join(apt)).replace("@NPM@", " ".join(npm))
+    with open(os.path.join(HERE, "logind-stale-sessions")) as f:
+        guard = f.read().rstrip("\n")
+    return (t.replace("@LOGIND_GUARD@", guard).replace("@APT@", " ".join(apt)).replace("@NPM@", " ".join(npm))
              .replace("@NODE_MAJOR@", node_major).replace("@COMMIT@", commit_of_mac()))
 
 
@@ -827,6 +838,7 @@ def memory_held(state, now):
 
 
 def giro():
+    sweep_stale_bundles()
     with Lock("giro"):
         state = load_state()
         now = time.time()
@@ -911,6 +923,7 @@ def giro():
 
 
 def hook():
+    sweep_stale_bundles()
     try:
         payload = json.load(sys.stdin)
     except Exception:
@@ -952,6 +965,55 @@ def hook():
     return 0
 
 
+BUNDLE_SUFFIX = ".bundle"
+# Longer than the worst live bundle: 300 s to create it plus 600 s of scp.
+STALE_BUNDLE_S = 3600
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def sweep_stale_bundles(now=None, state_dir=None):
+    """Remove the bundles a previous run left in the state dir: the process that wrote one is gone,
+    or it is older than any live transfer. Returns the names removed. Runs at the start of every
+    `giro` and `hook`, so a leak from before the try/finally (or a SIGKILL) is gone within a minute."""
+    now = time.time() if now is None else now
+    d = state_dir or ST
+    removed = []
+    try:
+        names = os.listdir(d)
+    except FileNotFoundError:
+        return removed
+    for f in names:
+        if not f.endswith(BUNDLE_SUFFIX):
+            continue
+        path = os.path.join(d, f)
+        pid_part = f[: -len(BUNDLE_SUFFIX)].rsplit("-", 1)[-1]
+        pid = int(pid_part) if pid_part.isdigit() else None
+        try:
+            age = now - os.path.getmtime(path)
+        except FileNotFoundError:
+            continue
+        mine = pid == os.getpid()
+        if mine or (pid is not None and _pid_alive(pid) and age < STALE_BUNDLE_S):
+            continue
+        try:
+            os.remove(path)
+            removed.append(f)
+        except FileNotFoundError:
+            pass
+    if removed:
+        log(f"bundle rimasti tolti: {len(removed)}")
+    return removed
+
+
 def sync_repo(sl, origin, repo, git_name, git_email):
     """Il ramo di default del repo va sul nodo con un git bundle (anche i repo privati: il nodo non ha token).
     Il clone sul nodo firma i suoi commit con l'identità di QUESTO checkout (letta dal Mac dal dispatcher),
@@ -962,20 +1024,28 @@ def sync_repo(sl, origin, repo, git_name, git_email):
     head = subprocess.run(["git", "-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], capture_output=True, text=True).stdout.strip() or "origin/main"
     branch = head.split("/", 1)[1]
     ref = f"refs/remotes/origin/{branch}"
-    bundle = os.path.join(ST, f"{name}-{os.getpid()}.bundle")
-    b = subprocess.run(["git", "-C", repo, "bundle", "create", bundle, ref], capture_output=True, text=True, timeout=300)
-    if b.returncode != 0:
-        raise SystemExit(f"node-pool: git bundle fallito: {b.stderr[-200:]}")
-    _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
-    known = known_file(sl['ip'])
-    subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", bundle, f"root@{sl['ip']}:/tmp/{os.path.basename(bundle)}"], check=True, timeout=600)
-    os.remove(bundle)
+    bundle = os.path.join(ST, f"{name}-{os.getpid()}{BUNDLE_SUFFIX}")
+    # The local bundle goes in every outcome: a failed or timed-out scp used to leave it here,
+    # and nothing else ever removed it (26 bundles, 2.7 GB in ten days).
+    try:
+        b = subprocess.run(["git", "-C", repo, "bundle", "create", bundle, ref], capture_output=True, text=True, timeout=300)
+        if b.returncode != 0:
+            raise SystemExit(f"node-pool: git bundle fallito: {b.stderr[-200:]}")
+        _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
+        known = known_file(sl['ip'])
+        subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", bundle, f"root@{sl['ip']}:/tmp/{os.path.basename(bundle)}"], check=True, timeout=600)
+    finally:
+        try:
+            os.remove(bundle)
+        except FileNotFoundError:
+            pass
     # base64, not shell-quoted: a name/email may carry an apostrophe, and this whole block already
     # sits inside a single-quoted `su -c '...'` that a stray one would break out of.
     name64 = base64.b64encode(git_name.encode()).decode()
     email64 = base64.b64encode(git_email.encode()).decode()
     script = f"""set -e
 B=/tmp/{os.path.basename(bundle)}
+trap 'rm -f $B' EXIT
 chmod 644 $B
 su - topics -c '
 set -e

@@ -109,16 +109,16 @@ export function usePlanUsage(): PlanUsage | null {
   return useSyncExternalStore(subscribe, () => current, () => current);
 }
 
-/** Test seam: feed a frame as the socket would. */
+/** @internal Test seam: feed a frame as the socket would. */
 export const _adoptForTests = adopt;
 
-/** Test seam: the snapshot a mounted component would read, without React. */
+/** @internal Test seam: the snapshot a mounted component would read, without React. */
 export const _readForTests = (): PlanUsage | null => current;
 
-/** Test seam: subscribe as the hook does, to watch the store announce a change. */
+/** @internal Test seam: subscribe as the hook does, to watch the store announce a change. */
 export const _subscribeForTests = subscribe;
 
-/** Test seam: drop the reading and its timer, so one test cannot leak into the next. */
+/** @internal Test seam: drop the reading and its timer, so one test cannot leak into the next. */
 export function _resetForTests(): void {
   if (expiry !== null) {
     clearTimeout(expiry);

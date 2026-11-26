@@ -22,7 +22,7 @@ import type { AttentionReason, AttentionSeenItem, AttentionTask } from '../../..
 import { notificationTargetUrl } from '../../../shared/notification-log';
 import { attentionOf, type AttentionRows } from '../state/attention';
 import { chromeAttentionSubjects } from '../state/attentionTotal';
-import { getProjectLabel } from './buildSidebarItems';
+import { getProjectLabel } from './projectLabel';
 
 export type InboxKind = 'chat' | 'terminal' | 'card';
 
@@ -159,6 +159,27 @@ export function inboxModel(
     working.push(item);
   }
   return { waiting, finished, working };
+}
+
+/**
+ * The foot's rows: the sessions of Topics at work, as the System level and the
+ * identity pill count them (`activeAgentRowsFrom`), each with the first job it
+ * waits on. One rule for «who is at work», whoever asks (`state/atWork`).
+ */
+export function quietItemsOf(
+  rows: readonly { id: string; kind: 'terminal' | 'topic'; label: string }[],
+  attention: AttentionRows,
+): InboxQuietItem[] {
+  return rows.map((r) => {
+    const kind: InboxKind = r.kind === 'topic' ? 'chat' : 'terminal';
+    const subject = `${r.kind}:${r.id}`;
+    const a = attentionOf(attention, subject);
+    return {
+      subject, kind, id: r.id, title: r.label || r.id,
+      firstTask: a.background.find((t) => !t.recurring) ?? a.background[0] ?? null,
+      url: urlOf(kind, r.id),
+    };
+  });
 }
 
 /** The seen items of «Mark all seen»: exactly the finished rows listed. */

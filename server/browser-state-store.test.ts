@@ -10,7 +10,6 @@ import { join } from "path";
 import {
   saveStorageState,
   loadStorageState,
-  deleteStorageState,
   debouncedSaver,
   saveLastUrl,
   loadLastUrl,
@@ -96,19 +95,6 @@ test("round-trips session cookie with expires=-1", async () => {
   expect(loaded!.cookies[0].name).toBe("PHPSESSID");
 });
 
-test("deleteStorageState removes file and empty parent dir", async () => {
-  await saveStorageState(TEST_TOPIC, FIXTURE_STATE);
-  expect(existsSync(TEST_DIR())).toBe(true);
-  await deleteStorageState(TEST_TOPIC);
-  expect(existsSync(TEST_DIR())).toBe(false);
-});
-
-test("deleteStorageState is idempotent on missing topic", async () => {
-  await deleteStorageState(TEST_TOPIC);
-  await deleteStorageState(TEST_TOPIC);  // second call must not throw
-  expect(existsSync(TEST_DIR())).toBe(false);
-});
-
 test("topicId with unsafe chars is sanitized", async () => {
   const unsafe = "../../etc/passwd";
   await saveStorageState(unsafe, FIXTURE_STATE);
@@ -175,13 +161,6 @@ test("loadLastUrl returns null when nothing persisted or file corrupt", () => {
   expect(loadLastUrl(TEST_TOPIC)).toBeNull();
   saveLastUrl(TEST_TOPIC, "https://example.com");
   writeFileSync(join(TEST_DIR(), "last-url.json"), "not-json");
-  expect(loadLastUrl(TEST_TOPIC)).toBeNull();
-});
-
-test("deleteStorageState also removes the persisted last url", async () => {
-  await saveStorageState(TEST_TOPIC, FIXTURE_STATE);
-  saveLastUrl(TEST_TOPIC, "https://example.com");
-  await deleteStorageState(TEST_TOPIC);
   expect(loadLastUrl(TEST_TOPIC)).toBeNull();
 });
 

@@ -243,12 +243,6 @@ export function serializeReviewChecks(checks: ReviewCheck[]): string | null {
   return clean.length ? JSON.stringify(clean) : null;
 }
 
-/** Le ultime `TAIL_LINES` righe non vuote in coda, che è dove sta l'errore. */
-export function tailOf(text: string, lines = TAIL_LINES): string {
-  const rows = text.replace(/\s+$/, "").split("\n");
-  return rows.slice(Math.max(0, rows.length - lines)).join("\n");
-}
-
 /**
  * A bun test run ends with a wall of `(pass)` and `(skip)` lines, and the tail
  * is a fixed number of lines: on a suite with dozens of skips the wall is the
@@ -836,7 +830,10 @@ export function checksVerdict(runs: CheckRun[], expected?: number): "pass" | "fa
   // Un SOLO rosso vero basta a dire rosso, anche se altri sono scaduti: c'e' un
   // guasto misurato, e quello si guarda. Il verso opposto — un rosso nascosto
   // da un timeout — sarebbe il difetto.
-  return runs.some((r) => !r.ok && !r.timedOut && !r.notMeasured) ? "fail" : "unknown";
+  // A `spawnError` sits with `timedOut` and `notMeasured`: the command never
+  // started at all (gone cwd, missing binary), so it measured nothing about
+  // the delivery's code.
+  return runs.some((r) => !r.ok && !r.timedOut && !r.notMeasured && !r.spawnError) ? "fail" : "unknown";
 }
 
 /**
@@ -911,7 +908,7 @@ function ciRedWhy(row: CheckRun): string {
  * 98867792 on 17/11/2026).
  */
 function headlineFailure(runs: CheckRun[]): CheckRun | undefined {
-  return runs.find((r) => !r.ok && !r.notMeasured && !r.timedOut) ?? runs.find((r) => !r.ok);
+  return runs.find((r) => !r.ok && !r.notMeasured && !r.timedOut && !r.spawnError) ?? runs.find((r) => !r.ok);
 }
 
 export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string | null }): string {
@@ -958,6 +955,21 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
         "Quasi sempre e' un worktree senza le dipendenze del client (`cd client && bun install`).",
     ].join("\n\n");
   }
+  // A command that never STARTED at all (gone checkout, missing binary)
+  // measured nothing about the code: calling it red would send someone
+  // hunting for a bug that is not there. The red-bounce reads `checksVerdict`,
+  // not this text: the card stays out of the counted rounds until there is a
+  // real checkout to measure on.
+  if (!ci && failed.spawnError) {
+    return [
+      `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` non è partito (${failed.spawnError}).`,
+      runs.map(line).join("\n"),
+      `Comando: \`${failed.cmd}\``,
+      failed.tail ? "```\n" + failed.tail + "\n```" : "(nessun output)",
+      "Non è un fallimento del codice: il comando non è nemmeno partito, quasi sempre perché il checkout su cui misura è sparito. " +
+        "Non serve rimettere mano al codice: la prossima misura riparte da un checkout nuovo.",
+    ].join("\n\n");
+  }
   if (checksVerdict(runs) === "unknown") {
     return [
       `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` è stato fermato oltre il tempo massimo.`,
@@ -968,7 +980,7 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
         "Rimetti il task in review quando c'è meno traffico, oppure fallo girare a mano e allega l'esito.",
     ].join("\n\n");
   }
-  const why = ci ? ciRedWhy(failed) : failed.spawnError ? `non è partito: ${failed.spawnError}` : `exit ${failed.code}`;
+  const why = ci ? ciRedWhy(failed) : `exit ${failed.code}`;
   return [
     `**Checks pre-review ROSSI**${where}: \`${failed.name}\` ${why}.`,
     runs.map(line).join("\n"),
@@ -996,10 +1008,11 @@ export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: st
   const check = failed.name !== failed.cmd && failed.name.length <= 64 ? `\`${failed.name}\`` : `check ${position}`;
   const ci = isCiEvidenceCheck(failed);
   if (failed.notMeasured) return `Checks pre-review non misurati${where}: ${check} ${ci ? "non ha un esito della CI per questo commit" : "non è partito"}.`;
+  if (!ci && failed.spawnError) return `Checks pre-review non misurati${where}: ${check} non è partito (checkout sparito).`;
   if (checksVerdict(runs) === "unknown") {
     return `Checks pre-review non misurati${where}: ${check} è scaduto.`;
   }
-  const why = ci ? ciRedWhy(failed) : failed.spawnError ? "non è partito" : `exit ${failed.code}`;
+  const why = ci ? ciRedWhy(failed) : `exit ${failed.code}`;
   return `Consegna fermata dai controlli automatici${where}: ${check} ${why}. Apri i dettagli dei check per comando e log.`;
 }
 
@@ -1010,12 +1023,32 @@ export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: st
  */
 export const FAST_GATES_CHECK: ReviewCheck = { name: "gates:fast", cmd: "bun run gates:fast" };
 
-/** Does this checkout declare the `gates:fast` script? Other projects do not. */
-export function hasFastGates(cwd: string): boolean {
+/** Does this checkout declare the package.json script `name`? Other projects do not. */
+export function hasScript(cwd: string, name: string): boolean {
   try {
     const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8")) as { scripts?: Record<string, string> };
-    return typeof pkg.scripts?.["gates:fast"] === "string";
+    return typeof pkg.scripts?.[name] === "string";
   } catch {
     return false;
   }
+}
+
+/** Does this checkout declare the `gates:fast` script? Other projects do not. */
+export function hasFastGates(cwd: string): boolean {
+  return hasScript(cwd, "gates:fast");
+}
+
+/**
+ * The unit tests of the files a delivery touched, run on the machine that runs
+ * the pre-review (CI runs on Linux only: a test written on another OS and never
+ * run, or a path limit of this OS, shows up here and nowhere else). The server
+ * never names a test or a selector: the project declares the script, which
+ * picks the tests from its own diff, and a project without it is measured as
+ * before. Never the whole suite: that stays with the CI.
+ */
+export const TOUCHED_TESTS_CHECK: ReviewCheck = { name: "test:touched:review", cmd: "bun run test:touched:review" };
+
+/** Does this checkout declare the touched-tests script? */
+export function hasTouchedTests(cwd: string): boolean {
+  return hasScript(cwd, TOUCHED_TESTS_CHECK.name);
 }

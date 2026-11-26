@@ -11,7 +11,8 @@
  * Two questions, two functions, both pure so the precedence is testable without
  * mounting a tab bar:
  *  · the SIGNAL at rest (TABSLOT-02): freeze > working > attention > nothing,
- *    with working and attention together drawn as the ring around the number;
+ *    with working and attention together drawn as the ring around the number,
+ *    and working alone around the number of agents at work, when there are any;
  *  · the COMMAND the slot becomes on hover or keyboard focus (CHROME-12): stop
  *    while a turn can be stopped, close otherwise, never both side by side.
  */
@@ -19,22 +20,29 @@
 export type TabSlotSignal =
   /** Topics has paused this session's command to save memory. */
   | { kind: 'freeze' }
-  /** Something is running. `count` > 0 draws the ring around the number. */
-  | { kind: 'working'; count: number }
+  /**
+   * Something is running. `count` > 0 draws the ring around the number of
+   * what asks for you; otherwise `agents` > 0 draws it around the number of
+   * agents at work for it (its sub-agents, at any depth).
+   */
+  | { kind: 'working'; count: number; agents: number }
   /** Something asks for you and nothing runs. */
   | { kind: 'attention'; count: number }
   | { kind: 'none' };
 
-export function tabSlotSignal({ frozen, working, attention }: {
+export function tabSlotSignal({ frozen, working, attention, agents = 0 }: {
   frozen: boolean;
   working: boolean;
   /** How many things ask for you (unread, awaiting, cards in review). */
   attention: number;
+  /** How many agents work for this tab's subject (`agentsAtWorkUnder`). */
+  agents?: number;
 }): TabSlotSignal {
   // A frozen command is not working, and a ring over it would say it is.
   if (frozen) return { kind: 'freeze' };
   const count = Math.max(0, attention);
-  if (working) return { kind: 'working', count };
+  // What asks for you outranks how many work: the agents' number is then in the tooltip.
+  if (working) return { kind: 'working', count, agents: count > 0 ? 0 : Math.max(0, agents) };
   if (count > 0) return { kind: 'attention', count };
   return { kind: 'none' };
 }

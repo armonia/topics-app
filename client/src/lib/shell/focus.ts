@@ -136,7 +136,7 @@ export function focusGateState(): FocusGateState {
 export const FULL_DISK_ACCESS_URL =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles';
 
-/** Reset the cached state to the safe default. Test-only. */
+/** @internal Reset the cached state to the safe default. Test-only. */
 export function __resetFocusForTests(): void {
   cache = { supported: false, active: false, reason: 'unknown' };
   queried = false;

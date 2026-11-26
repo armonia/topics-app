@@ -190,6 +190,32 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
   // bottone morto.
   const { readJSON, json, errorResponse, resolveProjectPath } = ctx;
 
+  // Shared request prologues. Every path still goes through resolveProjectPath,
+  // so the "Invalid path" guard sits on every route that used to repeat it.
+  /** GET: the `path` query param resolved to a project path, or the error Response. */
+  const queryPath = (url: URL): string | Response => {
+    const raw = url.searchParams.get("path");
+    if (!raw) return json({ error: "path parameter required" }, 400);
+    return resolveProjectPath(raw) ?? errorResponse(400, "Invalid path");
+  };
+  // The body keeps the type ctx.readJSON gives it: the routes read it as they did inline.
+  type JsonBody = Awaited<ReturnType<typeof readJSON>>;
+  /** POST/DELETE: the JSON body plus its `path` resolved, or the error Response. */
+  const readPathBody = async (req: Request): Promise<{ body: JsonBody; resolved: string } | Response> => {
+    const body = await readJSON(req);
+    if (!body?.path) return json({ error: "path required" }, 400);
+    const resolved = resolveProjectPath(body.path);
+    return resolved ? { body, resolved } : errorResponse(400, "Invalid path");
+  };
+  /** Same as `readPathBody`, for the stage/unstage/discard routes that also take `file` or `files`. */
+  const readPathFilesBody = async (req: Request): Promise<{ body: JsonBody; resolved: string; files: string[] } | Response> => {
+    const body = await readJSON(req);
+    const files: string[] = body?.files ?? (body?.file ? [body.file] : []);
+    if (!body?.path || files.length === 0) return json({ error: "path and file(s) required" }, 400);
+    const resolved = resolveProjectPath(body.path);
+    return resolved ? { body, resolved, files } : errorResponse(400, "Invalid path");
+  };
+
   return async function filesRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
     // --- File explorer ---
@@ -392,10 +418,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git status ---
     if (method === "GET" && pathname === "/api/git/status") {
-      const dirPath = url.searchParams.get("path");
-      if (!dirPath) return json({ error: "path parameter required" }, 400);
-      const resolvedDir = resolveProjectPath(dirPath);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const resolvedDir = queryPath(url);
+      if (resolvedDir instanceof Response) return resolvedDir;
       try {
         // Server-side cache check (TTL and eviction live in the cache module).
         // The watcher fills it too after every push (`refreshGitStatus`), so
@@ -515,10 +539,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git branches ---
     if (method === "GET" && pathname === "/api/git/branches") {
-      const dirPath = url.searchParams.get("path");
-      if (!dirPath) return json({ error: "path parameter required" }, 400);
-      const resolvedDir = resolveProjectPath(dirPath);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const resolvedDir = queryPath(url);
+      if (resolvedDir instanceof Response) return resolvedDir;
       try {
         // La classificazione delle ref vive in `lib/git-branch-refs.ts`, dove è
         // coperta da test sull'output vero di un clone con due remote: è la
@@ -647,11 +669,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git stage (single file or batch) ---
     if (method === "POST" && pathname === "/api/git/stage") {
-      const body = await readJSON(req);
-      const files: string[] = body?.files ?? (body?.file ? [body.file] : []);
-      if (!body?.path || files.length === 0) return json({ error: "path and file(s) required" }, 400);
-      const resolvedDir = resolveProjectPath(body.path);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const parsed = await readPathFilesBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedDir, files } = parsed;
       try {
         // Batch all pathspecs into one `git add` — git accepts many at once,
         // so a large stage is a single process spawn instead of N serialized
@@ -674,10 +694,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git stage all ---
     if (method === "POST" && pathname === "/api/git/stage-all") {
-      const body = await readJSON(req);
-      if (!body?.path) return json({ error: "path required" }, 400);
-      const resolvedDir = resolveProjectPath(body.path);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const parsed = await readPathBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedDir } = parsed;
       // L'exit code va LETTO. Prima si rispondeva `ok:true` comunque: con un
       // `index.lock` addosso — un agente che committa in parallelo, cosa
       // normale qui — l'utente cliccava, non vedeva errori, e il pannello si
@@ -701,10 +720,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git diff summary (auto commit message) ---
     if (method === "GET" && pathname === "/api/git/diff-summary") {
-      const dirPath = url.searchParams.get("path");
-      if (!dirPath) return json({ error: "path parameter required" }, 400);
-      const resolvedDir = resolveProjectPath(dirPath);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const resolvedDir = queryPath(url);
+      if (resolvedDir instanceof Response) return resolvedDir;
       try {
         // Get diff stat for staged + unstaged
         const statProc = spawnBounded(gitRead("diff", "--stat", "HEAD"), { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
@@ -745,11 +762,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git unstage (single file or batch) ---
     if (method === "POST" && pathname === "/api/git/unstage") {
-      const body = await readJSON(req);
-      const files: string[] = body?.files ?? (body?.file ? [body.file] : []);
-      if (!body?.path || files.length === 0) return json({ error: "path and file(s) required" }, 400);
-      const resolvedDir = resolveProjectPath(body.path);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const parsed = await readPathFilesBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedDir, files } = parsed;
       try {
         // Batch into one `git reset HEAD --` (see /api/git/stage); fall back to
         // per-file only on a non-zero batch exit to attribute the failures.
@@ -770,10 +785,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git unstage all ---
     if (method === "POST" && pathname === "/api/git/unstage-all") {
-      const body = await readJSON(req);
-      if (!body?.path) return json({ error: "path required" }, 400);
-      const resolvedDir = resolveProjectPath(body.path);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const parsed = await readPathBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedDir } = parsed;
       try {
         // Scopato alla cartella aperta, per lo stesso motivo di `stage-all`:
         // togliere dallo stage roba che qui dentro non si vede sarebbe
@@ -794,11 +808,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git discard file changes (single or batch, restore working tree) ---
     if (method === "POST" && pathname === "/api/git/discard") {
-      const body = await readJSON(req);
-      const files: string[] = body?.files ?? (body?.file ? [body.file] : []);
-      if (!body?.path || files.length === 0) return json({ error: "path and file(s) required" }, 400);
-      const resolvedDir = resolveProjectPath(body.path);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const parsed = await readPathFilesBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedDir, files } = parsed;
       try {
         const failed: string[] = [];
         for (const file of files) {
@@ -872,10 +884,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git pull ---
     if (method === "POST" && pathname === "/api/git/pull") {
-      const body = await readJSON(req);
-      if (!body?.path) return json({ error: "path required" }, 400);
-      const resolvedDir = resolveProjectPath(body.path);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const parsed = await readPathBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedDir } = parsed;
       try {
         const r = await runNetworkGit(["git", "pull"], resolvedDir, 120_000);
         if (r.timedOut) return json({ error: "Pull: the remote is not answering (timeout)" }, 504);
@@ -894,10 +905,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
     // proprio su `behind > 0`, era irraggiungibile: un collega pusha su main e
     // qui non se ne accorge nessuno. È il motivo per cui VS Code fa autofetch.
     if (method === "POST" && pathname === "/api/git/fetch") {
-      const body = await readJSON(req);
-      if (!body?.path) return json({ error: "path required" }, 400);
-      const resolvedDir = resolveProjectPath(body.path);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const parsed = await readPathBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedDir } = parsed;
       try {
         // `--prune`: senza, i rami cancellati sul remote restano nella lista per
         // sempre e si può fare checkout di qualcosa che non esiste più.
@@ -917,10 +927,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git push ---
     if (method === "POST" && pathname === "/api/git/push") {
-      const body = await readJSON(req);
-      if (!body?.path) return json({ error: "path required" }, 400);
-      const resolvedDir = resolveProjectPath(body.path);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const parsed = await readPathBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedDir } = parsed;
       try {
         // Resolve current branch and remote explicitly to avoid "multiple upstream branches" errors
         const branchProc = spawnBounded(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
@@ -1006,10 +1015,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- File create (new file or dir) ---
     if (method === "POST" && pathname === "/api/files/create") {
-      const body = await readJSON(req);
-      if (!body?.path) return json({ error: "path required" }, 400);
-      const resolvedFile = resolveProjectPath(body.path);
-      if (!resolvedFile) return errorResponse(400, "Invalid path");
+      const parsed = await readPathBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { body, resolved: resolvedFile } = parsed;
       if (existsSync(resolvedFile)) return json({ error: "Path already exists" }, 409);
       try {
         if (body.type === "dir") {
@@ -1045,10 +1053,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- File delete ---
     if (method === "DELETE" && pathname === "/api/files/delete") {
-      const body = await readJSON(req);
-      if (!body?.path) return json({ error: "path required" }, 400);
-      const resolvedFile = resolveProjectPath(body.path);
-      if (!resolvedFile) return errorResponse(400, "Invalid path");
+      const parsed = await readPathBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedFile } = parsed;
       if (!existsSync(resolvedFile)) return json({ error: "Path not found" }, 404);
       try {
         // Nel cestino, non `rm -rf`. Vale per file e cartelle allo stesso modo:
@@ -1117,10 +1124,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- File duplicate ---
     if (method === "POST" && pathname === "/api/files/duplicate") {
-      const body = await readJSON(req);
-      if (!body?.path) return json({ error: "path required" }, 400);
-      const resolvedFile = resolveProjectPath(body.path);
-      if (!resolvedFile) return errorResponse(400, "Invalid path");
+      const parsed = await readPathBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedFile } = parsed;
       if (!existsSync(resolvedFile)) return json({ error: "Path not found" }, 404);
       try {
         const stat = statSync(resolvedFile);
@@ -1191,10 +1197,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Reveal in Finder ---
     if (method === "POST" && pathname === "/api/files/reveal") {
-      const body = await readJSON(req);
-      if (!body?.path) return json({ error: "path required" }, 400);
-      const resolvedFile = resolveProjectPath(body.path);
-      if (!resolvedFile) return errorResponse(400, "Invalid path");
+      const parsed = await readPathBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedFile } = parsed;
       if (!existsSync(resolvedFile)) return json({ error: "Path not found" }, 404);
       try {
         const proc = spawnBounded(["open", "-R", resolvedFile], { stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
@@ -1283,10 +1288,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Package.json scripts ---
     if (method === "GET" && pathname === "/api/files/package-scripts") {
-      const dirPath = url.searchParams.get("path");
-      if (!dirPath) return json({ error: "path parameter required" }, 400);
-      const resolvedPath = resolveProjectPath(dirPath);
-      if (!resolvedPath) return errorResponse(400, "Invalid path");
+      const resolvedPath = queryPath(url);
+      if (resolvedPath instanceof Response) return resolvedPath;
       try {
         // Non piu solo `package.json`: vedi `lib/project-scripts.ts`. Il nome
         // della rotta resta per non rompere i chiamanti, ma quello che
@@ -1309,10 +1312,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- AI commit message (via Gateway LLM) ---
     if (method === "POST" && pathname === "/api/git/ai-commit-message") {
-      const body = await readJSON(req);
-      if (!body?.path) return json({ error: "path required" }, 400);
-      const resolvedDir = resolveProjectPath(body.path);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const parsed = await readPathBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedDir } = parsed;
       try {
         // Check if path is a git repo
         const checkProc = spawnBounded(["git", "rev-parse", "--git-dir"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
@@ -1393,10 +1395,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git init ---
     if (method === "POST" && pathname === "/api/git/init") {
-      const body = await readJSON(req);
-      if (!body?.path) return json({ error: "path required" }, 400);
-      const resolvedDir = resolveProjectPath(body.path);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const parsed = await readPathBody(req);
+      if (parsed instanceof Response) return parsed;
+      const { resolved: resolvedDir } = parsed;
       if (!existsSync(resolvedDir)) return json({ error: "directory not found" }, 404);
       try {
         const proc = spawnBounded(["git", "init"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.write });
@@ -1447,10 +1448,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
     // --- Git remotes ---
     if (method === "GET" && pathname === "/api/git/remotes") {
-      const dirPath = url.searchParams.get("path");
-      if (!dirPath) return json({ error: "path parameter required" }, 400);
-      const resolvedDir = resolveProjectPath(dirPath);
-      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      const resolvedDir = queryPath(url);
+      if (resolvedDir instanceof Response) return resolvedDir;
       try {
         const proc = spawnBounded(["git", "remote", "-v"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const output = (await new Response(proc.stdout).text()).trim();

@@ -7,6 +7,7 @@ import { AlarmClock, AlertTriangle, ArchiveRestore, ArrowRightLeft, CalendarCloc
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { useIsMergedHere } from './mergedBoards';
 import { useToast } from '../Shared/Toast';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
@@ -44,7 +45,7 @@ import { taskTriggerLine } from '../../lib/modelLabel';
 import { machineLabel, useMachines } from '../../state/machinesStore';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { EASE, MOTION } from '../../lib/motion';
-import { COLUMN_FRAME, columnWidthClass, type BoardDensity } from './boardGeometry';
+import { COLUMN_FRAME, COLUMN_FRAME_BARE, columnWidthClass, type BoardDensity } from './boardGeometry';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
@@ -52,7 +53,8 @@ import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState 
 import { TaskCountdown } from './TaskCountdown';
 import { TaskContextChip } from './TaskContextChip';
 import { TaskChildrenChip } from './TaskChildrenChip';
-import { estimatesByProject, type EstimateBasis } from '../../../../shared/task-countdown';
+import type { EstimateBasis } from '../../../../shared/task-countdown';
+import { useCardRenderer } from './useCardRenderer';
 import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
@@ -94,7 +96,7 @@ export function Column(props: ColumnProps) {
   return <ColumnBody {...props} setNodeRef={setNodeRef} isOver={isOver} dragging={active !== null} activeId={active ? String(active.id) : null} />;
 }
 
-type ColumnProps = {
+export type ColumnProps = {
   status: TaskStatus; tasks: BoardTask[];
   /** The workflow column this is, when it is not the plain one of `status` (today only CI). */
   columnId?: string;
@@ -202,28 +204,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
     scroller.addEventListener('scroll', update, { passive: true });
     return () => { resizeObserver.disconnect(); scroller.removeEventListener('scroll', update); };
   }, [virtualized, layout]);
-  const estimateByProject = useMemo(() => estimatesByProject(tasksById.values()), [tasksById]);
-  const renderCard = useCallback((t: BoardTask) => (
-    <Card
-      key={t.id} task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
-      error={cardError?.taskId === t.id ? cardError.message : null}
-      onError={onCardError}
-      sessionState={resolveSession?.(t.assignedTopicId) ?? 'unknown'}
-      paneBoardId={paneBoardId}
-      paneSettings={paneSettings}
-      parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
-      projectPath={projectPathById.get(t.projectId)}
-      live={liveById.get(t.id)}
-      estimate={estimateByProject.get(t.projectId) ?? null}
-      // The live event OR the thread: the first dies with the process, the
-      // second does not, and an unanswered question survives a restart.
-      awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
-      justMovedTo={justMoved.get(t.id)}
-      justCreated={justCreated.has(t.id)}
-      archived={archived}
-      density={density}
-    />
-  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, paneBoardId, paneSettings, tasksById, projectPathById, liveById, estimateByProject, awaitingHuman, justMoved, justCreated, archived, density]);
+  const renderCard = useCardRenderer({ onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, paneBoardId, paneSettings, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived, density }, Card);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the
@@ -299,6 +280,10 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
   // drop target): skip it, so when only one status is populated the list is
   // truly ONE column, not five headers.
   if (layout === 'list' && tasks.length === 0 && !draft) return null;
+  // An empty column keeps its header and its box (same border width, so nothing
+  // shifts) but paints no fill and no line, to lighten the board. While a card
+  // is carried the frame comes back, so every column is visible as a target.
+  const bare = tasks.length === 0 && !draft && !dragging;
   return (
     <div
       ref={setNodeRef}
@@ -310,7 +295,8 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
       // diceva «qui» in un colore che nessun'altra superficie usava.
       data-drop-active={isOver ? 'into' : undefined}
       data-lane-column={inLane || undefined}
-      className={`${COLUMN_FRAME} ${widthCls} ${layout === 'list' ? '' : 'shrink-0'} ${layout === 'list' || inLane ? '' : snapCls}`}
+      data-empty={tasks.length === 0 && !draft ? 'true' : undefined}
+      className={`${bare ? COLUMN_FRAME_BARE : COLUMN_FRAME} ${widthCls} ${layout === 'list' ? '' : 'shrink-0'} ${layout === 'list' || inLane ? '' : snapCls}`}
     >
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-compact leading-4 font-semibold uppercase tracking-wide text-app-text-heading">
@@ -453,6 +439,7 @@ export const Card = memo(function Card(props: CardProps) {
   // drop targeting went with it.
   const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({
     id: props.task.id,
+    disabled: props.dragDisabled,
     // The neighbours' reflow runs on the app's tokens, not dnd-kit's default
     // `200ms ease`, and not at all when the person asked for less motion.
     transition: prefersReducedMotion() ? null : SORTABLE_TRANSITION,
@@ -462,7 +449,8 @@ export const Card = memo(function Card(props: CardProps) {
       {...props}
       boardTopicsRoutingDefault={cardSettings?.dispatchTopicsRouting ?? null}
       setNodeRef={setNodeRef}
-      dragAttributes={attributes}
+      // A card that cannot be dragged (the merged column) still opens on a click: dnd-kit's aria-disabled would tell a screen reader it is inert.
+      dragAttributes={props.dragDisabled ? { ...attributes, 'aria-disabled': false } : attributes}
       dragListeners={listeners}
       isDragging={isDragging}
       dragTransform={reflowTransform(transform, isDragging)}
@@ -486,6 +474,8 @@ type CardProps = {
   /** Estimate learned from the project's closed cards; null = none. */
   estimate?: EstimateBasis | null;
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
+  /** The card cannot be picked up (the merged column: no status to move between); a click still opens it. */
+  dragDisabled?: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
    *  spesso fuori dal viewport, e da lassù un `approve` rifiutato sembrava un
@@ -528,7 +518,7 @@ type CardProps = {
   density?: BoardDensity;
 };
 
-const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
+const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showProject: showProjectOwn, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragDisabled = false, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
@@ -913,6 +903,9 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
   // Human-readable project label = the dirName prefix before the id hash.
   // Project-less = truly unassigned OR the catch-all board (which runs the task
   // standalone). Both render with NO chip — the "generale" label is noise.
+  // A card of a project merged into this board (accorpa) says which project it is.
+  const mergedHere = useIsMergedHere(task.projectId);
+  const showProject = showProjectOwn || mergedHere;
   const unassigned = isProjectlessId(task.projectId);
   const projectLabel = task.projectId.replace(/-[^-]+$/, '');
   // A task in review is the APPROVAL surface, never the "steer a working agent"
@@ -1175,7 +1168,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
       // box spanned the whole board outside the column clip, paid on every drag
       // frame (main thread per pass ~360 -> ~290 ms, board-drag-frames.spec.ts).
       data-density={density}
-      className={`group relative cursor-grab rounded-md border border-app-border bg-surface ${compact ? 'px-2 py-1.5' : 'p-2.5'} text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
+      className={`group relative ${dragDisabled ? 'cursor-pointer' : 'cursor-grab'} rounded-md border border-app-border bg-surface ${compact ? 'px-2 py-1.5' : 'p-2.5'} text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
       {/* THE FROST, first child and under everything else: `.swap-ice-host`
           lifts every other child one layer, so the text stays above it and
@@ -1671,10 +1664,6 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
             ><Clock className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
         </div>
-      )}
-      {/* The first of the four plain-words lines the system wrote for the person («Per te»). */}
-      {!titleOnly && task.status === 'review' && task.forYou && !(compact && pending) && (
-        <p data-testid="card-for-you" className="mt-1 line-clamp-2 break-words text-compact leading-snug font-medium text-app-text" title={task.forYou.remains}>{task.forYou.asked}</p>
       )}
       {/* COMPACT: a question with quick replies shows both (`CompactQuestion`). */}
       {compact && !titleOnly && task.status === 'review' && pending && (

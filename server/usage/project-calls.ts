@@ -21,7 +21,8 @@
  * names the project, the folder is only the fallback.
  */
 import type { Database } from "bun:sqlite";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
+import { readTranscript } from "./transcript-calls";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { modelPrice } from "../../shared/model-pricing";
@@ -131,6 +132,7 @@ export function collectProjectCalls(db: Database, folders: FolderResolver, o: Co
   collectNative(db, owners, o, push, chatSurface);
   collectTranscripts(owners, o, push, chatSurface);
   collectRecords(db, owners, o, push);
+  collectNodeCards(db, o, calls, folders);
   return calls;
 }
 
@@ -177,6 +179,36 @@ function collectTranscripts(owners: Owners, o: CollectOptions, push: Push, chatS
   }
 }
 
+/**
+ * Cards whose run happened on a node: the spend never touched this machine's
+ * messages or transcripts, it arrives as the card's own ledger (`agent_spend`,
+ * fed by the node's report). Each booking is a call of its weight in the card's
+ * project. A card with tokens but no ledger (the node could not price it) counts
+ * once, at its last update, weighed by its tokens.
+ */
+function collectNodeCards(db: Database, o: CollectOptions, calls: QuotaCall[], folders: FolderResolver): void {
+  const cards = db.query(
+    `SELECT id, project_id, updated_at, COALESCE(agent_tokens,0) tokens, COALESCE(agent_cache_read_tokens,0) cr
+     FROM tasks WHERE node_run_id IS NOT NULL AND (COALESCE(agent_tokens,0) > 0 OR COALESCE(agent_cost_cents,0) > 0)`,
+  ).all() as Array<{ id: string; project_id: string | null; updated_at: string; tokens: number; cr: number }>;
+  const ledger = db.query("SELECT at, cents FROM agent_spend WHERE task_id = ? AND cents > 0");
+  for (const c of cards) {
+    const where = { projectId: c.project_id, projectPath: c.project_id ? folders.pathOfId(c.project_id) : null, chatId: null, surface: "card" as const };
+    const rows = ledger.all(c.id) as Array<{ at: string; cents: number }>;
+    if (rows.length === 0) {
+      const ts = Date.parse(c.updated_at);
+      if (Number.isFinite(ts) && ts > o.sinceMs && ts <= o.untilMs) {
+        calls.push({ ...where, ts, weight: callWeight(null, { input: c.tokens, output: 0, cacheWrite: 0, cacheRead: c.cr }) });
+      }
+      continue;
+    }
+    for (const r of rows) {
+      const ts = Date.parse(r.at);
+      if (Number.isFinite(ts) && ts > o.sinceMs && ts <= o.untilMs) calls.push({ ...where, ts, weight: r.cents * 10_000 });
+    }
+  }
+}
+
 /** One-shot calls (a card title, a stall judge): they ran for a chat, so they count for its project. */
 function collectRecords(db: Database, owners: Owners, o: CollectOptions, push: Push): void {
   const records = db.query(
@@ -216,34 +248,6 @@ export function listTranscripts(root: string = join(homedir(), ".claude", "proje
       if (e.isDirectory()) walk(path, e.name, 0);
       else if (e.name.endsWith(".jsonl")) add(path, e.name.slice(0, -".jsonl".length), false);
     }
-  }
-  return out;
-}
-
-/** One transcript's calls: one per `message.id` (per-block lines repeat), with the model and the `cwd` the line itself carries. */
-export function readTranscript(path: string): Array<{ ts: number; tokens: CallTokens; model: string | null; cwd: string | null }> {
-  let raw: string;
-  try { raw = readFileSync(path, "utf8"); } catch { return []; }
-  const seen = new Set<string>();
-  const out: Array<{ ts: number; tokens: CallTokens; model: string | null; cwd: string | null }> = [];
-  for (const line of raw.split("\n")) {
-    if (!line.includes('"usage"')) continue;
-    let o: { type?: string; uuid?: string; timestamp?: string; cwd?: string; message?: { id?: string; model?: string; usage?: Record<string, unknown> } };
-    try { o = JSON.parse(line); } catch { continue; }
-    const u = o?.message?.usage;
-    if (o?.type !== "assistant" || !u) continue;
-    const id = o.message?.id ?? o.uuid;
-    if (id && seen.has(id)) continue;
-    if (id) seen.add(id);
-    const ts = Date.parse(o.timestamp ?? "");
-    if (!Number.isFinite(ts)) continue;
-    const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-    const cacheWrite = n(u.cache_creation_input_tokens);
-    const model = o.message?.model && o.message.model !== "<synthetic>" ? o.message.model : null;
-    out.push({
-      ts, model, cwd: o.cwd || null,
-      tokens: { input: n(u.input_tokens), output: n(u.output_tokens), cacheWrite, cacheRead: n(u.cache_read_input_tokens), cacheWrite1h: n((u.cache_creation as Record<string, unknown> | undefined)?.ephemeral_1h_input_tokens) },
-    });
   }
   return out;
 }

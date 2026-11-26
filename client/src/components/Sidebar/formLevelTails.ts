@@ -36,28 +36,6 @@ export interface Tail {
   warn: boolean;
 }
 
-/**
- * THE TOPICS PLAN, and its expiry when it is close enough to name.
- *
- * «Free» and «Team · 5 seats». The expiry leads it only inside the same thirty days
- * the Plan level itself uses (`scadenzaVicina`): a countdown that starts a year
- * out is noise, and noise teaches people not to read the tail at all.
- */
-export function planTail(plan: LicensePlan | null, now: number, tr: Translate): Tail | null {
-  if (!plan) return null;
-  const base = plan.plan === 'team'
-    ? (plan.seats === 1 ? tr('userMenu.plan.teamOne') : tr('userMenu.plan.team', { n: plan.seats }))
-    : tr('userMenu.plan.free');
-  if (!scadenzaVicina(plan.expiresAt, now)) return { text: base, warn: false };
-  const days = giorniAllaScadenza(plan.expiresAt, now) ?? 0;
-  const expiry = days < 0
-    ? tr('userMenu.plan.expired')
-    : days === 0 ? tr('userMenu.plan.expiresToday') : tr('userMenu.plan.expiresIn', { n: days });
-  // The warning LEADS: the tail truncates at its right end, and in a 288 px
-  // menu the seats pushed the expiry past it. What is cut now is the seats.
-  return { text: `${expiry} · ${base}`, warn: true };
-}
-
 /** The Plan row's label: the plan's name where the word «Plan» is, not a «Team» on the right. */
 export function planRowLabel(plan: LicensePlan | null, tr: Translate): string {
   return plan?.plan === 'team' ? tr('userMenu.plan.rowTeam') : tr(plan ? 'userMenu.plan.rowFree' : 'settings.section.plan');
@@ -150,34 +128,6 @@ export function claudePlanWarning(
   return week >= five
     ? tr('home.claudeWeek', { pct: Math.round(week) })
     : tr('ai.selector.plan.fiveHour', { pct: Math.round(five) });
-}
-
-/** Is this provider one whose models run on the Claude subscription? */
-export function runsOnClaudePlan(provider: string | null | undefined): boolean {
-  return !!provider && CLAUDE_SUBSCRIPTION_PROVIDERS.has(provider);
-}
-
-/**
- * THE CLAUDE PLAN IN ONE SHORT LINE, beside the Claude models of a selector:
- * «Max 20x · 5 h al 42%». The plan alone without a reading, the reading alone
- * without a known plan, nothing with neither.
- */
-export function claudePlanCompact(
-  sub: ProviderSnapshotEntry['subscription'] | null | undefined,
-  fiveHour: { utilization: number } | null | undefined,
-  tr: Translate,
-  sevenDay?: { utilization: number } | null,
-): Tail | null {
-  const plan = subscriptionLabel(sub);
-  const usage = fiveHour ? tr('home.claudeUsage', { pct: Math.round(fiveHour.utilization) }) : null;
-  // The week after the five hours (CMDUI-05): its block stops work for days,
-  // and the figure arrives with the same reading.
-  const week = sevenDay ? tr('home.claudeWeek', { pct: Math.round(sevenDay.utilization) }) : null;
-  const parts = [plan, usage, week].filter((p): p is string => !!p);
-  if (!plan && !usage && !week) return null;
-  const text = parts.join(' · ');
-  const warn = (!!fiveHour && fiveHour.utilization >= PLAN_USAGE_WARN_AT) || (!!sevenDay && sevenDay.utilization >= PLAN_USAGE_WARN_AT);
-  return { text, warn };
 }
 
 /** How many MCP servers are mounted and answering. A fleet never mounted (or

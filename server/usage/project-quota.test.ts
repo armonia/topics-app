@@ -34,7 +34,9 @@ function makeDb(): Database {
     topic_id TEXT, model TEXT NOT NULL, input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, purpose TEXT, provider TEXT,
     cache_read_tokens INTEGER, cache_creation_tokens INTEGER, cache_creation_1h_tokens INTEGER, measured INTEGER NOT NULL DEFAULT 1, project_path TEXT)`);
   db.run(`CREATE TABLE system_chats (topic_id TEXT PRIMARY KEY, kind TEXT NOT NULL, created_at TEXT NOT NULL)`);
-  db.run(`CREATE TABLE tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, assigned_topic_id TEXT, chat_id TEXT)`);
+  db.run(`CREATE TABLE tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, assigned_topic_id TEXT, chat_id TEXT,
+    node_run_id TEXT, updated_at TEXT NOT NULL DEFAULT '', agent_tokens INTEGER NOT NULL DEFAULT 0, agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0, agent_cost_cents INTEGER NOT NULL DEFAULT 0)`);
+  db.run(`CREATE TABLE agent_spend (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, at TEXT NOT NULL, cents INTEGER NOT NULL, unpriced_cost_tokens INTEGER NOT NULL DEFAULT 0)`);
   db.run(`CREATE TABLE task_attempts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, topic_id TEXT)`);
   db.run(`CREATE TABLE claude_code_sessions (session_key TEXT PRIMARY KEY, claude_session_id TEXT NOT NULL)`);
   db.exec(QUOTA_MIGRATION);
@@ -335,10 +337,43 @@ describe("GET /api/usage/projects/quota", () => {
     const ctx = { db, json: (b: unknown, status = 200) => Response.json(b, { status }), errorResponse: (s: number, m: string) => Response.json({ error: m }, { status: s }) } as never;
     const router = createUsageRouter(ctx);
     const req = new Request("http://x/api/usage/projects/quota");
-    const res = await router(req, new URL(req.url), "/api/usage/projects/quota", "GET");
+    // An empty home: the route lists the transcripts under it, and this machine's real ones are gigabytes.
+    const realHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(join(tmpdir(), "quota-home-"));
+    let res: Response | null;
+    try { res = await router(req, new URL(req.url), "/api/usage/projects/quota", "GET"); } finally { process.env.HOME = realHome; }
     expect(res!.status).toBe(200);
     const body = await res!.json() as { cachedAt: string; projects: Array<{ projectPath: string | null; limit: number | null }> };
     expect(typeof body.cachedAt).toBe("string");
     expect(body.projects.find((p) => p.projectPath === "/proj/A")?.limit).toBe(10);
+  }, 30_000);
+});
+
+describe("a run on a node counts in the project of its card", () => {
+  const nodeCard = (db: Database, id: string, projectId: string, o: { tokens: number; cents?: number }) => {
+    db.run("INSERT INTO tasks (id, project_id, node_run_id, agent_tokens, agent_cost_cents, updated_at) VALUES (?, ?, 'run-1', ?, ?, ?)",
+      [id, projectId, o.tokens, o.cents ?? 0, new Date(T0).toISOString()]);
+    if (o.cents) db.run("INSERT INTO agent_spend (task_id, at, cents) VALUES (?, ?, ?)", [id, new Date(T0).toISOString(), o.cents]);
+  };
+
+  test("the node's booked spend raises its card's project, not the other active one", () => {
+    const db = makeDb();
+    const idB = project(db, "/proj/B");
+    nativeCall(db, topic(db, "tA", { path: "/proj/A" }), "claude-opus-5-5", 300_000);
+    const cents = Math.round(callWeight("claude-opus-5-5", { input: 100_000, output: 0, cacheWrite: 0, cacheRead: 0 }) / 10_000);
+    nodeCard(db, "node-task", idB, { tokens: 100_000, cents });
+    const result = projectQuota(db, { now: NOW, historyFile: writeHistory(10), listTranscripts: NONE });
+    expect(row(result.projects, "/proj/B")?.points7d).toBeCloseTo(2.5, 0);
+    expect(row(result.projects, "/proj/B")?.surfaces.card.points7d).toBeGreaterThan(2);
+    expect(row(result.projects, "/proj/A")?.points7d).toBeCloseTo(7.5, 0);
+  });
+
+  test("a node card with tokens and no priced ledger still counts, once, by its tokens", () => {
+    const db = makeDb();
+    const idB = project(db, "/proj/B");
+    nativeCall(db, topic(db, "tA", { path: "/proj/A" }), "claude-opus-5-5", 300_000);
+    nodeCard(db, "node-task", idB, { tokens: 100_000 });
+    const result = projectQuota(db, { now: NOW, historyFile: writeHistory(10), listTranscripts: NONE });
+    expect(row(result.projects, "/proj/B")?.points7d).toBe(2.5);
   });
 });

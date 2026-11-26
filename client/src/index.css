@@ -71,6 +71,23 @@
   &::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
 }
 
+/* The soft edge of a sideways-scrolling row (the board's columns).
+   An edge fades only while content is hidden past it: `useScrollEdges` turns
+   `data-edge-start` / `data-edge-end` on and off, and with both off the row has
+   no mask at all (no layer, no cost). Static on purpose: no transition, the edge
+   is either soft or it is not. The fade is as wide as the row's own side room
+   (`--edge-room`, set next to the padding it mirrors), so the padding is what
+   fades and a column at rest is never touched by it. */
+@utility scroll-edge-fade {
+  --edge-start: 0px;
+  --edge-end: 0px;
+  &[data-edge-start] { --edge-start: var(--edge-room, 0.75rem); }
+  &[data-edge-end] { --edge-end: var(--edge-room, 0.75rem); }
+  &[data-edge-start], &[data-edge-end] {
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--edge-start), #000 calc(100% - var(--edge-end)), transparent 100%);
+  }
+}
+
 /* LA MISURA DI LETTURA della chat.
    Una riga lunga quanto una pane larga si legge male: l'occhio, tornando a
    capo, perde il rigo. È il motivo per cui ogni superficie di lettura seria —
@@ -1512,6 +1529,29 @@ html, body {
   transition: padding-left 200ms ease, left 200ms ease;
 }
 
+/* THE CONTENT'S TOGGLE FOR THE COLUMN, ONLY WHILE THE COLUMN IS AWAY (25/11,
+   the owner: "the button to open and close should be before the notifications
+   icon"). With the column open its toggle sits in the sidebar header, so the
+   content's one and the room its row keeps for it give way. Not on the phone:
+   there the column is a drawer and the content's toggle is the way to it.
+   The room eases on the slide's 200ms like `.content-chrome-inset`, so on
+   reopening the strip slides back from the lights instead of jumping under
+   them for the first frames. `#main-content[data-column-toggle]` is set by
+   App.tsx, on the same predicate SidebarHeader draws its toggle with.
+   The toggle hides by `visibility`, not `display`: it keeps its box and its
+   eased `left`, so on collapsing it leaves the lights' room on the content's
+   own curve (above). Shown from `display: none` it would start at its resting
+   place and ride the whole slide, and its last frame would land a pixel off. */
+.column-toggle-room {
+  transition: padding-left 200ms ease;
+}
+#main-content[data-column-toggle='header'] .column-toggle {
+  visibility: hidden;
+}
+#main-content[data-column-toggle='header'] .column-toggle-room {
+  padding-left: 6px;
+}
+
 /* Sidebar transitions (desktop column; the phone drawer is `.sidebar-drawer`) */
 .sidebar-transition {
   transition: width 200ms ease, transform 200ms ease, opacity 150ms ease;
@@ -2373,6 +2413,13 @@ input[type="range"]::-webkit-slider-thumb {
   opacity: 1;
   pointer-events: auto;
 }
+/* On the title row the tab is as wide as what it says: the browser's commands
+ * take their own width there instead of covering the address, so the label
+ * keeps no fade under them either (25/11). */
+.tab-as-title > .tab-extras {
+  position: static;
+  transform: none;
+}
 .tab-slot:has(> .tab-slot-command[data-pending='true']) > .tab-slot-signal { opacity: 0; }
 @media (hover: hover) {
   [role='tab']:hover > .tab-slot > .tab-slot-command,
@@ -2384,13 +2431,13 @@ input[type="range"]::-webkit-slider-thumb {
   }
   [role='tab']:hover > .tab-slot > .tab-slot-signal,
   [role='tab']:has(:focus-visible) > .tab-slot > .tab-slot-signal { opacity: 0; }
-  [role='tab'][data-tab-extras]:hover > [data-testid='pane-tab-label'] {
+  [role='tab'][data-tab-extras]:not(.tab-as-title):hover > [data-testid='pane-tab-label'] {
     -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
     mask-image: linear-gradient(to left, transparent 20px, #000 32px);
   }
   /* Two extras (take back control + the dots, 16 + 8 + 16): the fade moves
    * left by one command and its gap, or the label shows through the first. */
-  [role='tab'][data-tab-extras]:has(> .tab-extras > :nth-child(2)):hover > [data-testid='pane-tab-label'] {
+  [role='tab'][data-tab-extras]:not(.tab-as-title):has(> .tab-extras > :nth-child(2)):hover > [data-testid='pane-tab-label'] {
     -webkit-mask-image: linear-gradient(to left, transparent 44px, #000 56px);
     mask-image: linear-gradient(to left, transparent 44px, #000 56px);
   }
@@ -2402,11 +2449,11 @@ input[type="range"]::-webkit-slider-thumb {
     pointer-events: auto;
   }
   [role='tab'][data-active='true'] > .tab-slot > .tab-slot-signal { opacity: 0; }
-  [role='tab'][data-active='true'][data-tab-extras] > [data-testid='pane-tab-label'] {
+  [role='tab'][data-active='true'][data-tab-extras]:not(.tab-as-title) > [data-testid='pane-tab-label'] {
     -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
     mask-image: linear-gradient(to left, transparent 20px, #000 32px);
   }
-  [role='tab'][data-active='true'][data-tab-extras]:has(> .tab-extras > :nth-child(2)) > [data-testid='pane-tab-label'] {
+  [role='tab'][data-active='true'][data-tab-extras]:not(.tab-as-title):has(> .tab-extras > :nth-child(2)) > [data-testid='pane-tab-label'] {
     -webkit-mask-image: linear-gradient(to left, transparent 44px, #000 56px);
     mask-image: linear-gradient(to left, transparent 44px, #000 56px);
   }
@@ -2473,6 +2520,9 @@ input[type="range"]::-webkit-slider-thumb {
  * nera su un fondo quasi nero non si vede e sporca soltanto») descriveva la
  * scatola vuota, non la scatola dipinta. */
 .edge-lit { position: relative; }
+/* A tab drawn as a window's title is a title at rest: its edge shows only with
+   the fill, under the pointer or with the keyboard focus (TAB_AS_TITLE_SURFACE). */
+.tab-as-title:not(:hover):not(:focus-visible)::before { opacity: 0; }
 .edge-lit::before {
   content: '';
   position: absolute;
@@ -2528,57 +2578,6 @@ html.native-frost.dark .edge-lit::before {
     inset 0 1px 0 0 rgb(255 255 255 / 0.06),
     inset 0 -1px 0 0 rgb(0 0 0 / 0.18),
     inset 0 0 0 1px rgb(255 255 255 / 0.035);
-}
-
-/* LO STESSO RIFLESSO, MA SOLO DOVE C'È UNA CARD DA CHIUDERE.
- *
- * `edge-lit` disegna la FORMA di una superficie, quindi va messo solo su una
- * card che un fondo ce l'ha: su una riga trasparente diventerebbe un rettangolo
- * attorno a ogni voce dell'albero, cioè esattamente le linee divisorie che
- * questo file esiste per togliere. È la regola scritta in `sidebarRowCard`, ed
- * è giusta — sul DESKTOP.
- *
- * Sotto i 768px però la riga a riposo un fondo ce l'ha (RESTING_FILL_MOBILE:
- * là pagina e chrome collassano in una superficie sola e senza campitura le
- * card sparirebbero). Da quel momento tessera e tab hanno il riflesso e la riga
- * no, pur essendo tre presentazioni della stessa cosa: il bordo della riga
- * resta aperto in basso mentre quello della tessera accanto è chiuso.
- *
- * Una classe a parte e non una variante `max-md:` perché `edge-lit` è una
- * classe vera con uno pseudo-elemento, e i prefissi di Tailwind non la
- * raggiungono. La media query è la stessa di `max-md:` (48rem), scritta come
- * `not all and (min-width: …)` per pareggiare ciò che Tailwind emette. */
-@media not all and (min-width: 48rem) {
-  .edge-lit-mobile { position: relative; }
-  .edge-lit-mobile::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.4),
-      inset 0 -1px 0 0 rgb(0 0 0 / 0.05),
-      inset 0 0 0 1px rgb(0 0 0 / 0.04);
-  }
-  .dark .edge-lit-mobile::before {
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.07),
-      inset 0 -1px 0 0 rgb(0 0 0 / 0.2),
-      inset 0 0 0 1px rgb(255 255 255 / 0.045);
-  }
-  html.native-frost .edge-lit-mobile::before {
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.32),
-      inset 0 -1px 0 0 rgb(0 0 0 / 0.045),
-      inset 0 0 0 1px rgb(0 0 0 / 0.03);
-  }
-  html.native-frost.dark .edge-lit-mobile::before {
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.06),
-      inset 0 -1px 0 0 rgb(0 0 0 / 0.18),
-      inset 0 0 0 1px rgb(255 255 255 / 0.035);
-  }
 }
 
 /* Il margine del composer, come variabile: serve a `max(…)` nel confronto con
@@ -2933,46 +2932,35 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 }
 
 /*
- * THE HINT GIVES WAY BEFORE THE NAME.
+ * THE HINT GIVES WAY BEFORE THE NAME, AND THE NAME GOES WHOLE.
  *
  * The sidebar header is a fixed budget: the lights' 64px, the word «Topics»,
- * the bell, Search and «+». Two of those carry a keyboard hint (the ⌘K inside
- * Search, the ⌘N inside «+»), and the hints are the ONLY part of the row that
- * is a repetition: both buttons already say the same shortcut in their
- * `title`, in full. The word is not a repetition of anything.
+ * the column's toggle, the bell, Search and «+», the four buttons a tab's size
+ * since 25/11 (34px). Two of them carry a keyboard hint (the ⌘K inside Search,
+ * the ⌘N inside «+»), and the hints are the ONLY part of the row that is a
+ * repetition: both buttons already say the same shortcut in their `title`.
  *
- * Yet flexbox handed the shortage to the word: the hints sit in
- * `flex-shrink-0` buttons at the end of the row, so the whole deficit landed
- * on the one `min-w-0` chain in the header, and at the DEFAULT sidebar width
- * of 256px the wordmark rendered 18.7px wide against the 62 it wants — the
- * app's own name reduced to «To…» (card b109c85c, measured 2026-09-07).
+ * So the hints go first, at a measured width, and the word goes next, on its
+ * own: it is a one-line box that wraps, so a word that does not fit drops to
+ * the clipped second line instead of truncating to «To…» (25/11, the owner:
+ * "let's hide the word altogether when it does not fit"). No number for that
+ * one, the layout decides it.
  *
- * ONE RULE, and it is measured: no keyboard hint is visible while the wordmark
- * is under its natural width. The threshold below is the narrowest header row
- * that holds everything AT ONCE, hints included, and it was MEASURED rather
- * than added up — the row was swept from 400px down to 180 with both hints
- * forced on, reading the wordmark's rect at every pixel:
+ * The hints' number is MEASURED, on WebKit (the engine the Mac app ships in)
+ * with the Mac's system font, the row swept from 187 to 427px with the hints
+ * forced on and off (25/11):
  *
- *   row 287 and wider   wordmark 61.8px, its natural width
- *   row 286             wordmark 61.8px  <- the last width that still fits
- *   row 285             wordmark 60.8px, and it keeps losing a pixel per pixel
+ *   hints on    the word fits from a 335px row
+ *   hints off   the word fits from a 289px row
  *
- * That sweep was made on macOS, with the system font. THE SUM IS THE FONT'S:
- * on Linux CI (2026-09-07, DejaVu-class fallback) the same word measures
- * 67.3px and both hint chips are wider too, so at a 286px row the wordmark
- * still read 59.7px, i.e. that platform fits everything only from a 294px row
- * up. The threshold below is therefore 300, not 286: the widest font we ship
- * to, plus six pixels of rounding. On a Mac the hints leave 14px earlier than
- * the row strictly required, which costs nothing (the buttons' `title` keeps
- * naming the shortcut); a fixed number under the widest font would cost Linux
- * users the app's own name.
- *
- * It is the ROW's content box, not the column's width: the sidebar is 13px
- * wider than its row (1px border plus two ROW_INSET), which puts the switch at
- * a 313px sidebar. Below it the hints go and the word takes back the ~55px
- * they were holding, which is what makes the default 256px column (a 243px
- * row) whole again. Below ~245 nothing is left to give and the word truncates
- * as it always did: the lights' 64px are not ours to spend (card f0e15ea1).
+ * The threshold is 350, not 335: Linux CI runs this spec with a Mac platform
+ * on a wider font (the word measured 67.3px there against 61.8 on a Mac), and
+ * the margin is that font's. It is the ROW's content box, not the column's
+ * width: the sidebar is 13px wider than its row (1px border plus two
+ * ROW_INSET), which puts the switch at a 363px sidebar and the word's return
+ * at about 302. At the default 256px column neither shows; the four buttons
+ * do, and the column's drag minimum (SIDEBAR_MIN_W) is the width at which
+ * they still fit beside the lights.
  *
  * A CONTAINER QUERY and not a width read in JS, because the sidebar resize
  * bypasses React on purpose — the drag writes `style.width` on the node and
@@ -2991,9 +2979,44 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   container-name: sidebar-header;
 }
 
-@container sidebar-header (width < 300px) {
+@container sidebar-header (width < 350px) {
   .sidebar-header .kbd-hint {
     display: none;
+  }
+}
+
+/* THE WORD'S BOX GOES WITH THE WORD. The box wraps a word that does not fit
+ * away, but it keeps the width the row gave it, and beside the window's
+ * commands that is a blank between them and the column's toggle (31px at the
+ * default 256 on a Mac). Below the width the word needs, the box goes too and
+ * the toggle follows the commands at one step. The same sweep as the hints:
+ * beside the lights the word fits from a 289px row; 298 is the Linux CI font's
+ * margin, and Windows' controls are 10px wider than the lights. With no window
+ * commands the word fits across the column's whole drag travel. A font wider
+ * still falls back on the wrap: a blank can show, a cut word never. */
+@container sidebar-header (width < 298px) {
+  .sidebar-header[data-window-chrome='mac'] .sidebar-wordmark {
+    display: none;
+  }
+}
+@container sidebar-header (width < 308px) {
+  .sidebar-header[data-window-chrome='windows'] .sidebar-wordmark {
+    display: none;
+  }
+}
+
+/* A closed tab takes the hover ground like every tab in the column (25/11),
+ * but not on the row a click just closed, until the pointer leaves it, and not
+ * while the pointer is outside the window, where WKWebView keeps the last
+ * `:hover` on. Both attributes come from `lib/hoverQuiet.ts`. Unlayered, so it
+ * wins over the row's `hover:` utilities, which is why it names only the plain
+ * closed row (`closed-tab-row`, from `sidebarRowCard`): a closed row with an
+ * attention fill keeps its fill. Behind `(hover: hover)` like Tailwind's own
+ * `hover:`, so a touch screen's sticky hover never reaches it. */
+@media (hover: hover) {
+  .closed-tab-row[data-hover-quiet]:hover,
+  html[data-pointer-away] .closed-tab-row:hover {
+    background-color: transparent;
   }
 }
 

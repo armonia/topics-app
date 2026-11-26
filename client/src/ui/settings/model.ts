@@ -37,4 +37,4 @@ export type StandardId =
   | 'rentri' | 'iso9001' | 'iso14001' | 'iso45001';
 export type StandardGroup = 'documents' | 'personal' | 'data' | 'sector';
 export type StandardStatus = 'covered' | 'in-progress' | 'partial' | 'to-certify' | 'to-request' | 'to-verify' | 'by-others';
-export type ComplianceScope = 'nocera' | 'sarim' | 'topics';
+export type ComplianceScope = 'nocera' | 'orbit' | 'topics';

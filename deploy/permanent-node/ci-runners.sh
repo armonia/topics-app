@@ -21,8 +21,11 @@
 # - persistent runners: caches in each HOME (bun, Playwright browsers) survive between
 #   jobs, and no admin token lives here to re-register ephemeral ones;
 # - HOME=/srv/rh-<i>: ci.yml derives the e2e port band from it (13910 + (i-1)*10);
-# - ci.slice with a low CPU weight and a memory ceiling: Topics cards come first;
-# - a job-completed hook kills what a job left running in the runner's cgroup.
+# - ci.slice with a high CPU weight (500) and a memory ceiling (high 16G, max 20G of 30G, floors for system.slice and topics): on this box the CI comes first on CPU
+#   and Topics (100) takes the machine when the CI is idle (decision of 10/11, applied 22/11);
+# - a job-completed hook kills what a job left running in the runner's cgroup;
+# - ci-governor (ci-governor.py): at most CI_MAX_JOBS jobs at once on the whole server, all repos, and a
+#   reaper for what a cancelled job leaves behind (the hook above does not run on cancel).
 set -euo pipefail
 : "${REG_TOKEN:?registration token}"
 pending=0
@@ -76,14 +79,20 @@ EOS
 
 cat > /etc/systemd/system/ci.slice <<'EOS'
 [Unit]
-Description=CI runners (Topics comes first)
+Description=CI runners (CI comes first on CPU, Topics when idle)
 [Slice]
-CPUWeight=20
-MemoryHigh=22G
-MemoryMax=26G
+CPUWeight=500
+MemoryHigh=16G
+MemoryMax=20G
 EOS
+# Keep an OOM inside ci.slice: 10 GB of the 30 GB box stay out of the CI's reach, and the kernel
+# reclaims from ci.slice before touching the node, ssh or systemd (22/11: a 3.6 GB bun froze PID 1
+# for ~3 minutes under global OOM, with ci.slice at 22G/26G).
+mkdir -p /etc/systemd/system/system.slice.d /etc/systemd/system/topics.service.d
+printf '[Slice]\nMemoryMin=2G\n' > /etc/systemd/system/system.slice.d/riserva.conf
+printf '[Service]\nMemoryMin=4G\nOOMScoreAdjust=-500\n' > /etc/systemd/system/topics.service.d/riserva.conf
 mkdir -p /etc/systemd/system/topics.service.d
-printf '[Service]\nCPUWeight=500\n' > /etc/systemd/system/topics.service.d/precedenza.conf
+printf '[Service]\nCPUWeight=100\n' > /etc/systemd/system/topics.service.d/precedenza.conf
 # The node answers only on loopback (the Mac comes through the ssh tunnel): a server made
 # from an older recipe listened on *:3333, on the public address.
 printf '[Service]\nEnvironment=SERVER_HOST=127.0.0.1\n' > /etc/systemd/system/topics.service.d/locale.conf
@@ -163,10 +172,19 @@ for i in 0 $(seq 1 "$N"); do
       --url "$URL" --name "$name" --labels "$l" --no-default-labels --replace) >"/var/log/ci-runner-$i.log" 2>&1
   fi
 done
+# Cap on the parallel jobs of the whole server (every repo that has runners here, not only
+# topics-app): ci-governor.py pauses the Listeners of idle runners over the cap, so the jobs
+# wait queued on GitHub. node-pool copies both files next to this script.
+install -m 755 /root/ci-governor.py /usr/local/sbin/ci-governor
+install -m 644 /root/ci-governor.service /etc/systemd/system/ci-governor.service
 systemctl daemon-reload
 systemctl enable ci-firewall.service >/dev/null
+systemctl enable ci-governor.service >/dev/null
+# restart only when the code changed: a restart resumes every Listener and starts over (harmless, never a lost job)
+systemctl restart ci-governor.service
 systemctl restart ci-firewall.service  # a re-run must apply the rules it just wrote
-systemctl set-property --runtime topics.service CPUWeight=500 2>/dev/null || true
+# Same value as precedenza.conf: a runtime property outranks every drop-in, so it must never disagree.
+systemctl set-property --runtime topics.service CPUWeight=100 2>/dev/null || true
 # A unit changed by a re-run of this script takes effect on restart: only idle runners,
 # a busy one would lose its job (the next re-run catches it).
 for i in 0 $(seq 1 "$N"); do

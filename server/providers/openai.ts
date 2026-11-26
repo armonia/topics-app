@@ -26,6 +26,7 @@ import {
   type WireErrorVoice,
 } from "./openai-wire";
 import { resolveOpenaiMaxTokens, resolveOpenaiModel } from "../services/app-settings";
+import { RunRegistry } from "./run-registry";
 
 const API_BASE = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-4o";
@@ -76,10 +77,7 @@ export class OpenAIProvider implements AIProvider {
   readonly contextStrategy = "history-aware" as const;
 
   private config: OpenAIProviderConfig;
-  private active = new Map<string, AbortController>();
-  // runId -> sessionKey, so abort(sessionKey) without a runId stops ONLY that
-  // session's runs (not every session's — see ClaudeProvider for the rationale).
-  private runIdToSessionKey = new Map<string, string>();
+  private runs = new RunRegistry();
   private started = false;
   private cachedModels: { until: number; result: ModelsProbe } | null = null;
   private modelsProbe: Promise<ModelsProbe> | null = null;
@@ -115,9 +113,7 @@ export class OpenAIProvider implements AIProvider {
   }
 
   stop(): void {
-    for (const c of this.active.values()) c.abort();
-    this.active.clear();
-    this.runIdToSessionKey.clear();
+    this.runs.abortAll();
     this.started = false;
   }
 
@@ -134,10 +130,7 @@ export class OpenAIProvider implements AIProvider {
       return { runId: undefined };
     }
 
-    const runId = crypto.randomUUID();
-    const ac = new AbortController();
-    this.active.set(runId, ac);
-    this.runIdToSessionKey.set(runId, sessionKey);
+    const { runId, controller: ac } = this.runs.start(sessionKey);
 
     const model = options?.model ?? this.defaultModel();
     const maxTokens = this.maxTokens();
@@ -201,8 +194,7 @@ export class OpenAIProvider implements AIProvider {
         handler.onError(err?.message ?? String(err));
       }
     } finally {
-      this.active.delete(runId);
-      this.runIdToSessionKey.delete(runId);
+      this.runs.finish(runId);
     }
 
     return { runId };
@@ -298,19 +290,7 @@ export class OpenAIProvider implements AIProvider {
   // --- Abort ---
 
   async abort(sessionKey: string, runId?: string): Promise<void> {
-    if (runId) {
-      this.active.get(runId)?.abort();
-      this.active.delete(runId);
-      this.runIdToSessionKey.delete(runId);
-    } else {
-      // No runId: abort ONLY this session's in-flight runs.
-      for (const [rid, sk] of this.runIdToSessionKey) {
-        if (sk !== sessionKey) continue;
-        this.active.get(rid)?.abort();
-        this.active.delete(rid);
-        this.runIdToSessionKey.delete(rid);
-      }
-    }
+    this.runs.abort(sessionKey, runId);
   }
 
   // --- Diagnostics ---

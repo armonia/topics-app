@@ -13,7 +13,6 @@
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
 // The board's columns (`shared/workflow.ts`): which ones, and which a card is in.
-import type { ForYou } from '../../../shared/for-you';
 import type { BoardWorkflow, WorkflowRules, WorkflowRulesRow } from '../../../shared/workflow';
 export { STAGE_CI, WORKFLOW_COLUMNS, columnOfTask } from '../../../shared/workflow';
 /** `GET /boards/:id/workflow`: the columns (the same for every board) plus the rules. */
@@ -29,7 +28,7 @@ export { personPathsFromText, personPathsToText } from '../../../shared/workflow
 // gli occhi di una persona, e due copie inizierebbero a dire numeri diversi.
 export { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX, GLOBAL_CAP_OFF, clampGlobalCap, effectiveDispatchCap } from '../../../shared/board';
 export {
-  CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB, CHECKS_MEM_FLOOR_DEFAULT_GB,
+  CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB,
   checksMemFloorGB, checksMemFloorIsOff,
 } from '../../../shared/checks-memory-floor';
 export type { GlobalDispatchCap } from '../../../shared/board';
@@ -92,6 +91,7 @@ export { attemptHasWork } from '../../../shared/task-attempt';
 // da lì che lo importa chi lo usa (il servizio lato server).
 export type { TaskAttempt } from '../../../shared/task-attempt';
 import type { TaskAttempt } from '../../../shared/task-attempt';
+import type { BoardFamilyLink } from '../../../shared/project-family';
 import { coalescedFetch } from './coalesceFetch';
 import { uiGet, uiPutDebounced } from './boardDraftsIO';
 import { serverHttpBase, apiFetch } from './shell/net';
@@ -687,8 +687,6 @@ export interface BoardTask {
   stage?: string | null;
   /** The question for the person the delivery carried. */
   humanAsk?: string;
-  /** The plain-words summary the system wrote for the person (see `shared/for-you.ts`). */
-  forYou?: ForYou;
   /** Who decided the work goes to main ('human' | 'auto'): the card is in, or will return to, the CI phase. */
   landIntent?: "human" | "auto";
   landIntentCommit?: string;
@@ -874,7 +872,7 @@ async function readFeedIfChanged(read?: { ttlMs: number }): Promise<BoardTask[]>
   return tasks;
 }
 
-/** Tests only: forget the held feed. */
+/** @internal Tests only: forget the held feed. */
 export function __resetFeedRevalidation(): void {
   lastFeed = null;
 }
@@ -1184,6 +1182,9 @@ export interface BoardProjectRef {
   path: string;
 }
 
+/** A project that sits under another one (accorpa / separa), in board ids. */
+export type { BoardFamilyLink };
+
 const enc = encodeURIComponent;
 
 /** Lo stato della modalità notturna, come lo riporta il server. */
@@ -1335,7 +1336,7 @@ export const boardApi = {
    *  `newProjectDir`: la cartella in cui nascerebbe un progetto creato per
    *  nome. È dedotta lato server, e va MOSTRATA prima di creare. */
   projects: () =>
-    req<{ projects: BoardProjectRef[]; labelOnly?: BoardProjectRef[]; newProjectDir: string | null }>('/all-boards/projects'),
+    req<{ projects: BoardProjectRef[]; labelOnly?: BoardProjectRef[]; newProjectDir: string | null; families?: BoardFamilyLink[] }>('/all-boards/projects'),
   /** Per-project commits on the current branch not yet pushed — feeds the Publish control.
    *  `commits` is the exact list a push would ship (newest first, capped at 50). */
   publishStatus: () =>

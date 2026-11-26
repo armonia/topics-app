@@ -105,7 +105,27 @@ const logOf = (s: ServerUnderTest) => {
   try { return readFileSync(join(s.root, `server-${s.boots}.log`), "utf8").slice(-4000); } catch { return ""; }
 };
 
+// `freePort()` only probes that a port is free at that instant: with thousands
+// of ephemeral ports handed out across the whole CI matrix, another process can
+// grab the same number before this child ever binds it, and the real server
+// then dies on EADDRINUSE (seen on the tunnel port, run 44993066166). A fresh
+// draw of every dynamic port and one retry turns that race into a flake nobody
+// chases instead of a red `unit` job.
 async function boot(s: ServerUnderTest): Promise<void> {
+  try {
+    await bootOnce(s);
+  } catch (err) {
+    const log = logOf(s);
+    if (!/EADDRINUSE/.test(log)) throw err;
+    s.port = freePort();
+    s.tunnelPort = freePort();
+    s.tunnelHttpPort = freePort();
+    s.modelProxyPort = freePort();
+    await bootOnce(s);
+  }
+}
+
+async function bootOnce(s: ServerUnderTest): Promise<void> {
   s.boots += 1;
   const home = join(s.root, "home");
   const logFd = openSync(join(s.root, `server-${s.boots}.log`), "w");
@@ -117,6 +137,8 @@ async function boot(s: ServerUnderTest): Promise<void> {
       PATH: process.env.PATH ?? "",
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
       NO_TLS: "1",
+      // The child already has its own isolated dirs; without this a run from a card worktree switches the tunnel ports off.
+      TOPICS_ALLOW_WORKTREE_PROD: "1",
       BUN_PORT: String(s.port),
       PORT: String(s.port),
       DATA_DIR: join(s.root, "data"),
@@ -441,7 +463,7 @@ ${logOf(serverB)}`).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
     const schedule = await api<{ id: string }>(serverB, "POST", `/api/boards/${cronBoard}/scheduled-cards`, {
       text: "scheduled card", status: "todo", labels: [], cron: "* * * * *", timeZone: "UTC",
     });
-    withDb(serverB, (db) => db.run("UPDATE scheduled_cards SET next_run_at = ? WHERE id = ?", [new Date(Date.now() - 60_000).toISOString(), schedule.id]));
+    withDb(serverB, (db) => db.run("UPDATE scheduled_jobs SET next_run_at = ? WHERE id = ?", [new Date(Date.now() - 60_000).toISOString(), schedule.id]));
 
     await Bun.sleep(QUIET_WINDOW_MS);
 
@@ -449,12 +471,12 @@ ${logOf(serverB)}`).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
       const t = await readCard(serverB, card);
       return { claimed: claimed(t), status: t.status, dispatchState: t.dispatchState, dispatchError: t.dispatchError };
     };
-    const fired = withDb(serverB, (db) => db.query("SELECT last_run_at FROM scheduled_cards WHERE id = ?").get(schedule.id) as { last_run_at: string | null });
+    const fired = withDb(serverB, (db) => db.query("SELECT COUNT(*) AS runs FROM scheduled_job_runs WHERE job_id = ?").get(schedule.id) as { runs: number });
     const summary = {
       todo: (await view(todoCard)).claimed,
       blockerDone: (await view(dependent)).claimed,
       manualStart: (await view(held)).claimed,
-      scheduledFired: fired.last_run_at !== null,
+      scheduledFired: fired.runs > 0,
     };
     if (Object.values(summary).some(Boolean)) {
       console.error(JSON.stringify({ todo: await view(todoCard), dependent: await view(dependent), held: await view(held), fired }, null, 2));

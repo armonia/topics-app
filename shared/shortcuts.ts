@@ -84,9 +84,6 @@ export const ALT = 'Alt';
  *  there it IS the same key. */
 export const CTRL = 'Ctrl';
 
-/** The tokens above, for the renderer that maps them to the local spelling. */
-export const MODIFIER_TOKENS = [MOD, SHIFT, ALT, CTRL] as const;
-
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: 'General',
@@ -154,6 +151,9 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       // far is the native monitor's job (lib.rs), not the registry's.
       { keys: [MOD, 'E'], description: 'Enlarge the conversation', native: { chars: ['e'] } },
       { keys: [ALT, MOD, 'E'], description: 'Enlarge this cell only', native: { chars: ['e'] } },
+      // SPLIT-06. Arrows are not chars, so no `native`: from a focused browser
+      // page the chord stays the page's, like the arrows themselves.
+      { keys: [ALT, MOD, '←→↑↓'], description: 'Focus the cell beside' },
       { keys: [MOD, SHIFT, 'T'], alias: [MOD, SHIFT, 'U'], description: 'Reopen closed tab', native: { chars: ['t', 'u'], requireShift: true } },
       // ⌃Tab / ⌃⇧Tab / ⌘⇧Tab key off keyCode 48 — forwarded by the hand-written
       // branch in lib.rs, not by the generated char table.
@@ -234,7 +234,9 @@ function forwardedCmdChars(): { always: string[]; shiftOnly: string[] } {
   return { always: [...always].sort(byCodepoint), shiftOnly: [...shiftOnly].sort(byCodepoint) };
 }
 
-/** Emit `shortcuts_generated.rs`. Called by `scripts/gen-shortcuts.ts` (writes
+/**
+ * @knipignore used by scripts/gen-shortcuts.ts, outside the production graph
+ * Emit `shortcuts_generated.rs`. Called by `scripts/gen-shortcuts.ts` (writes
  *  the file) and by the test (compares against the committed file). Keep the
  *  output byte-for-byte deterministic. */
 export function renderRustModule(): string {

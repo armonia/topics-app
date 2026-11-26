@@ -15,6 +15,8 @@
 export const OPEN_USER_MENU_EVENT = 'topics:open-user-menu';
 
 /** The levels a request can land on. */
+import { openSystemPlace } from '../components/System/systemNav';
+
 export type UserMenuLevel =
   | 'plan'
   | 'devices'
@@ -37,6 +39,11 @@ export interface OpenUserMenuDetail {
 /** Open the user menu, with `level` already open when given. Without a level
  *  (⌘, and the palette) the focus lands on the menu's first row. */
 export function openUserMenu(level?: UserMenuLevel): void {
+  // The agents' tools and context are sections of the System page, not menu levels.
+  if (level === 'tools' || level === 'context') {
+    openSystemPlace(level === 'tools' ? 'tools' : 'harness');
+    return;
+  }
   window.dispatchEvent(new CustomEvent<OpenUserMenuDetail>(OPEN_USER_MENU_EVENT, { detail: { level } }));
 }
 

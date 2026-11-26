@@ -33,7 +33,7 @@ import { useT } from '../../hooks/useT';
 import { TabSlot, TabLabel, ProjectTabLead } from './TabSlot';
 import { SquareTabMark, TopicInitial, type SquareLoaderSource } from './SquareTabMark';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, TIER_DONE_BG, TIER_ERROR_BG, TIER_INPUT_BG, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
+import { TAB_AS_TITLE_SURFACE, TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, TAB_BUTTON_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, TIER_DONE_BG, TIER_ERROR_BG, TIER_INPUT_BG, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import {
@@ -62,6 +62,20 @@ const TAB_W_BROWSER = 200;
 const TAB_W_BROWSER_ACTIVE = 300;
 /** Un bersaglio da 44px lascia 4px liberi al centro della tab da 96px. */
 const DENSE_TAB_MENU_MIN_WIDTH = 96;
+
+/** The tab in front drawn as the window's title: as wide as the same tab when
+ *  it is active on a strip (300 for a browser, 150 otherwise), never wider
+ *  than the row (25/11, the owner: "the tab in the top bar should be bigger,
+ *  now it is tiny"). */
+function titleTabStyle(type: string): React.CSSProperties {
+  const naturalPx = type === 'browser' ? TAB_W_BROWSER_ACTIVE : TAB_W;
+  // `width` and not `minWidth`: the width is the bar's content, so the bar
+  // asks the row for it, and in a cell narrower than that the bar (min-w-0)
+  // gets less, the 100% cap becomes definite and the tab shrinks and
+  // truncates like a strip's tab. A floor would keep it wide inside a strip
+  // that scrolls, with its close and its menu scrolled out of reach.
+  return { width: naturalPx, minWidth: 0, maxWidth: '100%', flexShrink: 1 };
+}
 
 // Every pane type closes through the same soft-confirm path: hovering the X
 // reveals an empty "mark as done" circle, clicking it starts the 3 s L→R
@@ -342,9 +356,17 @@ interface PaneTabBarProps {
    * l'aria in cima l'ha già messa la riga sopra.
    */
   subordinate?: boolean;
+  /**
+   * The bar is a window's TITLE: with the tabs at the side the surface in front
+   * is drawn here alone, as its real tab (25/11: the title written by hand lost
+   * the archive countdown, the browser's icon and commands, the loaders). At
+   * rest it reads as a title, with no fill and no edge; under the pointer it
+   * takes the selected tab's fill. A lit attention fill still shows.
+   */
+  asTitle?: boolean;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onToggleZoom, canZoom, isZoomed, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, hasLeadingBlock, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, onOpenPaneInProject, subordinate = false }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onToggleZoom, canZoom, isZoomed, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, hasLeadingBlock, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, onOpenPaneInProject, subordinate = false, asTitle = false }: PaneTabBarProps) {
   // Le voci del menu passano dal dizionario (`lib/i18n.ts`): sono fra le
   // stringhe più viste dell'app, ed erano gia' in italiano — quindi la
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
@@ -488,7 +510,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     () => tabDensity(densityMeasure.availablePx, densityMeasure.gapPx, densityMeasure.tabHeightPx, naturalTabs),
     [densityMeasure, naturalTabs],
   );
-  const densityMode = frozenDensity?.mode ?? densityPlan.mode;
+  // A title is one tab with the whole row: always full, never squeezed.
+  const densityMode = asTitle ? 'full' : (frozenDensity?.mode ?? densityPlan.mode);
   useActiveTabInView(scrollContainerRef, activePaneId ? `[data-pane-id="${CSS.escape(activePaneId)}"]` : null);
 
   // A RIGHT CLICK, A LONG PRESS AND SHIFT+F10 OPEN THE TAB'S SHEET, from the
@@ -935,7 +958,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       ref={tabBarRef}
       className={barClass}
       {...(barClass.includes('app-drag-region') ? DRAG_REGION : {})}
-      data-testid="panel-tab-bar"
+      data-testid={asTitle ? 'cell-title-tab' : 'panel-tab-bar'}
       data-group-id={groupId ?? ''}
       data-density={densityMode}
       style={{ position: 'relative' }}
@@ -991,7 +1014,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           hasMenuItems ? CHROME_ROW_ACTION_RESERVE : 'pr-1.5'
         } ${
           hasLeftOverlay
-            ? CHROME_ROW_ACTION_RESERVE_LEFT
+            ? `${CHROME_ROW_ACTION_RESERVE_LEFT} column-toggle-room`
             : hasLeadingBlock && panes.length === 0
               ? 'pl-0'
               : 'pl-1.5'
@@ -1157,6 +1180,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // the system tooltip: `TooltipDelegate` intercepts `title` and redraws
         // it after 350 ms instead of the well over a second macOS takes.
         const browserKind = pane.type === 'browser' ? browserKindNames.get(pane.id) : undefined;
+        const titleAddress = asTitle && pane.type === 'browser'
+          ? browserTabSubtitle({ title: pane.title, titleSource: pane.titleSource, url: pane.url || getBrowserPaneUrl(pane.id) })
+          : '';
         const browserHover = pane.type === 'browser'
           ? (() => {
             const input = {
@@ -1323,7 +1349,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // A browser tab has extra commands that cover the label's tail on
             // hover: the label fades under them (index.css, `.tab-extras`).
             data-tab-extras={pane.type === 'browser' ? '' : undefined}
-            style={{ width: frozenTabWidth, minWidth: frozenTabWidth, maxWidth: frozenTabWidth, flexShrink: 0 }}
+            // A title is as wide as an active tab at least, as its name when
+            // longer, up to the row it has.
+            style={asTitle ? titleTabStyle(pane.type) : { width: frozenTabWidth, minWidth: frozenTabWidth, maxWidth: frozenTabWidth, flexShrink: 0 }}
             // overflow-hidden clips the command box, which is larger than the
             // slot it sits on, at the tab's own edge.
             // L'attenzione PRECEDE la selezione, come nella sidebar: `attentionTier`
@@ -1346,10 +1374,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // riga da 40, 6 di aria contro 2. `useMobile` lo dice già: le
             // affordance del dito seguono `isTouch`, quante-colonne-e-quanto-
             // alto seguono la larghezza.
-            className={`group ${ROW_CARD} edge-lit flex items-center ${isSquareInactive ? 'justify-center p-0' : compactInnerLayout ? 'gap-1 px-1' : `${ROW_GAP} ${ROW_PX}`} ${CARD_H} ${TAB_LABEL} transition-all motion-reduce:transition-none relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
+            className={`group ${ROW_CARD} edge-lit flex items-center ${isSquareInactive ? 'justify-center p-0' : compactInnerLayout ? 'gap-1 px-1' : `${ROW_GAP} ${ROW_PX}`} ${asTitle ? TAB_BUTTON_H : CARD_H} ${TAB_LABEL} transition-all motion-reduce:transition-none relative cursor-pointer select-none rounded-lg overflow-hidden app-no-drag ${
               attentionTier
                 ? attentionSurface(attentionTier)
-                : isFullyActive
+                : asTitle
+                  ? `${TAB_AS_TITLE_SURFACE} ${isFullyActive ? 'text-app-text' : 'text-app-text-secondary'}`
+                  : isFullyActive
                   ? TAB_SELECTED_SURFACE
                   : isActiveDimmed
                     ? TAB_SELECTED_SURFACE_SOFT
@@ -1526,7 +1556,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 Usage and elapsed time ride in its tooltip (see TabLabel): the
                 container uses `aria-label` and not `title` on purpose. */}
             <TabLabel
-              className={`${isSquareInactive ? 'hidden' : `truncate flex-1 ${compactInnerLayout ? 'min-w-[24px]' : 'min-w-[56px]'}`} ${pane.preview ? 'italic' : ''} ${
+              className={`${isSquareInactive ? 'hidden' : `truncate ${titleAddress ? 'flex-initial' : 'flex-1'} ${compactInnerLayout ? 'min-w-[24px]' : 'min-w-[56px]'}`} ${pane.preview ? 'italic' : ''} ${
                 pane.type === 'browser' && isFullyActive ? 'cursor-text' : ''
               }`}
               sheetDoor={pane.type === 'browser'}
@@ -1553,6 +1583,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 pane.type === 'chat' ? sessionKeyForPaneId(pane.id, topics) : null,
               )}`}
             >{label}</TabLabel>
+            {/* The address beside the name on the title tab, which has the
+                room for it: the line the strip shows only on hover. */}
+            {titleAddress && (
+              <span className="truncate flex-1 min-w-0 text-app-text-secondary" data-testid="cell-title-tab-address">
+                {titleAddress}
+              </span>
+            )}
             <TabSheet
               sheetKey={pane.id}
               target={{ pane, label, surface: 'bar', focused: isFullyActive, actions: sheetActions }}

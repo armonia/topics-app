@@ -292,7 +292,17 @@ export const APP_SETTINGS_DDL = `CREATE TABLE IF NOT EXISTS app_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   auto_dispatch INTEGER,
   profile_publish_cost INTEGER NOT NULL DEFAULT 0,
-  first_run_done_at TEXT
+  first_run_done_at TEXT,
+  security_alerts_project_id TEXT,
+  topics_check_json TEXT,
+  worktree_root TEXT,
+  worktree_max_per_project INTEGER,
+  worktree_disk_floor_gb INTEGER,
+  cargo_target_mode TEXT,
+  gc_foreign TEXT,
+  worktree_abandon_days INTEGER,
+  claude_worktree_hooks TEXT,
+  worktree_quarantine_days INTEGER
 );
 INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0);`;
 

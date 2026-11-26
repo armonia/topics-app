@@ -1,8 +1,7 @@
 import { homedir } from "os";
-import { accessSync, constants, existsSync, lstatSync, mkdirSync, realpathSync } from "fs";
+import { accessSync, constants, mkdirSync } from "fs";
 import { join, resolve } from "path";
 import { topicsHome } from "../services/daemon-state";
-import { LEGACY_DATA_DIR_NAME } from "../../shared/legacy-data-dir";
 
 /**
  * Resolve the WRITABLE root for all mutable server state (SQLite DB, messages,
@@ -125,82 +124,50 @@ export function envDataDir(env: NodeJS.ProcessEnv = process.env): string | undef
   return env.DATA_DIR || env.TOPICS_DATA_DIR || undefined;
 }
 
-// The old data root's name lives in shared/, the one place the client can read it from too.
-export { LEGACY_DATA_DIR_NAME };
-
 /** Injectable inputs of `resolveAppDataDir`, so the rule can be tested without a real home. */
 export interface AppDataDirInputs {
   env?: NodeJS.ProcessEnv;
   /** The user's home. Defaults to `$HOME`, then the OS answer. */
   home?: string;
-  /** Directory probe. Injected in tests; the resolution never creates anything. */
-  exists?: (path: string) => boolean;
-  /** Where a path points when it is a symbolic link, else null. Injected in tests. */
-  linkTarget?: (path: string) => string | null;
-}
-
-function resolvedLink(path: string): string | null {
-  try { return lstatSync(path).isSymbolicLink() ? realpathSync(path) : null; }
-  catch { return null; }
 }
 
 /**
- * The APP DATA ROOT: the folder holding `media/`, `workspace/`,
- * `agents/main/sessions/`, `mcp-oauth.json`, `orchestrator-cwd/` — the things
- * the app writes FOR the user, as opposed to the internal state resolved by
- * `resolveStateDir` above.
+ * The APP DATA ROOT: the folder holding `media/`, `workspace/`, `mcp-oauth.json`,
+ * `orchestrator-cwd/` and `agents/<id>/`, the homes of the always-on agents:
+ * the things the app writes FOR the user, as opposed to the internal state
+ * resolved by `resolveStateDir` above.
  *
- * WHY the rule has three branches (card ef26c310 / 211605ee):
- *   The root used to be `${HOME}/${LEGACY_DATA_DIR_NAME}`, hardcoded as the last resort in
- *   four copies of the same expression. The desktop shell exports TOPICS_HOME,
- *   TOPICS_DATA_DIR and DATA_DIR but not APP_DATA_DIR, so a freshly installed
- *   Topics created `media/` and `workspace/` under the legacy root in the home
- *   of somebody who never ran the product under its previous name: a second
- *   home for the app, under an obsolete name.
+ * Two branches, the whole rule:
+ *   1. `APP_DATA_DIR`, an explicit instruction, used by the test servers and by
+ *      anyone pinning the root by hand.
+ *   2. `topicsHome()`, `${TOPICS_HOME:-~/.topics}`: the home the daemon state,
+ *      the logs and the worktrees already live in. One home for the app.
  *
- *   Every installation that already has the legacy root keeps it. Its data, the
- *   paths recorded in the DB and the preview allowlist all point there, and
- *   moving them is a migration with a card of its own, not a side effect of
- *   this one. So the legacy root wins whenever it EXISTS, and only a machine
- *   that never had one gets the new default.
- *
- * Resolution order:
- *   1. `APP_DATA_DIR` — an explicit instruction, used by
- *      the test servers and by anyone pinning the root by hand.
- *   2. `${home}/${LEGACY_DATA_DIR_NAME}` IF that directory already exists (legacy install).
- *   3. `topicsHome()` — `${TOPICS_HOME:-~/.topics}`, the same home the daemon
- *      state, the logs and the worktrees already live in. Not a fourth
- *      convention: `~/.topics/media` is already the preferred media base of the
- *      file allowlist and where agent screenshots are written.
+ * WHY there is no third branch (change `agents-in-topics-home`): a root under
+ * the product's older name used to win whenever that folder existed, so a
+ * machine that had one kept a second home for the app, shared with the
+ * agents, and the agents could not move without the app moving with them. The
+ * data and the agents' homes moved into the Topics home, and the paths saved
+ * in the DB followed with `scripts/rewrite-root-paths.ts`; a machine that still
+ * has an old root migrates the same way.
  *
  * Pure on its inputs and side-effect free: resolving creates no directory, so
  * calling it twice answers the same thing and probes nothing into existence.
  */
 export function resolveAppDataDir(inputs: AppDataDirInputs = {}): string {
   const env = inputs.env ?? process.env;
-  const home = inputs.home ?? env.HOME ?? homedir();
-  const exists = inputs.exists ?? existsSync;
-  const explicit = env.APP_DATA_DIR;
-  if (explicit) return explicit;
-  const legacy = join(home, LEGACY_DATA_DIR_NAME);
-  // A legacy root that is only a link (the folder moved and the old name points at
-  // it) resolves to where it points: new paths are written under the real folder,
-  // never under the obsolete name. The files are the same either way.
-  if (exists(legacy)) return (inputs.linkTarget ?? resolvedLink)(legacy) ?? legacy;
-  return topicsHome(env, home);
+  return env.APP_DATA_DIR || topicsHome(env, inputs.home ?? env.HOME ?? homedir());
 }
 
 /**
- * Both roots an already-saved path may belong to, legacy first when it is the
- * live one. Read by the file and preview allowlists: a media path written when
- * the app data root was the legacy one must stay readable on a machine that
- * resolves to `~/.topics` today, and the other way round.
+ * The roots a saved path may belong to: the live one and the Topics home,
+ * which differ when `APP_DATA_DIR` pins the root elsewhere. Read by the file
+ * and preview allowlists.
  */
 export function appDataRoots(inputs: AppDataDirInputs = {}): string[] {
   const env = inputs.env ?? process.env;
   const home = inputs.home ?? env.HOME ?? homedir();
-  const roots = [resolveAppDataDir(inputs), join(home, LEGACY_DATA_DIR_NAME), topicsHome(env, home)];
-  return [...new Set(roots)];
+  return [...new Set([resolveAppDataDir(inputs), topicsHome(env, home)])];
 }
 
 /** The repo this server runs from: in dev and under the prod LaunchAgent, the live state root. */

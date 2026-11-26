@@ -22,8 +22,8 @@ const TYPES = {
 
 /**
  * Starts the server; resolves to `{ base, close }` where base is the URL of the
- * entry without hash: `app` (the multi-organization preview), `sarim` (the
- * SARIM edition) or `consorzio` (the Consorzio edition). `dist` is the build
+ * entry without hash: `app` (the multi-organization preview), `orbit` (the
+ * ORBIT edition) or `consorzio` (the Consorzio edition). `dist` is the build
  * folder under `client/` (default `dist-ui`).
  */
 export async function serveDist(script, entry = "app", dist = "dist-ui") {

@@ -17,12 +17,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { mkdtempSync, rmSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import {
-  hasPriorMessagesInDB,
-  loadActiveBranchForReplay,
-  renderReplayPrologue,
-  type ReplayTurn,
-} from "./claude-code";
+import { hasPriorMessagesInDB, loadActiveBranchForReplay, renderReplayPrologue, type ReplayTurn } from "./claude/history-replay";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
 
 let tempDir: string;

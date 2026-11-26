@@ -10,6 +10,7 @@ import { existsSync } from "fs";
 import { projectIdForPath } from "../services/tasks";
 import { mainPushGit, sweepUnpushedMains } from "../services/main-on-origin";
 import { pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "../services/delivery-ref-keep";
+import { readBranchLives, sweepFinishedBranchesOnOrigin } from "../services/finished-branches-on-origin";
 import { runLandingAudit as runLandingAuditPass } from "../services/landing-audit-pass";
 import type { AfterReattach } from "./scope";
 
@@ -118,9 +119,35 @@ export function bootDeliveryAudit(scope: AfterReattach) {
   }
 
 
+  /**
+   * A FINISHED CARD'S BRANCH LEAVES ORIGIN (`finished-branches-on-origin.ts`).
+   * Same pass as the audit and the ref broom, for the same reason: they walk
+   * the same repositories.
+   */
+  async function sweepFinishedBranches(): Promise<void> {
+    const readLives = () => readBranchLives(ctx.db);
+    const seen = new Set<string>();
+    for (const p of ctx.projectStore.list()) {
+      const path = p.path;
+      if (!path || seen.has(path) || !existsSync(path)) continue;
+      seen.add(path);
+      try {
+        const done = await sweepFinishedBranchesOnOrigin(path, readLives);
+        if (!done) continue;
+        if (done.deleted.length) {
+          console.log(`[origin-branches] ${done.deleted.length} rami di card chiuse tolti da origin, ${Object.keys(done.archived).length} tenuti come tag archive/ { repo: ${path} }`);
+        }
+        if (done.problems.length) console.warn(`[origin-branches] ${path}: ${done.problems.slice(0, 5).join("; ")}`);
+      } catch (err) {
+        console.warn("[origin-branches] spazzata fallita", err);
+      }
+    }
+  }
+
   const runLandingAudit = async () => {
     await runLandingAuditPass(auditWiring);
     await pruneKeptDeliveries();
+    await sweepFinishedBranches();
   };
 
 
@@ -135,6 +162,9 @@ export function bootDeliveryAudit(scope: AfterReattach) {
   // retries, fast-forward only, and once main is on origin its `unpushed` cards
   // turn `landed`. Every repo, not only those with marked cards: a land made by
   // a server without this fix is behind all the same, and that is the measured case.
+  // The last refusal said per repo: a pre-push hook that refuses on purpose says the same
+  // thing every 10 minutes, and the log only needs it when it starts, changes or ends.
+  const lastRefusal = new Map<string, string>();
   const sweepUnpushedLands = async () => {
     const repos = new Set<string>();
     try { for (const d of listSelectableProjectDirs()) repos.add(d); } catch { /* best-effort */ }
@@ -153,7 +183,11 @@ export function bootDeliveryAudit(scope: AfterReattach) {
         if (cur) broadcastToAll({ type: "task:updated", projectId: pid, task: cur } as Parameters<typeof broadcastToAll>[0]);
       }
     }, mainPushGit).then((out) => {
-      for (const o of out) if (!o.result.ok) console.warn(`[land-push] ${o.repo}: ${o.result.reason}`);
+      for (const o of out) {
+        const reason = o.result.ok ? "" : o.result.reason;
+        if (reason && reason !== lastRefusal.get(o.repo)) console.warn(`[land-push] ${o.repo}: ${reason}`);
+        if (reason) lastRefusal.set(o.repo, reason); else lastRefusal.delete(o.repo);
+      }
     });
   };
 

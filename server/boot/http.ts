@@ -8,7 +8,7 @@ import { isDesktopShellOrigin, isLoopbackAddress } from "../lib/auth-gate";
 import type { AfterBootSweeps } from "./scope";
 
 export async function bootHttp(scope: AfterBootSweeps) {
-  const { accountRouter, activityRouter, agentChannelsRouter, agentConfigRouter, appSettingsRouter, authRouter, billingRouter, branchesRouter, browserRouter, calendarRouter, checkpointsRouter, claudeHooksRouter, clientTraceRouter, contextPreviewRouter, contextRouter, cronRouter, dashboardRouter, e2eRouter, externalSessionsRouter, filesRouter, goalsRouter, heavySlotRouter, hubRouter, licenseRouter, liveTerminalsRouter, machinesRouter, mcpRouter, mediaRouter, memoryRouter, nodesRouter, notificationsRouter, openRouter, orchestratorSessionsRouter, peopleRouter, planRouter, processesRouter, profileRouter, projectsRouter, providersRouter, pushRouter, readableViewRouter, reasoningTranslationRouter, rootDir, sessionEnvironmentRouter, statusRouter, tabsRouter, tasksRouter, terminalRouter, topicsRouter, uiStateRouter, usageRouter, viewsRouter, voiceRouter, worktreesRouter } = scope;
+  const { accountRouter, activityRouter, agentChannelsRouter, agentConfigRouter, agentPermissionsRouter, agentsRouter, appSettingsRouter, authRouter, billingRouter, branchesRouter, browserRouter, calendarRouter, checkpointsRouter, claudeHooksRouter, clientTraceRouter, contextPreviewRouter, contextRouter, cronRouter, dashboardRouter, e2eRouter, externalSessionsRouter, filesRouter, goalsRouter, heavySlotRouter, hubRouter, licenseRouter, liveTerminalsRouter, machineWorktreesRouter, machinesRouter, mcpRouter, mediaRouter, memoryRouter, memoryStoresRouter, systemHealthRouter, nodeWorktreesRouter, nodesRouter, notificationsRouter, openRouter, orchestratorSessionsRouter, peopleRouter, planRouter, processesRouter, profileRouter, scheduledJobsRouter, projectsRouter, providersRouter, pushRouter, readableViewRouter, reasoningTranslationRouter, rootDir, sessionEnvironmentRouter, statusRouter, tabsRouter, topicsCheckRouter, tasksRouter, terminalRouter, topicsRouter, uiStateRouter, usageRouter, viewsRouter, voiceRouter, worktreesRouter } = scope;
   const tlsCert = join(rootDir, "certs", "fullchain.pem");
 
   const tlsKey = join(rootDir, "certs", "key.pem");
@@ -102,7 +102,9 @@ export async function bootHttp(scope: AfterBootSweeps) {
     branchesRouter,
     projectsRouter,
     worktreesRouter,
+    machineWorktreesRouter,
     machinesRouter,
+    nodeWorktreesRouter,
     nodesRouter,
     filesRouter,
     browserRouter,
@@ -141,8 +143,14 @@ export async function bootHttp(scope: AfterBootSweeps) {
     readableViewRouter,
     calendarRouter,
     heavySlotRouter,
+    scheduledJobsRouter,
+    topicsCheckRouter,
     agentChannelsRouter,
     agentConfigRouter,
+    agentPermissionsRouter,
+    agentsRouter,
+    memoryStoresRouter,
+    systemHealthRouter,
     tabsRouter,
     viewsRouter,
     claudeHooksRouter,

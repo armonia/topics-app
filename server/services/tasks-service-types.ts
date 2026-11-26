@@ -38,6 +38,11 @@ export interface ServiceOpts {
   listRepoRoots?: () => string[];
   /** Visible project directories, used as a fallback by older hosts. */
   listProjectDirs?: () => string[];
+  /**
+   * The branch checked out in a worktree root when it has commits ahead of main
+   * (`null` otherwise). Lets a card that declares a wait keep its work as `prior_branch`.
+   */
+  branchAheadOf?: (root: string) => string | null;
   /** How a root becomes a probe (tests pass a fake). */
   probeFor?: (root: string) => RepoProbe;
   /**
@@ -445,6 +450,13 @@ export interface TaskService {
     rootsOnly?: boolean;
   }): Neighbour[];
 
+  /**
+   * The OPEN card (not done, not archived) of a board that already says this
+   * very thing: same normalized title, or same idempotency key. Exact only; the
+   * fuzzy neighbours stay with `findDuplicates`.
+   */
+  findOpenTwin(args: { projectId: string; text?: string; idempotencyKey?: string | null; rootsOnly?: boolean }): Task | null;
+
   archive(args: { taskId: string; projectId?: string }): Task;
   /**
    * Unhooks the open children (not archived, not done) of `taskId` so they
@@ -554,6 +566,8 @@ export interface TaskService {
    * A card waiting for a silent node is in Todo, so it counts.
    */
   countOnMachine(machineId: string): number;
+  /** Cards already running on the machine (in progress), not counting `exceptTaskId`. */
+  countRunningOnMachine(machineId: string, exceptTaskId?: string): number;
   /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
    *
@@ -608,7 +622,7 @@ export interface TaskService {
    * una persona, e il backlog non lo dispaccia nessuno. Vedi il commento nel
    * corpo per il guasto del 12/08.
    */
-  release(args: { taskId: string; requeue: boolean; reason?: string; by?: string; parkState?: string | null; rollbackAttempt?: boolean; keepStatus?: boolean }): Task;
+  release(args: { taskId: string; requeue: boolean; reason?: string; by?: string; parkState?: string | null; rollbackAttempt?: boolean; keepStatus?: boolean; keepInTodo?: boolean }): Task;
   /**
    * Agent-declared external-condition wait: release the slot and put the task
    * back in `todo` with chip `waiting` and a `dispatch_deferred_until` window,
@@ -875,4 +889,6 @@ export interface TaskService {
    * decorative, so whoever draws the figure can say how much of it is missing.
    */
   agentSpend(): { cents24h: number; centsTotal: number; unpricedCostTokens24h: number; unpricedCostTokensTotal: number };
+  /** When the rolling 24h spend falls back under `capCents` if nothing new is spent (epoch ms); `null` = already under, or unreadable. */
+  agentSpendClearsAt(capCents: number): number | null;
 }

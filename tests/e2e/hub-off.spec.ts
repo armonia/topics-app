@@ -27,9 +27,10 @@ import { goToApp } from "./helpers";
 import { startFakeHub } from "./helpers/fake-hub";
 import { canonicalTmpRoot, E2E_BASE } from "./helpers/test-server";
 import { openMainChat, seedScene, type Scene } from "./helpers/shot-scene";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ mode: "serial", timeout: 120_000 });
 
 // The words the retired surfaces used to say: none of them may be on screen.
@@ -40,10 +41,12 @@ const RETIRED_TEXT = /Tutto ok|Quasi tutto ok|Hub non raggiungibile|Hub raggiung
  * uncaught page error, every console error that names the hub or the System
  * pane, and every request of the page to the hub's proxied routes
  * (`/api/hub/`, `/api/switchboard/`: with the hub down nothing asks them, so
- * one is already a trace). With the hub up, the bell's button reads the
- * proxy's log in the background (`/api/switchboard/activity` and `/profiles`,
- * HUBBR-06): the tests with the hub up let those two pass, and want none once
- * it went down. Topics' own snapshot
+ * one is already a trace). With the hub up, the bell's button counts every
+ * row «Ora» lists (one ledger, NOTIF-ONE-02), so it reads in the background
+ * the proxy's log (`/api/switchboard/activity` and `/profiles`) and the lists
+ * the socket does not carry (`/api/hub/automations`, `/contesto`,
+ * `/hub-config`, HUBBR-06): the tests with the hub up let those pass, and
+ * want none once it went down. Topics' own snapshot
  * `/api/hub-live`, which the bell's button reads, asks the hub nothing and may
  * pass. Console errors
  * of the engine itself stay out: WebKit on the PC logs its own viewport and
@@ -66,9 +69,9 @@ function collectErrors(page: Page): string[] {
   return errors;
 }
 
-/** With the hub up, the bell's button reads the proxy's log in the background (HUBBR-06): those two requests are not a trace. */
-const PROXY_LOG = /^request http:\/\/[^/]+\/api\/switchboard\/(activity|profiles)$/;
-const withoutProxyLog = (errors: string[]): string[] => errors.filter((e) => !PROXY_LOG.test(e));
+/** With the hub up, the bell's button reads these in the background to count its rows (HUBBR-06, NOTIF-ONE-02): not a trace. */
+const BELL_READS = /^request http:\/\/[^/]+\/api\/(switchboard\/(activity|profiles)|hub\/(automations|contesto|hub-config))$/;
+const withoutBellReads = (errors: string[]): string[] => errors.filter((e) => !BELL_READS.test(e));
 
 /** The live reader's snapshot: which topics read, which are in error. */
 async function hubLive(request: APIRequestContext): Promise<Record<string, { data?: unknown; error?: string }>> {
@@ -117,8 +120,8 @@ test.describe("Without the hub, no trace", () => {
     await openMainChat(page, scene!);
     await expect(page.getByLabel("Topics sidebar")).toBeVisible();
     await expectNoHubTrace(page);
-    // Automazioni is the hub's: without it, not even the row above the Board.
-    await expect(page.getByTestId("sidebar-automations")).toHaveCount(0);
+    // The row is the self-check's too: present without the hub, with no hub data in it.
+    await expect(page.getByTestId("sidebar-automations")).toBeVisible();
     await expect(page.getByTestId("identity-hot-quota")).toHaveCount(0);
     await page.mouse.move(0, 0);
     await page.screenshot({ path: testInfo.outputPath("vero-via-sistema-piccolo-senza-hub-scuro.png") });
@@ -152,14 +155,14 @@ test.describe("Without the hub, no trace", () => {
       // same sidebar as before.
       await hub.close();
       await expect.poll(async () => typeof (await hubLive(request)).pace?.error, { timeout: 20_000 }).toBe("string");
-      // Before the reload, only the proxy log's background read may have passed.
-      expect(withoutProxyLog(errors)).toEqual([]);
+      // Before the reload, only the bell's background reads may have passed.
+      expect(withoutBellReads(errors)).toEqual([]);
       errors.length = 0;
       await page.reload();
       await expect(page.getByLabel("Topics sidebar")).toBeVisible({ timeout: 30_000 });
       await expectNoHubTrace(page);
-      // A page loaded with the hub down has never read it: like every hub surface, no row.
-      await expect(page.getByTestId("sidebar-automations")).toHaveCount(0);
+      // A page loaded with the hub down has never read it: the row stays, with no hub trace.
+      await expect(page.getByTestId("sidebar-automations")).toBeVisible();
       await expectNoPaletteEntry(page);
       expect(errors).toEqual([]);
     } finally {
@@ -182,7 +185,7 @@ test.describe("Without the hub, no trace", () => {
       await expect(page.getByTestId("project-toggle-acme-web")).toBeVisible({ timeout: 20_000 });
       await expectNoHubTrace(page);
       await page.screenshot({ path: testInfo.outputPath("vero-via-sistema-piccolo-telefono.png") });
-      expect(withoutProxyLog(errors)).toEqual([]);
+      expect(withoutBellReads(errors)).toEqual([]);
     } finally {
       await ctx.close();
       await hub.close().catch(() => {});
