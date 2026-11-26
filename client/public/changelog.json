@@ -1,5 +1,35 @@
 [
   {
+    "version": "2.5.7",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "node deliveries with a null checks_state are measured again, and every mute exit of the meter says why",
+          "en": "",
+          "scope": "land",
+          "breaking": false
+        },
+        {
+          "it": "ci-impact fixtures no longer read as the file's own @covers",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-26 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.6",
     "date": "2026-11-26",
     "sections": {
@@ -7,6 +37,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "ci-changes test: teach the evaluator needs.prepare-e2e.outputs.shards (PR value and none)",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Bloat baseline: task-dispatcher-overflow.test.ts at 1715 after two cards land together",
           "en": "",
@@ -46,7 +81,18 @@
         }
       ],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "Follow a symlinked project tab to its real path in pane-store (moved folder, card 6d04b342)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Integration test: let the spawned server keep its tunnel ports when run from a worktree",
+          "en": "",
+          "scope": null
+        }
+      ]
     }
   },
   {
@@ -65,6 +111,18 @@
           "it": "count a node seat only by a run the primary still believes open",
           "en": "",
           "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "the new board requirements are in the spec, and the person-owned word list carries its language marker",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "give each run its own checkout folder",
+          "en": "",
+          "scope": "node-checks",
           "breaking": false
         }
       ],
@@ -88,7 +146,38 @@
     "version": "2.5.2",
     "date": "2026-11-26",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "it": "a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "a request that repeats an open card is absorbed by it instead of opening a twin",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "a card stuck for an hour without a reason gets one service note, and leaves a machine that does not answer",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "a card that spent its attempts with no outcome stays visible in todo with the reason, instead of moving to backlog",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "the question a delivery carries goes back to the chat that opened the card",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        }
+      ],
       "fixes": [
         {
           "it": "the sidebar's buttons are tabs, and every tab lights under the pointer",
@@ -103,6 +192,12 @@
           "breaking": false
         },
         {
+          "it": "the stuck-card sweep leaves an in-progress card its dispatch chip explains",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
           "it": "protect every comment of a resend's round, not two rows by position, in node run briefs",
           "en": "",
           "scope": null,
@@ -111,6 +206,11 @@
       ],
       "perf": [],
       "internal": [
+        {
+          "it": "ci-impact: whole-tree guard tests always ride in a reduced unit plan (replay: any-budget was missed)",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Land via PR: auto-merge off on every failed exit, re-read at the deadline, probe failure is a refusal, moved base reported, gh missing falls back to the local merge",
           "en": "",
@@ -131,6 +231,12 @@
           "it": "Land via PR: a GitHub refusal falls back to the local merge, running checks release the queue, settle wait cut to 2 min",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "board-avanza-da-sola, the seven rules with their bar",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
         },
         {
           "it": "the narrowest column is 248, and the word hides beside the Windows cluster",
@@ -161,7 +267,17 @@
           "scope": null
         },
         {
+          "it": "ci-impact: untraceable files run the whole tier, a failed estimate leaves no judged mark, replay includes --only-changed",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Fix ci-governor selftest race on SIGSTOP/SIGCONT delivery under load",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-impact-measure: drop the node_modules junction, its removal followed the link",
           "en": "",
           "scope": null
         },
@@ -201,6 +317,11 @@
           "breaking": false
         },
         {
+          "it": "ci-impact-measure: an unreadable rerun list no longer aborts the replay",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "the browser tab in the title row is a portal in flow, not a floating surface",
           "en": "",
           "scope": "ui",
@@ -235,7 +356,19 @@
         }
       ],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "pull requests run the e2e specs and unit tests their diff reaches, main runs everything",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "ci-impact: replay reads the commit's own worktree",
+          "en": "",
+          "scope": null
+        }
+      ]
     }
   },
   {
