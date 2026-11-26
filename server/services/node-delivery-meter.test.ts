@@ -1,6 +1,6 @@
 /**
  * The bar of a delivery planted from another machine (`node-delivery-meter.ts`):
- * measured on a throwaway checkout, only when the bar is made of CI rows, and
+ * measured on a throwaway checkout, CI rows and local commands alike, and
  * followed by the offer to the automatic land.
  *
  * @covers LAND-05
@@ -50,10 +50,18 @@ describe("node delivery meter", () => {
     expect(events.at(-1)).toBe("land");
   });
 
-  test("a bar with a local command is NOT measured on a bare checkout: nothing runs, nothing lands", async () => {
+  test("a bar mixing CI and a local command is measured on the checkout too (card c0bec773)", async () => {
+    const { m, events } = meter({
+      checks: [{ name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd }, { name: "typecheck", cmd: "bun run typecheck" }],
+    });
+    await m.measure(TASK);
+    expect(events).toEqual(["checkout", "gate@abc1234", "release", "recapture", "land"]);
+  });
+
+  test("a bar made entirely of local commands is measured on the checkout too", async () => {
     const { m, events } = meter({ checks: [{ name: "typecheck", cmd: "bun run typecheck" }] });
     await m.measure(TASK);
-    expect(events).toEqual([]);
+    expect(events).toEqual(["checkout", "gate@abc1234", "release", "recapture", "land"]);
   });
 
   test("no checkout to measure on: nothing runs, nothing lands", async () => {

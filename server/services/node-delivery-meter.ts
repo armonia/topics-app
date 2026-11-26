@@ -11,13 +11,16 @@
  * Here the bar is measured on a throwaway checkout of the planted branch and
  * the card is then offered to the automatic land (`auto-land.ts`).
  *
- * Only a bar made of CI rows is measured this way. A local command (typecheck,
- * unit tests) needs the installed dependencies of a real worktree, and running
- * it on a bare checkout would write a red that means "nothing is installed",
- * not "the code is wrong". Such a card stays unmeasured and a person decides,
- * which is what happens today.
+ * A LOCAL COMMAND (typecheck, unit tests) runs here too, not just the CI
+ * rows: the checkout installs its dependencies before any gate runs
+ * (`node-check-worktree.ts`), so a red on it means "the code is wrong", not
+ * "nothing is installed" — the hole a local-only board used to fall through
+ * forever (card c0bec773, 26/11: a board with even one local row never got
+ * measured, so a node delivery on it never landed). The swap brake
+ * (`checks-gate.ts`'s `InterruptReason`) already covers every row the same
+ * way, CI or local, so nothing extra is needed for it.
  */
-import { isCiEvidenceCheck, type ReviewCheck } from "../../shared/board";
+import type { ReviewCheck } from "../../shared/board";
 import type { ChecksLeg } from "./checks-gate";
 
 /** A throwaway worktree on the planted branch. */
@@ -59,10 +62,7 @@ export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
     const task = deps.readTask(taskId);
     if (!task || task.status !== "review" || !task.deliveryBranch || !task.deliveryCommit) return;
     const checks = deps.declaredChecks(task.projectId);
-    if (!checks.length || !checks.every(isCiEvidenceCheck)) {
-      log(`[node-meter] ${taskId.slice(0, 8)}: la barra della board ha comandi locali, resta non misurata`);
-      return;
-    }
+    if (!checks.length) return;
     if (!deps.checkout) return;
     measuring.add(taskId);
     try {
