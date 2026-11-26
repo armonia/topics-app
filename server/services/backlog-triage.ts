@@ -17,10 +17,11 @@
  * a machine or a path: the repo path of a board comes from its project row.
  */
 import type { Database } from "bun:sqlite";
-import { spawnSync } from "child_process";
 import type { TaskService } from "./tasks";
 import { tryGetProvider } from "../providers";
 import type { CompletionOptions } from "../providers/types";
+import { defaultRunGit } from "./own-commits";
+import { resolveLandingBase } from "./worktree-base-ref";
 
 const BATCH_SIZE = 10;
 const MAX_CARDS_PER_BOARD = 80;
@@ -52,10 +53,8 @@ interface TriageCard {
   description: string | null;
   createdAt: string;
   blockedBy: string | null;
-  /** A step of another card: nobody dispatches it from the backlog, so it has to be detached before it can move. */
+  /** A step of another card: it keeps its parent when it moves. */
   parentTaskId: string | null;
-  /** The parent's state: `done`, `archived` or a live status. Null for a card with no parent. */
-  parentState: string | null;
 }
 
 export interface TriageReport { todo: number; ask: number; done: number; stay: number }
@@ -64,8 +63,8 @@ export interface TriageDeps {
   now?: () => number;
   /** One model call: `triage` is the cheap tier, `verify` the provider's own default. Throws when no model answers. */
   ask?: (prompt: string, tier: Tier) => Promise<string>;
-  /** Is this commit reachable from the main branch of the board's repo? */
-  commitOnMain?: (boardId: string, sha: string) => boolean;
+  /** Is this commit reachable from the board's main branch, as the land measures it (origin after a fetch)? */
+  commitOnMain?: (boardId: string, sha: string) => boolean | Promise<boolean>;
   /**
    * Is there a model different from the sorting one to check a proof? Without it no card closes.
    * Defaults to what the connected provider can do; true when `ask` is injected.
@@ -113,7 +112,7 @@ function buildTriagePrompt(cards: TriageCard[]): string {
     "- todo: an agent can do it with no decision from a person, no open card blocks it, and it still applies today.",
     "- ask: it needs a person (spend, anything public, anything irreversible, real people's data, visual taste). Give `question` (one line) and `options` (2 to 4, the recommended first).",
     "- done: it was already done. `proof` is REQUIRED: `commit:<sha>` of a commit on the main branch or `card:<id>` of the finished card that did it. No proof you can name means stay, not done.",
-    "- A card whose blocker is already done is NOT blocked: it does not wake up by itself, so it is todo like any other workable card. A subtask is sorted like any card.",
+    "- A card whose blocker is already done is NOT blocked: it does not wake up by itself, so it is todo like any other workable card. A subtask is sorted like any card, and keeps its parent.",
     "- stay: blocked by an open card, or an idea that is not ready. `reason` says which.",
     "",
     ...lines,
@@ -134,10 +133,12 @@ function makeTriageAsk(getProvider: typeof tryGetProvider = tryGetProvider) {
 }
 
 function defaultCommitOnMain(db: Database): NonNullable<TriageDeps["commitOnMain"]> {
-  return (boardId, sha) => {
+  return async (boardId, sha) => {
     const row = db.query("SELECT path FROM projects WHERE id = ?").get(boardId) as { path: string | null } | null;
     if (!row?.path || !/^[0-9a-f]{7,40}$/i.test(sha)) return false;
-    return spawnSync("git", ["merge-base", "--is-ancestor", sha, "main"], { cwd: row.path, timeout: 10_000 }).status === 0;
+    // The same base a land measures against: origin/main after a fetch, the local main only when there is no remote copy.
+    const base = await resolveLandingBase(defaultRunGit, row.path, "main");
+    return (await defaultRunGit(row.path, ["merge-base", "--is-ancestor", sha, base])).code === 0;
   };
 }
 
@@ -160,7 +161,7 @@ async function proofHolds(db: Database, boardId: string, card: TriageCard, v: Tr
   if (!m) return false;
   let evidence: string;
   if (m[1] === "commit") {
-    if (!deps.commitOnMain(boardId, m[2]!)) return false;
+    if (!(await deps.commitOnMain(boardId, m[2]!))) return false;
     evidence = `commit ${m[2]} is on the main branch`;
   } else {
     const done = finishedCard(db, boardId, m[2]!, card.id);
@@ -174,24 +175,19 @@ async function proofHolds(db: Database, boardId: string, card: TriageCard, v: Tr
   return /^\s*yes\b/i.test(answer);
 }
 
-function apply(db: Database, svc: Svc, taskId: string, parentTaskId: string | null, action: TriageAction, reason: string, v: TriageVerdict): void {
+function apply(svc: Svc, taskId: string, action: TriageAction, reason: string, v: TriageVerdict): void {
   if (action === "todo") {
-    // A subtask in the backlog is a dead end: detach it in its own update, then move it, as two separate patches.
-    if (parentTaskId) svc.update({ taskId, actor: "agent", by: BY, patch: { parentTaskId: null }, statusReason: "detached from its parent so an agent can take it" });
+    // A subtask keeps its parent: the card keeps its structure.
     svc.update({ taskId, actor: "agent", by: BY, patch: { status: "todo" }, statusReason: reason || "workable by an agent" });
   } else if (action === "ask") {
     // The question goes to the thread once, with its options, and the card is handed over with the system
     // signature, not through the agent delivery gate: no summary, no approval row, no "unreadable delivery" warning.
     svc.addComment({ taskId, author: BY, content: v.question!, questionOptions: v.options });
-    const ts = new Date().toISOString();
-    db.query(
-      "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', review_at = ?, human_ask = ?, " +
-        "delivered_by = 'system', delivered_reason = 'backlog_triage', updated_at = ? WHERE id = ? AND status = 'backlog'",
-    ).run(ts, v.question!, ts, taskId);
+    svc.update({ taskId, actor: "agent", by: BY, patch: { status: "review", humanAsk: v.question! }, statusReason: reason || "needs a person", systemAction: { reason: "backlog_triage" } });
   } else if (action === "done") {
-    // The rule that only a human closes a card is met by the verified proof, not skipped: the proof is in the comment.
+    // A system closes a card only with its verified proof, and the proof is in the comment right before.
     svc.addComment({ taskId, author: BY, kind: "service", content: `Already done. Proof: ${v.proof}. ${reason}` });
-    svc.update({ taskId, actor: "human", by: BY, patch: { status: "done" }, statusReason: "already done, proof verified" });
+    svc.update({ taskId, actor: "agent", by: BY, patch: { status: "done" }, statusReason: "already done, proof verified", systemAction: { reason: "backlog_triage", closeProof: v.proof! } });
   } else {
     svc.addComment({ taskId, author: BY, kind: "service", once: true, content: `Stays in the backlog: ${reason || "not ready"}` });
   }
@@ -205,8 +201,7 @@ export async function triageBoard(db: Database, svc: Svc, boardId: string, deps:
   const report: TriageReport = { todo: 0, ask: 0, done: 0, stay: 0 };
   const rows = db.query(
     `SELECT t.id, t.text, t.description, t.created_at AS createdAt,
-            (SELECT b.id FROM tasks b WHERE b.id = t.blocked_by_task_id AND b.status != 'done' AND b.archived = 0) AS blockedBy, t.parent_task_id AS parentTaskId,
-            (SELECT CASE WHEN p.archived = 1 THEN 'archived' ELSE p.status END FROM tasks p WHERE p.id = t.parent_task_id) AS parentState
+            (SELECT b.id FROM tasks b WHERE b.id = t.blocked_by_task_id AND b.status != 'done' AND b.archived = 0) AS blockedBy, t.parent_task_id AS parentTaskId
        FROM tasks t WHERE t.project_id = ? AND t.status = 'backlog' AND t.archived = 0
       ORDER BY t.created_at ASC LIMIT ?`,
   ).all(boardId, MAX_CARDS_PER_BOARD) as TriageCard[];
@@ -224,15 +219,11 @@ export async function triageBoard(db: Database, svc: Svc, boardId: string, deps:
         let reason = v.reason;
         // A blocker still open is a fact of the database, not something the model may overrule.
         if (action === "todo" && card.blockedBy) { action = "stay"; reason = `blocked by an open card (${card.blockedBy.slice(0, 8)})`; }
-        // Detaching a step from a live parent would make it a root card the dispatcher launches while the parent works on it.
-        if (action === "todo" && card.parentTaskId && card.parentState !== "done" && card.parentState !== "archived") {
-          action = "stay"; reason = "subtask of a live parent";
-        }
         if (action === "done" && !(await proofHolds(db, boardId, card, v, { ask, commitOnMain, hasSecondModel }))) {
           action = "stay"; reason = "looks done but no verified proof";
         }
         if (action === "ask" && !(v.question && v.options?.length)) { action = "stay"; reason = reason || "needs a person but no question was written"; }
-        apply(db, svc, card.id, card.parentTaskId, action, reason, v);
+        apply(svc, card.id, action, reason, v);
         report[action]++;
       } catch (e) {
         console.warn("[backlog-triage] card skipped:", card.id, e instanceof Error ? e.message : e);

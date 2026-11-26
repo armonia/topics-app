@@ -6,7 +6,9 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { readFileSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { execFileSync } from "child_process";
 import { join } from "path";
 import { freshDb, svc as makeSvc, PID } from "./tasks-test-db";
 import { runBacklogTriage, triageBoard, parseVerdicts, type TriageDeps } from "./backlog-triage";
@@ -134,21 +136,12 @@ describe("backlog dead ends", () => {
     expect(statusOf(c.id)).toBe("todo");
   });
 
-  test("a subtask in the backlog is detached from its parent, then moved", async () => {
-    const parent = s.create({ projectId: PID, text: "parent", status: "todo" });
-    const step = card("step", { parentTaskId: parent.id });
-    db.run("UPDATE tasks SET status = 'done' WHERE id = ?", [parent.id]);
-    await triageBoard(db, s, PID, { ask: model([{ id: step.id, action: "todo", reason: "workable" }]) });
-    const row = db.query("SELECT status, parent_task_id AS p FROM tasks WHERE id = ?").get(step.id) as { status: string; p: string | null };
-    expect(row).toEqual({ status: "todo", p: null });
-  });
-
-  test("a subtask of a live parent stays, with no approval row", async () => {
+  test("a subtask moves to todo and keeps its parent, with no approval row", async () => {
     const parent = s.create({ projectId: PID, text: "parent", status: "in_progress" });
     const step = card("step", { parentTaskId: parent.id });
     await triageBoard(db, s, PID, { ask: model([{ id: step.id, action: "todo", reason: "workable" }]) });
     const row = db.query("SELECT status, parent_task_id AS p FROM tasks WHERE id = ?").get(step.id) as { status: string; p: string | null };
-    expect(row).toEqual({ status: "backlog", p: parent.id });
+    expect(row).toEqual({ status: "todo", p: parent.id });
     expect((db.query("SELECT COUNT(*) AS n FROM approvals WHERE task_id = ?").get(step.id) as { n: number }).n).toBe(0);
   });
 
@@ -156,5 +149,63 @@ describe("backlog dead ends", () => {
     const c = card("fix the typo in the footer");
     await triageBoard(db, s, PID, { ask: model([{ id: c.id, action: "done", reason: "fixed", proof: "commit:abc1234" }]), commitOnMain: () => true, hasSecondModel: () => false });
     expect(statusOf(c.id)).toBe("backlog");
+  });
+});
+
+describe("who the history names", () => {
+  const statusLines = (id: string) => (db.query("SELECT author, content FROM task_comments WHERE task_id = ? AND kind = 'status'").all(id) as { author: string; content: string }[]);
+
+  test("a closed card says the system closed it, and the proof is in the thread", async () => {
+    const c = card("fix the typo in the footer");
+    await triageBoard(db, s, PID, { ask: model([{ id: c.id, action: "done", reason: "fixed", proof: "commit:abc1234" }]), commitOnMain: () => true });
+    expect(statusOf(c.id)).toBe("done");
+    expect((db.query("SELECT done_actor FROM tasks WHERE id = ?").get(c.id) as { done_actor: string }).done_actor).toBe("system");
+    expect(statusLines(c.id).some((l) => l.author === "backlog-triage" && l.content.includes("done"))).toBe(true);
+    expect(commentsOf(c.id).join()).toContain("commit:abc1234");
+  });
+
+  test("a system close without a proof is refused by the gate", () => {
+    const c = card("anything");
+    expect(() => s.update({ taskId: c.id, actor: "agent", by: "backlog-triage", patch: { status: "done" }, systemAction: { reason: "backlog_triage" } })).toThrow(/only a human/);
+    expect(statusOf(c.id)).toBe("backlog");
+  });
+
+  test("an ask goes through the service: the history records the move to review", async () => {
+    const b = card("pick a pricing tier");
+    await triageBoard(db, s, PID, { ask: model([{ id: b.id, action: "ask", reason: "spend", question: "Which tier?", options: ["A", "B"] }]) });
+    expect(statusLines(b.id).some((l) => l.author === "backlog-triage" && l.content.includes("review"))).toBe(true);
+  });
+});
+
+describe("on main means on origin after a fetch", () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8" }).trim();
+
+  test("a commit only on origin/main counts, one only on the local main does not", async () => {
+    const root = mkdtempSync(join(tmpdir(), "triage-git-"));
+    try {
+      const origin = join(root, "origin.git");
+      const work = join(root, "work");
+      git(root, "init", "--bare", "-b", "main", origin);
+      git(root, "clone", origin, work);
+      git(work, "commit", "--allow-empty", "-m", "base");
+      git(work, "push", "origin", "HEAD:main");
+      git(work, "commit", "--allow-empty", "-m", "published");
+      git(work, "push", "origin", "HEAD:main");
+      const published = git(work, "rev-parse", "HEAD");
+      // The local main falls behind the remote and gains a commit nobody published.
+      git(work, "reset", "--hard", "HEAD~1");
+      git(work, "commit", "--allow-empty", "-m", "local only");
+      const localOnly = git(work, "rev-parse", "HEAD");
+      db.run("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, path TEXT)");
+      db.run("INSERT OR REPLACE INTO projects (id, path) VALUES (?, ?)", [PID, work]);
+      const a = card("published work");
+      const b = card("local work");
+      await triageBoard(db, s, PID, { ask: model([
+        { id: a.id, action: "done", reason: "x", proof: `commit:${published}` },
+        { id: b.id, action: "done", reason: "x", proof: `commit:${localOnly}` },
+      ]) });
+      expect(statusOf(a.id)).toBe("done");
+      expect(statusOf(b.id)).toBe("backlog");
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
