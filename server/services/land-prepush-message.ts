@@ -69,6 +69,6 @@ export async function neutralizeRefusedMergeMessage(cwd: string, neutralMsg: str
  */
 export async function mergeMessageRefused(cwd: string, parent: string, message: string): Promise<boolean> {
   const probe = await runGit(cwd, ["commit-tree", `${parent}^{tree}`, "-p", parent, "-m", message], { timeoutMs: 10_000, identity: true });
-  if (probe.code !== 0) return false; // no probe commit to judge: keep the title
+  if (probe.code !== 0) return true; // no probe commit to judge: unknown is a refusal
   return prePushRefuses(cwd, parent, probe.stdout.trim());
 }

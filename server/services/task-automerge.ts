@@ -1559,10 +1559,16 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           const tip = pinnedSha ?? (await runGit(cwd, ["rev-parse", "--verify", `${branch}^{commit}`])).stdout.trim();
           if (tip) {
             // GitHub writes this merge commit, so the repo's pre-push never sees it: ask the hook first.
-            const refused = await mergeMessageRefused(cwd, tip, mergeMsg).catch(() => false);
+            const refused = await mergeMessageRefused(cwd, tip, mergeMsg).catch(() => true);
             const mergeMessage = refused ? `merge task ${taskId}` : mergeMsg;
             const viaPr = await landViaPr({ cwd, branch, mergeMessage, expectedHead: tip }, githubPort());
-            if (viaPr.status === "merged") return { ok: true, viaPr: true };
+            if (viaPr.status === "merged") {
+              if (viaPr.baseMoved) {
+                // Said in the thread: the tree is not the one the pull request tested, so main will rerun the CI.
+                realigned = `merged on a new base: main moved from ${viaPr.baseMoved.expected.slice(0, 9)} to ${viaPr.baseMoved.actual.slice(0, 9)} while GitHub waited, so the merged tree is not the tested one and main will rerun the CI`;
+              }
+              return { ok: true, viaPr: true };
+            }
             if (viaPr.status === "failed") {
               log(`[automerge] land-via-pull-request failed for ${taskId}: ${viaPr.reason}`);
               return { ok: false, reason: viaPr.reason };

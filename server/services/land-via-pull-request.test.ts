@@ -181,4 +181,72 @@ describe("landViaPullRequest", () => {
     });
     expect(got).toEqual({ status: "failed", reason: "not possible to fast-forward" });
   });
+
+  test("a failed poll after enabling auto-merge turns it off", async () => {
+    const calls: string[] = [];
+    let n = 0;
+    const port = fakePort({
+      pullRequestState: async () => (n++ === 0 ? { ok: true, value: { isDraft: false, merged: false, mergeCommit: null } } : { ok: false, error: "gh: poll boom" }),
+      disableAutoMerge: async () => { calls.push("off"); return { ok: true, value: "disabled" }; },
+    });
+    const got = await landViaPullRequest(input, port, synced);
+    expect(got).toEqual({ status: "failed", reason: expect.stringContaining("poll boom") });
+    expect(calls).toEqual(["off"]);
+  });
+
+  test("an enable that errors (gh killed after the mutation) turns auto-merge off", async () => {
+    const calls: string[] = [];
+    const port = fakePort({
+      enableAutoMerge: async () => ({ ok: false, error: "killed after 60 s" }),
+      disableAutoMerge: async () => { calls.push("off"); return { ok: true, value: "disabled" }; },
+    });
+    const got = await landViaPullRequest(input, port, synced);
+    expect(got.status).toBe("failed");
+    expect(calls).toEqual(["off"]);
+  });
+
+  test("a failed origin fetch turns auto-merge off", async () => {
+    const calls: string[] = [];
+    const port = fakePort({ disableAutoMerge: async () => { calls.push("off"); return { ok: true, value: "disabled" }; } });
+    const got = await landViaPullRequest(input, port, { mainIsBehindOrigin: async () => ({ ok: false, reason: "fetch failed" }) });
+    expect(got.status).toBe("failed");
+    expect(calls).toEqual(["off"]);
+  });
+
+  test("GitHub merging between the last poll and the deadline is a land, not a failure", async () => {
+    const clock = fakeClock();
+    let reads = 0;
+    const port = fakePort({
+      pullRequestState: async () => {
+        reads++;
+        // the first read is the lookup; the final re-read after the disable sees the merge
+        const merged = reads >= 5;
+        return { ok: true, value: { isDraft: false, merged, mergeCommit: merged ? "c".repeat(40) : null } };
+      },
+    });
+    const got = await landViaPullRequest(input, port, {
+      ...synced, ...clock, pollMs: 60_000, deadlineMs: 180_000,
+      fastForwardMain: async () => ({ ok: true }), firstParent: async () => "b".repeat(40),
+    });
+    expect(got).toEqual({ status: "merged", commit: "c".repeat(40) });
+  });
+
+  test("a merge on a base that moved during the wait says so", async () => {
+    const port = fakePort({
+      pullRequestState: async () => ({ ok: true, value: { isDraft: false, merged: false, mergeCommit: null } }),
+    });
+    let n = 0;
+    const withMerge = { ...port, pullRequestState: async () => (n++ < 2 ? { ok: true as const, value: { isDraft: false, merged: false, mergeCommit: null } } : { ok: true as const, value: { isDraft: false, merged: true, mergeCommit: "c".repeat(40) } }) };
+    const got = await landViaPullRequest(input, withMerge, {
+      ...synced, ...fakeClock(), fastForwardMain: async () => ({ ok: true }), firstParent: async () => "n".repeat(40),
+    });
+    expect(got).toEqual({ status: "merged", commit: "c".repeat(40), baseMoved: { expected: "b".repeat(40), actual: "n".repeat(40) } });
+  });
+
+  test("gh missing or not logged in falls back to the local merge", async () => {
+    for (const error of ["gh pr list --repo exited 127: spawn gh ENOENT", "gh pr list exited 4: To get started with GitHub CLI, please run: gh auth login"]) {
+      const got = await landViaPullRequest(input, fakePort({ openPullRequest: async () => ({ ok: false, error }) }));
+      expect(got).toEqual({ status: "no-pr" });
+    }
+  });
 });

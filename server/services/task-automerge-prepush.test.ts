@@ -138,4 +138,9 @@ describe("land through the pull request: the message GitHub gets", () => {
     const { res } = await landViaPr("fix harmless thing", "failed");
     expect(res).toMatchObject({ status: "skipped", code: "pull-request-land-failed", reason: "auto-merge refused by GitHub" });
   });
+
+  test("a commit-tree that fails counts as a refusal, never as an unchecked title", async () => {
+    const { mergeMessageRefused } = await import("./land-prepush-message");
+    expect(await mergeMessageRefused(join(dir, "repo"), "0".repeat(40), "any title")).toBe(true);
+  });
 });
