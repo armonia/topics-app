@@ -61,6 +61,11 @@ describe("diagnoseStuckCard", () => {
     expect(v.skipMachineId).toBe("pc");
   });
 
+  test("in progress with a dispatch chip is explained by the chip: nothing is written, nothing moves", () => {
+    const stale = card({ status: "in_progress", inProgressAt: ago(300), dispatchState: "working", machineId: "gone" });
+    expect(diagnoseStuckCard(stale, ctx())).toBeNull();
+  });
+
   test("in progress without a live turn says so", () => {
     const v = diagnoseStuckCard(card({ status: "in_progress", inProgressAt: ago(120) }), ctx())!;
     expect(v.note).toContain("senza un turno vivo");

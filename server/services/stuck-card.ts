@@ -49,6 +49,10 @@ export function hasLegibleReason(card: Task): boolean {
   if (card.dispatchError && card.dispatchError.trim()) return true;
   if (card.waitReason && card.waitReason.trim()) return true;
   if (card.dispatchState === "waiting" || card.dispatchState === "parked") return true;
+  // In progress the dispatch chip (working, starting, needs_input...) is the
+  // reason: a card a person dragged there by hand carries one too, and moving
+  // it would undo that choice.
+  if (card.status === "in_progress" && card.dispatchState) return true;
   const q = card.queueReason;
   return !!q && !LEGIBLE_QUEUE_KINDS.has(q.kind);
 }
