@@ -127,8 +127,10 @@ async function misura(page: Page, punto: { x: number; y: number }): Promise<Misu
     };
     const bar = document.querySelector('[data-testid="panel-tab-bar"]') as HTMLElement;
     const chrome = bar.closest(".pane-chrome-bar") as HTMLElement;
-    const comandi = Array.from(document.querySelectorAll<HTMLElement>(".raised-control-overlay"))
-      .filter((e) => chrome.contains(e))
+    // The column's toggle (`.column-toggle`) and the strip's «+»; a hidden
+    // one is not a command (the toggle keeps its box while the column is open).
+    const comandi = Array.from(document.querySelectorAll<HTMLElement>(".raised-control-overlay, .column-toggle"))
+      .filter((e) => chrome.contains(e) && e.getBoundingClientRect().width > 0 && getComputedStyle(e).visibility !== "hidden")
       .sort((a, b) => a.getBoundingClientRect().x - b.getBoundingClientRect().x)
       .map((e) => ({ cls: e.className, rect: r(e) }));
     const b = bar.getBoundingClientRect();
@@ -140,7 +142,7 @@ async function misura(page: Page, punto: { x: number; y: number }): Promise<Misu
       comandi,
       angolo: {
         dentroLaBarra: !!belowPoint && bar.contains(belowPoint),
-        dentroUnComando: !!belowPoint && !!belowPoint.closest(".raised-control-overlay"),
+        dentroUnComando: !!belowPoint && !!belowPoint.closest(".raised-control-overlay, .column-toggle"),
         // Chi risponde, per nome: quando il punto torna coperto il rosso deve
         // dire QUALE elemento se l'è preso, non solo che non era la barra.
         chi: belowPoint ? `${belowPoint.tagName.toLowerCase()}.${belowPoint.className}` : "(nessuno)",
@@ -246,6 +248,11 @@ async function apriEMisura(
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15_000 });
     await waitForTopicVisible(page, t2.id);
+    // The command at the head of the row is the column's toggle, and it is in
+    // the row only while the column is away (25/11: with the column open it
+    // sits in the sidebar header). That is the state the corner has to hold.
+    await page.getByTestId("sidebar-collapse").click();
+    await expect(page.getByTestId("sidebar-reopen")).toBeVisible({ timeout: 5_000 });
 
     const tabBar = page.locator('[data-testid="panel-tab-bar"]');
     const tabs = tabBar.locator('[draggable="true"]');
