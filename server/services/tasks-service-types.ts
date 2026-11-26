@@ -457,7 +457,7 @@ export interface TaskService {
    * agent or open children BEFORE archiving (the board DELETE route) — run
    * this FIRST, so a rejected archive leaves no side effect behind.
    */
-  assertArchivable(args: { taskId: string; projectId?: string }): void;
+  assertArchivable(args: { taskId: string; projectId?: string; detachingOpenChildren?: boolean }): void;
   /**
    * Unhooks the open children (not archived, not done) of `taskId` so they
    * become root cards again, keeping their status. Called by the board DELETE

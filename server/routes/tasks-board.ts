@@ -1554,7 +1554,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // same `blocks_live_dependent`, but by then the live agent below was
           // already killed and the open children already detached — a 409
           // that still left the damage behind (review feedback, 26/11).
-          svc.assertArchivable({ taskId, projectId });
+          // Without `?withChildren=1` the open direct children are unhooked
+          // below and stay on the board, so the precheck must not count a
+          // dependent of theirs: it would make this card impossible to archive
+          // for a blocker that is not going anywhere (review feedback, 26/11).
+          const takesChildrenDown = new URL(req.url).searchParams.get("withChildren") === "1";
+          svc.assertArchivable({ taskId, projectId, detachingOpenChildren: !takesChildrenDown });
           // Un task che sparisce dalla board si porta dietro il suo agente:
           // archiviare senza tagliare il turno lascia un agente che lavora per
           // nessuno (vedi `detachLiveAgent`). Prima di archiviare, quindi.
@@ -1581,7 +1586,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // names them. Detach, not 409: both client callers (card menu, the
           // «drop» choice) only read `ok` and have no UI to answer a refusal.
           // `?withChildren=1` keeps the old cascade for whoever really means it.
-          const detachedTaskIds = new URL(req.url).searchParams.get("withChildren") === "1"
+          const detachedTaskIds = takesChildrenDown
             ? []
             : svc.detachOpenChildren({ taskId, projectId });
           const archivedTaskIds = cardTreeIds(taskId);

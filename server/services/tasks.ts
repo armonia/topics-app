@@ -488,12 +488,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     // call `archive()`, which could still reject with `blocks_live_dependent`
     // — the 409 came back, but the agent was already killed and the children
     // already unhooked. Same check `archive()` runs, no mutation.
-    assertArchivable({ taskId, projectId }): void {
+    assertArchivable({ taskId, projectId, detachingOpenChildren }): void {
       const row = getTaskRow(taskId);
       if (!row || (projectId && row.project_id !== projectId)) {
         throw new TaskServiceError("not_found", `task ${taskId} not found`);
       }
-      assertNoLiveDependents(taskId);
+      // The caller says whether the open direct children are about to be
+      // archived with the card or unhooked and left on the board: a dependent
+      // of a child that SURVIVES is not losing its blocker.
+      assertNoLiveDependents(taskId, [], { detachingOpenChildren });
     },
 
     archive({ taskId, projectId, excludeDependentIds }): Task {

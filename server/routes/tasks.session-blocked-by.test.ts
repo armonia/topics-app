@@ -7,6 +7,10 @@
  * HTTP routes, `create_task` silently dropped the field (routes/tasks.ts),
  * and `update_task` answered 400 `unapplicable_field` because `blockedByTaskId`
  * was missing from `AGENT_FIELDS` (routes/task-patch.ts).
+ *
+ * The blocker is created through the SAME session route: the edge stays inside
+ * one board, exactly like the `parent_task_id` guard next to it, so the blocker
+ * has to live on the session's own board.
  */
 import { describe, expect, test } from "bun:test";
 import { createTasksRouter } from "./tasks";
@@ -16,7 +20,7 @@ describe("session route POST /tasks forwards blockedByTaskId", () => {
   test("the created card carries the link", async () => {
     const db = freshDb();
     const r = createTasksRouter(makeCtx(db, []));
-    const blocker = await (await rawCall(r, "POST", "/api/boards/pX/tasks", { text: "blocker" }, withOwnSessionToken("/api/boards/pX/tasks")))!.json();
+    const blocker = await (await rawCall(r, "POST", "/api/sessions/s1/tasks", { text: "blocker" }, withOwnSessionToken("/api/sessions/s1/tasks")))!.json();
 
     const res = await rawCall(
       r, "POST", "/api/sessions/s1/tasks",
@@ -36,7 +40,7 @@ describe("session route PATCH /tasks/:id accepts blockedByTaskId from an agent",
   test("the link is persisted, not rejected as unapplicable_field", async () => {
     const db = freshDb();
     const r = createTasksRouter(makeCtx(db, []));
-    const blocker = await (await rawCall(r, "POST", "/api/boards/pX/tasks", { text: "blocker" }, withOwnSessionToken("/api/boards/pX/tasks")))!.json();
+    const blocker = await (await rawCall(r, "POST", "/api/sessions/s1/tasks", { text: "blocker" }, withOwnSessionToken("/api/sessions/s1/tasks")))!.json();
     const dependent = await (await rawCall(r, "POST", "/api/sessions/s1/tasks", { text: "step" }, withOwnSessionToken("/api/sessions/s1/tasks")))!.json();
 
     const res = await rawCall(
