@@ -1029,7 +1029,7 @@ isDispatchBlocked(taskId): boolean {
       return !!r;
     },
 
-release(this: TaskService, { taskId, requeue, reason, by, parkState, rollbackAttempt, keepStatus }): Task {
+release(this: TaskService, { taskId, requeue, reason, by, parkState, rollbackAttempt, keepStatus, keepInTodo }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       // A DONE CARD STAYS DONE. Measured 12/11 on 403aad1f: closed at 13:04, a
@@ -1077,7 +1077,11 @@ release(this: TaskService, { taskId, requeue, reason, by, parkState, rollbackAtt
       // ha trovato un guasto, ha trovato la fine normale della storia — e quella
       // card può stare in qualunque colonna.
       const parkKeepsStatus = !requeue && (keepStatus === true || row.status === "review");
-      const status: TaskStatus = requeue ? "todo" : parkKeepsStatus ? (row.status as TaskStatus) : "backlog";
+      // A park that stays VISIBLE in the queue column: the card leaves the
+      // dispatch loop through its own state (`failed` + spent attempts), not by
+      // moving to backlog, where nobody looks (retry budget spent).
+      const parkInTodo = !requeue && !parkKeepsStatus && keepInTodo === true;
+      const status: TaskStatus = requeue || parkInTodo ? "todo" : parkKeepsStatus ? (row.status as TaskStatus) : "backlog";
       // Requeue shows the 'in coda' chip; a park carries an EXPLICIT state so the
       // board can tell a genuine FAILURE ('failed') from a config BLOCK ('blocked')
       // — both used to collapse to null and read as a manual "fermato".
