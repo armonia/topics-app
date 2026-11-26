@@ -22,7 +22,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, chmodSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
-import { tmpdir } from "os";
 
 let tempDir = "";
 /** The test's own data root (`setupTestDataDir`), put back in `afterAll`. */
@@ -38,7 +37,11 @@ const LATE_MS = 3500;
 beforeAll(async () => {
   const { __resetAiBridgeClientForTests } = await import("../../server/lib/ai-bridge-client");
   __resetAiBridgeClientForTests();
-  tempDir = mkdtempSync(join(tmpdir(), "late-scan-route-grace-"));
+  // A SHORT root, not `tmpdir()`: under the unit runner that is a long per-file scratch
+  // path, and the bridge socket in it breaks the 104-character unix socket limit, so the
+  // daemon never starts (the turn then dies with "send stopped in the queue").
+  mkdirSync("/tmp/topics-test", { recursive: true });
+  tempDir = mkdtempSync(join("/tmp/topics-test", "lsrg-"));
   mkdirSync(join(tempDir, "data"), { recursive: true });
   setEnv("DATA_DIR", join(tempDir, "data"));
   setEnv("TOPICS_DATA_DIR", join(tempDir, "data"));
@@ -76,7 +79,7 @@ afterAll(async () => {
   if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
 });
 
-async function waitFor(what: string, check: () => boolean, ms = 60_000): Promise<void> {
+async function waitFor(what: string, check: () => boolean, ms = 20_000): Promise<void> {
   for (const until = Date.now() + ms; Date.now() < until; await Bun.sleep(50)) if (check()) return;
   throw new Error(`timed out waiting for ${what}`);
 }
@@ -159,5 +162,5 @@ const { BridgeAckStalled } = await import("../../server/lib/ai-bridge-errors");
       client.attach = realAttach;
       try { client.kill(sk); } catch { /* already gone */ }
     }
-  }, 240_000);
+  }, 90_000);
 });
