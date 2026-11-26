@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.5.4",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "una card ripresa dopo un land non risulta atterrata per il merge del giro prima (#1703)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.5.3",
     "date": "2026-11-26",
     "sections": {
