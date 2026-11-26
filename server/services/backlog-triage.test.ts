@@ -1,4 +1,5 @@
 /**
+ * @covers KANBAN-123
  * Backlog triage: a workable card goes to todo, a card that needs a person gets
  * its question and moves to review, and a card that looks done closes only with
  * a proof found by the code AND confirmed by a second model. Taking either half
@@ -10,6 +11,7 @@ import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { execFileSync } from "child_process";
 import { join } from "path";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { freshDb, svc as makeSvc, PID } from "./tasks-test-db";
 import { runBacklogTriage, triageBoard, parseVerdicts, type TriageDeps } from "./backlog-triage";
 import type { TaskService } from "./tasks";
@@ -178,7 +180,7 @@ describe("who the history names", () => {
 });
 
 describe("on main means on origin after a fetch", () => {
-  const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8" }).trim();
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8", env: gitEnv() }).trim();
 
   test("a commit only on origin/main counts, one only on the local main does not", async () => {
     const root = mkdtempSync(join(tmpdir(), "triage-git-"));
