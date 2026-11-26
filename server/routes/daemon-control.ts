@@ -1,8 +1,8 @@
 /**
- * The loopback control endpoints of the daemon (`/__daemon/*`): health, idle, shutdown, restart-when-idle, primary switch and worktree GC.
+ * The loopback control endpoints of the daemon (`/__daemon/*`): health, idle, shutdown, restart-when-idle, primary switch and reclaim, and worktree GC.
  * Every one of them is gated by the allowed-host check, the local-transport check and the daemon token.
  */
-import { handlePrimarySwitch } from "./primary-switch-trigger";
+import { handlePrimaryReclaim, handlePrimarySwitch } from "./primary-switch-trigger";
 import { readState, uptimeMsSince } from "../services/daemon-state";
 import { aiBridgeEnabled } from "../providers/claude-code";
 import { nativeDetachedEnabled } from "../providers/native/detached-turn";
@@ -154,6 +154,10 @@ export function createDaemonControl(scope: Pick<AfterHttp, "BOOT_COMMIT" | "abor
         }), {
           status: 202, headers: { "content-type": "application/json" },
         });
+      }
+      if (method === "POST" && pathname === "/__daemon/primary-reclaim") {
+        // `bun run primary reclaim`: takes the primary back after an uncertain switch (routes/primary-switch-trigger.ts).
+        return handlePrimaryReclaim({ ctx });
       }
       if (method === "POST" && pathname === "/__daemon/primary-switch") {
         // `bun run primary switch <machine>`: hands this primary over (track T4, routes/primary-switch-trigger.ts).

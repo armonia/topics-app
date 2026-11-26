@@ -19,7 +19,7 @@
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
-  closeSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync,
+  chmodSync, closeSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync,
   renameSync, rmSync, statSync, writeSync,
 } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
@@ -44,10 +44,37 @@ export const DB_NAME = "topics.db";
 /**
  * The state folder entries that follow the primary, relative to the state dir.
  * `installation-id` travels with `license-token` because the licence is
- * verified against it. Provider keys (`.topics-secrets`) stay where they are:
- * secrets reach a primary through its own store, never through this copy.
+ * verified against it, and it lives in the secrets folder (`resolveSecretsDir`),
+ * or in the state root on an installation that never moved it there. Nothing
+ * else of the secrets folder moves: provider keys reach a primary through its
+ * own store, never through this copy.
  */
-export const STATE_ENTRIES = ["nodes", "license-token", "installation-id"] as const;
+export const STATE_ENTRIES = ["nodes", "license-token"] as const;
+export const INSTALLATION_ID_FILE = "installation-id";
+
+/** Files and folders that carry secrets: owner only, the same modes `writeNodeToken` uses. */
+const SECRET_FILE_MODE = 0o600;
+const SECRET_DIR_MODE = 0o700;
+
+function ensurePrivateDir(dir: string): void {
+  mkdirSync(dir, { recursive: true, mode: SECRET_DIR_MODE });
+  chmodSync(dir, SECRET_DIR_MODE);
+}
+
+/**
+ * Copies a file and leaves the copy owner-only, whatever mode the source or an
+ * old copy had. Folders it creates are owner-only; the existing folders below
+ * `root` (the node token folders, when `tightenFolders`) are brought back to
+ * owner-only too. `root` itself is never touched: it can be a checkout.
+ */
+function copyPrivate(from: string, to: string, root: string, tightenFolders: boolean): void {
+  mkdirSync(dirname(to), { recursive: true, mode: SECRET_DIR_MODE });
+  if (tightenFolders) {
+    for (let dir = dirname(to); dir.length > root.length && dir.startsWith(root); dir = dirname(dir)) chmodSync(dir, SECRET_DIR_MODE);
+  }
+  copyFileSync(from, to);
+  chmodSync(to, SECRET_FILE_MODE);
+}
 
 export interface ManifestFile { name: string; size: number; sha256: string }
 
@@ -62,13 +89,30 @@ export interface SwitchManifest {
   files: ManifestFile[];
 }
 
+/**
+ * Where a server that is handing (or handed) the primary over stands. Every
+ * phase but the last refuses EVERY client write, sign-in and node routes
+ * included, because the data still on this disk is the data that moved:
+ *
+ *  - `fencing`: the switch is running; in memory only, a refusal undoes it;
+ *  - `sent`: the commit is on its way. Written to disk BEFORE it leaves, so a
+ *    crash or a lost answer can never boot this server back as the primary;
+ *  - `uncertain`: the commit got no usable answer. Stays until a person checks
+ *    the other computer (`bun run primary reclaim` if it did not take over);
+ *  - `pending-set-aside`: the other computer took over; the next boot renames
+ *    this DB and state aside;
+ *  - `set-aside`: done. This server runs on an empty DB as a secondary, so the
+ *    node and pairing routes open again (how it becomes a node of the new one).
+ */
+export type RetiredPhase = "fencing" | "sent" | "uncertain" | "pending-set-aside" | "set-aside";
+const RETIRED_PHASES: readonly RetiredPhase[] = ["fencing", "sent", "uncertain", "pending-set-aside", "set-aside"];
+
 export interface RetiredState {
   epoch: number;
   toMachineId: string;
   toName: string | null;
   at: string;
-  /** True until the boot that moves this server's DB and state aside has run. */
-  pendingSetAside: boolean;
+  phase: RetiredPhase;
 }
 
 export function countRows(db: Pick<Database, "query">): RowCounts {
@@ -97,11 +141,24 @@ export function verifyDatabaseFile(path: string): RowCounts {
   }
 }
 
-/** A consistent single-file copy of a live DB (WAL included), verified. */
+/**
+ * A consistent single-file copy of a live DB (WAL included), verified. `VACUUM
+ * INTO` rather than the online backup API: one statement, one file, the same
+ * transactional snapshot. The copy holds every secret the DB holds, so it is
+ * owner-only from the first byte to the last.
+ */
 export function snapshotDatabase(db: Pick<Database, "query">, dest: string): RowCounts {
-  mkdirSync(dirname(dest), { recursive: true });
+  ensurePrivateDir(dirname(dest));
   rmSync(dest, { force: true });
-  db.query("VACUUM INTO ?").run(dest);
+  // VACUUM INTO refuses an existing file, so the owner-only mode comes from the umask while it
+  // creates one. The statement is synchronous: no other code of this process runs in between.
+  const umask = process.umask(0o077);
+  try {
+    db.query("VACUUM INTO ?").run(dest);
+  } finally {
+    process.umask(umask);
+  }
+  chmodSync(dest, SECRET_FILE_MODE);
   return verifyDatabaseFile(dest);
 }
 
@@ -128,9 +185,16 @@ function walkFiles(root: string): string[] {
 
 const toBundlePath = (p: string) => p.split(sep).join("/");
 
-export function collectStateFiles(stateDir: string): BundleSource[] {
-  return STATE_ENTRIES.flatMap((entry) => walkFiles(join(stateDir, entry)))
+/**
+ * The state files that follow the primary, already filtered through the
+ * receiver's closed list: a file the other side would refuse is never shipped.
+ */
+export function collectStateFiles(stateDir: string, secretsDir: string): BundleSource[] {
+  const state = STATE_ENTRIES.flatMap((entry) => walkFiles(join(stateDir, entry)))
     .map((source) => ({ name: `state/${toBundlePath(relative(stateDir, source))}`, source }));
+  const installationId = [join(secretsDir, INSTALLATION_ID_FILE), join(stateDir, INSTALLATION_ID_FILE)].find((p) => existsSync(p));
+  const secrets = installationId ? [{ name: `secrets/${INSTALLATION_ID_FILE}`, source: installationId }] : [];
+  return [...state, ...secrets].filter((f) => bundleTarget(f.name) !== null);
 }
 
 /**
@@ -156,15 +220,53 @@ export function collectTranscripts(db: Pick<Database, "query">, projectsDir: str
   return out;
 }
 
+/** Where a bundle file lands on the receiver. */
+export type BundleTarget =
+  | { kind: "db" }
+  | { kind: "state" | "secrets" | "transcripts"; path: string[] };
+
+const ID = "[A-Za-z0-9_-]{1,128}";
+/** One path segment of a transcript folder: no leading dot, so never `.`, `..` or a hidden file. */
+const SEGMENT = "[A-Za-z0-9_@+-][A-Za-z0-9._@+-]{0,200}";
 /**
- * A name the receiver accepts: the DB, or a file under `state/` or
- * `transcripts/`, with no empty, `.` or `..` segment and nothing absolute.
+ * The CLOSED list of what a receiver writes, outside its staging folder. Each
+ * shape is the exact file one of the writers creates (`nodeTokenPath`,
+ * `delegatedNodeTokenPath`, the model token hash, the licence, the
+ * installation id) or a transcript under the CLI projects folder. Anything
+ * else (code, `.git/hooks`, provider keys, a settings file) has no name here,
+ * so it cannot be overwritten by a bundle.
  */
+const BUNDLE_SHAPES: ReadonlyArray<[BundleTarget["kind"], RegExp]> = [
+  ["state", new RegExp(`^state/(nodes/${ID}\\.token)$`)],
+  ["state", new RegExp(`^state/(nodes/${ID}\\.model-token\\.sha256)$`)],
+  ["state", new RegExp(`^state/(nodes/delegated/${ID}/${ID}\\.token)$`)],
+  ["state", /^state\/(license-token)$/],
+  ["secrets", /^secrets\/(installation-id)$/],
+  ["transcripts", new RegExp(`^transcripts/(${SEGMENT}/${ID}\\.jsonl)$`)],
+  ["transcripts", new RegExp(`^transcripts/(${SEGMENT}/${ID}(?:/${SEGMENT})+)$`)],
+];
+
+export function bundleTarget(name: string): BundleTarget | null {
+  if (name === DB_NAME) return { kind: "db" };
+  for (const [kind, shape] of BUNDLE_SHAPES) {
+    const m = shape.exec(name);
+    if (m?.[1]) return { kind, path: m[1].split("/") } as BundleTarget;
+  }
+  return null;
+}
+
+/** A name the receiver accepts: one of the closed shapes of `bundleTarget`. */
 export function isSafeBundleName(name: string): boolean {
-  if (name === DB_NAME) return true;
-  if (!/^(state|transcripts)\/[A-Za-z0-9._@+/-]+$/.test(name)) return false;
-  const segments = name.split("/");
-  return segments.length >= 2 && segments.every((s) => s !== "" && s !== "." && s !== "..");
+  return bundleTarget(name) !== null;
+}
+
+/**
+ * Forgets whatever is staged and not committed. A new switch begins with the
+ * DB at offset 0, and the boot drops a staging folder no manifest completed:
+ * an upload that failed half way never sits on disk with its secrets.
+ */
+export function discardIncoming(stateDir: string): void {
+  rmSync(join(stateDir, INCOMING_DIR), { recursive: true, force: true });
 }
 
 /** Where a staged file lives on the receiver. */
@@ -179,12 +281,15 @@ function stagedPath(stateDir: string, name: string): string {
  */
 export function writeIncomingChunk(stateDir: string, name: string, offset: number, bytes: Uint8Array): number {
   if (!isSafeBundleName(name)) throw new Error(`refused bundle name: ${name}`);
+  // The DB is always the first file of a switch: its first chunk starts from a clean staging folder.
+  if (name === DB_NAME && offset === 0) discardIncoming(stateDir);
   const path = stagedPath(stateDir, name);
-  mkdirSync(dirname(path), { recursive: true });
+  ensurePrivateDir(join(stateDir, INCOMING_DIR));
+  ensurePrivateDir(dirname(path));
   if (offset === 0) rmSync(path, { force: true });
   const have = existsSync(path) ? statSync(path).size : 0;
   if (offset !== have) throw new Error(`chunk at ${offset} for ${name}, but ${have} bytes are staged`);
-  const fd = openSync(path, "a");
+  const fd = openSync(path, "a", SECRET_FILE_MODE);
   try {
     writeSync(fd, bytes);
   } finally {
@@ -237,12 +342,14 @@ export function readRetired(appDataDir: string): RetiredState | null {
   try {
     const raw = JSON.parse(readFileSync(join(appDataDir, RETIRED_FILE), "utf-8")) as Partial<RetiredState>;
     if (!Number.isInteger(raw.epoch) || typeof raw.toMachineId !== "string" || !raw.toMachineId) return null;
+    // A marker with a phase this code does not know is the strictest one we have: never a reason to open the door.
+    const phase = RETIRED_PHASES.includes(raw.phase as RetiredPhase) && raw.phase !== "fencing" ? raw.phase as RetiredPhase : "uncertain";
     return {
       epoch: raw.epoch as number,
       toMachineId: raw.toMachineId,
       toName: typeof raw.toName === "string" ? raw.toName : null,
       at: typeof raw.at === "string" ? raw.at : "",
-      pendingSetAside: raw.pendingSetAside === true,
+      phase,
     };
   } catch {
     return null;
@@ -255,14 +362,19 @@ export function writeRetired(appDataDir: string, state: RetiredState): void {
 }
 
 /**
- * A write a retired server refuses: any mutating `/api/` call, except the node
- * routes (already fenced by the epoch, and how a new primary reaches this
- * machine again) and the pairing ones (how this machine becomes a node).
+ * A request a fenced server refuses. Until its DB is set aside: every write,
+ * whatever the path (a device revoked or a share link removed here after the
+ * snapshot would be lost on the new primary), and every WebSocket upgrade (a
+ * socket carries writes too). Once set aside the server runs on an empty DB:
+ * the node and pairing routes open again, they are how it becomes a node.
+ * The loopback `/__daemon/` endpoints answer before this check.
  */
-export function isRefusedWhenRetired(pathname: string, method: string): boolean {
+export function isRefusedWhenRetired(pathname: string, method: string, phase: RetiredPhase): boolean {
   const m = method.toUpperCase();
-  if (m === "GET" || m === "HEAD" || m === "OPTIONS") return false;
-  if (!pathname.startsWith("/api/")) return false;
+  const ws = pathname === "/ws" || pathname.startsWith("/ws/");
+  if ((m === "GET" || m === "HEAD" || m === "OPTIONS") && !ws) return false;
+  if (phase !== "set-aside") return true;
+  if (!pathname.startsWith("/api/") && !ws) return false;
   return !pathname.startsWith("/api/nodes/") && !pathname.startsWith("/api/auth/");
 }
 
@@ -294,6 +406,7 @@ function setAsideIfPresent(path: string, epoch: number): void {
 
 export interface PendingChangeInputs {
   stateDir: string;
+  secretsDir: string;
   dbPath: string;
   appDataDir: string;
   projectsDir: string;
@@ -321,6 +434,9 @@ export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restore
   if (existsSync(manifestPath)) {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as SwitchManifest;
     const epoch = manifest.epoch;
+    // The commit checked the names; they are asked again here, where files are written, before anything moves.
+    const refused = manifest.files.find((f) => !bundleTarget(f.name));
+    if (refused) throw new Error(`refused bundle name in the manifest: ${refused.name}`);
     mkdirSync(dirname(inputs.dbPath), { recursive: true });
     // A boot that crashed half way runs this again: the staged DB already moved in, so it is not moved twice.
     const stagedDb = stagedPath(inputs.stateDir, DB_NAME);
@@ -329,16 +445,18 @@ export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restore
       setDatabaseAside(inputs.dbPath, epoch);
       renameSync(stagedDb, inputs.dbPath);
     }
+    chmodSync(inputs.dbPath, SECRET_FILE_MODE);
     let transcripts = 0;
+    const roots = { state: inputs.stateDir, secrets: inputs.secretsDir, transcripts: inputs.projectsDir };
     for (const f of manifest.files) {
-      if (f.name === DB_NAME) continue;
-      const [kind, ...rest] = f.name.split("/");
+      const target = bundleTarget(f.name)!;
+      if (target.kind === "db") continue;
       const from = stagedPath(inputs.stateDir, f.name);
-      const to = kind === "state" ? join(inputs.stateDir, ...rest) : join(inputs.projectsDir, ...rest);
-      mkdirSync(dirname(to), { recursive: true });
-      if (kind === "state") setAsideIfPresent(to, epoch);
-      else transcripts++;
-      copyFileSync(from, to);
+      const to = join(roots[target.kind], ...target.path);
+      if (target.kind === "transcripts") transcripts++;
+      else setAsideIfPresent(to, epoch);
+      if (target.kind === "secrets") ensurePrivateDir(inputs.secretsDir);
+      copyPrivate(from, to, roots[target.kind], target.kind === "state");
     }
     writeFileAtomic(join(inputs.appDataDir, PRIMARY_STATE_FILE), JSON.stringify({
       primaryMachineId: manifest.toMachineId, epoch, since: now(),
@@ -349,11 +467,16 @@ export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restore
     return "restored";
   }
 
+  // Staged files no manifest completed: an upload that failed or was abandoned.
+  if (existsSync(incoming)) discardIncoming(inputs.stateDir);
+
   const retired = readRetired(inputs.appDataDir);
-  if (retired?.pendingSetAside) {
+  if (retired?.phase === "pending-set-aside") {
     const aside = setDatabaseAside(inputs.dbPath, retired.epoch);
     for (const entry of STATE_ENTRIES) setAsideIfPresent(join(inputs.stateDir, entry), retired.epoch);
-    writeRetired(inputs.appDataDir, { ...retired, pendingSetAside: false });
+    // The installation id went with the licence: this server makes a new one of its own.
+    for (const dir of [inputs.secretsDir, inputs.stateDir]) setAsideIfPresent(join(dir, INSTALLATION_ID_FILE), retired.epoch);
+    writeRetired(inputs.appDataDir, { ...retired, phase: "set-aside" });
     log(`[primary] handed over to ${retired.toMachineId} at epoch ${retired.epoch}: the DB is set aside as ${aside} and this server refuses writes`);
     return "set-aside";
   }

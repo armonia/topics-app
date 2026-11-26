@@ -9,7 +9,8 @@ import { homedir, hostname as osHostname } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
 import { getPrimaryRole } from "../lib/primary-role";
-import { restartThisServerSoon, setPrimaryFence } from "../lib/primary-fence";
+import { reclaimPrimary, restartThisServerSoon, setPrimaryFence } from "../lib/primary-fence";
+import { resolveSecretsDir } from "../lib/data-dir";
 import type { RowCounts, SwitchManifest } from "../lib/primary-switch";
 import { NODE_PRIMARY_COMMIT_PATH, NODE_PRIMARY_INCOMING_PATH } from "./nodes-primary";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
@@ -31,6 +32,26 @@ export interface PrimarySwitchTriggerDeps {
 
 const UPLOAD_TIMEOUT_MS = 5 * 60_000;
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * The bundle carries the whole DB, node tokens and the licence: it leaves only
+ * over an encrypted channel. `https:` anywhere, or plain `http:` to this
+ * computer's loopback, which is what an ssh tunnel to the node looks like.
+ * Anything else (an `http:` LAN or tailnet address) is refused before a byte
+ * is sent: this code cannot tell an encrypted network from an open one.
+ */
+export function encryptedChannelError(baseUrl: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(baseUrl);
+  } catch {
+    return "the node address is not a URL";
+  }
+  if (u.protocol === "https:") return null;
+  const host = u.hostname.replace(/^\[|\]$/g, "");
+  if (u.protocol === "http:" && (host === "127.0.0.1" || host === "::1" || host === "localhost")) return null;
+  return `the node is reached over ${u.protocol}//${u.host}, which is not encrypted: pair it over https or an ssh tunnel to 127.0.0.1`;
+}
 
 /** The calls to the receiver, with the same identity and epoch headers as every call to a node. */
 export function primaryTransport(baseUrl: string, token: string, doFetch: typeof fetch = fetch) {
@@ -70,7 +91,7 @@ export function primaryTransport(baseUrl: string, token: string, doFetch: typeof
   };
 }
 
-type Resolved = { ok: true; target: SwitchTarget; baseUrl: string; token: string } | { ok: false; error: string };
+type Resolved = { ok: true; target: SwitchTarget; baseUrl: string; token: string } | { ok: false; error: string; code?: string };
 
 export function resolveSwitchTarget(ctx: PrimarySwitchTriggerDeps["ctx"], ref: string): Resolved {
   const local = ctx.machineStore.upsertLocal();
@@ -86,6 +107,8 @@ export function resolveSwitchTarget(ctx: PrimarySwitchTriggerDeps["ctx"], ref: s
   const baseUrl = m.baseUrl ?? "";
   const token = readNodeToken(ctx.STATE_DIR, m.id);
   if (!baseUrl || !token) return { ok: false, error: `${m.name} is not a paired node of this server` };
+  const plain = encryptedChannelError(baseUrl);
+  if (plain) return { ok: false, error: plain, code: "plain_channel" };
   return { ok: true, target: { id: m.id, hostname: m.hostname, name: m.name }, baseUrl, token };
 }
 
@@ -101,7 +124,7 @@ export async function handlePrimarySwitch(req: Request, deps: PrimarySwitchTrigg
   const role = getPrimaryRole();
   if (!role) return answer({ error: "the primary role is not wired on this server", code: "unavailable" }, 503);
   const resolved = resolveSwitchTarget(deps.ctx, body.machine);
-  if (!resolved.ok) return answer({ error: resolved.error, code: "unknown_machine" }, 404);
+  if (!resolved.ok) return answer({ error: resolved.error, code: resolved.code ?? "unknown_machine" }, resolved.code ? 409 : 404);
   const { ctx } = deps;
   const transport = primaryTransport(resolved.baseUrl, resolved.token, deps.fetch);
   running = true;
@@ -109,6 +132,7 @@ export async function handlePrimarySwitch(req: Request, deps: PrimarySwitchTrigg
     const report = await runPrimarySwitch({
       db: ctx.db,
       stateDir: ctx.STATE_DIR,
+      secretsDir: resolveSecretsDir(ctx.STATE_DIR),
       appDataDir: ctx.APP_DATA_DIR,
       projectsDir: join(homedir(), ".claude", "projects"),
       role,
@@ -136,4 +160,18 @@ export async function handlePrimarySwitch(req: Request, deps: PrimarySwitchTrigg
   } finally {
     running = false;
   }
+}
+
+/** `POST /__daemon/primary-reclaim`: `bun run primary reclaim`, the way out of an uncertain switch. */
+export function handlePrimaryReclaim(deps: Pick<PrimarySwitchTriggerDeps, "ctx">): Response {
+  if (running) return answer({ error: "a switch is running", code: "switch_in_progress" }, 409);
+  const role = getPrimaryRole();
+  if (!role) return answer({ error: "the primary role is not wired on this server", code: "unavailable" }, 503);
+  const result = reclaimPrimary({
+    appDataDir: deps.ctx.APP_DATA_DIR,
+    role,
+    localMachineId: deps.ctx.machineStore.upsertLocal().id,
+    restart: restartThisServerSoon,
+  });
+  return answer(result, result.ok ? 200 : 409);
 }

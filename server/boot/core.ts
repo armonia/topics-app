@@ -9,7 +9,7 @@ import { setUploadRootsProvider } from "../browser-tool-dispatcher";
 import { uploadAllowedRoots, parseExtraRoots } from "../lib/upload-allowlist";
 import { homedir } from "os";
 import { initPrimaryRole } from "../lib/primary-role";
-import { bootPrimaryChange } from "../lib/primary-fence";
+import { bootPrimaryChange, holdRetiredRole } from "../lib/primary-fence";
 import type { BaseScope } from "./scope";
 
 export function bootCore(scope: BaseScope) {
@@ -24,6 +24,8 @@ export function bootCore(scope: BaseScope) {
     stateFile: join(ctx.APP_DATA_DIR, "primary-state.json"),
     localMachineId: () => ctx.machineStore.upsertLocal().id,
   });
+  // A server that sent its switch commit stays a secondary, whatever its epoch file says.
+  holdRetiredRole(primaryRole);
   if (!primaryRole.isPrimary()) {
     console.log(`[primary] this server is NOT the primary (epoch ${primaryRole.epoch()}): dispatcher, scheduled cards and hub reader stay off`);
   }

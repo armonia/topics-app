@@ -4,27 +4,30 @@
  *
  *  1. drain: no new card starts; the work in flight finishes, or is parked
  *     back in the queue with a note once the wait is over;
- *  2. fence: from here every write from a client is refused, so a write made
- *     during the drain is in the copy and a write after it is never accepted
- *     and then lost;
+ *  2. fence: from here every request that writes is refused (sign-in and node
+ *     routes included), so a write made during the drain is in the copy and a
+ *     write after it is never accepted and then lost;
  *  3. snapshot + `integrity_check` + row counts, which must equal the live DB's;
- *  4. ship the DB, the state files and the transcripts, then commit: the new
- *     primary checks every hash, the integrity and the counts before it agrees;
- *  5. only after that answer: this server records the new primary at epoch+1,
- *     marks itself retired and restarts, and the boot sets its DB aside.
+ *  4. ship the DB, the state files and the transcripts;
+ *  5. the `sent` marker goes to disk, THEN the commit leaves: the new primary
+ *     checks every hash, the integrity and the counts before it agrees;
+ *  6. accepted: this server records the new primary at epoch+1, marks itself
+ *     `pending-set-aside` and restarts, and the boot sets its DB aside.
  *
- * A refusal before the commit undoes 1 and 2 and leaves this server the
- * primary, as if nothing happened. A commit whose answer never came is NOT
- * undone: the other computer may already be the primary, and two primaries is
- * the one outcome worse than a stopped one. That case stays fenced and says so.
+ * A refusal before the commit, or an explicit no to it, undoes everything and
+ * leaves this server the primary, as if nothing happened. A commit whose answer
+ * never came is NOT undone: the other computer may already be the primary, and
+ * two primaries is the one outcome worse than a stopped one. That case records
+ * `uncertain` on disk, gives up the role and stays fenced across restarts until
+ * a person checks the other computer (`bun run primary reclaim`).
  */
 import type { Database } from "bun:sqlite";
-import { mkdirSync, rmSync, statSync } from "node:fs";
+import { rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   type BundleSource, type RetiredState, type RowCounts, type SwitchManifest,
   collectStateFiles, collectTranscripts, countRows, DB_NAME, OUTGOING_DIR, sameCounts, sha256File,
-  snapshotDatabase, writeRetired,
+  RETIRED_FILE, snapshotDatabase, writeRetired,
 } from "../lib/primary-switch";
 import type { PrimaryRole } from "../lib/primary-role";
 
@@ -43,6 +46,7 @@ export type CommitAnswer =
 export interface PrimarySwitchDeps {
   db: Pick<Database, "query">;
   stateDir: string;
+  secretsDir: string;
   appDataDir: string;
   projectsDir: string;
   role: Pick<PrimaryRole, "isPrimary" | "epoch" | "adopt">;
@@ -115,12 +119,37 @@ export async function runPrimarySwitch(deps: PrimarySwitchDeps): Promise<SwitchR
   const outgoing = join(deps.stateDir, OUTGOING_DIR);
   let step = "drain";
   let fenced = false;
+  const marker = (phase: RetiredState["phase"]): RetiredState => ({ epoch, toMachineId: target.id, toName: target.name, at: now(), phase });
   const undo = (error: string): SwitchReport => {
+    rmSync(join(deps.appDataDir, RETIRED_FILE), { force: true });
     if (fenced) deps.setFence(null);
     deps.undrain(SWITCH_REASON);
     rmSync(outgoing, { recursive: true, force: true });
     log(`[primary] switch to ${target.name} refused at ${step}: ${error}; this server stays the primary`);
     return { ...base, ok: false, outcome: "refused", step, error, epoch };
+  };
+  /**
+   * The commit may have been taken: record it on disk, give up the role (a
+   * stopped primary beats two), keep the fence, drop the outgoing copy. Each
+   * piece is tried on its own so one failure does not skip the others.
+   */
+  const uncertain = (error: string, counts?: RowCounts): SwitchReport => {
+    const state = marker("uncertain");
+    deps.setFence(state);
+    const attempts: Array<[string, () => void]> = [
+      ["marker", () => writeRetired(deps.appDataDir, state)],
+      ["role", () => { deps.role.adopt({ primaryMachineId: target.id, epoch }); }],
+      ["outgoing", () => rmSync(outgoing, { recursive: true, force: true })],
+    ];
+    for (const [what, attempt] of attempts) {
+      try {
+        attempt();
+      } catch (err) {
+        log(`[primary] switch to ${target.name}: could not record the uncertain ${what}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    log(`[primary] switch to ${target.name} at ${step}: ${error}; this server stays fenced and is no longer the primary until the other computer is checked`);
+    return { ...base, ok: false, outcome: "uncertain", step, error, epoch, ...(counts ? { counts } : {}) };
   };
 
   try {
@@ -135,19 +164,18 @@ export async function runPrimarySwitch(deps: PrimarySwitchDeps): Promise<SwitchR
     }
 
     step = "fence";
-    deps.setFence({ epoch, toMachineId: target.id, toName: target.name, at: now(), pendingSetAside: false });
+    deps.setFence(marker("fencing"));
     fenced = true;
 
     step = "snapshot";
     const dbCopy = join(outgoing, DB_NAME);
-    mkdirSync(outgoing, { recursive: true });
     const counts = snapshotDatabase(deps.db, dbCopy);
     const live = countRows(deps.db);
     if (!sameCounts(counts, live)) return undo(`the copy counts ${JSON.stringify(counts)}, the live DB ${JSON.stringify(live)}`);
 
     step = "bundle";
     const transcripts = collectTranscripts(deps.db, deps.projectsDir);
-    const sources: BundleSource[] = [{ name: DB_NAME, source: dbCopy }, ...collectStateFiles(deps.stateDir), ...transcripts];
+    const sources: BundleSource[] = [{ name: DB_NAME, source: dbCopy }, ...collectStateFiles(deps.stateDir, deps.secretsDir), ...transcripts];
     const files = [];
     let bytes = 0;
     for (const s of sources) {
@@ -163,21 +191,23 @@ export async function runPrimarySwitch(deps: PrimarySwitchDeps): Promise<SwitchR
     step = "upload";
     for (const s of sources) await shipFile(deps, s.name, s.source, deps.chunkBytes ?? DEFAULT_CHUNK);
 
+    step = "seal";
+    // On disk BEFORE the commit leaves: from here a crash, a lost answer or a restart boots fenced and as a secondary.
+    const sent = marker("sent");
+    writeRetired(deps.appDataDir, sent);
+    deps.setFence(sent);
+
     step = "commit";
     const answer = await deps.commit(manifest);
     if (answer.kind === "refused") return undo(`${answer.code}: ${answer.error}`);
-    if (answer.kind === "unknown") {
-      log(`[primary] switch to ${target.name}: the commit got no answer (${answer.error}); this server stays fenced until the other computer is checked`);
-      return { ...base, ok: false, outcome: "uncertain", step, error: answer.error, epoch, counts };
-    }
+    if (answer.kind === "unknown") return uncertain(`the commit got no answer (${answer.error})`, counts);
     if (!sameCounts(answer.counts, counts)) {
-      log(`[primary] switch to ${target.name}: the new primary reports ${JSON.stringify(answer.counts)}, the copy ${JSON.stringify(counts)}`);
-      return { ...base, ok: false, outcome: "uncertain", step, error: "the new primary reports different counts", epoch, counts };
+      return uncertain(`the new primary reports ${JSON.stringify(answer.counts)}, the copy ${JSON.stringify(counts)}`, counts);
     }
 
     step = "retire";
     // The retired marker before the role: a crash in between still boots fenced and sets the DB aside.
-    const retired: RetiredState = { epoch, toMachineId: target.id, toName: target.name, at: now(), pendingSetAside: true };
+    const retired = marker("pending-set-aside");
     writeRetired(deps.appDataDir, retired);
     deps.setFence(retired);
     deps.role.adopt({ primaryMachineId: target.id, epoch });
@@ -188,10 +218,7 @@ export async function runPrimarySwitch(deps: PrimarySwitchDeps): Promise<SwitchR
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     // Before the commit was sent nothing left this computer for good: undo. During or after it, do not guess.
-    if (step === "commit" || step === "retire") {
-      log(`[primary] switch to ${target.name} failed at ${step}: ${error}; this server stays fenced`);
-      return { ...base, ok: false, outcome: "uncertain", step, error, epoch };
-    }
+    if (step === "commit" || step === "retire") return uncertain(error);
     return undo(error);
   }
 }

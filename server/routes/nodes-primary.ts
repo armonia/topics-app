@@ -17,7 +17,7 @@
 import { hostname } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
 import { getPrimaryRole, guardNodesCall } from "../lib/primary-role";
-import { commitIncoming, isSafeBundleName, writeIncomingChunk, type SwitchManifest } from "../lib/primary-switch";
+import { commitIncoming, discardIncoming, isSafeBundleName, writeIncomingChunk, type SwitchManifest } from "../lib/primary-switch";
 
 export const NODE_PRIMARY_INCOMING_PATH = "/api/nodes/primary/incoming";
 export const NODE_PRIMARY_COMMIT_PATH = "/api/nodes/primary/commit";
@@ -63,6 +63,8 @@ export function createNodePrimaryRouter(ctx: AppContext, deps: NodePrimaryDeps):
         const size = writeIncomingChunk(deps.stateDir, name, offset, new Uint8Array(await req.arrayBuffer()));
         return json({ ok: true, size });
       } catch (err) {
+        // A chunk out of order means the sender gave up or started over: nothing staged is kept.
+        discardIncoming(deps.stateDir);
         return json({ error: err instanceof Error ? err.message : String(err), code: "invalid_chunk" }, 400);
       }
     }
@@ -70,7 +72,11 @@ export function createNodePrimaryRouter(ctx: AppContext, deps: NodePrimaryDeps):
     if (method !== "POST") return json({ error: "method not allowed" }, 405);
     const manifest = await readJSON(req) as SwitchManifest;
     const verdict = await commitIncoming(deps.stateDir, manifest, { hostname: host(), epoch: getPrimaryRole()?.epoch() ?? 0 });
-    if (!verdict.ok) return json({ error: verdict.error, code: verdict.code }, 409);
+    if (!verdict.ok) {
+      // A refused bundle is never committed later: its secrets leave the disk now.
+      discardIncoming(deps.stateDir);
+      return json({ error: verdict.error, code: verdict.code }, 409);
+    }
     console.warn(`[primary] committed the primary at epoch ${manifest.epoch} from ${manifest.fromMachineId}: restarting to restore it`);
     deps.restart();
     return json({ ok: true, counts: verdict.counts });

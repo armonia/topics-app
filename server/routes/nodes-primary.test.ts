@@ -5,11 +5,11 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initPrimaryRole } from "../lib/primary-role";
-import { countRows, sha256File, snapshotDatabase, type SwitchManifest } from "../lib/primary-switch";
+import { countRows, INCOMING_DIR, sha256File, snapshotDatabase, type SwitchManifest } from "../lib/primary-switch";
 import { createNodePrimaryRouter, NODE_PRIMARY_COMMIT_PATH, NODE_PRIMARY_INCOMING_PATH } from "./nodes-primary";
 import type { AppContext } from "../types";
 
@@ -64,6 +64,17 @@ describe("nodes-primary routes", () => {
     expect((await s.call(put("../escape", 0), "PUT", "x")).status).toBe(400);
     expect((await s.call(put("state/license-token", 0), "PUT", "ab")).status).toBe(200);
     expect((await s.call(put("state/license-token", 5), "PUT", "c")).status).toBe(400);
+    // An upload that went wrong leaves no secret staged.
+    expect(existsSync(join(s.root, "state", INCOMING_DIR))).toBe(false);
+  });
+
+  test("a refused commit drops what was staged", async () => {
+    const s = setup("dev-primary");
+    expect((await s.call(put("state/license-token", 0), "PUT", "ab")).status).toBe(200);
+    expect(existsSync(join(s.root, "state", INCOMING_DIR))).toBe(true);
+    const res = await s.call(NODE_PRIMARY_COMMIT_PATH, "POST", JSON.stringify({ version: 1, epoch: 1, toHostname: "elsewhere", files: [] }));
+    expect(res.status).toBe(409);
+    expect(existsSync(join(s.root, "state", INCOMING_DIR))).toBe(false);
   });
 
   test("a full upload from the channel commits with its counts and restarts", async () => {
