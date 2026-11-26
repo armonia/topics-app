@@ -398,11 +398,73 @@ export function createCiPhase(deps: CiPhaseDeps) {
   }
 
   /**
+   * Was main already red, on the same JOB, before this card's own commit entered it? Each landed card
+   * pushes to main on its own (the comment above `bisectAfterLand` says so), so the commit right before
+   * this one's own push IS the previous card's push — reading its verdict tells whether the red
+   * predates this card instead of guessing from the batch. `null` = cannot tell (no port, no commit, the
+   * push is not among main's recent history, or the one before it answered green/pending): the caller
+   * bounces as it always did.
+   *
+   * A JOB can hold many tests: the same job red before and after proves nothing by itself when a
+   * DIFFERENT test broke it (25/11, second review) — and while main stays red, it would call every card
+   * after it innocent forever. So when both verdicts carry `failedTests` (the unit suite's own JUnit
+   * report, `main-ci-watch.ts`), the comparison is by TEST: preexisting only if every test failing now
+   * was already failing before. Without names on either side (an older run, the artifact gone) the job
+   * overlap is the only signal left, and `byTest: false` says so for the note on the card.
+   */
+  async function wasPreexistingRed(projectId: string, taskId: string): Promise<{ failedBefore: string[]; byTest: boolean } | null> {
+    if (!deps.mainCiPort) return null;
+    const port = await deps.mainCiPort(projectId).catch(() => null);
+    if (!port) return null;
+    const commit = readAfter(taskId)?.commit ?? deps.svc.get(taskId, { projectId })?.task?.deliveryCommit ?? null;
+    if (!commit) return null;
+    const recent = await port.recent().catch(() => null);
+    if (!recent || !recent.length) return null;
+    const oldestFirst = [...recent].reverse();
+    let idx = -1;
+    for (let i = 0; i < oldestFirst.length; i++) {
+      if (await port.entersAt(commit, oldestFirst[i]!.sha).catch(() => false)) { idx = i; break; }
+    }
+    if (idx <= 0) return null; // not found, or nothing landed before it in this window
+    const mine = await port.verdict(oldestFirst[idx]!.sha).catch(() => null);
+    if (!mine || mine.state !== "fail") return null;
+    const before = await port.verdict(oldestFirst[idx - 1]!.sha).catch(() => null);
+    if (!before || before.state !== "fail") return null;
+    if (mine.failedTests && mine.failedTests.length && before.failedTests) {
+      const allOld = mine.failedTests.every((t) => before.failedTests!.includes(t));
+      return allOld ? { failedBefore: before.failedTests, byTest: true } : null;
+    }
+    const overlap = mine.failed.some((j) => before.failed.includes(j));
+    return overlap ? { failedBefore: before.failed, byTest: false } : null;
+  }
+
+  /**
    * A red on main after the land: the card leaves `done` and goes back to its agent with the log, the
    * same round count as a red before the land (`bouncesSinceHuman`, `MAX_AUTO_BOUNCES`). Its work is
    * ALREADY on main and its branch is reaped, so the agent starts from the updated main and fixes forward.
    */
   async function bounceAfterLand(projectId: string, taskId: string, why: string): Promise<void> {
+    // The red already existed, same job, before this card landed: it is not this card's fault, and
+    // reopening it would blame the wrong work (25/11, the same bounce family as the empty-run guard).
+    const pre = await wasPreexistingRed(projectId, taskId).catch(() => null);
+    if (pre) {
+      settleAfter(taskId, "green");
+      const t = deps.svc.get(taskId, { projectId })?.task;
+      if (t) {
+        try {
+          deps.svc.addComment({
+            taskId, author: "system", kind: "service",
+            content: pre.byTest
+              ? `La CI di main è rossa, ma sugli stessi test di prima (${pre.failedBefore.join(", ") || "nessuno nominato"}): ` +
+                "non è il rosso di questa card, resta atterrata."
+              : `La CI di main è rossa, ma lo era già prima di questa card (${pre.failedBefore.join(", ") || "stesso job"}, nomi dei test non disponibili): ` +
+                "non è il rosso di questa card, resta atterrata.",
+          });
+        } catch { /* best-effort */ }
+        deps.broadcast({ type: "task:updated", projectId, task: t });
+      }
+      return;
+    }
     const mark = readAfter(taskId);
     settleAfter(taskId, "bounced");
     const got = deps.svc.get(taskId, { projectId });

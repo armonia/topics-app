@@ -328,6 +328,14 @@ describe("createAutoLander", () => {
     expect(state.lands).toBe(2);
   });
 
+  test("a land waiting on the pull request's CI forgets the offer, so the sweep asks again at the verdict", async () => {
+    const { state, lander } = base();
+    await lander.tryLand("p1", "t1");
+    lander.forget("t1");
+    expect(await lander.tryLand("p1", "t1", { quiet: true })).toBe("queued");
+    expect(state.lands).toBe(2);
+  });
+
   test("two asks in the same instant queue one land", async () => {
     const { state, lander } = base();
     await Promise.all([lander.tryLand("p1", "t1"), lander.tryLand("p1", "t1")]);
