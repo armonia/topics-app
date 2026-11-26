@@ -10,7 +10,7 @@
  * @covers PROJ-ID-03
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { realpathSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { dropVanishedProjectPanes } from "./ui-state";
@@ -48,6 +48,22 @@ describe("dropVanishedProjectPanes", () => {
     const input = { panes: { [paneKey(realDir)]: { a: 1 } }, closedStack: [{ projectPath: vanished }] };
     const output = dropVanishedProjectPanes(input, "pane-store-v2") as any;
     expect(output.closedStack[0].projectPath).toBe(realDir);
+  });
+
+  it("a tab on a symlink (moved folder) follows the real path", () => {
+    const link = join(homedir(), "Projects", "zz-pane-link-" + Date.now());
+    symlinkSync(realDir, link);
+    try {
+      const input = {
+        panes: { [paneKey(link)]: { a: 1 } },
+        groups: { "group:default": { paneIds: [paneKey(link)] } },
+      };
+      const output = dropVanishedProjectPanes(input, "pane-store-v2") as any;
+      expect(Object.keys(output.panes)).toEqual([paneKey(realpathSync(realDir))]);
+      expect(output.groups["group:default"].paneIds).toEqual([paneKey(realpathSync(realDir))]);
+    } finally {
+      rmSync(link, { force: true });
+    }
   });
 
   it("NON tocca una cartella sparita senza gemello: un disco smontato non perde i pannelli", () => {
