@@ -228,6 +228,9 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       if (await bounceRed(projectId, taskId)) return;
       return afterDelivery(projectId, taskId);
     },
+    note: (taskId, text) => {
+      svc.addComment({ taskId, author: "system", kind: "service", content: text });
+    },
     log: (line) => console.warn(line),
   });
 

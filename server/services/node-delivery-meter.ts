@@ -15,7 +15,7 @@
  * rows: the checkout installs its dependencies before any gate runs
  * (`node-check-worktree.ts`), so a red on it means "the code is wrong", not
  * "nothing is installed" — the hole a local-only board used to fall through
- * forever (card c0bec773, 26/11: a board with even one local row never got
+ * forever (card dcdee50e, 26/11: a board with even one local row never got
  * measured, so a node delivery on it never landed). The swap brake
  * (`checks-gate.ts`'s `InterruptReason`) already covers every row the same
  * way, CI or local, so nothing extra is needed for it.
@@ -45,6 +45,8 @@ interface NodeDeliveryMeterDeps {
   /** Snapshot the delivery again: the realign moved the tip and the labels follow it. */
   recapture(taskId: string): Promise<unknown>;
   tryLand(projectId: string, taskId: string): Promise<unknown>;
+  /** A service comment on the card: the reason a card in review with no verdict does not have one running either. */
+  note?: (taskId: string, text: string) => void;
   log?: (line: string) => void;
   legMs?: number;
   /** Legs before giving up on a round that never settles. */
@@ -53,9 +55,16 @@ interface NodeDeliveryMeterDeps {
 
 export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
   const log = deps.log ?? (() => undefined);
+  const note = deps.note ?? (() => undefined);
   const legMs = deps.legMs ?? 60_000;
   const maxLegs = deps.maxLegs ?? 80;
   const measuring = new Set<string>();
+
+  /** Every exit that leaves the card with no round running says why, on the log AND the card. */
+  function giveUp(taskId: string, reason: string): void {
+    log(`[node-meter] ${taskId.slice(0, 8)}: ${reason}`);
+    note(taskId, reason);
+  }
 
   async function measure(taskId: string): Promise<void> {
     if (measuring.has(taskId)) return;
@@ -63,11 +72,11 @@ export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
     if (!task || task.status !== "review" || !task.deliveryBranch || !task.deliveryCommit) return;
     const checks = deps.declaredChecks(task.projectId);
     if (!checks.length) return;
-    if (!deps.checkout) return;
+    if (!deps.checkout) { giveUp(taskId, "nessun checkout disponibile su questo server per misurare una consegna di nodo"); return; }
     measuring.add(taskId);
     try {
       const lease = await deps.checkout(taskId);
-      if (!lease) { log(`[node-meter] ${taskId.slice(0, 8)}: nessun checkout su cui misurare`); return; }
+      if (!lease) { giveUp(taskId, "nessun checkout su cui misurare"); return; }
       try {
         const at = async () => ({ cwd: lease.cwd, commit: await lease.head() });
         for (let leg = 0; leg < maxLegs; leg++) {
@@ -81,7 +90,7 @@ export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
       await deps.recapture(taskId);
       await deps.tryLand(task.projectId, taskId);
     } catch (err) {
-      log(`[node-meter] ${taskId.slice(0, 8)}: misura fallita: ${err instanceof Error ? err.message : String(err)}`);
+      giveUp(taskId, `misura fallita: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       measuring.delete(taskId);
     }

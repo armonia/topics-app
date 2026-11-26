@@ -37,6 +37,7 @@ const WORKTREE_MANAGER_SRC = readFileSync(resolve(import.meta.dir, "../../server
 // The install itself is shared with the node delivery checkout (`worktree-install-deps.ts`,
 // used by both `worktree-manager.ts` and `node-check-worktree.ts`): one body, two callers.
 const SRC = readFileSync(resolve(import.meta.dir, "../../server/lib/worktree-install-deps.ts"), "utf8");
+const NODE_CHECK_WORKTREE_SRC = readFileSync(resolve(import.meta.dir, "../../server/services/node-check-worktree.ts"), "utf8");
 
 /** Il corpo di `installWorktreeDeps`, fino alla sua chiusura. */
 function corpo(): string {
@@ -94,6 +95,14 @@ describe("le dipendenze del client arrivano col worktree", () => {
 
   test("non parte dove non c'e' un package.json: non ogni progetto ne ha uno", () => {
     expect(corpo()).toContain('existsSync(join(dir, "package.json"))');
+  });
+
+  test("the node delivery checkout CALLS it too: a bar with local commands needs its dependencies", () => {
+    // node-check-worktree.ts is the second caller of the same body, and its call
+    // never had a test of its own: a refactor that dropped it would fall back to
+    // "nothing installed" with nothing going red (card dcdee50e).
+    const creazione = NODE_CHECK_WORKTREE_SRC.slice(NODE_CHECK_WORKTREE_SRC.indexOf("export async function openNodeCheckWorktree"));
+    expect(creazione.slice(0, 1200)).toContain("await installWorktreeDeps(path)");
   });
 
   test("DUE installazioni: la radice e il client, non una sola", () => {

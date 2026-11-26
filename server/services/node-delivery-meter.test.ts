@@ -15,6 +15,7 @@ const inReview = { status: "review", projectId: "p", deliveryBranch: "topics/x",
 
 function meter(over: { checks?: Array<{ name: string; cmd: string }>; legs?: ChecksLeg[]; lease?: boolean; task?: typeof inReview | undefined } = {}) {
   const events: string[] = [];
+  const notes: string[] = [];
   const legs = [...(over.legs ?? [{ ok: true, comment: "ok" } as unknown as ChecksLeg])];
   const m = createNodeDeliveryMeter({
     readTask: () => (over.task === undefined && "task" in over ? undefined : (over.task ?? inReview)),
@@ -31,9 +32,10 @@ function meter(over: { checks?: Array<{ name: string; cmd: string }>; legs?: Che
     },
     recapture: async () => { events.push("recapture"); },
     tryLand: async () => { events.push("land"); },
+    note: (_id, text) => { notes.push(text); },
     legMs: 1,
   });
-  return { m, events };
+  return { m, events, notes };
 }
 
 describe("node delivery meter", () => {
@@ -50,7 +52,7 @@ describe("node delivery meter", () => {
     expect(events.at(-1)).toBe("land");
   });
 
-  test("a bar mixing CI and a local command is measured on the checkout too (card c0bec773)", async () => {
+  test("a bar mixing CI and a local command is measured on the checkout too (card dcdee50e)", async () => {
     const { m, events } = meter({
       checks: [{ name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd }, { name: "typecheck", cmd: "bun run typecheck" }],
     });
@@ -64,10 +66,25 @@ describe("node delivery meter", () => {
     expect(events).toEqual(["checkout", "gate@abc1234", "release", "recapture", "land"]);
   });
 
-  test("no checkout to measure on: nothing runs, nothing lands", async () => {
-    const { m, events } = meter({ lease: false });
+  test("no checkout to measure on: nothing runs, nothing lands, and the card says why", async () => {
+    const { m, events, notes } = meter({ lease: false });
     await m.measure(TASK);
     expect(events).toEqual([]);
+    expect(notes).toEqual(["nessun checkout su cui misurare"]);
+  });
+
+  test("no checkout function on this server: the card says why instead of staying mute", async () => {
+    const notes: string[] = [];
+    const m = createNodeDeliveryMeter({
+      readTask: () => inReview,
+      declaredChecks: () => [{ name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd }],
+      runGate: async () => ({ ok: true, comment: "ok" } as unknown as ChecksLeg),
+      recapture: async () => {},
+      tryLand: async () => {},
+      note: (_id, text) => { notes.push(text); },
+    });
+    await m.measure(TASK);
+    expect(notes).toEqual(["nessun checkout disponibile su questo server per misurare una consegna di nodo"]);
   });
 
   test("a card that left review, or has no commit of its own, is left alone", async () => {
