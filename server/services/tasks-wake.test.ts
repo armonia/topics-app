@@ -3,7 +3,7 @@
  * back to `todo` BY ITSELF after the tick passes that instant — no agent, no
  * external script.
  *
- * @covers KANBAN-975aba21
+ * @covers KANBAN-123
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
