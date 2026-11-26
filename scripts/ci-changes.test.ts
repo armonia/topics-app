@@ -380,13 +380,15 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     };
   };
 
-  type Ctx = { answer: Answer; event: string; shard?: number; steps?: Record<string, Record<string, string>> };
+  type Ctx = { answer: Answer; event: string; shard?: number; shards?: string; steps?: Record<string, Record<string, string>> };
 
   /** The value of a dotted name, for the few contexts ci.yml reads in the e2e family. Anything else throws. */
   function lookup(path: string, ctx: Ctx): unknown {
     const changes = /^needs\.changes\.outputs\.(\w+)$/.exec(path);
     if (changes) return (ctx.answer as Record<string, string>)[changes[1]!] ?? "";
     if (path === "needs.prepare-e2e.outputs.plan-ok") return "";
+    // The impact-chosen shard list of a PR; empty when the plan step produced none (the fallback list applies).
+    if (path === "needs.prepare-e2e.outputs.shards") return ctx.shards ?? "";
     const step = /^steps\.(\w+)\.outputs\.(\w+)$/.exec(path);
     if (step) return ctx.steps?.[step[1]!]?.[step[2]!] ?? "";
     if (path === "github.event_name") return ctx.event;
@@ -480,18 +482,18 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
   }
 
   /** The jobs that start, the matrix legs they get, and for the e2e family the steps that run in each leg. */
-  function plan(answer: Answer, event: string) {
+  function plan(answer: Answer, event: string, shards?: string) {
     const out: Record<string, Array<{ leg: string; steps: string[] }>> = {};
     for (const [name, job] of Object.entries(jobs)) {
-      if (job.if && !truthyResult(evaluate(job.if, { answer, event }))) continue;
+      if (job.if && !truthyResult(evaluate(job.if, { answer, event, shards }))) continue;
       const matrix = job.strategy?.matrix ?? {};
       const [key, spec] = Object.entries(matrix)[0] ?? [];
-      const legs: Array<string | number> = !key ? [""] : Array.isArray(spec) ? spec : (evaluate(spec, { answer, event }) as Array<string | number>);
+      const legs: Array<string | number> = !key ? [""] : Array.isArray(spec) ? spec : (evaluate(spec, { answer, event, shards }) as Array<string | number>);
       out[name] = legs.map((leg) => ({
         leg: String(leg),
         steps: E2E_FAMILY.has(name)
           ? (job.steps ?? [])
-              .filter((st) => !st.if || truthyResult(evaluate(st.if, { answer, event, shard: typeof leg === "number" ? leg : undefined })))
+              .filter((st) => !st.if || truthyResult(evaluate(st.if, { answer, event, shards, shard: typeof leg === "number" ? leg : undefined })))
               .map((st) => st.name ?? st.uses ?? "?")
           : [],
       }));
@@ -596,6 +598,15 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     expect(run["prepare-e2e"]![0]!.steps).not.toContain(EXEMPT);
     expect(run["process-groups"]).toBeUndefined();
     expect(run.tauri).toBeUndefined();
+  });
+
+  it("a PR takes the shards the impact plan chose, and the full list when it chose none", () => {
+    const chosen = plan(answerOf(["client/src/App.tsx"]), "pull_request", "[0, 2, 5]");
+    expect(chosen.e2e!.map((l) => l.leg)).toEqual(["0", "2", "5"]);
+    const none = plan(answerOf(["client/src/App.tsx"]), "pull_request", "");
+    expect(none.e2e!.map((l) => l.leg)).toEqual(["0", "1", "2", "3", "4", "5", "6", "7", "8"]);
+    // main never reads the plan output: the eight shards stay.
+    expect(plan(answerOf(["client/src/App.tsx"]), "push", "[0, 2, 5]").e2e!.map((l) => l.leg)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
   });
 
   it("a push to main keeps its eight shards, and no `e2e (0)`", () => {
