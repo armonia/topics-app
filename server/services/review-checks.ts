@@ -830,7 +830,10 @@ export function checksVerdict(runs: CheckRun[], expected?: number): "pass" | "fa
   // Un SOLO rosso vero basta a dire rosso, anche se altri sono scaduti: c'e' un
   // guasto misurato, e quello si guarda. Il verso opposto — un rosso nascosto
   // da un timeout — sarebbe il difetto.
-  return runs.some((r) => !r.ok && !r.timedOut && !r.notMeasured) ? "fail" : "unknown";
+  // A `spawnError` sits with `timedOut` and `notMeasured`: the command never
+  // started at all (gone cwd, missing binary), so it measured nothing about
+  // the delivery's code.
+  return runs.some((r) => !r.ok && !r.timedOut && !r.notMeasured && !r.spawnError) ? "fail" : "unknown";
 }
 
 /**
@@ -905,7 +908,7 @@ function ciRedWhy(row: CheckRun): string {
  * 98867792 on 17/11/2026).
  */
 function headlineFailure(runs: CheckRun[]): CheckRun | undefined {
-  return runs.find((r) => !r.ok && !r.notMeasured && !r.timedOut) ?? runs.find((r) => !r.ok);
+  return runs.find((r) => !r.ok && !r.notMeasured && !r.timedOut && !r.spawnError) ?? runs.find((r) => !r.ok);
 }
 
 export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string | null }): string {
@@ -952,6 +955,21 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
         "Quasi sempre e' un worktree senza le dipendenze del client (`cd client && bun install`).",
     ].join("\n\n");
   }
+  // A command that never STARTED at all (gone checkout, missing binary)
+  // measured nothing about the code: calling it red would send someone
+  // hunting for a bug that is not there. The red-bounce reads `checksVerdict`,
+  // not this text: the card stays out of the counted rounds until there is a
+  // real checkout to measure on.
+  if (!ci && failed.spawnError) {
+    return [
+      `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` non è partito (${failed.spawnError}).`,
+      runs.map(line).join("\n"),
+      `Comando: \`${failed.cmd}\``,
+      failed.tail ? "```\n" + failed.tail + "\n```" : "(nessun output)",
+      "Non è un fallimento del codice: il comando non è nemmeno partito, quasi sempre perché il checkout su cui misura è sparito. " +
+        "Non serve rimettere mano al codice: la prossima misura riparte da un checkout nuovo.",
+    ].join("\n\n");
+  }
   if (checksVerdict(runs) === "unknown") {
     return [
       `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` è stato fermato oltre il tempo massimo.`,
@@ -962,7 +980,7 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
         "Rimetti il task in review quando c'è meno traffico, oppure fallo girare a mano e allega l'esito.",
     ].join("\n\n");
   }
-  const why = ci ? ciRedWhy(failed) : failed.spawnError ? `non è partito: ${failed.spawnError}` : `exit ${failed.code}`;
+  const why = ci ? ciRedWhy(failed) : `exit ${failed.code}`;
   return [
     `**Checks pre-review ROSSI**${where}: \`${failed.name}\` ${why}.`,
     runs.map(line).join("\n"),
@@ -990,10 +1008,11 @@ export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: st
   const check = failed.name !== failed.cmd && failed.name.length <= 64 ? `\`${failed.name}\`` : `check ${position}`;
   const ci = isCiEvidenceCheck(failed);
   if (failed.notMeasured) return `Checks pre-review non misurati${where}: ${check} ${ci ? "non ha un esito della CI per questo commit" : "non è partito"}.`;
+  if (!ci && failed.spawnError) return `Checks pre-review non misurati${where}: ${check} non è partito (checkout sparito).`;
   if (checksVerdict(runs) === "unknown") {
     return `Checks pre-review non misurati${where}: ${check} è scaduto.`;
   }
-  const why = ci ? ciRedWhy(failed) : failed.spawnError ? "non è partito" : `exit ${failed.code}`;
+  const why = ci ? ciRedWhy(failed) : `exit ${failed.code}`;
   return `Consegna fermata dai controlli automatici${where}: ${check} ${why}. Apri i dettagli dei check per comando e log.`;
 }
 

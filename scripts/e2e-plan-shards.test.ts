@@ -2,7 +2,7 @@
  * @covers SHARD-01
  */
 import { describe, test, expect } from "bun:test";
-import { planShards } from "./e2e-plan-shards";
+import { planShards, restrictToOnly, shardFileBody } from "./e2e-plan-shards";
 
 /**
  * Il pacchettamento degli shard per DURATA.
@@ -97,5 +97,22 @@ describe("planShards", () => {
     expect(buckets).toHaveLength(1);
     expect(buckets[0].files.slice().sort()).toEqual(files);
     expect(buckets[0].seconds).toBe(6);
+  });
+});
+
+describe("reduced plan (--only)", () => {
+  test("keeps only the tier's files named by the selection", () => {
+    expect(restrictToOnly(["a.spec.ts", "b.spec.ts", "c.spec.ts"], new Set(["b.spec.ts", "z.spec.ts"]))).toEqual(["b.spec.ts"]);
+  });
+
+  test("a piece with nothing in it is an empty file, never a fallback slice", () => {
+    expect(shardFileBody([])).toBe("");
+    expect(shardFileBody(["a.spec.ts"])).toBe("tests/e2e/a\\.spec\\.ts$\n");
+  });
+
+  test("more shards than files leaves empty pieces and loses no file", () => {
+    const buckets = planShards(["a.spec.ts", "b.spec.ts"], {}, 5);
+    expect(buckets.filter((b) => b.files.length === 0)).toHaveLength(3);
+    expect(buckets.flatMap((b) => b.files).sort()).toEqual(["a.spec.ts", "b.spec.ts"]);
   });
 });

@@ -22,6 +22,7 @@ import {
   checksVerdict,
 } from "./review-checks";
 import { E2E_CI_CHECK, GATES_CI_CHECK } from "../../shared/board";
+import { redBounceVerdict } from "./red-bounce";
 
 /**
  * THE WINDOWS BELOW ARE RATIOS, AND THE RATIO IS WHAT THEY PROVE.
@@ -455,8 +456,13 @@ describe("formatChecksComment", () => {
   test("timeout e mancato avvio si leggono diversi da un exit code", () => {
     const slow: CheckRun = { name: "e2e", cmd: "x", ok: false, code: null, ms: 1, timedOut: true, tail: "" };
     expect(formatChecksComment([slow])).toContain("tempo massimo");
+    // A `spawnError` (gone cwd, missing binary) measured nothing: NOT MEASURED,
+    // not RED, even though the OS error message ends up in the text.
     const dead: CheckRun = { name: "e2e", cmd: "x", ok: false, code: null, ms: 1, timedOut: false, tail: "", spawnError: "ENOENT" };
-    expect(formatChecksComment([dead])).toContain("ENOENT");
+    const out = formatChecksComment([dead]);
+    expect(out).toContain("ENOENT");
+    expect(out).toContain("NON MISURATI");
+    expect(out).not.toContain("ROSSI");
   });
 
   test("uno SCADUTO non è un rosso: non ha misurato niente, e il testo non deve dirlo", () => {
@@ -641,6 +647,47 @@ describe("uscita 97: non misurato, e si legge diverso da scaduto", () => {
     const out = formatChecksComment([scaduto]);
     expect(out).toContain("NON MISURATI");
     expect(out).toContain("tempo massimo");
+  });
+});
+
+/**
+ * A `spawnError` (ENOENT, gone cwd) IS NOT A RED.
+ *
+ * On 2026-11-26 three cards had `taskpolicy` ENOENT after 0-1 ms because the
+ * measuring checkout had already been torn down by the process before. The
+ * gate wrote `checks_state = 'fail'`, and the red-bounce sent the card back
+ * to its agent: a round burnt on code that was never broken.
+ */
+describe("spawnError: il comando non e' nemmeno partito, non e' un rosso", () => {
+  const spawnErr: CheckRun = {
+    name: "gates:fast", cmd: "bun run gates:fast", ok: false, code: null, ms: 1,
+    timedOut: false, tail: "", spawnError: "ENOENT: no such file or directory, posix_spawn '/usr/sbin/taskpolicy'",
+  };
+  const rosso: CheckRun = {
+    name: "lint", cmd: "eslint .", ok: false, code: 2, ms: 800, timedOut: false, tail: "no-unused-vars",
+  };
+
+  test("il verdetto e' `unknown`, non `fail`", () => {
+    expect(checksVerdict([spawnErr], 1)).toBe("unknown");
+  });
+
+  test("un rosso VERO accanto vince comunque", () => {
+    expect(checksVerdict([spawnErr, rosso], 2)).toBe("fail");
+  });
+
+  test("il red-bounce non parte su un verdetto `unknown`", () => {
+    // Mutation: drop `!r.spawnError` from `checksVerdict`'s predicate and this
+    // test turns red (bounce: true).
+    const state = checksVerdict([spawnErr], 1);
+    const card = { status: "review", checksState: state, checksCommit: "abc1234", deliveryCommit: "abc1234" };
+    expect(redBounceVerdict(card, [], { turnLive: false }).bounce).toBe(false);
+  });
+
+  test("il testo dice che il comando non e' partito, non che il codice e' rotto", () => {
+    const out = formatChecksComment([spawnErr]);
+    expect(out).toContain("NON MISURATI");
+    expect(out).toContain("ENOENT");
+    expect(out).not.toContain("ROSSI");
   });
 });
 
