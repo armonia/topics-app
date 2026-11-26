@@ -18,7 +18,6 @@
 
 import * as fs from "node:fs";
 import { randomBytes } from "node:crypto";
-import * as os from "node:os";
 import path from "node:path";
 import { closeDatabase, getDatabase } from "../../../server/db";
 import type { AppContext } from "../../../server/types";
@@ -225,18 +224,13 @@ export interface RealServer {
 }
 
 /**
- * The bind host for a server a test spawns. The server defaults to "::" (dual
- * stack) and on a machine with no IPv6 loopback (the cloud VM, some containers)
- * `listen` fails with EAFNOSUPPORT, so the child never answers and the test
- * reads "the spawned server never answered" for a reason that is not the code.
- * Without IPv6 the child is told to bind 127.0.0.1, which is all these tests
- * probe; with IPv6 nothing changes and it keeps the default.
+ * The bind host for a server a test spawns. The server defaults to "::"
+ * (dual stack, every interface): a test child left on the default is
+ * reachable from the LAN for as long as it runs, and these tests only ever
+ * probe 127.0.0.1 anyway, so the child is always told to bind loopback only.
  */
 export function spawnedServerHostEnv(): Record<string, string> {
-  const hasIpv6 = Object.values(os.networkInterfaces())
-    .flat()
-    .some((i) => i?.family === "IPv6" && i.address === "::1");
-  return hasIpv6 ? {} : { SERVER_HOST: "127.0.0.1" };
+  return { SERVER_HOST: "127.0.0.1" };
 }
 
 /**

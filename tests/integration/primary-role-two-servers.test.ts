@@ -64,6 +64,7 @@ import { freePort, PROJECT_ROOT, spawnedServerHostEnv, testTmpDir } from "./help
 import { slackMs } from "../helpers/time-slack";
 import { gitEnv } from "../setup/bun-test-preload";
 import { restrictMachineLikeDevices } from "../../server/lib/node-scope";
+import { killProcessTree } from "../../server/lib/process-tree";
 
 const EPOCH_HEADER = "x-topics-primary-epoch";
 const MACHINE_HEADER = "x-topics-machine-id";
@@ -160,6 +161,11 @@ async function bootOnce(s: ServerUnderTest): Promise<void> {
     },
     stdout: logFd,
     stderr: logFd,
+    // Its own process group: a server that spawns anything of its own (a
+    // worktree, a tunnel helper) is reachable through ONE signal to -pid,
+    // instead of leaving grandchildren behind when the server itself is
+    // SIGTERM'd. `stop()` below relies on this.
+    detached: true,
   });
   closeSync(logFd);
   if (!running.includes(s)) running.push(s);
@@ -175,11 +181,17 @@ async function bootOnce(s: ServerUnderTest): Promise<void> {
 
 async function stop(s: ServerUnderTest): Promise<void> {
   if (!s.child) return;
-  s.child.kill("SIGTERM");
-  await Promise.race([s.child.exited, Bun.sleep(slackMs(20_000))]);
-  if (s.child.exitCode === null) s.child.kill("SIGKILL");
-  await s.child.exited;
+  const child = s.child;
   s.child = null;
+  // `group: true` also signals -pid: the server's own process group, which
+  // catches anything it spawned itself, not just the server process.
+  await killProcessTree(child.pid, slackMs(5000), { group: true });
+  await Promise.race([child.exited, Bun.sleep(slackMs(10_000))]);
+  if (child.exitCode === null) {
+    try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
+    child.kill("SIGKILL");
+  }
+  await child.exited;
 }
 
 function writePrimaryState(s: ServerUnderTest, primaryMachineId: string, epoch: number): void {
@@ -305,6 +317,17 @@ let nodeBOnA = "";
 afterAll(async () => {
   await Promise.all(running.map((s) => stop(s)));
 });
+
+// `afterAll` only runs when this file reaches the end of its own suite: a
+// run cut off mid-test (Ctrl-C, a CI cancel) delivers SIGINT/SIGTERM to the
+// process instead, and without a handler Bun exits at once, skipping it. Both
+// servers would then run on with their test environment forever, the way
+// two of them were still up fifteen hours after a cut run (card 92aaf67e).
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  process.on(sig, () => {
+    void Promise.all(running.map((s) => stop(s))).finally(() => process.exit(1));
+  });
+}
 
 describe("default unchanged: no primary chosen", () => {
   test("a virgin server claims a todo card and lets requests without an epoch through", async () => {
