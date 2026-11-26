@@ -30,9 +30,9 @@ const decoder = new TextDecoder();
 let buffer = "";
 for await (const chunk of Bun.stdin.stream()) {
   buffer += decoder.decode(chunk, { stream: true });
-  let newline;
-  while ((newline = buffer.indexOf("\\n")) !== -1) {
-    buffer = buffer.slice(newline + 1);
+  let lineEnd;
+  while ((lineEnd = buffer.indexOf("\\n")) !== -1) {
+    buffer = buffer.slice(lineEnd + 1);
     for (let i = 1; i <= ${opts.count}; i++) {
       process.stdout.write(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: i + "," }] } }) + "\\n");
       await Bun.sleep(${opts.intervalMs});
