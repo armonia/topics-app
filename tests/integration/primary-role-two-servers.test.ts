@@ -137,10 +137,7 @@ async function bootOnce(s: ServerUnderTest): Promise<void> {
       PATH: process.env.PATH ?? "",
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
       NO_TLS: "1",
-      // Run from a worktree under ~/.topics/worktrees, server.ts isolates itself
-      // and drops TOPICS_TUNNEL_PORT, so the tunnel doors would never open (the
-      // test was green only from a plain checkout). Every home, data dir and
-      // port below is already private to this child, so the opt-out is safe.
+      // The child already has its own isolated dirs; without this a run from a card worktree switches the tunnel ports off.
       TOPICS_ALLOW_WORKTREE_PROD: "1",
       BUN_PORT: String(s.port),
       PORT: String(s.port),

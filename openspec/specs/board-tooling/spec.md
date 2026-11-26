@@ -151,3 +151,24 @@ giusto non è una sonda.
 #### Scenario: no model call by default
 - **WHEN** the command runs without `--run-haiku`
 - **THEN** it SHALL write the prompts and SHALL NOT call the model
+
+### Requirement: BOARD-DEDUPE-01 — Una richiesta che ripete una card aperta viene assorbita da quella card
+
+Creare una card con lo stesso titolo normalizzato di una card APERTA della stessa
+board SHALL aggiungere un commento di servizio alla card esistente e rispondere
+con l'id di quella, senza creare nulla. Una somiglianza solo parziale resta un
+rifiuto con i candidati.
+
+#### Scenario: lo stesso titolo due volte
+- **WHEN** arriva una creazione con il titolo di una card aperta
+- **THEN** la card esistente riceve un commento e nessuna card nuova esiste
+
+### Requirement: BOARD-UNSTICK-01 — Una card ferma da un'ora senza un motivo leggibile ne riceve uno
+
+Una card in coda ferma oltre la soglia, senza motivo leggibile, SHALL ricevere dal
+sistema UNA nota di servizio col motivo calcolato; se la macchina assegnata non
+risponde, la card SHALL tornare in coda su un'altra.
+
+#### Scenario: la nota è una sola
+- **WHEN** lo sweep gira due volte sulla stessa card ferma
+- **THEN** esiste una sola nota

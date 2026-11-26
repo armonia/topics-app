@@ -91,6 +91,10 @@
         "scripts/test-unit-shards.ts",
         // `bun run test:touched`: the unit tests the branch diff reaches, picked from the import graph.
         "scripts/test-touched.ts",
+        // `bun scripts/ci-impact.ts`: what a pull request reaches (e2e specs and unit tests); ci.yml runs it.
+        "scripts/ci-impact.ts",
+        // `bun scripts/ci-impact-measure.ts`: replays ci-impact on past red runs of main (needs gh).
+        "scripts/ci-impact-measure.ts",
         // `bun scripts/test-touched-measure.ts`: replays the selector on past red CI runs (needs gh).
         "scripts/test-touched-measure.ts",
         // Same shape: only .github/workflows/e2e-nightly.yml runs it, to name the

@@ -49,6 +49,11 @@ describe("the unit job of ci.yml covers the whole suite", () => {
     expect(unit).toContain('run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-shards.ts"');
   });
 
+  test("only a pull request narrows it, through test-touched; main and the nightly run the whole suite", () => {
+    expect(unit).toMatch(/if: \$\{\{ github\.event_name != 'pull_request' \}\}\s+run: bun run scripts\/slot\.ts test:unit/);
+    expect(unit).toContain("run: bun run scripts/test-touched.ts --base");
+  });
+
   test("the `check` job still reads its verdict", () => {
     expect(CI).toMatch(/UNIT_RESULT: \$\{\{ needs\.unit\.result \}\}/);
   });
