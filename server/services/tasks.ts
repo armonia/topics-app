@@ -487,6 +487,26 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!row || (projectId && row.project_id !== projectId)) {
         throw new TaskServiceError("not_found", `task ${taskId} not found`);
       }
+      // `isDispatchBlocked` reads `blocker.status = 'done' OR blocker.archived
+      // = 1` as "unblocked": archiving a NON-done card that is still the
+      // blocker of a live dependent would silently tell that dependent its
+      // prerequisite is satisfied, when the work was only abandoned, not
+      // finished. A `done` blocker already unblocked its dependents before
+      // this call, so archiving it changes nothing and stays allowed. The
+      // 17-24/11 incident shipped a parent closed `done` with children never
+      // wired as real `blockedByTaskId` dependents in the first place; this
+      // closes the other half, where the link DOES exist.
+      if (row.status !== "done") {
+        const liveDependents = db.query(
+          "SELECT id FROM tasks WHERE blocked_by_task_id = ? AND archived = 0 AND status != 'done'",
+        ).all(taskId) as Array<{ id: string }>;
+        if (liveDependents.length > 0) {
+          throw new TaskServiceError(
+            "blocks_live_dependent",
+            `task is still the blocker (blockedByTaskId) of ${liveDependents.length} unfinished card(s): point them at another blocker or finish/archive them first.`,
+          );
+        }
+      }
       const ts = now();
       // `archiveSubtree` fa la stessa discesa ricorsiva che valiant-hill aveva
       // scritta inline: il ramo l'aveva estratta, e tenere due copie della stessa
