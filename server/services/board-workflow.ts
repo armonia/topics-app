@@ -3,7 +3,9 @@ import {
   GLOBAL_WORKFLOW_SCOPE,
   STAGE_CI,
   parseCiPhase,
+  parseReviewerModels,
   parseScheduledReviewMinutes,
+  type ReviewerModels,
   parsePersonPaths,
   resolveWorkflowRules,
   type BoardWorkflow,
@@ -36,7 +38,7 @@ function ciPhaseToColumn(v: WorkflowRulesRow["ciPhase"]): number | null {
 
 export function readOwnWorkflowRules(db: Database, scope: string): WorkflowRulesRow | null {
   try {
-    const r = db.prepare("SELECT ci_phase, person_paths, scheduled_review_minutes FROM board_workflow_rules WHERE scope = ?").get(scope) as { ci_phase: number | null; person_paths: string | null; scheduled_review_minutes: number | null } | null;
+    const r = db.prepare("SELECT ci_phase, person_paths, scheduled_review_minutes, reviewer_models FROM board_workflow_rules WHERE scope = ?").get(scope) as { ci_phase: number | null; person_paths: string | null; scheduled_review_minutes: number | null; reviewer_models: string | null } | null;
     if (!r) return null;
     let personPaths: PersonPath[] | null = null;
     if (r.person_paths) {
@@ -45,7 +47,9 @@ export function readOwnWorkflowRules(db: Database, scope: string): WorkflowRules
       // interface land alone. It fails the read, and the land asks a person.
       if (personPaths === null) throw new Error(`board_workflow_rules: unreadable person_paths for ${scope}`);
     }
-    return { ciPhase: ciPhaseFromColumn(r.ci_phase), personPaths, scheduledReviewMinutes: parseScheduledReviewMinutes(r.scheduled_review_minutes) };
+    let reviewerModels: ReviewerModels | null = null;
+    if (r.reviewer_models) { try { reviewerModels = parseReviewerModels(JSON.parse(r.reviewer_models)); } catch { reviewerModels = null; } }
+    return { ciPhase: ciPhaseFromColumn(r.ci_phase), personPaths, scheduledReviewMinutes: parseScheduledReviewMinutes(r.scheduled_review_minutes), reviewerModels };
   } catch (e) {
     if (e instanceof Error && e.message.startsWith("board_workflow_rules:")) throw e;
     return null;
@@ -67,15 +71,17 @@ export function writeWorkflowRules(db: Database, scope: string, patch: WorkflowR
     ciPhase: patch.ciPhase !== undefined ? parseCiPhase(patch.ciPhase) : cur.ciPhase ?? null,
     personPaths: patch.personPaths !== undefined ? patch.personPaths : cur.personPaths ?? null,
     scheduledReviewMinutes: patch.scheduledReviewMinutes !== undefined ? parseScheduledReviewMinutes(patch.scheduledReviewMinutes) : cur.scheduledReviewMinutes ?? null,
+    reviewerModels: patch.reviewerModels !== undefined ? (patch.reviewerModels === null ? null : parseReviewerModels(patch.reviewerModels)) : cur.reviewerModels ?? null,
   };
-  if (next.ciPhase == null && (next.personPaths == null || next.personPaths.length === 0) && next.scheduledReviewMinutes == null) {
+  const hasModels = !!next.reviewerModels && Object.keys(next.reviewerModels).length > 0;
+  if (next.ciPhase == null && (next.personPaths == null || next.personPaths.length === 0) && next.scheduledReviewMinutes == null && !hasModels) {
     db.prepare("DELETE FROM board_workflow_rules WHERE scope = ?").run(scope);
     return;
   }
   db.prepare(
-    `INSERT INTO board_workflow_rules (scope, ci_phase, person_paths, scheduled_review_minutes, updated_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(scope) DO UPDATE SET ci_phase = excluded.ci_phase, person_paths = excluded.person_paths, scheduled_review_minutes = excluded.scheduled_review_minutes, updated_at = excluded.updated_at`,
-  ).run(scope, ciPhaseToColumn(next.ciPhase), next.personPaths?.length ? JSON.stringify(parsePersonPaths(next.personPaths)) : null, next.scheduledReviewMinutes ?? null, nowIso);
+    `INSERT INTO board_workflow_rules (scope, ci_phase, person_paths, scheduled_review_minutes, reviewer_models, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(scope) DO UPDATE SET ci_phase = excluded.ci_phase, person_paths = excluded.person_paths, scheduled_review_minutes = excluded.scheduled_review_minutes, reviewer_models = excluded.reviewer_models, updated_at = excluded.updated_at`,
+  ).run(scope, ciPhaseToColumn(next.ciPhase), next.personPaths?.length ? JSON.stringify(parsePersonPaths(next.personPaths)) : null, next.scheduledReviewMinutes ?? null, hasModels ? JSON.stringify(next.reviewerModels) : null, nowIso);
 }
 
 /**

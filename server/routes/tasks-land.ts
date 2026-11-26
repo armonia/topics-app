@@ -25,8 +25,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { inspectDelivery } from "../services/scheduled-review-inspect";
-import { buildSensePrompt, deliveryDiff, falseMainClaims, isOnMain, runSense, senseModelFor } from "../services/scheduled-review-sense";
-import { reviewScheduled, scheduledReviewDue, type ScheduledReviewCard } from "../services/scheduled-review";
+import { buildSensePrompt, deliveryDiff, diffIsClipped, newSenseNonce, falseMainClaims, isOnMain, runSense, senseModelFor } from "../services/scheduled-review-sense";
+import { reviewScheduled, scheduledReviewDue, type ScheduledReviewCard, type ScheduledReviewOutcome } from "../services/scheduled-review";
 
 /** What a queued land is asked besides landing. */
 export interface LandRunOpts {
@@ -273,6 +273,8 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
    * `autoLander`, whose verdict holds everything else (the bar on the commit, a person who spoke, open steps).
    */
   let scheduledRunning: string | null = null;
+  const MAX_UNMEASURED_PASSES = 3;
+  const unmeasuredPasses = new Map<string, { commit: string; count: number }>();
   const scheduledMinutes = (projectId: string): number => {
     try { return readWorkflowRules(db, projectId).scheduledReviewMinutes; } catch { return 0; }
   };
@@ -290,18 +292,28 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       lastPassAt: stamp?.at ?? null, reviewAt: t.reviewAt ?? t.updatedAt ?? null,
     };
     if (!scheduledReviewDue(card, Date.now(), minutes)) return;
+    // A commit that could not be measured MAX_UNMEASURED_PASSES times in a row is left alone until it changes.
+    const tries = unmeasuredPasses.get(t.id);
+    if (tries && tries.commit === card.deliveryCommit && tries.count >= MAX_UNMEASURED_PASSES) return;
     scheduledRunning = t.id;
-    void runScheduledPass(t, card).catch((err) => console.warn(`[scheduled-review] ${t.id.slice(0, 8)}:`, err)).finally(() => { scheduledRunning = null; });
+    void runScheduledPass(t, card)
+      .then((outcome) => {
+        if (outcome !== "unmeasured") { unmeasuredPasses.delete(t.id); return; }
+        const count = tries && tries.commit === card.deliveryCommit ? tries.count + 1 : 1;
+        unmeasuredPasses.set(t.id, { commit: card.deliveryCommit!, count });
+      })
+      .catch((err) => console.warn(`[scheduled-review] ${t.id.slice(0, 8)}:`, err))
+      .finally(() => { scheduledRunning = null; });
   }
 
-  async function runScheduledPass(t: Task, card: ScheduledReviewCard): Promise<void> {
+  async function runScheduledPass(t: Task, card: ScheduledReviewCard): Promise<ScheduledReviewOutcome> {
     const repo = await opts?.integrationRepo?.(t.id).catch(() => null);
-    if (!repo) return;
+    if (!repo) return "unmeasured";
     const thread = () => svc.get(t.id, { projectId: t.projectId })?.comments ?? [];
     const commit = card.deliveryCommit!;
     const marker = `Ripasso a orario su \`${commit.slice(0, 8)}\``;
     const doors = opts?.scheduledReviewDoors ?? {};
-    await reviewScheduled(card, {
+    return reviewScheduled(card, {
       files: async (c) => (opts?.deliveryFiles ? opts.deliveryFiles(c.id, c.deliveryCommit!) : null),
       personPaths: (projectId) => readWorkflowRules(db, projectId).personPaths,
       inspect: doors.inspect ?? ((c, files) => inspectDelivery(repo, c.id, c.deliveryCommit!, files)),
@@ -320,8 +332,15 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         const cwd = mkdtempSync(join(tmpdir(), "scheduled-review-"));
         try {
           const lines = thread().map((m) => `${commentAuthorLabel(m.author).kind}: ${m.content}`).join("\n\n");
-          const prompt = buildSensePrompt({ title: t.text, description: t.description ?? "", thread: lines, humanAsk: c.humanAsk ?? "", diff });
-          return await runSense(prompt, senseModelFor((t as { model?: string | null }).model), cwd);
+          const nonce = newSenseNonce();
+          const prompt = buildSensePrompt({ title: t.text, description: t.description ?? "", thread: lines, humanAsk: c.humanAsk ?? "", diff, nonce });
+          // The writer is the card's own model, or the board's dispatch model when the card has none.
+          let boardModel: string | null = null;
+          try { const m = svc.getBoardSettings(t.projectId).dispatchModel; boardModel = m && m !== "auto" ? m : null; } catch { /* no board settings: the card's own model decides */ }
+          const model = senseModelFor((t as { model?: string | null }).model ?? boardModel, readWorkflowRules(db, t.projectId).reviewerModels);
+          const verdict = await runSense(prompt, model, cwd, nonce);
+          // A diff cut by the prompt's limit was not seen whole: it can be bounced or handed to a person, never cleared.
+          return verdict.kind === "ok" && diffIsClipped(diff) ? { kind: "person", why: "the diff is larger than the reviewer can read whole" } : verdict;
         } finally { rmSync(cwd, { recursive: true, force: true }); }
       }),
       turnIsLive: () => cardTurnIsLive(t),

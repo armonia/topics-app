@@ -415,8 +415,8 @@ export function createAutoLander(deps: AutoLanderDeps) {
       try {
         deps.note(
           taskId,
-          `Atterrata da sola: la barra della board è verde per intero sul commit consegnato (\`${commit.slice(0, 8)}\`), la card è invisibile ` +
-            "e non fa domande. Si chiude solo a merge confermato su main; se il ramo si è mosso o è rimasto indietro non lo tocco e resta in review.",
+          `Atterrata da sola: la barra della board è verde per intero sul commit consegnato (\`${commit.slice(0, 8)}\`), niente richiede una persona ` +
+            "e la card non fa domande. Si chiude solo a merge confermato su main; se il ramo si è mosso o è rimasto indietro non lo tocco e resta in review.",
         );
       } catch (err) { log(`[auto-land] nota non scritta per ${taskId}: ${String(err)}`); }
       return null;

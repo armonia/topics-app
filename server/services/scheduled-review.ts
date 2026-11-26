@@ -146,38 +146,36 @@ export async function reviewScheduled(card: ScheduledReviewCard, deps: Scheduled
   // Only a commit the bar already cleared is judged: a running, missing or red bar belongs to the other doors.
   if (card.checksState !== "pass" || !sameCommit(card.checksCommit, commit)) return "skipped";
   if (deps.turnIsLive(card)) return "skipped";
-  const stamp = () => deps.stamp(card, now.toISOString());
+  // Every pass is stamped before it starts, whatever it ends in: an unmeasured card, a held land or a person's card
+  // is looked at again after the interval, never at the next beat (a pass runs git and tests).
+  deps.stamp(card, now.toISOString());
   const files = await deps.files(card).catch(() => null);
   if (files === null) return "unmeasured";
   const extra = deps.personPaths(card.projectId);
   const place = files.map((f) => personPlace(f, extra)).find((p) => p !== null);
-  // The stamp keeps a card a person must see from being opened again every beat.
-  if (place) { stamp(); return "person"; }
+  if (place) return "person";
 
   const earlier = deps.bouncedBefore(card);
-  if (earlier) { stamp(); return deps.bounce(card, redeliveryMessage(commit, earlier)) ? "bounced" : "skipped"; }
+  if (earlier) { return deps.bounce(card, redeliveryMessage(commit, earlier)) ? "bounced" : "skipped"; }
 
   const claims = await deps.falseMainClaims(card).catch(() => null);
   if (claims && claims.length > 0) {
-    stamp();
     const why = `Ripasso a orario su \`${short(commit)}\`: dici che ${claims.slice(0, 5).join(", ")} è già su main, ma origin/main non ha quel commit. Consegna il lavoro invece di dichiararlo fatto.`;
     return deps.bounce(card, why) ? "bounced" : "skipped";
   }
 
   const onMain = await deps.onMain(card).catch(() => null);
   if (onMain === true) {
-    stamp();
     deps.clear(card, "il commit consegnato è già contenuto in origin/main (git merge-base --is-ancestor)");
     return (await deps.land(card)) ? "landed" : "held";
   }
 
   const report = await deps.inspect(card, files).catch((e): InspectionReport => ({ kind: "unmeasured", why: String(e) }));
   if (report.kind === "unmeasured") { deps.log?.(`[scheduled-review] ${card.id.slice(0, 8)} non misurata: ${report.why}`); return "unmeasured"; }
-  if (report.kind !== "green") { stamp(); return deps.bounce(card, scheduledReviewMessage(commit, report)) ? "bounced" : "skipped"; }
+  if (report.kind !== "green") { return deps.bounce(card, scheduledReviewMessage(commit, report)) ? "bounced" : "skipped"; }
 
   const sense = await deps.sense(card, files).catch((e): SenseVerdict => ({ kind: "unmeasured", why: String(e) }));
   if (sense.kind === "unmeasured") { deps.log?.(`[scheduled-review] ${card.id.slice(0, 8)} senso non misurato: ${sense.why}`); return "unmeasured"; }
-  stamp();
   if (sense.kind === "person") { deps.log?.(`[scheduled-review] ${card.id.slice(0, 8)} a una persona: ${sense.why}`); return "person"; }
   if (sense.kind === "reject") return deps.bounce(card, `Ripasso a orario su \`${short(commit)}\`: ${sense.why}`) ? "bounced" : "skipped";
   if (sense.kind === "answer") return deps.answer(card, sense.text) ? "answered" : "skipped";

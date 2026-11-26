@@ -32,7 +32,7 @@ import { staleTaskModelError, isStaleModelChange, taskModelIsCurrent } from "../
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
 import { readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
-import { CI_PHASE_MODES, MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_COLUMNS, parseCiPhase, parsePersonPaths, parseScheduledReviewMinutes } from "../../shared/workflow";
+import { CI_PHASE_MODES, MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_COLUMNS, parseCiPhase, parsePersonPaths, parseReviewerModels, parseScheduledReviewMinutes, type ReviewerModels } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -328,9 +328,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         catch (e) { return fail(e); }
       }
       if (method === "PUT") {
-        const body = ((await readJSON(req)) ?? {}) as { preset?: unknown; ciPhase?: unknown; personPaths?: unknown; scheduledReviewMinutes?: unknown };
+        const body = ((await readJSON(req)) ?? {}) as { preset?: unknown; ciPhase?: unknown; personPaths?: unknown; scheduledReviewMinutes?: unknown; reviewerModels?: unknown };
         const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
-        if (!has("preset") && !has("ciPhase") && !has("personPaths") && !has("scheduledReviewMinutes")) {
+        if (!has("preset") && !has("ciPhase") && !has("personPaths") && !has("scheduledReviewMinutes") && !has("reviewerModels")) {
           return json({ error: "nothing to write: send ciPhase or personPaths", code: "invalid_input" }, 400);
         }
         if (has("ciPhase") && body.ciPhase !== null && parseCiPhase(body.ciPhase) === null) {
@@ -339,16 +339,20 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         if (has("scheduledReviewMinutes") && body.scheduledReviewMinutes !== null && parseScheduledReviewMinutes(body.scheduledReviewMinutes) === null) {
           return json({ error: "scheduledReviewMinutes must be 0 (off), a whole number from 10 to 1440, or null", code: "invalid_input" }, 400);
         }
+        if (has("reviewerModels") && body.reviewerModels !== null && parseReviewerModels(body.reviewerModels) === null) {
+          return json({ error: "reviewerModels must be { primary?, fallback? } with plain model ids, or null", code: "invalid_input" }, 400);
+        }
         const personPaths = has("personPaths") && body.personPaths !== null ? parsePersonPaths(body.personPaths) : null;
         if (has("personPaths") && body.personPaths !== null && personPaths === null) {
           return json({ error: `personPaths must be a list of at most ${MAX_PERSON_PATHS} { pattern, why }`, code: "invalid_input" }, 400);
         }
         try {
-          if (has("ciPhase") || has("personPaths") || has("scheduledReviewMinutes")) {
+          if (has("ciPhase") || has("personPaths") || has("scheduledReviewMinutes") || has("reviewerModels")) {
             writeWorkflowRules(ctx.db, scope, {
               ...(has("ciPhase") ? { ciPhase: parseCiPhase(body.ciPhase) } : {}),
               ...(has("personPaths") ? { personPaths } : {}),
               ...(has("scheduledReviewMinutes") ? { scheduledReviewMinutes: body.scheduledReviewMinutes as number | null } : {}),
+              ...(has("reviewerModels") ? { reviewerModels: body.reviewerModels as ReviewerModels | null } : {}),
             }, new Date().toISOString());
           }
           return json(view());

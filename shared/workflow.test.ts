@@ -6,6 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  parseReviewerModels,
   MAX_PERSON_PATHS,
   STAGE_CI,
   WORKFLOW_COLUMNS,
@@ -61,7 +62,7 @@ describe("columnOfTask", () => {
 
 describe("resolveWorkflowRules: the CI switch inherits, the paths add up", () => {
   test("no rows: the CI measures after the land, no board paths", () => {
-    expect(resolveWorkflowRules({})).toEqual({ ciPhase: "after", personPaths: [], scheduledReviewMinutes: 0 });
+    expect(resolveWorkflowRules({})).toEqual({ ciPhase: "after", personPaths: [], scheduledReviewMinutes: 0, reviewerModels: {} });
   });
   test("the project's mode wins over the global one; null inherits", () => {
     expect(resolveWorkflowRules({ global: { ciPhase: "off" } }).ciPhase).toBe("off");
@@ -157,5 +158,15 @@ describe("isApprovalOnly / asksOnlyApproval", () => {
     const fence = (body: string) => [{ author: "agent:t1", kind: "comment", content: "```question\n" + body + "\n```" }];
     expect(agentAskInThread(fence("Fatto, barra verde.\n- Landa su main (consigliata)\n- Da rivedere"))).toBeNull();
     expect(agentAskInThread(fence("Come procedo?\n- Landa su main\n- Lancio io l'e2e sul PC"))).toBe("Come procedo?");
+  });
+});
+
+describe("reviewerModels: the scheduled review's two models", () => {
+  test("plain ids only, the project overrides the global one key by key", () => {
+    expect(parseReviewerModels({ primary: "claude-haiku-5-5" })).toEqual({ primary: "claude-haiku-5-5" });
+    expect(parseReviewerModels({ primary: "bad model; rm" })).toBeNull();
+    expect(parseReviewerModels([])).toBeNull();
+    const rules = resolveWorkflowRules({ global: { reviewerModels: { primary: "a", fallback: "b" } }, project: { reviewerModels: { fallback: "c" } } });
+    expect(rules.reviewerModels).toEqual({ primary: "a", fallback: "c" });
   });
 });

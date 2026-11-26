@@ -40,7 +40,8 @@ export async function inspectDelivery(repoPath: string, taskId: string, commit: 
   // A fetch that fails inspects against the main this machine has: stale, never wrong.
   await git(repoPath, ["fetch", "--quiet", "origin", "main"], SPAWN_TIMEOUT.write);
   const merge = await git(repoPath, ["merge-tree", "--write-tree", "--name-only", "origin/main", commit]);
-  if (merge.code === 1) return { kind: "conflict", files: conflictedFiles(merge.stdout) };
+  // A spawn that failed answers 1 too (see `runGit`): only a tree line on stdout is a real conflict.
+  if (merge.code === 1 && /^[0-9a-f]{40,64}/.test(merge.stdout)) return { kind: "conflict", files: conflictedFiles(merge.stdout) };
   if (merge.code !== 0) return { kind: "unmeasured", why: `merge-tree: ${merge.stderr.trim().slice(0, 200)}` };
 
   const tests = files.filter((f) => TEST_FILE.test(f) && !E2E_FOLDER.test(f)).slice(0, MAX_TEST_FILES);

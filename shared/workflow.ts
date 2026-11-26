@@ -93,6 +93,23 @@ export interface WorkflowRules {
   personPaths: PersonPath[];
   /** Minutes between scheduled reviews of technical cards sitting in review; 0 = off (the default). */
   scheduledReviewMinutes: number;
+  /** The scheduled review's two models: `primary` judges, `fallback` judges what `primary`'s own family wrote. Empty = the app's defaults. */
+  reviewerModels: ReviewerModels;
+}
+
+export interface ReviewerModels { primary?: string; fallback?: string }
+
+/** Model ids as stored or sent: short plain strings only; `null` when it is not a valid pair (either key may be absent). */
+export function parseReviewerModels(v: unknown): ReviewerModels | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const out: ReviewerModels = {};
+  for (const key of ['primary', 'fallback'] as const) {
+    const m = (v as Record<string, unknown>)[key];
+    if (m === undefined || m === null || m === '') continue;
+    if (typeof m !== 'string' || !/^[A-Za-z0-9._:/-]{1,80}$/.test(m)) return null;
+    out[key] = m;
+  }
+  return out;
 }
 
 /**
@@ -113,7 +130,7 @@ export function parseCiPhase(v: unknown): CiPhaseMode | null {
 }
 
 /** One scope's row: `null`/absent = inherit (the global row, then the default). A boolean is the old form of the switch. */
-export interface WorkflowRulesRow { ciPhase?: CiPhaseMode | boolean | null; personPaths?: PersonPath[] | null; scheduledReviewMinutes?: number | null }
+export interface WorkflowRulesRow { ciPhase?: CiPhaseMode | boolean | null; personPaths?: PersonPath[] | null; scheduledReviewMinutes?: number | null; reviewerModels?: ReviewerModels | null }
 
 /** The scheduled review is off unless a board turns it on; no interval shorter than 10 minutes, none longer than a day. */
 export const MIN_SCHEDULED_REVIEW_MINUTES = 10;
@@ -132,7 +149,8 @@ export const MAX_PERSON_PATHS = 200;
 export function resolveWorkflowRules(rows: { project?: WorkflowRulesRow | null; global?: WorkflowRulesRow | null }): WorkflowRules {
   const ciPhase = parseCiPhase(rows.project?.ciPhase) ?? parseCiPhase(rows.global?.ciPhase) ?? DEFAULT_CI_PHASE;
   const scheduledReviewMinutes = parseScheduledReviewMinutes(rows.project?.scheduledReviewMinutes) ?? parseScheduledReviewMinutes(rows.global?.scheduledReviewMinutes) ?? 0;
-  return { ciPhase, personPaths: [...(rows.global?.personPaths ?? []), ...(rows.project?.personPaths ?? [])], scheduledReviewMinutes };
+  const reviewerModels = { ...(parseReviewerModels(rows.global?.reviewerModels) ?? {}), ...(parseReviewerModels(rows.project?.reviewerModels) ?? {}) };
+  return { ciPhase, personPaths: [...(rows.global?.personPaths ?? []), ...(rows.project?.personPaths ?? [])], scheduledReviewMinutes, reviewerModels };
 }
 
 /** A stored or sent list, checked; `null` when it is not a valid one. */

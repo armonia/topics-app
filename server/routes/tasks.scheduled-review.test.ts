@@ -64,7 +64,7 @@ describe("the scheduled review, end to end through the sweep", () => {
     const task = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "riordina gli script" }))!.json();
     svc.updateBoardSettings(task.projectId, { dispatchAutoMerge: true, reviewChecks: [{ name: "ok", cmd: "true" }] });
     // The rule is the board's, off by default: this one turns it on.
-    db.run("CREATE TABLE IF NOT EXISTS board_workflow_rules (scope TEXT PRIMARY KEY, ci_phase INTEGER, person_paths TEXT, scheduled_review_minutes INTEGER, updated_at TEXT NOT NULL)");
+    db.run("CREATE TABLE IF NOT EXISTS board_workflow_rules (scope TEXT PRIMARY KEY, ci_phase INTEGER, person_paths TEXT, scheduled_review_minutes INTEGER, reviewer_models TEXT, updated_at TEXT NOT NULL)");
     writeWorkflowRules(db, "*", { scheduledReviewMinutes: 10 }, new Date().toISOString());
     // A delivery whose bar is green on its commit (the bar itself is the gate's business, measured elsewhere).
     const bar = JSON.stringify([{ name: "ok", cmd: "true", ok: true, code: 0, ms: 1, timedOut: false }]);
