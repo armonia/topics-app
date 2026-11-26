@@ -318,16 +318,24 @@ afterAll(async () => {
   await Promise.all(running.map((s) => stop(s)));
 });
 
-// `afterAll` only runs when this file reaches the end of its own suite: a
-// run cut off mid-test (Ctrl-C, a CI cancel) delivers SIGINT/SIGTERM to the
-// process instead, and without a handler Bun exits at once, skipping it. Both
-// servers would then run on with their test environment forever, the way
-// two of them were still up fifteen hours after a cut run (card 92aaf67e).
-for (const sig of ["SIGINT", "SIGTERM"] as const) {
-  process.on(sig, () => {
-    void Promise.all(running.map((s) => stop(s))).finally(() => process.exit(1));
-  });
-}
+// `afterAll` only runs when this file reaches the end of its own suite: a run
+// cut off mid-test (Ctrl-C, a CI cancel) delivers SIGINT/SIGTERM to the process
+// instead. Under `bun test` that signal never reaches a `process.on("SIGINT"/
+// "SIGTERM", ...)` listener at all (measured: the runner's own handling exits
+// first, the listener body never runs), so an async afterAll-style cleanup
+// registered there is dead code. `process.on("exit", ...)` DOES fire, but only
+// synchronous work is safe inside it (no event loop tick survives it): a direct
+// `process.kill(-pid, "SIGKILL")` on each server's own process group is
+// synchronous and reaches anything that server spawned itself, the same way
+// `stop()`'s `group: true` fallback does. Without this, both servers would run
+// on with their test environment forever, the way two of them were still up
+// fifteen hours after a cut run (card 92aaf67e).
+process.on("exit", () => {
+  for (const s of running) {
+    if (!s.child) continue;
+    try { process.kill(-s.child.pid, "SIGKILL"); } catch { /* already gone */ }
+  }
+});
 
 describe("default unchanged: no primary chosen", () => {
   test("a virgin server claims a todo card and lets requests without an epoch through", async () => {
