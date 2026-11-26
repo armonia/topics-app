@@ -172,7 +172,8 @@ export function populated(orgCount = 1): Population {
   };
 }
 
-/** Three friends here at once: more chips than a 180px row can show. */
+/** Three friends here at once: the ordinary busy morning, which fits on
+ *  one line even at the narrowest column. */
 export function crowd(): Population {
   const now = Date.now();
   return {
@@ -181,6 +182,23 @@ export function crowd(): Population {
       { id: "a", displayName: "Anna Prova", lastSeenAt: now - 30_000 },
       { id: "b", displayName: "Bruno Prova", lastSeenAt: now - 60_000 },
       { id: "c", displayName: "Carla Prova", lastSeenAt: now - 90_000 },
+    ],
+  };
+}
+
+/** Five friends here at once: more chips than the narrowest column's row
+ *  (SIDEBAR_MIN_W, 248) can show, so the row has to scroll. */
+export function throng(): Population {
+  const now = Date.now();
+  const base = crowd();
+  return {
+    ...base,
+    members: [...base.members, member("u", "Ugo", now - 120_000), member("v", "Ivo", now - 150_000)],
+    people: [...PEOPLE, { id: "u", displayName: "Ugo Prova", isMe: false }, { id: "v", displayName: "Ivo Prova", isMe: false }],
+    friends: [
+      ...base.friends,
+      { id: "u", displayName: "Ugo Prova", lastSeenAt: now - 120_000 },
+      { id: "v", displayName: "Ivo Prova", lastSeenAt: now - 150_000 },
     ],
   };
 }

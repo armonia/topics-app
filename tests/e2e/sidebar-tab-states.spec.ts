@@ -155,10 +155,13 @@ test.describe("@sidebar-tab-states tabs in the column: open, closed, archived", 
     await expect.poll(async () => (await fetchTopic(request, b.id))?.archived, { timeout: 10_000 }).toBe(true);
   });
 
-  test("a closed row under the pointer keeps no background, an open one keeps its own", async ({ page, request }) => {
+  test("every tab takes the hover ground, a closed one too, except right after its close and with the pointer away", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "TABPOS-02" });
-    // 25/11: the hover fill sat a shade above the open tabs' one, so a closed
-    // row under the pointer read as open (and WKWebView leaves a hover on).
+    // 25/11, the owner: "shouldn't the hover background appear for all of
+    // them?". A closed row had none, the pointer included, for two reasons
+    // that are now handled where they happen (`lib/hoverQuiet.ts`): the row a
+    // click just closed stays under the pointer, and WKWebView leaves a hover
+    // on after the pointer leaves the window.
     const a = await createTopic(request, `Hover-A-${Date.now()}`);
     const b = await createTopic(request, `Hover-B-${Date.now()}`);
     made.push(a, b);
@@ -167,18 +170,35 @@ test.describe("@sidebar-tab-states tabs in the column: open, closed, archived", 
 
     const ra = row(page, a.id);
     const rb = row(page, b.id);
-    await rb.hover();
-    await rb.getByTestId("topic-row-close").click();
-    await expect(rb).toHaveAttribute("data-tab-state", "closed", { timeout: 10_000 });
-
     const fillAlpha = (l: Locator): Promise<number> => l.evaluate((el) => {
       const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g) ?? [];
       return m.length >= 4 ? Number(m[3]) : m.length === 3 ? 1 : 0;
     });
+
+    // Closed under the pointer: the ground goes with the close, or the close
+    // looks like it did nothing.
     await rb.hover();
+    await rb.getByTestId("topic-row-close").click();
+    await expect(rb).toHaveAttribute("data-tab-state", "closed", { timeout: 10_000 });
+    await expect(rb).toHaveAttribute("data-hover-quiet", "");
     await expect.poll(() => fillAlpha(rb)).toBe(0);
+
+    // The pointer leaves and comes back: a closed tab lights like any tab.
     await ra.hover();
+    await expect(rb).not.toHaveAttribute("data-hover-quiet", "");
     await expect.poll(() => fillAlpha(ra)).toBeGreaterThan(0);
+    await rb.hover();
+    await expect.poll(() => fillAlpha(rb)).toBeGreaterThan(0);
+
+    // The pointer leaves the window while `:hover` stays on, as WKWebView
+    // does: the closed row's ground waits for the pointer to come back.
+    await page.evaluate(() => document.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: null })));
+    await expect(page.locator("html")).toHaveAttribute("data-pointer-away", "");
+    await expect.poll(() => fillAlpha(rb)).toBe(0);
+    await page.mouse.move(10, 300);
+    await rb.hover();
+    await expect(page.locator("html")).not.toHaveAttribute("data-pointer-away", "");
+    await expect.poll(() => fillAlpha(rb)).toBeGreaterThan(0);
   });
 
   test("inside a pinned project, only its open tabs have a fill and closing one shows", async ({ page, request }) => {
