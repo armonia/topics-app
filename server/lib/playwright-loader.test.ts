@@ -5,14 +5,22 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPlaywrightLoader, PLAYWRIGHT_CORE_RANGE } from "./playwright-loader";
+import { createPlaywrightLoader, PLAYWRIGHT_CORE_INTEGRITY, PLAYWRIGHT_CORE_VERSION, browserDepsManifest } from "./playwright-loader";
 
 const missing = () => Promise.reject(new Error("Cannot find package 'playwright-core' from server"));
 
 describe("playwright loader", () => {
-  it("keeps its range equal to package.json", async () => {
-    const pkg = await Bun.file(join(import.meta.dir, "..", "..", "package.json")).json();
-    expect(pkg.dependencies["playwright-core"]).toBe(PLAYWRIGHT_CORE_RANGE);
+  it("pins the exact version and integrity that bun.lock resolves", async () => {
+    const lock = await Bun.file(join(import.meta.dir, "..", "..", "bun.lock")).text();
+    const line = lock.split(/\r?\n/).find((l) => l.includes(`"playwright-core@${PLAYWRIGHT_CORE_VERSION}"`));
+    expect(line).toBeDefined();
+    expect(line).toContain(PLAYWRIGHT_CORE_INTEGRITY);
+  });
+
+  it("writes an exact-version manifest and a lockfile carrying the integrity", () => {
+    const { packageJson, lockText } = browserDepsManifest();
+    expect(JSON.parse(packageJson).dependencies["playwright-core"]).toBe(PLAYWRIGHT_CORE_VERSION);
+    expect(lockText).toContain(PLAYWRIGHT_CORE_INTEGRITY);
   });
 
   it("does not install when the plain import works", async () => {

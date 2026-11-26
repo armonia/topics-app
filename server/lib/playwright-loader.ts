@@ -18,8 +18,36 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveAppDataDir } from "./data-dir";
 
-/** Kept equal to the `playwright-core` range in package.json (a unit test checks it). */
-export const PLAYWRIGHT_CORE_RANGE = "^1.59.1";
+/** The exact version bun.lock resolves for `playwright-core` (a unit test checks it). */
+export const PLAYWRIGHT_CORE_VERSION = "1.59.1";
+/** Its registry integrity hash, as bun.lock records it: the install fails if the tarball differs. */
+export const PLAYWRIGHT_CORE_INTEGRITY =
+  "sha512-HBV/RJg81z5BiiZ9yPzIiClYV/QMsDCKUyogwH9p3MCP6IYjUFu/MActgYAvK0oWyV9NlwM3GLBjADyWgydVyg==";
+/** Deadline of the install; the process is killed when it passes. */
+export const PLAYWRIGHT_INSTALL_TIMEOUT_MS = 120_000;
+
+/** Manifest and lockfile written into the deps dir, so the install is pinned and verified. */
+export function browserDepsManifest(): { packageJson: string; lockText: string } {
+  const packageJson = JSON.stringify({
+    name: "topics-browser-deps", private: true, dependencies: { "playwright-core": PLAYWRIGHT_CORE_VERSION },
+  });
+  const lockText = `{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "topics-browser-deps",
+      "dependencies": {
+        "playwright-core": "${PLAYWRIGHT_CORE_VERSION}",
+      },
+    },
+  },
+  "packages": {
+    "playwright-core": ["playwright-core@${PLAYWRIGHT_CORE_VERSION}", "", { "bin": { "playwright-core": "cli.js" } }, "${PLAYWRIGHT_CORE_INTEGRITY}"],
+  }
+}
+`;
+  return { packageJson, lockText };
+}
 
 type PlaywrightCore = typeof import("playwright-core");
 
@@ -47,18 +75,19 @@ function installedEntry(depsDir: string): string | null {
 /**
  * The package manager to run the install with. The compiled server IS bun, and
  * `BUN_BE_BUN=1` makes it behave as the bun CLI, so a node with nothing else
- * installed can still bootstrap itself. A `bun` or `npm` on PATH is the fallback.
+ * installed can still bootstrap itself. A `bun` on PATH is the fallback.
+ * `--frozen-lockfile` makes the pinned version and integrity hash binding.
  */
 async function defaultInstall(dir: string): Promise<number> {
   const candidates: Array<{ argv: string[]; env: Record<string, string> }> = [
-    { argv: [process.execPath, "add", `playwright-core@${PLAYWRIGHT_CORE_RANGE}`], env: { BUN_BE_BUN: "1" } },
-    { argv: ["bun", "add", `playwright-core@${PLAYWRIGHT_CORE_RANGE}`], env: {} },
-    { argv: ["npm", "install", "--no-audit", "--no-fund", `playwright-core@${PLAYWRIGHT_CORE_RANGE}`], env: {} },
+    { argv: [process.execPath, "install", "--frozen-lockfile"], env: { BUN_BE_BUN: "1" } },
+    { argv: ["bun", "install", "--frozen-lockfile"], env: {} },
   ];
   for (const { argv, env } of candidates) {
     try {
       const proc = Bun.spawn(argv, { // runtime-dep-ok: bootstrap of the server's own browser dependency
         cwd: dir, stdout: "pipe", stderr: "pipe", env: { ...process.env, ...env },
+        timeout: PLAYWRIGHT_INSTALL_TIMEOUT_MS, killSignal: "SIGKILL",
       });
       if ((await proc.exited) === 0) return 0;
     } catch {
@@ -83,8 +112,9 @@ export function createPlaywrightLoader(overrides: Partial<PlaywrightLoaderDeps> 
     let entry = installedEntry(deps.depsDir);
     if (!entry) {
       mkdirSync(deps.depsDir, { recursive: true });
-      const manifest = join(deps.depsDir, "package.json");
-      if (!existsSync(manifest)) writeFileSync(manifest, JSON.stringify({ name: "topics-browser-deps", private: true }));
+      const { packageJson, lockText } = browserDepsManifest();
+      writeFileSync(join(deps.depsDir, "package.json"), packageJson);
+      writeFileSync(join(deps.depsDir, "bun.lock"), lockText);
       deps.log(`playwright-core not resolvable, installing into ${deps.depsDir}`);
       const code = await deps.install(deps.depsDir);
       entry = installedEntry(deps.depsDir);
