@@ -9,10 +9,13 @@ import { setUploadRootsProvider } from "../browser-tool-dispatcher";
 import { uploadAllowedRoots, parseExtraRoots } from "../lib/upload-allowlist";
 import { homedir } from "os";
 import { initPrimaryRole } from "../lib/primary-role";
+import { bootPrimaryChange } from "../lib/primary-fence";
 import type { BaseScope } from "./scope";
 
 export function bootCore(scope: BaseScope) {
   const { rootDir } = scope;
+  // A primary switch finishes here, before the DB is opened: restore a shipped DB or set this one aside.
+  bootPrimaryChange(rootDir);
   // Create app context (initializes SQLite database)
   const ctx = createAppContext(rootDir);
   // Who is the primary, read before any stage that would start work. A non-primary server keeps quiet.

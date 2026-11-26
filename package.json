@@ -76,6 +76,7 @@
     "check:e2e-no-verdict": "bun run scripts/check-e2e-no-verdict.ts",
     "check:e2e-touched": "bun run scripts/check-e2e-touched.ts",
     "check:bloat": "bun run scripts/check-bloat.ts",
+    "primary": "bun scripts/primary.ts",
     "check:dup": "bun run scripts/check-dup.ts",
     "mutation": "bun --bun stryker run",
     "check:mutation": "bun run scripts/check-mutation.ts",

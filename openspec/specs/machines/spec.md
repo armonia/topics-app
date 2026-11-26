@@ -174,3 +174,22 @@ MISURA: `bun test server/lib/machine-security.test.ts server/lib/machine-health.
 #### Scenario: il PC dorme
 - **GIVEN** un nodo che non risponde al giro
 - **THEN** la sua sicurezza SHALL restare l'ultimo esito con il suo `checked_at`, e i suoi campioni SHALL essere `null`
+
+### Requirement: MACHINE-06 — Il principale passa a un altro computer intero, a senso unico, senza perdere scritture
+
+`bun run primary switch <macchina>` sul principale SHALL fermare i nuovi dispatch, aspettare le card e le chat in volo e parcheggiare in coda con una nota quelle ancora vive allo scadere dell'attesa. Poi SHALL alzare il recinto sulle scritture dei client, copiare il DB con `VACUUM INTO` e verificarlo con `PRAGMA integrity_check`, e spedire al nuovo principale il DB, la cartella di stato (token dei nodi, hash dei token modello, licenza e id di installazione) e i transcript JSONL della CLI delle sessioni dei topic. Il nuovo SHALL accettare solo dal dispositivo del suo canale, verificare hash, integrità e conteggi prima di accettare, e ripartire come principale a epoca+1. Il vecchio, solo dopo quella risposta, SHALL registrare il nuovo principale, mettere da parte il suo DB come `topics.db.prima-<epoca>` e respingere con `primary_moved` ogni scrittura dei client. Un rifiuto esplicito SHALL lasciare tutto com'era; un commit senza risposta SHALL lasciare il vecchio recintato, mai due principali. Due DB non si fondono mai.
+
+MISURA: `bun test server/lib/primary-switch.test.ts server/routes/nodes-primary.test.ts` verde; `bun scripts/primary-switch-probe.ts --db <copia di un DB vero>` esce 0.
+
+#### Scenario: passaggio con una scrittura durante il drain
+- **GIVEN** un principale con una card che scrive un messaggio mentre il drain aspetta
+- **WHEN** il passaggio finisce e il nuovo riparte
+- **THEN** `tasks` e `topics` SHALL contare uguale e `messages` SHALL contare uno in più, e quel messaggio SHALL esserci
+
+#### Scenario: scrittura sul vecchio dopo il passaggio
+- **WHEN** un client scrive sul vecchio principale, prima o dopo il suo riavvio
+- **THEN** la risposta SHALL essere 409 `primary_moved` con il nuovo principale e l'epoca
+
+#### Scenario: una sessione riprende sul nuovo
+- **GIVEN** un topic con una sessione della CLI e il suo transcript
+- **THEN** sul nuovo principale il transcript SHALL trovarsi per id con gli stessi byte

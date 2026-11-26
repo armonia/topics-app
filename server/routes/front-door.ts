@@ -3,6 +3,7 @@
  * The request path is a list of doors, each its own module: daemon control, the public profile, the access gate, the WebSocket
  * upgrade, the files on disk, then the API routers and the SPA fallback.
  */
+import { retiredRefusal } from "../lib/primary-fence";
 import { dispatchRouteTable } from "../route-table";
 import { WS_TRANSPORT_OPTIONS } from "../lib/websocket-options";
 import { isWebSocketPath } from "../lib/auth-gate";
@@ -89,6 +90,10 @@ export function createFrontDoor(scope: AfterHttp) {
         const r = publicProfileHandler(pathname, method);
         if (r) return r;
       }
+
+      // A server that handed the primary over writes nothing a client sends.
+      const moved = retiredRefusal(pathname, method);
+      if (moved) return moved;
 
       const refused = accessGate(req, server, pathname, method, isApiRequest);
       if (refused) return refused;
