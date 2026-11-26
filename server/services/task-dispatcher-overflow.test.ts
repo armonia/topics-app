@@ -1635,8 +1635,72 @@ describe("overflow: una corsa vuota su un nodo lo salta, non ferma la card sul M
     const h = harness();
     h.seed(CARD, { machineId: PC });
     h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), CARD]);
-    const ok = returnEmptyNodeRunToTodo({ svc: h.svc, releaseAndEmit: (a) => h.svc.release(a), emit: () => {}, log: () => {} }, h.task(CARD), "PC Windows");
+    const ok = await returnEmptyNodeRunToTodo({ svc: h.svc, releaseAndEmit: (a) => h.svc.release(a), emit: () => {}, log: () => {} }, h.task(CARD), "PC Windows");
     expect(ok).toBe(true);
+    expect(h.task(CARD).stayLocal).toBe(false);
+    expect(h.task(CARD).overflowSkipMachine).toBe(PC);
+  });
+
+  it("il delivery di prima è già dentro main: chiusa, non torna in todo (25/11)", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET delivery_commit = 'deadbeef' WHERE id = ?", [CARD]);
+    const emitted: unknown[] = [];
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: (t) => emitted.push(t),
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("done");
+    expect(emitted.length).toBe(1);
+    expect(h.thread(CARD)).toContain("deadbeef".slice(0, 8));
+    expect(h.thread(CARD)).toContain("già dentro main");
+  });
+
+  it("rimandata dopo il land, corsa vuota: non chiude, va in review con la nota del rimando (26/11)", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'review', delivery_commit = 'deadbeef' WHERE id = ?", [CARD]);
+    h.svc.addComment({ taskId: CARD, author: "user", content: "manca il caso del rosso preesistente, aggiungi il test" });
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(h.task(CARD).reopenedActor).toBe("human");
+    const emitted: unknown[] = [];
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: (t) => emitted.push(t),
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("review");
+    expect(emitted.length).toBeGreaterThan(0);
+    expect(h.thread(CARD)).toContain("manca il caso del rosso preesistente");
+    expect(h.thread(CARD)).toContain("il nodo non ha fatto niente");
+  });
+
+  it("nessun delivery precedente, o non è su main: comportamento di oggi, torna in todo", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET delivery_commit = 'deadbeef', overflowed_at = ? WHERE id = ?", [new Date().toISOString(), CARD]);
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: () => {},
+      log: () => {},
+      deliveryLanded: async () => false,
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("todo");
     expect(h.task(CARD).stayLocal).toBe(false);
     expect(h.task(CARD).overflowSkipMachine).toBe(PC);
   });
