@@ -1046,7 +1046,7 @@ export function isMacOnlyDiff(cwd: string, base: readonly string[] = ["origin/ma
   let files: readonly string[] = [];
   for (const ref of base) {
     try {
-      const diff = Bun.spawnSync(["git", "diff", "--name-only", `${ref}...HEAD`], { cwd });
+      const diff = Bun.spawnSync(["git", "diff", "--name-only", `${ref}...HEAD`], { cwd, timeout: 5000 });
       if (diff.exitCode === 0) { files = diff.stdout.toString().split("\n").map((l) => l.trim()).filter(Boolean); break; }
     } catch { /* try the next base */ }
   }
