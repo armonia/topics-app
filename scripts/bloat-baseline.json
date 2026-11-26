@@ -642,9 +642,10 @@
     "server/services/task-dispatcher-held-resume-quiet.test.ts": 818,
 
     "server/services/task-dispatcher-overflow.test.ts": {
-      "lines": 1586,
+      "lines": 1715,
       "why": [
-        "2026-11-22, card pinned at its machine's seats: 1556 on main -> 1578, +22 the two cases of a pinned card held in todo while its node is at its seats (no claim, no attempt spent) and started once a seat frees, on the file's own harness and fake machines."
+        "2026-11-22, card pinned at its machine's seats: 1556 on main -> 1578, +22 the two cases of a pinned card held in todo while its node is at its seats (no claim, no attempt spent) and started once a seat frees, on the file's own harness and fake machines.",
+        "2026-11-26, two cards landed together: 1586 -> 1715, +129. Card e4fe62e2 (+46): a waiting or closed run no longer holds a node seat. Card a06e82ad (+64): an empty run whose work is already on main is not put back in todo. Each one alone stayed under the ceiling; together they cross it."
       ]
     },
 

@@ -147,7 +147,10 @@ export function createTick(ctx: DispatcherCtx) {
       !t.scheduled &&
       (!t.dispatchDeferredUntil || t.dispatchDeferredUntil <= nowIso) &&
       (() => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })();
-    const exhausted = todos.filter((t) => pronto(t) && t.dispatchAttempts >= settings.dispatchRetryCap);
+    // A card already parked here stays in Todo (visible) with the spent budget:
+    // it is not parked a second time, or the thread would get the note every pass.
+    const exhausted = todos.filter((t) =>
+      pronto(t) && t.dispatchAttempts >= settings.dispatchRetryCap && t.dispatchState !== CHIP_FAILED);
     let toldExhausted = false;
     for (const t of exhausted) {
       if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
@@ -156,6 +159,9 @@ export function createTick(ctx: DispatcherCtx) {
           taskId: t.id,
           requeue: false,
           parkState: CHIP_FAILED,
+          // It stays in Todo, with its reason: a card parked in backlog after
+          // repeated empty rounds disappeared from the column people read.
+          keepInTodo: true,
           // «Guarda cosa lo fa fallire» diceva due cose sbagliate in una riga.
           // Presumeva un guasto da trovare, e ci finiva dentro anche chi aveva
           // solo ASPETTATO: fino al rimborso in `deferForWait`, due attese
@@ -165,8 +171,8 @@ export function createTick(ctx: DispatcherCtx) {
           // turni si sono chiusi senza arrivare in review, e la ragione di
           // ciascuno è già scritta nel thread.
           reason:
-            `Budget dei tentativi finito (${t.dispatchAttempts}/${settings.dispatchRetryCap}): i turni si sono chiusi ` +
-            "senza arrivare in review, quindi il task non riparte da solo. Rimettilo in Todo per ridargli i tentativi. " +
+            `${t.dispatchAttempts} tentativi senza esito (budget ${t.dispatchAttempts}/${settings.dispatchRetryCap}): i turni si sono chiusi ` + // allow-italian: user-facing board comment
+            "senza arrivare in review, quindi il task non riparte da solo e resta qui, fermo. Rimettilo in Todo per ridargli i tentativi. " +
             "Il motivo di ogni tentativo è nel thread, in fondo.",
         }, { announce: !toldExhausted });
         toldExhausted = true;

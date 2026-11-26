@@ -22,21 +22,9 @@
  * forms: that is only visible in the built app.
  */
 import { describe, test, expect } from "bun:test";
-import { readFileSync } from "fs";
-import { join } from "path";
-import { readTauriShellSource } from "../helpers/tauri-shell-source";
+import { readTauriShellSource, rustFnBody as body } from "../helpers/tauri-shell-source";
 
-const SRC = join(import.meta.dir, "..", "..", "desktop-tauri", "src-tauri", "src");
 const lib = readTauriShellSource();
-
-/** The slice of a function body, from its signature to the next `fn` at column 0. */
-function body(rust: string, signature: string): string {
-  const start = rust.indexOf(signature);
-  expect(start, `${signature} not found`).toBeGreaterThan(-1);
-  const rest = rust.slice(start + signature.length);
-  const end = rest.search(/\n(?:pub(?:\(crate\))? )?(?:async )?fn /);
-  return end === -1 ? rest : rest.slice(0, end);
-}
 
 describe("browser_open keeps the page of a live view", () => {
   const open = body(lib, "fn browser_open_inner(");
