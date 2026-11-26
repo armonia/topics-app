@@ -24,6 +24,7 @@ import {
   killCheckTree,
   memoryWaiter,
   releaseDecision,
+  LOAD_CEILING_PER_CORE,
   stopReviewChecks,
   swapInterruptedDelivery,
   type MemoryFloor,
@@ -227,7 +228,7 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     // number written here instead of a call would be read ONCE at boot, so
     // moving the field in the panel would change nothing until the next restart
     // and nothing would say so.
-    expect(server).toMatch(/checksMemoryFloor:\s*\{\s*held:\s*\(\)\s*=>\s*memSignal\.held\(\),\s*swap:\s*\(\)\s*=>\s*memSignal\.swap\(\),\s*floorGB:\s*\(\)\s*=>\s*dispatcherSvc\.getChecksMemFloorGB\(\)\s*\}/);
+    expect(server).toMatch(/checksMemoryFloor:\s*\{\s*held:\s*\(\)\s*=>\s*memSignal\.held\(\),\s*swap:\s*\(\)\s*=>\s*memSignal\.swap\(\),\s*floorGB:\s*\(\)\s*=>\s*dispatcherSvc\.getChecksMemFloorGB\(\),\s*loadPerCore:\s*\(\)\s*=>[^}]*\}/);
     // And it does not go back to a constant by another name.
     expect(server).not.toMatch(/floorGB:\s*DISPATCH_MEM_FLOOR/);
     // The brake reads the verdict of the sample just taken on the same beat.
@@ -288,6 +289,16 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     while (!done() && clock.now() - from < maxMs) await clock.step(pollMs);
     return (clock.now() - from) / 1000;
   }
+
+  test("a load over the ceiling holds a new command, ahead of the floor; under it, or unmeasured, nothing changes", () => {
+    const base = { floorGB: 6, otherRoundRelease: null, now: 0, spent: NOTHING_SPENT, maxWaitMs: 30 * 60_000, swap: CALM, held: fullWindow(11) };
+    expect(releaseDecision({ ...base, loadPerCore: LOAD_CEILING_PER_CORE + 0.1 }).wait).toBe("load");
+    expect(releaseDecision({ ...base, loadPerCore: LOAD_CEILING_PER_CORE }).release).toBe(true);
+    expect(releaseDecision({ ...base }).release).toBe(true);
+    // The long budget applies: a load nobody here causes does not hold a round for ever.
+    const spent = { calmFloor: 0, other: 30 * 60_000 };
+    expect(releaseDecision({ ...base, spent, loadPerCore: 8 }).release).toBe(true);
+  });
 
   test("the floor holds calm AND swapping, and it is the BUDGET that changes: 5.9 waits on room either way, 11 sustained waits on swap, an empty window waits, off macOS nothing waits", () => {
     const base = { floorGB: 6, otherRoundRelease: null, now: 0, spent: NOTHING_SPENT, maxWaitMs: 30 * 60_000 };

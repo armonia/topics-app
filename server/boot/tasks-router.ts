@@ -2,6 +2,7 @@
  * The tasks router and the process detection and presence that start with it.
  */
 import { basename } from "path";
+import { cpus, loadavg } from "node:os";
 import { teardownArchivedTaskBrowserState } from "../services/task-tab-teardown";
 import { getClaudeSessionsForDetection, countBusyAgentTerminals } from "../routes/terminal";
 import { pushMainToOrigin } from "../services/main-on-origin";
@@ -279,7 +280,7 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     // row, so moving it in the panel takes effect on the next round. It used to be
     // `DISPATCH_MEM_FLOOR_NATIVE_GB` — the floor for admitting an AGENT, three
     // times the heaviest check command ever measured on this machine.
-    checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: () => dispatcherSvc.getChecksMemFloorGB() },
+    checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: () => dispatcherSvc.getChecksMemFloorGB(), loadPerCore: () => loadavg()[0]! / Math.max(1, cpus().length) },
     // Same union the dispatcher resolves against — but trimmed to the dirs that
     // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
     // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
