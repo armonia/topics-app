@@ -1,3 +1,6 @@
+/**
+ * @covers USAGE-29
+ */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolveProjectLimit } from "./project-limit";
