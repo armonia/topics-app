@@ -3600,10 +3600,10 @@ describe("la coda deve dire il vero", () => {
     await h.dispatcher.tick(PID);
     await flush();
     const t = h.task("t1")!;
-    expect(t.status).toBe("backlog");        // fuori dalla coda
+    expect(t.status).toBe("todo");           // resta visibile, mai in backlog
     expect(t.dispatchState).toBe("failed");  // e lo dice
     const riga = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
-    expect(riga).toContain("Budget dei tentativi finito");
+    expect(riga).toContain("2 tentativi senza esito");
     // La riga dice cosa è successo e cosa fare. NON manda a cercare un guasto:
     // «guarda cosa lo fa fallire» presumeva un difetto da trovare, e ci finiva
     // dentro anche chi aveva soltanto dichiarato due attese.
@@ -3611,6 +3611,23 @@ describe("la coda deve dire il vero", () => {
     expect(riga).toContain("Rimettilo in Todo");
     expect(riga).not.toContain("guarda cosa lo fa fallire");
     expect(h.turns.length).toBe(0);          // nessun turno sprecato
+  });
+
+  it("tre giri a vuoto: la card esce dalla coda con il motivo, resta in Todo, e la nota è una sola", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 3 });
+    await h.dispatcher.tick(PID);
+    await flush();
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");
+    expect(t.dispatchState).toBe("failed");
+    expect(t.dispatchError).toContain("3 tentativi senza esito");
+    const notes = h.svc.get("t1")!.comments.filter((c) => c.content.includes("3 tentativi senza esito"));
+    expect(notes).toHaveLength(1);
+    expect(h.turns.length).toBe(0);
   });
 
   it("…ma chi ASPETTA non è esaurito: la finestra scorre, il parcheggio no", async () => {
