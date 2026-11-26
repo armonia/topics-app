@@ -142,8 +142,10 @@ async function readRow(page: Page): Promise<Riga> {
       }),
       // I comandi della RIGA, non quelli dentro una tab (la X di chiusura vive
       // dentro `[data-pane-id]` e ha una misura sua, tarata sulla tab).
+      // A hidden command (the column's toggle while the column is open keeps
+      // its box) is not a command of the row.
       comandi: Array.from(barra.querySelectorAll("button"))
-        .filter((b) => b.getBoundingClientRect().width > 0 && !b.closest("[data-pane-id]"))
+        .filter((b) => b.getBoundingClientRect().width > 0 && getComputedStyle(b).visibility !== "hidden" && !b.closest("[data-pane-id]"))
         .map((b) => {
           const r = b.getBoundingClientRect();
           return {
@@ -248,11 +250,18 @@ test.describe("Barra delle tab a 1280px", () => {
     }
   });
 
-  test("ARIA-3: la strip si ferma ROW_INSET prima del comando, ai due capi", async () => {
+  test("ARIA-3: la strip si ferma ROW_INSET prima del comando, ai due capi", async ({ page }) => {
     // La riserva è bordo + box + bordo. Il terzo pezzo è quello che mancava:
     // senza, la prima e l'ultima tab toccavano la scatola del bottone.
     expect(m.strip?.pr, "riserva a destra (il «+»)").toBe(riserva(BOX_MOUSE));
-    expect(m.strip?.pl, "riserva a sinistra (riapri colonna)").toBe(riserva(BOX_MOUSE));
+    // With the column open its toggle is in the sidebar header (25/11): the
+    // left end of the row has no command, and keeps only its inset.
+    expect(m.strip?.pl, "left end, column open: the inset alone").toBe(ROW_INSET);
+    // With the column away the toggle is back, and its reserve with it.
+    await page.getByTestId("sidebar-collapse").click();
+    await expect
+      .poll(async () => (await readRow(page)).strip?.pl, { message: "left reserve, column away (its toggle)" })
+      .toBe(riserva(BOX_MOUSE));
   });
 
   test("ARIA-4: a inizio scroll la prima tab non tocca il comando", async ({ page }) => {
@@ -261,16 +270,20 @@ test.describe("Barra delle tab a 1280px", () => {
     // prima del bottone (tab-bar-density): scorrendo le tab non gli passano più
     // sotto, dove il clic finiva sul comando. Il vincolo si legge comunque a
     // inizio corsa.
-    const varchi = await page.evaluate(() => {
+    const firstTabFromEdge = () => page.evaluate(() => {
       const barra = document.querySelector(".pane-chrome-bar") as HTMLElement;
       const strip = barra.querySelector("[class*='overflow-x-auto']") as HTMLElement;
       strip.scrollLeft = 0;
       const rb = barra.getBoundingClientRect();
       const tabs = Array.from(barra.querySelectorAll("[data-pane-id]"));
       const prima = tabs[0].getBoundingClientRect();
-      return { sinistro: Math.round((prima.left - rb.left) * 10) / 10 };
+      return Math.round((prima.left - rb.left) * 10) / 10;
     });
-    expect(varchi.sinistro, "bordo → prima tab").toBe(riserva(BOX_MOUSE));
+    // Column open: no command at the left end (its toggle is in the sidebar
+    // header), the first tab sits at the row's inset.
+    expect(await firstTabFromEdge(), "edge → first tab, column open").toBe(ROW_INSET);
+    await page.getByTestId("sidebar-collapse").click();
+    await expect.poll(firstTabFromEdge, { message: "edge → first tab, column away" }).toBe(riserva(BOX_MOUSE));
   });
 });
 
