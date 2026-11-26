@@ -238,6 +238,10 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       if (await bounceRed(projectId, taskId)) return;
       return afterDelivery(projectId, taskId);
     },
+    note: (taskId, text) => {
+      try { svc.addComment({ taskId, author: "system", kind: "service", content: text }); }
+      catch { /* best-effort: the log line is the fallback record */ }
+    },
     log: (line) => console.warn(line),
   });
 
