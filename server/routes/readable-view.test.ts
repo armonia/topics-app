@@ -35,8 +35,8 @@ describe("readable-view route", () => {
     const { post, calls } = setup();
     const a = await (await post({ toolName: "srv__t", value: { seconds: 5 } })).json();
     const b = await (await post({ toolName: "srv__t", value: { seconds: 9 } })).json();
-    expect(a.view).toEqual({ kind: "counter", label: "Seconds", value: "5" });
-    expect(b.view.value).toBe("9");
+    expect(a.view).toEqual({ kind: "counter", label: "Seconds", value: { text: "5" } });
+    expect(b.view.value).toEqual({ text: "9" });
     expect(calls()).toBe(1);
   });
   test("ignores other paths", async () => {
