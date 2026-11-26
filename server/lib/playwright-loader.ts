@@ -86,7 +86,7 @@ async function defaultInstall(dir: string): Promise<number> {
   for (const { argv, env } of candidates) {
     try {
       const proc = Bun.spawn(argv, { // runtime-dep-ok: bootstrap of the server's own browser dependency
-        cwd: dir, stdout: "pipe", stderr: "pipe", env: { ...process.env, ...env },
+        cwd: dir, stdout: "ignore", stderr: "ignore", env: { ...process.env, ...env },
         timeout: PLAYWRIGHT_INSTALL_TIMEOUT_MS, killSignal: "SIGKILL",
       });
       if ((await proc.exited) === 0) return 0;
