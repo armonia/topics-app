@@ -137,11 +137,11 @@ function landingAuditDeps(deps: AuditWiring, listCandidates: () => AuditTask[], 
       const trovato = await landedMergeRange(repoPath, task.id, { mainRef }).catch(() => null);
       if (!trovato) return null;
       const sha = trovato.range.split("..")[1] ?? "";
-      // Il merge di un GIRO PRECEDENTE non è il land di questa consegna: una card
-      // ripresa dopo un land porta un commit nuovo che quel merge non contiene, e il
-      // nome della card sul merge vecchio la dava per atterrata (fc74bdd2, 26/11: due
-      // commit fuori main, «landed» in review). Solo un «no» misurato toglie la prova;
-      // un commit potato (`null`) lascia decidere al merge, com'era.
+      // A land merge from a PREVIOUS ROUND is not the land of this delivery: a card taken
+      // up again after a land carries a new commit that merge does not contain, and the
+      // card's name on the old merge read it as landed (fc74bdd2, 26/11: two commits off
+      // main, "landed" in review). Only a measured "no" drops the proof; a pruned commit
+      // (`null`) leaves the merge to decide, as before.
       if (sha && task.deliveryCommit && (await commitIsAncestor(repoPath, task.deliveryCommit, sha)) === false) return null;
       if (sha && (await changeUndoneOn(repoPath, `${sha}^1`, sha, mainRef)) === true) return false;
       return true;

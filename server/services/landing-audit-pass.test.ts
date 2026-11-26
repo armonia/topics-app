@@ -238,10 +238,10 @@ describe("a card taken up again after its land", () => {
     git(repo, "checkout", "-q", "main");
     git(repo, "merge", "--no-ff", "-q", "-m", `merge task ${id}: primo giro`, "topics/ripresa");
     git(repo, "checkout", "-q", "topics/ripresa");
-    const secondo = commit(repo, "ripresa-2.ts", "x\n", "secondo giro");
+    const secondRound = commit(repo, "ripresa-2.ts", "x\n", "secondo giro");
     git(repo, "checkout", "-q", "main");
 
-    const b = banco({ id, status: "review", deliveryBranch: "topics/ripresa", deliveryCommit: secondo });
+    const b = banco({ id, status: "review", deliveryBranch: "topics/ripresa", deliveryCommit: secondRound });
     await auditOneLanding(b.wiring, id);
     expect(b.card.landingState).not.toBe("landed");
   });
