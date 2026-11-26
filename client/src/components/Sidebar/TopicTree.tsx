@@ -2226,8 +2226,8 @@ export function TopicTree({
         // column has no ground and floats over this list (card 1e015ad6), so
         // the room it needs is the padding of the SCROLLER - inside the scroll,
         // which is what lets the tabs travel behind it and behind the
-        // safe-area band. On a desktop the property is `0px` and this is the
-        // zero it has always been. See `SIDEBAR_SCROLL_TOP_PROPERTY`.
+        // safe-area band. On a desktop the property is half a step, the rest of
+        // the one under the header's buttons. See `SIDEBAR_SCROLL_TOP_PROPERTY`.
         style={{ paddingTop: `var(${SIDEBAR_SCROLL_TOP_PROPERTY}, 0px)`, paddingBottom: COLUMN_GAP / 2 }}
         // IL GESTO INVERSO: una tessera lasciata sulla LISTA torna una riga.
         //

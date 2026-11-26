@@ -18,6 +18,7 @@ import { getTabId } from './state/pane/middleware/syncCrossTab';
 import { isInternalDrag } from './lib/dndTypes';
 import { installPaneDragFlag } from './lib/paneDragFlag';
 import { installUserGestureClock } from './lib/userGesture';
+import { installHoverQuiet } from './lib/hoverQuiet';
 import { browserContextMenuHost, installContextMenuSupport } from './lib/contextMenuOrigin';
 import { SessionRoot } from './components/Share/SessionRoot';
 import { warmGuestView } from './components/Share/guestViewLazy';
@@ -77,6 +78,11 @@ installPaneDragFlag();
 // (TOPIC-BROWSER-05). Started here because the panes load later than the tap
 // that opens the first of them. See `lib/userGesture`.
 installUserGestureClock();
+
+// A closed tab takes the hover ground like every tab, except on the row a
+// click just closed and while the pointer is outside the window. See
+// `lib/hoverQuiet`.
+installHoverQuiet();
 
 // Right-click: the element a menu came from (its focus goes back there on
 // close) and Shift+F10 / the ContextMenu key opening the same menu. No global
