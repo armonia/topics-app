@@ -2,6 +2,21 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.5 — 2026-11-26
+
+### Sotto il cofano
+- **design** · the owner approved the title tab, the row grammar and the column header
+
+## 2.5.4 — 2026-11-26
+
+### Correzioni
+- una card ripresa dopo un land non risulta atterrata per il merge del giro prima (#1703)
+
+## 2.5.3 — 2026-11-26
+
+### Sotto il cofano
+- il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)
+
 ## 2.5.2 — 2026-11-26
 
 ### Correzioni

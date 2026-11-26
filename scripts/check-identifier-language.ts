@@ -107,6 +107,8 @@ export const PROJECT_WORDS = new Set([
   "cancelled",
   // countdown: plain English the dictionary lacks, the time left on a card (card 791984dc).
   "countdown",
+  // popup: plain English the dictionary lacks, the OAuth login window `tests/unit/oauth-popup-keeps-opener.test.ts` reads the shape of.
+  "popup",
   // hang: plain English the dictionary lacks, a node that answers the TCP handshake and never the
   // request behind it (`hangBreaker` in `server/services/task-dispatcher-remote-node.ts`).
   "hang",
