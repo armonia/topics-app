@@ -24,28 +24,67 @@ export const MAX_LIST_ITEMS = 40;
 export const MAX_KV_FIELDS = 24;
 const MAX_CELL = 160;
 
-export interface KvField { label: string; value: string }
+export type Tone = 'neutral' | 'success' | 'danger' | 'warning';
+/**
+ * One value, typed enough for the renderer to draw it well: a status as a
+ * coloured chip, an array as a row of chips, an ISO date as a readable time
+ * (the client formats it: `text` keeps the raw ISO so this stays pure).
+ */
+export interface Cell { text: string; kind?: 'status' | 'chips' | 'date' | 'empty'; tone?: Tone; items?: string[] }
+export interface KvField { label: string; value: Cell }
 export interface KvView { kind: 'kv'; fields: KvField[] }
-export interface TableView { kind: 'table'; columns: string[]; rows: string[][] }
+export interface CardView { kind: 'card'; title: string; status?: Cell; labels: string[]; fields: KvField[] }
+export interface TableView { kind: 'table'; columns: string[]; rows: Cell[][] }
 export interface ListItem { text: string; href?: string }
 export interface ListView { kind: 'list'; items: ListItem[] }
-export interface ChipView { kind: 'chip'; text: string; tone?: 'neutral' | 'success' | 'danger' | 'warning' }
-export interface CounterView { kind: 'counter'; label: string; value: string }
+export interface ChipView { kind: 'chip'; text: string; tone?: Tone }
+export interface CounterView { kind: 'counter'; label: string; value: Cell }
 export interface ErrorView { kind: 'error'; message: string }
 
-export type ReadableView = KvView | TableView | ListView | ChipView | CounterView | ErrorView;
+export type ReadableView = KvView | CardView | TableView | ListView | ChipView | CounterView | ErrorView;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
 }
 
-/** Compact, one-line text for a cell/field value — never JSON braces for a scalar. */
-function cellText(v: unknown): string {
-  if (v === null || v === undefined) return '—'; // allow-emdash: the glyph IS the rendered placeholder for a missing value
-  if (typeof v === 'string') return v.length > MAX_CELL ? `${v.slice(0, MAX_CELL - 1)}…` : v;
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-  const text = JSON.stringify(v);
+function clip(text: string): string {
   return text.length > MAX_CELL ? `${text.slice(0, MAX_CELL - 1)}…` : text;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
+const STATUS_KEY = /^(status|state|conclusion|stato)$/i;
+const TONE_WORDS: Array<[RegExp, Tone]> = [
+  [/^(done|success|succeeded|passed?|ok|merged|completed?|green|healthy|ready|open|approved)$/i, 'success'],
+  [/^(fail(ed|ure)?|error|errored|cancell?ed|rejected|red|blocked|broken|down)$/i, 'danger'],
+  [/^(in[ _-]?progress|pending|review|running|queued|waiting|todo|backlog|needs[ _-]input|draft)$/i, 'warning'],
+];
+
+function statusTone(v: string): Tone {
+  for (const [re, tone] of TONE_WORDS) if (re.test(v)) return tone;
+  return 'neutral';
+}
+
+/** Compact, typed value for a cell/field: never JSON braces for a scalar or an array of scalars. */
+function cellOf(v: unknown, key?: string): Cell {
+  if (v === null || v === undefined) return { text: '—', kind: 'empty' }; // allow-emdash: the glyph IS the rendered placeholder for a missing value
+  if (typeof v === 'string') {
+    if (key && STATUS_KEY.test(key) && v) return { text: v.replace(/[_-]+/g, ' '), kind: 'status', tone: statusTone(v) };
+    if (ISO_DATE.test(v)) return { text: v, kind: 'date' };
+    return { text: clip(v) };
+  }
+  if (typeof v === 'number' || typeof v === 'boolean') return { text: String(v) };
+  if (Array.isArray(v)) {
+    if (v.length === 0) return { text: '—', kind: 'empty' }; // allow-emdash: the glyph IS the rendered placeholder for an empty list
+    if (v.every((x) => typeof x === 'string' || typeof x === 'number')) {
+      const items = v.slice(0, MAX_KV_FIELDS).map((x) => clip(String(x)));
+      return { text: items.join(', '), kind: 'chips', items };
+    }
+  }
+  return { text: clip(JSON.stringify(v)) };
+}
+
+function cellText(v: unknown): string {
+  return cellOf(v).text;
 }
 
 /** A string that reads like a filesystem path or a repo-relative file. */
@@ -59,6 +98,20 @@ function errorMessage(value: Record<string, unknown>): string | null {
   if (isPlainObject(e) && typeof e.message === 'string' && e.message) return e.message;
   if (typeof value.message === 'string' && value.ok === false) return value.message;
   return null;
+}
+
+const TITLE_KEYS = ['title', 'name', 'text', 'summary'];
+const LABEL_KEYS = ['labels', 'tags', 'etichette'];
+
+/** An object with a title and a status reads as a card: headline, status chip, label chips, the rest as fields. */
+function asCard(value: Record<string, unknown>, fields: KvField[]): CardView | null {
+  const titleKey = TITLE_KEYS.find((k) => typeof value[k] === 'string' && value[k]);
+  const statusField = fields.find((f) => f.value.kind === 'status');
+  if (!titleKey || !statusField) return null;
+  const labelsKey = LABEL_KEYS.find((k) => Array.isArray(value[k]));
+  const labels = labelsKey ? cellOf(value[labelsKey]).items ?? [] : [];
+  const rest = fields.filter((f) => f !== statusField && f.label !== titleKey && f.label !== labelsKey);
+  return { kind: 'card', title: String(value[titleKey]), status: statusField.value, labels, fields: rest };
 }
 
 /**
@@ -77,8 +130,10 @@ export function deterministicReadableView(value: unknown): ReadableView | null {
     if (keys.length === 0) return null;
     const fields: KvField[] = keys.slice(0, MAX_KV_FIELDS)
       .filter((k) => value[k] !== undefined)
-      .map((k) => ({ label: k, value: cellText(value[k]) }));
+      .map((k) => ({ label: k, value: cellOf(value[k], k) }));
     if (fields.length === 0) return null;
+    const card = asCard(value, fields);
+    if (card) return card;
     // A lone scalar field reads better as a counter than as a one-row table.
     if (fields.length === 1) return { kind: 'counter', label: fields[0].label, value: fields[0].value };
     return { kind: 'kv', fields };
@@ -96,7 +151,7 @@ export function deterministicReadableView(value: unknown): ReadableView | null {
       const columns: string[] = [];
       for (const row of value) for (const k of Object.keys(row)) if (!columns.includes(k)) columns.push(k);
       const cappedColumns = columns.slice(0, MAX_TABLE_COLUMNS);
-      const rows = value.slice(0, MAX_TABLE_ROWS).map((row) => cappedColumns.map((c) => cellText((row as Record<string, unknown>)[c])));
+      const rows = value.slice(0, MAX_TABLE_ROWS).map((row) => cappedColumns.map((c) => cellOf((row as Record<string, unknown>)[c], c)));
       return { kind: 'table', columns: cappedColumns, rows };
     }
     return null;
@@ -198,20 +253,20 @@ export function resolveDeclSpec(spec: DeclSpec, value: unknown): ReadableView | 
     for (const f of spec.fields) {
       const v = resolvePath(value, f.path);
       if (v === undefined) return null;
-      fields.push({ label: f.label, value: cellText(v) });
+      fields.push({ label: f.label, value: cellOf(v, f.path.split('.').pop()) });
     }
     return { kind: 'kv', fields };
   }
   if (spec.kind === 'table') {
     const rows = resolvePath(value, spec.rowsPath);
     if (!Array.isArray(rows)) return null;
-    const outRows: string[][] = [];
+    const outRows: Cell[][] = [];
     for (const row of rows.slice(0, MAX_TABLE_ROWS)) {
-      const cells: string[] = [];
+      const cells: Cell[] = [];
       for (const c of spec.columns) {
         const v = resolvePath(row, c.path);
         if (v === undefined) return null;
-        cells.push(cellText(v));
+        cells.push(cellOf(v, c.path.split('.').pop()));
       }
       outRows.push(cells);
     }
@@ -236,7 +291,7 @@ export function resolveDeclSpec(spec: DeclSpec, value: unknown): ReadableView | 
   if (spec.kind === 'counter') {
     const v = resolvePath(value, spec.path);
     if (v === undefined) return null;
-    return { kind: 'counter', label: spec.label, value: cellText(v) };
+    return { kind: 'counter', label: spec.label, value: cellOf(v) };
   }
   // error
   const v = resolvePath(value, spec.path);

@@ -15,6 +15,12 @@ describe("toolPhrase — a readable sentence + icon category instead of 'server 
     expect(toolPhrase("mcp__acme__resolve_library_id", "resolve_library_id", {})).toEqual({ text: "Resolve library id", category: "search" });
   });
 
+  test("a get_* or *_get name is a read with a sentence and the read icon", () => {
+    expect(toolPhrase("mcp__topics__task_get", "task_get", { task_id: "45ea106d-1111" })).toEqual({ text: "Legge la card 45ea106d", category: "read" });
+    expect(toolPhrase("mcp__ops__get_status", "get_status", { project: "topics" })).toEqual({ text: "Legge lo stato di topics", category: "read" });
+    expect(toolPhrase("mcp__ops__list_servers", "list_servers", {}).category).toBe("read");
+  });
+
   test("an unknown MCP tool falls back to its action category and a humanized name", () => {
     expect(toolPhrase("mcp__acme__write_file", "write_file", {})).toEqual({ text: "Write file", category: "write" });
     expect(toolPhrase("mcp__acme__fetch_url", "fetch_url", {})).toEqual({ text: "Fetch url", category: "network" });

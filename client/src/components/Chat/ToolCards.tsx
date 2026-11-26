@@ -28,7 +28,7 @@ import type { ToolCallDetail } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { detectResultSyntax, langFromPath } from '../../lib/syntaxHighlight';
 import { HighlightedPre } from './HighlightedPre';
-import { ReadableResult } from './ReadableResult';
+import { ArgChips, ReadableResult } from './ReadableResult';
 import { clampBody, formatBytes } from './clampBody';
 import { useFindExpandsClamp } from '../../state/chatFindFocus';
 import { useDisclosureToggle } from './transcriptDisclosure';
@@ -409,7 +409,7 @@ export function McpCard({ server, tool, args, result }: {
   // as a pill row was pure noise. The body is just args → result.
   return (
     <div className="space-y-1">
-      {args && Object.keys(args).length > 0 && <ArgsPre args={args} />}
+      {args && Object.keys(args).length > 0 && <ArgChips args={args} />}
       {result && <ReadableResult toolName={`${server}__${tool}`} text={result} original={<ClampedPre text={result} />} />}
       <LaunchedProcessTail answer={result} />
     </div>

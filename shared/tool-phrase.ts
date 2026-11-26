@@ -85,6 +85,28 @@ function humanize(name: string): string {
   return words[0].charAt(0).toUpperCase() + words[0].slice(1) + (words.length > 1 ? ' ' + words.slice(1).join(' ') : '');
 }
 
+const NOUNS_IT: Record<string, string> = {
+  status: 'lo stato', task: 'la card', tasks: 'le card', goal: 'l’obiettivo', agent: 'l’agente', agents: 'gli agenti',
+  project: 'il progetto', projects: 'i progetti', process: 'il processo', processes: 'i processi', file: 'il file', files: 'i file',
+};
+
+/** `get_x` / `x_get` is a read, `list_x` / `x_list` a listing: the name alone says so, whatever the server. */
+function readPhrase(tool: string, a: Record<string, unknown>): Phrase | null {
+  const m = /^(get|list|read|show|describe)[_-](.+)$/i.exec(tool) ?? /^(.+)[_-](get|list|read|show)$/i.exec(tool);
+  if (!m) return null;
+  const front = /^(get|list|read|show|describe)$/i.test(m[1]);
+  const verb = (front ? m[1] : m[2]).toLowerCase();
+  const noun = (front ? m[2] : m[1]).toLowerCase();
+  const id = str(a.task_id) ?? str(a.taskId) ?? str(a.id);
+  const target = str(a.project) ?? str(a.name) ?? str(a.topic);
+  const label = NOUNS_IT[noun] ?? humanize(noun).toLowerCase();
+  const listing = verb === 'list';
+  let text = `${listing ? 'Elenca' : 'Legge'} ${label}`;
+  if (noun === 'task' && id) text += ` ${shortId(id)}`;
+  else if (!listing && target) text += ` di ${target}`;
+  return { text, category: 'read' };
+}
+
 /** A tool name that reads as a lookup even outside the fixed table. */
 const SEARCH_HINT = /search|find|lookup|query|resolve/i;
 
@@ -96,6 +118,8 @@ export function toolPhrase(rawName: string, tool: string, args: Record<string, u
   const a = args ?? {};
   const known = knownTopicsPhrase(tool, a);
   if (known) return known;
+  const read = readPhrase(tool, a);
+  if (read) return read;
   if (SEARCH_HINT.test(tool)) return { text: humanize(tool), category: 'search' };
   const action = classifyToolAction(rawName);
   return { text: humanize(tool), category: AGENT_ACTION_TO_CATEGORY[action] ?? 'other' };

@@ -32,8 +32,8 @@ describe("readableViewFallback — cache by structural signature", () => {
     const a = await readableViewFallback({ db, complete }, "mcp__gateway__timer", { seconds: 12 });
     const b = await readableViewFallback({ db, complete }, "mcp__gateway__timer", { seconds: 900 });
     expect(calls).toBe(1);
-    expect(a).toEqual({ kind: "counter", label: "Durata", value: "12" });
-    expect(b).toEqual({ kind: "counter", label: "Durata", value: "900" });
+    expect(a).toEqual({ kind: "counter", label: "Durata", value: { text: "12" } });
+    expect(b).toEqual({ kind: "counter", label: "Durata", value: { text: "900" } });
   });
 
   test("a mutated, invented path discards the spec instead of showing a wrong view", async () => {
@@ -64,7 +64,7 @@ describe("readableViewFallback — cache by structural signature", () => {
     } as unknown as AIProvider;
     const db = freshDb();
     const got = await readableViewFallback({ db, complete: completeWith(provider, "claude-haiku-5-5") }, "mcp__x__y", { n: 3 });
-    expect(got).toEqual({ kind: "counter", label: "N", value: "3" });
+    expect(got).toEqual({ kind: "counter", label: "N", value: { text: "3" } });
     expect(seenPrompt).toContain("n: number");
     expect(seenOptions).toEqual({ model: "claude-haiku-5-5", purpose: "readable-view" });
   });

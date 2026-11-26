@@ -1065,7 +1065,6 @@
     ],
     "client/src/hooks/usePushNotifications.ts": [
       "arr",
-      "setDevicePrefs",
       "unsubscribe",
       "urlBase64ToUint8Array"
     ],

@@ -8,29 +8,43 @@ import {
 } from "./readable-view";
 
 describe("deterministicReadableView — real shapes from the transcripts", () => {
-  test("task_get: a plain key/value object becomes a kv card", () => {
-    const value = { id: "458c16a6", status: "review", title: "Formattazione markdown" };
+  test("task_get: an object with title and status becomes a card with a status chip and label chips", () => {
+    const value = { id: "458c16a6", status: "in_progress", title: "Formattazione markdown", labels: ["ui", "chat"], branch: "topics/x", delivery: null, updatedAt: "2026-11-21T11:48:00Z" };
     expect(deterministicReadableView(value)).toEqual({
-      kind: "kv",
+      kind: "card",
+      title: "Formattazione markdown",
+      status: { text: "in progress", kind: "status", tone: "warning" },
+      labels: ["ui", "chat"],
       fields: [
-        { label: "id", value: "458c16a6" },
-        { label: "status", value: "review" },
-        { label: "title", value: "Formattazione markdown" },
+        { label: "id", value: { text: "458c16a6" } },
+        { label: "branch", value: { text: "topics/x" } },
+        { label: "delivery", value: { text: "—", kind: "empty" } },
+        { label: "updatedAt", value: { text: "2026-11-21T11:48:00Z", kind: "date" } },
       ],
     });
   });
 
-  test("task_list: a list of task objects becomes a table", () => {
+  test("an object without a title stays a key/value list, arrays as chips", () => {
+    expect(deterministicReadableView({ id: "x1", tags: ["ui", "chat"] })).toEqual({
+      kind: "kv",
+      fields: [
+        { label: "id", value: { text: "x1" } },
+        { label: "tags", value: { text: "ui, chat", kind: "chips", items: ["ui", "chat"] } },
+      ],
+    });
+  });
+
+  test("task_list: a list of task objects becomes a table with typed cells", () => {
     const value = [
-      { id: "a1", text: "Fix the thing", status: "todo" },
-      { id: "b2", text: "Ship it", status: "review" },
+      { id: "a1", branch: "topics/a", status: "todo", labels: ["ui"] },
+      { id: "b2", branch: "topics/b", status: "review", labels: [] },
     ];
     expect(deterministicReadableView(value)).toEqual({
       kind: "table",
-      columns: ["id", "text", "status"],
+      columns: ["id", "branch", "status", "labels"],
       rows: [
-        ["a1", "Fix the thing", "todo"],
-        ["b2", "Ship it", "review"],
+        [{ text: "a1" }, { text: "topics/a" }, { text: "todo", kind: "status", tone: "warning" }, { text: "ui", kind: "chips", items: ["ui"] }],
+        [{ text: "b2" }, { text: "topics/b" }, { text: "review", kind: "status", tone: "warning" }, { text: "—", kind: "empty" }],
       ],
     });
   });
@@ -66,7 +80,7 @@ describe("deterministicReadableView — real shapes from the transcripts", () =>
   });
 
   test("a single scalar field becomes a counter, not a one-row table", () => {
-    expect(deterministicReadableView({ count: 7 })).toEqual({ kind: "counter", label: "count", value: "7" });
+    expect(deterministicReadableView({ count: 7 })).toEqual({ kind: "counter", label: "count", value: { text: "7" } });
   });
 
   test("null/undefined/empty have no deterministic view", () => {
@@ -110,7 +124,7 @@ describe("resolveDeclSpec — mutation gate: an invented path discards the whole
     expect(spec).not.toBeNull();
     expect(resolveDeclSpec(spec!, value)).toEqual({
       kind: "kv",
-      fields: [{ label: "Stato", value: "review" }, { label: "Titolo", value: "Card" }],
+      fields: [{ label: "Stato", value: { text: "review", kind: "status", tone: "warning" } }, { label: "Titolo", value: { text: "Card" } }],
     });
   });
 
