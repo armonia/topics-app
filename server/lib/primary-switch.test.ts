@@ -15,7 +15,6 @@ import { bootPrimaryChange, gatedRefusal, holdRetiredRole, reclaimPrimary, retir
 import {
   applyPendingPrimaryChange, commitIncoming, countRows, DB_NAME, INCOMING_DIR, isRefusedWhenRetired,
   isSafeBundleName, MOVED_CODE, OUTGOING_DIR, readRetired, RETIRED_FILE, type RetiredState, writeIncomingChunk,
-  writeRetired,
 } from "./primary-switch";
 import { caricaChiavi, verificaGettone } from "./licenza";
 import { leggiInstallationId } from "../services/relay-config";
@@ -62,16 +61,16 @@ function openDb(path: string): Database {
   return db;
 }
 
-const licenceKeys = generateKeyPairSync("ed25519");
-const licenceKeyB64 = (() => {
-  const der = licenceKeys.publicKey.export({ format: "der", type: "spki" }) as Buffer;
-  return der.subarray(der.length - 32).toString("base64");
+const licenseKeys = generateKeyPairSync("ed25519");
+const licenseKeyB64 = (() => {
+  const publicKeyBytes = licenseKeys.publicKey.export({ format: "der", type: "spki" }) as Buffer;
+  return publicKeyBytes.subarray(publicKeyBytes.length - 32).toString("base64");
 })();
 
 /** A licence token signed for one installation, the same shape the billing service mints. */
-function signedLicence(installationId: string): string {
+function signedLicense(installationId: string): string {
   const payload = Buffer.from(JSON.stringify({ v: 1, iid: installationId, plan: "team", seats: 5, exp: 4_000_000_000_000 }), "utf8").toString("base64url");
-  return `${payload}.${sign(null, Buffer.from(payload, "ascii"), licenceKeys.privateKey).toString("base64url")}`;
+  return `${payload}.${sign(null, Buffer.from(payload, "ascii"), licenseKeys.privateKey).toString("base64url")}`;
 }
 
 const roleOf = (db: Database, appDataDir: string, machineId: string) =>
@@ -79,7 +78,7 @@ const roleOf = (db: Database, appDataDir: string, machineId: string) =>
 
 const mode = (path: string) => statSync(path).mode & 0o777;
 /** File modes mean nothing on Windows: there the mode checks are skipped, not faked green. */
-const posixTest = process.platform === "win32" ? test.skip : test;
+const ownerModeTest = process.platform === "win32" ? test.skip : test;
 
 /** The old primary: a live DB with a topic bound to a CLI session whose transcript is on disk. */
 function oldPrimary() {
@@ -98,7 +97,7 @@ function oldPrimary() {
   writeFileSync(join(c.stateDir, "nodes", "m-new.model-token.sha256"), "hash\n", { mode: 0o600 });
   // The real writer of the installation id: it lands in the secrets folder, as in production.
   const installationId = leggiInstallationId(c.stateDir);
-  writeFileSync(join(c.stateDir, "license-token"), signedLicence(installationId) + "\n");
+  writeFileSync(join(c.stateDir, "license-token"), signedLicense(installationId) + "\n");
   const role = roleOf(db, c.appDataDir, "m-old");
   role.adopt({ primaryMachineId: "m-old", epoch: 1 });
   return { ...c, db, role, installationId };
@@ -106,9 +105,9 @@ function oldPrimary() {
 
 function harness(overrides: Partial<PrimarySwitchDeps> = {}) {
   const old = oldPrimary();
-  const neu = computer("new");
+  const receiver = computer("new");
   // The receiver already has an installation id of its own: the old one must replace it.
-  const receiverOwnId = leggiInstallationId(neu.stateDir);
+  const receiverOwnId = leggiInstallationId(receiver.stateDir);
   const before = countRows(old.db);
   let fence: RetiredState | null = null;
   let restarts = 0;
@@ -137,9 +136,9 @@ function harness(overrides: Partial<PrimarySwitchDeps> = {}) {
     park: async (work, note) => { parkedNotes.push(`${work.taskId}:${note}`); },
     // The real fence, so every check below asks what the front door would ask.
     setFence: (s) => { fence = s; setPrimaryFence(s); },
-    upload: async (name, offset, bytes) => { writeIncomingChunk(neu.stateDir, name, offset, bytes); },
+    upload: async (name, offset, bytes) => { writeIncomingChunk(receiver.stateDir, name, offset, bytes); },
     commit: async (manifest) => {
-      const v = await commitIncoming(neu.stateDir, manifest, { hostname: "new-host", epoch: 0 });
+      const v = await commitIncoming(receiver.stateDir, manifest, { hostname: "new-host", epoch: 0 });
       return v.ok ? { kind: "accepted", counts: v.counts } : { kind: "refused", code: v.code, error: v.error };
     },
     restartSelf: () => { restarts++; },
@@ -149,7 +148,7 @@ function harness(overrides: Partial<PrimarySwitchDeps> = {}) {
     log: () => {},
     ...overrides,
   };
-  return { old, neu, before, deps, fence: () => fence, restarts: () => restarts, parkedNotes, receiverOwnId };
+  return { old, receiver, before, deps, fence: () => fence, restarts: () => restarts, parkedNotes, receiverOwnId };
 }
 
 /** A boot of `c`: the pending change runs before the DB opens, then the role is read and held. */
@@ -172,59 +171,59 @@ describe("primary switch", () => {
     expect(h.restarts()).toBe(1);
 
     // The receiver restarts: the boot hook puts the shipped DB in place.
-    const neu = reboot(h.neu, "m-new");
-    const after = countRows(neu.db);
+    const receiver = reboot(h.receiver, "m-new");
+    const after = countRows(receiver.db);
     expect(after).toEqual({ ...h.before, messages: h.before.messages + 1 });
     expect(after).toEqual(report.counts!);
-    expect(neu.db.query("SELECT 1 FROM messages WHERE body = 'written during the drain'").get()).not.toBeNull();
+    expect(receiver.db.query("SELECT 1 FROM messages WHERE body = 'written during the drain'").get()).not.toBeNull();
 
     // The new computer boots as the primary at epoch+1.
-    expect(neu.role.isPrimary()).toBe(true);
-    expect(neu.role.epoch()).toBe(2);
+    expect(receiver.role.isPrimary()).toBe(true);
+    expect(receiver.role.epoch()).toBe(2);
 
     // State files followed; the transcript resumes by id with its content and its subagents.
-    expect(readFileSync(join(h.neu.stateDir, "nodes", "m-new.token"), "utf-8")).toBe("node-token-value\n");
-    const transcript = findCliTranscript(SESSION, h.neu.projectsDir);
+    expect(readFileSync(join(h.receiver.stateDir, "nodes", "m-new.token"), "utf-8")).toBe("node-token-value\n");
+    const transcript = findCliTranscript(SESSION, h.receiver.projectsDir);
     expect(transcript).not.toBeNull();
     expect(readFileSync(transcript!, "utf-8")).toContain("the context so far");
-    expect(existsSync(join(h.neu.projectsDir, "-src-project", SESSION, "subagents", "agent-1.jsonl"))).toBe(true);
-    expect(existsSync(join(h.neu.stateDir, INCOMING_DIR))).toBe(false);
+    expect(existsSync(join(h.receiver.projectsDir, "-src-project", SESSION, "subagents", "agent-1.jsonl"))).toBe(true);
+    expect(existsSync(join(h.receiver.stateDir, INCOMING_DIR))).toBe(false);
   });
 
   test("the licence still verifies on the new primary: the installation id followed it", async () => {
     const h = harness();
     expect(h.receiverOwnId).not.toBe(h.old.installationId);
     await runPrimarySwitch(h.deps);
-    reboot(h.neu, "m-new");
-    const id = leggiInstallationId(h.neu.stateDir);
+    reboot(h.receiver, "m-new");
+    const id = leggiInstallationId(h.receiver.stateDir);
     expect(id).toBe(h.old.installationId);
-    const licence = verificaGettone(readFileSync(join(h.neu.stateDir, "license-token"), "utf-8"), {
-      chiavi: caricaChiavi({ TOPICS_LICENSE_PUBKEYS: `k1:${licenceKeyB64}` }, []), installationId: id, ora: 1_000,
+    const license = verificaGettone(readFileSync(join(h.receiver.stateDir, "license-token"), "utf-8"), {
+      chiavi: caricaChiavi({ TOPICS_LICENSE_PUBKEYS: `k1:${licenseKeyB64}` }, []), installationId: id, ora: 1_000,
     });
-    expect(licence.motivo).not.toBe("other_installation");
-    expect(licence.piano).toBe("team");
+    expect(license.motivo).not.toBe("other_installation");
+    expect(license.piano).toBe("team");
   });
 
-  posixTest("secrets are owner-only at every stage: outgoing copy, staging, restored files", async () => {
+  ownerModeTest("secrets are owner-only at every stage: outgoing copy, staging, restored files", async () => {
     const seen: Record<string, number> = {};
     const h = harness();
     const upload = h.deps.upload;
     h.deps.upload = async (name, offset, bytes) => {
       if (name === DB_NAME && offset === 0) seen.outgoingDb = mode(join(h.old.stateDir, OUTGOING_DIR, DB_NAME));
       await upload(name, offset, bytes);
-      seen[`staged:${name}`] = mode(join(h.neu.stateDir, INCOMING_DIR, ...name.split("/")));
-      seen.incomingDir = mode(join(h.neu.stateDir, INCOMING_DIR));
+      seen[`staged:${name}`] = mode(join(h.receiver.stateDir, INCOMING_DIR, ...name.split("/")));
+      seen.incomingDir = mode(join(h.receiver.stateDir, INCOMING_DIR));
     };
     await runPrimarySwitch(h.deps);
     expect(seen.outgoingDb).toBe(0o600);
     expect(seen.incomingDir).toBe(0o700);
     for (const [k, v] of Object.entries(seen)) if (k.startsWith("staged:")) expect([k, v]).toEqual([k, 0o600]);
-    reboot(h.neu, "m-new");
-    expect(mode(h.neu.dbPath)).toBe(0o600);
-    expect(mode(join(h.neu.stateDir, "nodes"))).toBe(0o700);
-    expect(mode(join(h.neu.stateDir, "nodes", "m-new.token"))).toBe(0o600);
-    expect(mode(join(h.neu.stateDir, "license-token"))).toBe(0o600);
-    expect(mode(join(h.neu.secretsDir, "installation-id"))).toBe(0o600);
+    reboot(h.receiver, "m-new");
+    expect(mode(h.receiver.dbPath)).toBe(0o600);
+    expect(mode(join(h.receiver.stateDir, "nodes"))).toBe(0o700);
+    expect(mode(join(h.receiver.stateDir, "nodes", "m-new.token"))).toBe(0o600);
+    expect(mode(join(h.receiver.stateDir, "license-token"))).toBe(0o600);
+    expect(mode(join(h.receiver.secretsDir, "installation-id"))).toBe(0o600);
   });
 
   test("the old primary refuses writes after the switch, before and after its restart", async () => {
@@ -273,9 +272,9 @@ describe("primary switch", () => {
     expect(old.role.isPrimary()).toBe(false);
     expect(retiredRefusal("/api/tasks", "POST")?.status).toBe(409);
     // The fence is per process: the second computer boots in "another process" after this check.
-    const neu = reboot(h.neu, "m-new");
-    expect(neu.role.isPrimary()).toBe(true);
-    expect(neu.role.epoch()).toBe(2);
+    const receiver = reboot(h.receiver, "m-new");
+    expect(receiver.role.isPrimary()).toBe(true);
+    expect(receiver.role.epoch()).toBe(2);
     // Uncertain keeps the data where it is: nobody knows yet which copy is the live one.
     expect(existsSync(h.old.dbPath)).toBe(true);
     expect(existsSync(`${h.old.dbPath}.prima-2`)).toBe(false);
@@ -386,19 +385,19 @@ describe("primary switch", () => {
   test("the receiver refuses a bundle for another computer, a stale epoch or a tampered file", async () => {
     const h = harness({ commit: async (manifest) => {
       for (const [local, code] of [[{ hostname: "other", epoch: 0 }, "wrong_machine"], [{ hostname: "new-host", epoch: 2 }, "stale_epoch"]] as const) {
-        const v = await commitIncoming(h.neu.stateDir, manifest, local);
+        const v = await commitIncoming(h.receiver.stateDir, manifest, local);
         expect(v.ok ? "ok" : v.code).toBe(code);
       }
       const tampered = { ...manifest, files: manifest.files.map((f) => f.name === "state/license-token" ? { ...f, sha256: "0".repeat(64) } : f) };
-      const v = await commitIncoming(h.neu.stateDir, tampered, { hostname: "new-host", epoch: 0 });
+      const v = await commitIncoming(h.receiver.stateDir, tampered, { hostname: "new-host", epoch: 0 });
       expect(v.ok ? "ok" : v.code).toBe("hash_mismatch");
       return { kind: "refused", code: "test", error: "checked" };
     } });
     const report = await runPrimarySwitch(h.deps);
     expect(report.outcome).toBe("refused");
     // Nothing committed: the next boot restores nothing and drops what was staged.
-    expect(applyPendingPrimaryChange({ ...h.neu, log: () => {} })).toBeNull();
-    expect(existsSync(join(h.neu.stateDir, INCOMING_DIR))).toBe(false);
+    expect(applyPendingPrimaryChange({ ...h.receiver, log: () => {} })).toBeNull();
+    expect(existsSync(join(h.receiver.stateDir, INCOMING_DIR))).toBe(false);
   });
 
   test("the closed list: only the files a primary owns, never code, hooks or provider keys", () => {

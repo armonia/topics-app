@@ -44,7 +44,7 @@ const side = (label: string) => {
   return { stateDir, appDataDir, secretsDir: join(stateDir, ".topics-secrets"), dbPath: join(stateDir, "data", DB_NAME) };
 };
 const old = side("old");
-const neu = { ...side("new"), projectsDir: join(root, "new", "claude-projects") };
+const receiver = { ...side("new"), projectsDir: join(root, "new", "claude-projects") };
 const checks: Record<string, boolean> = {};
 const t0 = Date.now();
 
@@ -83,16 +83,16 @@ try {
     },
     park: async () => {},
     setFence: (s) => { fence = s; },
-    upload: async (name, offset, bytes) => { writeIncomingChunk(neu.stateDir, name, offset, bytes); },
+    upload: async (name, offset, bytes) => { writeIncomingChunk(receiver.stateDir, name, offset, bytes); },
     commit: async (manifest) => {
-      const v = await commitIncoming(neu.stateDir, manifest, { hostname: "probe-new-host", epoch: 0 });
+      const v = await commitIncoming(receiver.stateDir, manifest, { hostname: "probe-new-host", epoch: 0 });
       return v.ok ? { kind: "accepted", counts: v.counts } : { kind: "refused", code: v.code, error: v.error };
     },
     restartSelf: () => {}, sleep: async () => {}, pollMs: 0, log: () => {},
   });
   checks.switched = report.outcome === "switched";
-  checks.restored = applyPendingPrimaryChange({ ...neu, log: () => {} }) === "restored";
-  const restored = new Database(neu.dbPath, { readonly: true });
+  checks.restored = applyPendingPrimaryChange({ ...receiver, log: () => {} }) === "restored";
+  const restored = new Database(receiver.dbPath, { readonly: true });
   const after = countRows(restored);
   checks.countsEqual = after.tasks === before.tasks && after.topics === before.topics && after.messages === before.messages + 1;
   checks.drainWritePresent = restored.query("SELECT 1 FROM messages WHERE rowid = ?").get(drainRow) !== null;
@@ -106,7 +106,7 @@ try {
   checks.oldRefusesAfterRestart = retiredRefusal("/api/tasks", "POST")?.status === 409;
   const sample = transcripts.find((t) => t.name.endsWith(".jsonl") && !t.name.includes("/subagents/"));
   const id = sample?.name.split("/").pop()!.replace(/\.jsonl$/, "");
-  const found = id ? findCliTranscript(id, neu.projectsDir) : null;
+  const found = id ? findCliTranscript(id, receiver.projectsDir) : null;
   checks.transcriptResumes = !!sample && !!found && readFileSync(found).equals(readFileSync(sample.source));
   const ok = Object.values(checks).every(Boolean);
   console.log(JSON.stringify({ ok, checks, before, after, transcriptFiles: transcripts.length, bytes: report.bytes, seconds: (Date.now() - t0) / 1000 }));

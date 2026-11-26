@@ -176,7 +176,7 @@ export async function runPrimarySwitch(deps: PrimarySwitchDeps): Promise<SwitchR
     step = "bundle";
     const transcripts = collectTranscripts(deps.db, deps.projectsDir);
     const sources: BundleSource[] = [{ name: DB_NAME, source: dbCopy }, ...collectStateFiles(deps.stateDir, deps.secretsDir), ...transcripts];
-    const files = [];
+    const files: SwitchManifest["files"] = [];
     let bytes = 0;
     for (const s of sources) {
       const size = statSync(s.source).size;

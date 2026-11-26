@@ -92,7 +92,7 @@ export function createFrontDoor(scope: AfterHttp) {
       }
 
       // The access gate, then the fence of a server that handed the primary over (see `gatedRefusal`).
-      const refused = gatedRefusal(() => accessGate(req, server, pathname, method, isApiRequest), pathname, method);
+      const refused = gatedRefusal(() => accessGate(req, server, pathname, method, isApiRequest) ?? null, pathname, method);
       if (refused) return refused;
 
       // Every transport keeps the identity already accepted by the gate. The

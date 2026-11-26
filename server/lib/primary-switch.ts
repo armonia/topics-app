@@ -152,11 +152,11 @@ export function snapshotDatabase(db: Pick<Database, "query">, dest: string): Row
   rmSync(dest, { force: true });
   // VACUUM INTO refuses an existing file, so the owner-only mode comes from the umask while it
   // creates one. The statement is synchronous: no other code of this process runs in between.
-  const umask = process.umask(0o077);
+  const previousMask = process.umask(0o077);
   try {
     db.query("VACUUM INTO ?").run(dest);
   } finally {
-    process.umask(umask);
+    process.umask(previousMask);
   }
   chmodSync(dest, SECRET_FILE_MODE);
   return verifyDatabaseFile(dest);

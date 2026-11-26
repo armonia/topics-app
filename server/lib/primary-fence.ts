@@ -24,10 +24,6 @@ export function setPrimaryFence(next: RetiredState | null): void {
   fence = next;
 }
 
-export function currentPrimaryFence(): RetiredState | null {
-  return fence;
-}
-
 /** The front door's check: the `primary_moved` answer for a refused request while the fence is up, else null. */
 export function retiredRefusal(pathname: string, method: string): Response | null {
   return fence && isRefusedWhenRetired(pathname, method, fence.phase) ? movedResponse(fence) : null;
