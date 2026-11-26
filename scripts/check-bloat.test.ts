@@ -336,5 +336,5 @@ describe("check-bloat, refusing to guess", () => {
     const res = spawnSync("bun", ["run", SCRIPT], { encoding: "utf-8" });
     expect(`${res.stdout}${res.stderr}`).toContain("OK");
     expect(res.status).toBe(0);
-  });
+  }, 120_000); // the full scan takes ~30 s on a loaded machine
 });
