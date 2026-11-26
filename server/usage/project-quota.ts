@@ -18,11 +18,11 @@
  * quota the account really lost.
  */
 import type { Database } from "bun:sqlite";
-import { QUOTA_SURFACES, DEFAULT_QUOTA_LIMIT, type ProjectQuotaResult, type ProjectQuotaRow, type QuotaChatRow, type QuotaPoints, type QuotaSurface } from "../../shared/usage-shapes";
+import { QUOTA_SURFACES, type ProjectQuotaResult, type ProjectQuotaRow, type QuotaChatRow, type QuotaPoints, type QuotaSurface } from "../../shared/usage-shapes";
 import { HOUR_MS, pointsPerHour, readHistory, splitPoints, usageHistoryFile } from "./person-usage";
 import { collectProjectCalls, type TranscriptFile } from "./project-calls";
 import { buildFolderResolver } from "./project-folders";
-import { readProjectLimits } from "./project-limit";
+import { readProjectLimits, resolveProjectLimit } from "./project-limit";
 
 export interface ProjectQuotaOptions {
   now?: number;
@@ -114,7 +114,7 @@ export function withLimits(db: Database, result: ProjectQuotaResult): ProjectQuo
     ...result,
     projects: result.projects.map((p) => ({
       ...p,
-      limit: p.projectId === null ? null : limits.has(p.projectId) ? limits.get(p.projectId)! : DEFAULT_QUOTA_LIMIT,
+      limit: p.projectId === null ? null : resolveProjectLimit(p.projectId, limits.get(p.projectId)),
     })),
   };
 }

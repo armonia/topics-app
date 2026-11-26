@@ -28,6 +28,7 @@
 import type { Database } from "bun:sqlite";
 
 import { DEFAULT_QUOTA_LIMIT } from "../../shared/usage-shapes";
+import { resolveProjectLimit } from "../usage/project-limit";
 
 export const DEFAULT_LIMIT_24H_PCT = DEFAULT_QUOTA_LIMIT;
 /** How many more points "Continua" buys before the confirmation returns. */
@@ -43,7 +44,7 @@ export interface ProjectQuotaRow {
 
 /** The configured limit: an absent row is the default; a row with `limit24hPct: null` has no limit ("None"). */
 export function effectiveLimit(row: ProjectQuotaRow | null): number | null {
-  return row ? row.limit24hPct : DEFAULT_LIMIT_24H_PCT;
+  return resolveProjectLimit(row?.projectId ?? "", row ? row.limit24hPct : undefined);
 }
 
 export interface ProjectPauseState {
