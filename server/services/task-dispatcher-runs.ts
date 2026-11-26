@@ -25,6 +25,8 @@ export function createRunTracking(ctx: DispatcherCtx) {
     delegatedPolicyForTask: deps.delegatedPolicyForTask,
     recordDelegatedPhase: deps.recordDelegatedPhase,
     languageOf: (...args) => ctx.kickoff.langFor(...args),
+    deliveryLanded: deps.deliveryLanded,
+    repoPathOfTask: deps.repoPathOfTask,
   });
   function drainBlock(): string | null {
     return shared.draining

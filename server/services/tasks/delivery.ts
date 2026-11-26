@@ -220,18 +220,33 @@ deliverToReviewBySystem(this: TaskService, { taskId, reason, cause, nextMove, un
           // or attach the evidence by hand).
           const bounces = Number(row.visible_preview_bounces ?? 0) + 1;
           const capped = bounces >= VISIBLE_PREVIEW_BOUNCE_CAP;
+          // A capped card is NEVER parked in backlog: backlog is for what waits
+          // on a person's decision, and nobody picks a parked card up again. It
+          // is routed to this machine (the server's own host has the browser)
+          // with the reason in plain sight; if it is already pinned here and
+          // still bounces, it waits in todo for a retry window instead.
+          const alreadyLocal = !!row.stay_local;
+          const retryAt = new Date(Date.parse(ts) + 60 * 60_000).toISOString();
           const nota = capped
-            ? `Card visibile (tocca client/src) senza foto prima/dopo dopo ${bounces} giri: nessun agente di questa board può aprire un browser per farla, quindi non la rimetto in coda a vuoto. Resta in Backlog finché una persona non decide (ricattura automatica dell'evidenza, un browser senza schermo su un nodo che non è questo, o l'anteprima allegata a mano).`
+            ? alreadyLocal
+              ? "Card visibile (tocca client/src) ancora senza foto prima/dopo su questa macchina: resta in Todo in attesa, riprovo tra un'ora."
+              : `Card visibile (tocca client/src) senza foto prima/dopo dopo ${bounces} giri: i nodi senza browser non possono farla, quindi la instrado su questa macchina, che ha il browser.`
             : "Card visibile (tocca client/src) senza foto prima/dopo: non entra in review così, torna in coda per un altro turno.";
           db.prepare(
             `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
-                status = ?, dispatch_state = NULL, dispatch_error = ?,
+                status = 'todo', dispatch_state = ?, dispatch_error = ?,
                 wait_streak = 0, wait_reason = NULL, wait_since = NULL,
-                dispatch_deferred_until = NULL, visible_preview_bounces = ?, updated_at = ? WHERE id = ?`,
-          ).run(capped ? "backlog" : "todo", nota, bounces, ts, taskId);
-          const dest = capped ? "backlog" : "todo";
-          if (row.status !== dest) logStatus(taskId, row.status, dest, "dispatcher");
-          markReopened(taskId, row.status, dest, "system", "dispatcher");
+                dispatch_deferred_until = ?, visible_preview_bounces = ?,
+                stay_local = CASE WHEN ? THEN 1 ELSE stay_local END,
+                machine_id = CASE WHEN ? THEN NULL ELSE machine_id END,
+                updated_at = ? WHERE id = ?`,
+          ).run(
+            capped && alreadyLocal ? "waiting" : null, nota,
+            capped && alreadyLocal ? retryAt : null, bounces,
+            capped ? 1 : 0, capped ? 1 : 0, ts, taskId,
+          );
+          if (row.status !== "todo") logStatus(taskId, row.status, "todo", "dispatcher");
+          markReopened(taskId, row.status, "todo", "system", "dispatcher");
           try {
             this.addComment({
               taskId, author: "system", kind: "service",

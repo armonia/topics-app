@@ -90,7 +90,12 @@ describe("autoLandVerdict", () => {
     expect(verdict(card({ humanAsk: "Landa su main a CI verde (consigliata)?" })).ok).toBe(true);
     // 25f0e2a5, 15/11: the ask left by the round before the red bounce.
     const doubt = "Ho toccato anche .github/workflows/ci.yml (runner a ubuntu-24.04) perché la CI era rotta per tutti: ti va bene dentro questa PR?";
-    expect(verdict(card({ humanAsk: doubt }))).toEqual({ ok: false, reason: "the card asks the person something" });
+    // A technical choice is the system's to take: it does not hold the land.
+    expect(verdict(card({ humanAsk: doubt })).ok).toBe(true);
+    // What belongs to a person still does: money, public, real people, irreversible.
+    for (const mine of ["Posso pubblicare il pacchetto sul registro pubblico?", "Questo costa 20 euro al mese: procedo?", "L'operazione è irreversibile, va bene?"]) {
+      expect(verdict(card({ humanAsk: mine }))).toEqual({ ok: false, reason: "the card asks the person something" });
+    }
   });
 
   test("open steps keep the parent in review", () => {
@@ -325,6 +330,14 @@ describe("createAutoLander", () => {
     await lander.tryLand("p1", "t1");
     lander.forgetExcept(new Set());
     await lander.tryLand("p1", "t1");
+    expect(state.lands).toBe(2);
+  });
+
+  test("a land waiting on the pull request's CI forgets the offer, so the sweep asks again at the verdict", async () => {
+    const { state, lander } = base();
+    await lander.tryLand("p1", "t1");
+    lander.forget("t1");
+    expect(await lander.tryLand("p1", "t1", { quiet: true })).toBe("queued");
     expect(state.lands).toBe(2);
   });
 

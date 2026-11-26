@@ -287,6 +287,10 @@ export interface RemoteNodeHost {
     executionSessionId?: string | null;
     outcome?: string | null;
   }) => boolean | number;
+  /** Is a commit already inside THIS machine's `main`? See `task-dispatcher-remote-node-empty.ts`. */
+  deliveryLanded?: (repoPath: string, commit: string) => Promise<boolean | null>;
+  /** This machine's own checkout for the card's project, never the node's. */
+  repoPathOfTask?: (taskId: string) => string | null;
 }
 
 export interface RemoteNodeLane {
@@ -1181,7 +1185,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     const producedNothing = planted.planted
       ? !!fresh && planted.commitCount === 0
       : !branch && !report.reason && !report.dispatchError;
-    if (fresh && producedNothing && returnEmptyNodeRunToTodo({ svc, releaseAndEmit, emit, log, nameOf: nodeName }, fresh, name)) return;
+    if (fresh && producedNothing && await returnEmptyNodeRunToTodo(
+      { svc, releaseAndEmit, emit, log, nameOf: nodeName, deliveryLanded: host.deliveryLanded, repoPathOfTask: host.repoPathOfTask },
+      fresh, name,
+    )) return;
     const reason = planted.planted
       ? `Consegnato dal nodo «${name}»: il ramo \`${branch}\` è stato piantato in questo checkout` +
         (planted.commit ? ` su \`${planted.commit.slice(0, 8)}\`.` : ".")

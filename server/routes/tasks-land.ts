@@ -228,6 +228,10 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       if (await bounceRed(projectId, taskId)) return;
       return afterDelivery(projectId, taskId);
     },
+    note: (taskId, text) => {
+      try { svc.addComment({ taskId, author: "system", kind: "service", content: text }); }
+      catch { /* best-effort: the log line is the fallback record */ }
+    },
     log: (line) => console.warn(line),
   });
 
@@ -520,6 +524,9 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         } catch (err) { console.warn(`[land] nota di arresto non scritta per ${taskId}:`, err); }
         return { outcome: "skipped", reason: res.reason };
       }
+      // The pull request's checks are still running and GitHub merges it at the verdict: the next sweep asks the
+      // automatic land again, which finds the PR merged and fast-forwards. Without this the commit stays "already offered".
+      if (res.status === "skipped" && res.code === "pull-request-waiting-ci") autoLander.forget(taskId);
       // Il ramo era vecchio e il land l'ha riportato al passo con main da sé: è
       // un commit che nessun umano ha fatto, quindi lo si dice — e per PRIMO,
       // perché è successo prima di tutto il resto.

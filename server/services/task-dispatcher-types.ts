@@ -382,6 +382,12 @@ export interface DispatcherDeps {
    */
   deliveryLanded?: (repoPath: string, commit: string) => Promise<boolean | null>;
   /**
+   * `deliveryLanded` above needs THIS machine's own checkout for a card's project — never a remote
+   * node's, which runs its own repository and can carry a stale `main` of its own. Absent = the
+   * empty-node-run guard that reads it is skipped.
+   */
+  repoPathOfTask?: (taskId: string) => string | null;
+  /**
    * Claude sessions running OUTSIDE Topics right now at/under a directory
    * (see services/external-sessions.ts). The dispatcher can only see its OWN
    * agents, so without this a task lands in a repo the human is editing by
