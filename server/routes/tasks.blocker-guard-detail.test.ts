@@ -1,4 +1,6 @@
 /**
+ * @covers KANBAN-123
+ *
  * THE REFUSAL TO ARCHIVE SAYS WHICH CARD IS WAITING, AND WHERE.
  *
  * Review feedback 26/11, the points left open:

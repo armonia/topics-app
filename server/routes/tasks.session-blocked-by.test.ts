@@ -1,4 +1,6 @@
 /**
+ * @covers KANBAN-124
+ *
  * A FUTURE STEP IS A CARD WITH A REAL LINK, NEVER A PROMISE IN A COMMENT.
  *
  * Review feedback 26/11, point 4: the previous delivery claimed both the

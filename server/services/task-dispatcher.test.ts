@@ -1,5 +1,6 @@
 /**
  * @covers KANBAN-10
+ * @covers KANBAN-124
  *
  * Dispatch resumption after a server restart: this file and
  * task-dispatcher-interrupted.test.ts are where that requirement is exercised.
@@ -217,6 +218,20 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(true);
     const comments = h.svc.get("t1")!.comments;
     expect(comments.some((comment) => comment.content.includes("Setup fallito (exit 7)") && comment.content.includes("config non valido"))).toBe(true);
+  });
+
+  it("the kickoff says a future step is a card linked with blockedByTaskId, never a promise in a comment", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0].content).toContain("A FUTURE STEP IS A CARD, NEVER A PROMISE IN A COMMENT");
+    expect(h.turns[0].content).toContain('create_task(text=<step>, blockedByTaskId="t1")');
+    h.dispatcher.shutdown();
   });
 
   it("una domanda a META' TURNO porta il chip a needs_input, e il rilascio lo riporta a working", async () => {

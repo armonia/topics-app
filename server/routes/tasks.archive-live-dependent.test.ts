@@ -1,4 +1,6 @@
 /**
+ * @covers KANBAN-123
+ *
  * ARCHIVING A LIVE BLOCKER MUST NOT DETACH FIRST AND REJECT AFTER.
  *
  * Review feedback 26/11, punto 1: `detachLiveAgent`/`cutLiveTurn` and

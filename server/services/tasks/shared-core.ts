@@ -304,7 +304,7 @@ function getTaskRow(taskId: string): any {
    *
    * The two ends may sit on DIFFERENT boards, on purpose: the waiting counter
    * resolves dependents outside the blocker's own project (`tasks.test.ts`,
-   * «N in attesa»), and an agent dispatched on a per-task directory has a
+   * the "N waiting" counter), and an agent dispatched on a per-task directory has a
    * board of its own. What that costs is a refusal to archive quoting a card
    * the person cannot see on screen, so `assertNoLiveDependents` names the
    * other board in its message instead of the edge being forbidden here.
@@ -328,7 +328,7 @@ function getTaskRow(taskId: string): any {
 /**
    * Archiving `taskId` must not silently unblock a live dependent:
    * `isDispatchBlocked` reads `blocker.archived = 1` the same as `blocker.status
-   * = 'done'`. Walks the WHOLE subtree `archiveSubtree` is about to take down —
+   * = 'done'`. Walks the WHOLE subtree `archiveSubtree` is about to take down:
    * a root-only check misses a non-done CHILD that is itself still the blocker
    * of a card outside the subtree (`?withChildren=1`, a grandchild in
    * `status.ts`/`worktree.ts`). Dependents INSIDE the same subtree are not
