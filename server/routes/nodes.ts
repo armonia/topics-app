@@ -13,6 +13,7 @@
  * Legacy mirrored runs remain owner-only. Delegated runs use a separate, capability-bound
  * credential minted by the execution computer after its installation owner approves the checkout and policy.
  */
+import { existsSync, statSync } from "node:fs";
 import type { AppContext, RouteHandler } from "../types";
 import type { ProvidersSnapshot } from "../../shared/types";
 import { carriedRef, isPlainBranchName, plantCarriedBranch } from "../services/branch-on-origin";
@@ -111,7 +112,7 @@ export function nodeRunBaseBranch(raw: unknown): string | null | undefined {
 }
 
 export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): RouteHandler {
-  const { db, json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll } = ctx;
+  const { db, json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, getMimeType } = ctx;
   const runGit = opts.runGit ?? defaultRunGit;
   const svc = createTaskService(db);
   const revocations = opts.revocations ?? createDelegatedRevocationRetry({
@@ -751,6 +752,39 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       });
     }
 
+    /**
+     * One attachment of the run's thread, by its exact path (KANBAN-76 follow-up).
+     *
+     * The origin board mirrors a node's comments (`mirrorNodeReport`), but never
+     * their media: a screenshot an agent attached on the node stayed a path on
+     * the NODE's disk, which the origin cannot read. `path` must be one the
+     * node's OWN comments already declare — never an arbitrary read of this
+     * machine's filesystem — so the allowlist is the run's own thread, not a
+     * directory prefix.
+     */
+    const media = matchRoute(pathname, "/api/nodes/runs/:id/media");
+    if (media && method === "GET") {
+      const got = svc.get(media.id);
+      if (!got) return json({ error: "run not found", code: "not_found" }, 404);
+      const wanted = url.searchParams.get("path") ?? "";
+      const allowed = new Set(got.comments.flatMap((c) => c.media ?? []));
+      if (!wanted || !allowed.has(wanted)) return json({ error: "not attached to this run", code: "forbidden" }, 403);
+      if (!existsSync(wanted) || statSync(wanted).isDirectory()) return json({ error: "not found", code: "not_found" }, 404);
+      return new Response(Bun.file(wanted), { status: 200, headers: { "content-type": getMimeType(wanted) } });
+    }
+
+    const delegatedMedia = matchRoute(pathname, "/api/nodes/delegated-runs/:id/media");
+    if (delegatedMedia && method === "GET") {
+      const task = await confinedRun(req, delegatedMedia.id);
+      if (!task) return json({ error: "run not found", code: "not_found" }, 404);
+      const got = svc.get(task.id)!;
+      const wanted = url.searchParams.get("path") ?? "";
+      const allowed = new Set(got.comments.flatMap((c) => c.media ?? []));
+      if (!wanted || !allowed.has(wanted)) return json({ error: "not attached to this run", code: "forbidden" }, 403);
+      if (!existsSync(wanted) || statSync(wanted).isDirectory()) return json({ error: "not found", code: "not_found" }, 404);
+      return new Response(Bun.file(wanted), { status: 200, headers: { "content-type": getMimeType(wanted) } });
+    }
+
     const run = matchRoute(pathname, "/api/nodes/runs/:id");
     if (run) {
       if (method === "GET") {
@@ -764,7 +798,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
         const since = url.searchParams.get("since");
         const comments = got.comments
           .filter((c) => !since || c.createdAt >= since)
-          .map((c) => ({ id: c.id, author: c.author, content: c.content, kind: c.kind, createdAt: c.createdAt }));
+          .map((c) => ({ id: c.id, author: c.author, content: c.content, kind: c.kind, createdAt: c.createdAt, media: c.media }));
         const repoPath = repoPathOf(task);
         const { branch, commit, reason } = await nodeRunDelivery(runGit, opts.worktreeOfTask, task);
         const facts = repoPath ? await deliveryFacts(runGit, repoPath, branch) : { baseSha: null, commitCount: 0 };
@@ -803,7 +837,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           .filter((comment) => !since || comment.createdAt >= since)
           .map((comment) => ({
             id: comment.id, author: comment.author, content: comment.content,
-            kind: comment.kind, createdAt: comment.createdAt,
+            kind: comment.kind, createdAt: comment.createdAt, media: comment.media,
           }));
         const repoPath = repoPathOf(task)!;
         const { branch, commit, reason } = await nodeRunDelivery(runGit, opts.worktreeOfTask, task);

@@ -8,6 +8,9 @@
  * file past its size ceiling.
  */
 import { Database } from "bun:sqlite";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { type LifecycleHookRunner } from "./lifecycle-hooks";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
@@ -81,6 +84,8 @@ export interface NodeFakeOptions {
   bundle?: Uint8Array | null;
   /** Runs while the bundle download is in the air (a closure can land there). */
   onBundle?: () => void;
+  /** The node's own attachments, by the exact path a comment declares. Absent path = `fetchMedia` answers `null`. */
+  media?: Record<string, Uint8Array>;
   planted?: { planted: boolean; commit: string | null; commitCount: number; reason: string | null };
   /** The `node-run` hook runner; absent = the lane's own default. */
   hooks?: LifecycleHookRunner;
@@ -114,6 +119,10 @@ export function nodeFake(o: NodeFakeOptions = {}) {
       calls.push("bundle");
       o.onBundle?.();
       return o.bundle && o.bundle.length > 0 ? { empty: false as const, bytes: o.bundle } : { empty: true as const };
+    },
+    fetchMedia: async ({ path }) => {
+      calls.push(`media:${path}`);
+      return o.media?.[path] ?? null;
     },
     cancelRun: async ({ runId }) => {
       calls.push(`cancel:${runId}`);
@@ -170,6 +179,8 @@ export function harness(nodeOverrides: NodeFakeOptions = {}, depOverrides: Parti
   const worktrees: string[] = [];
   const topics: string[] = [];
   const turns: string[] = [];
+  const savedMedia: string[] = [];
+  const mediaDir = mkdtempSync(join(tmpdir(), "node-media-"));
   let now = Date.UTC(2026, 8, 6, 10, 0, 0);
 
   const deps: DispatcherDeps = {
@@ -190,6 +201,12 @@ export function harness(nodeOverrides: NodeFakeOptions = {}, depOverrides: Parti
     },
     broadcast: () => {},
     node: fake.node,
+    saveNodeMedia: ({ taskId, commentId, nodePath, bytes }) => {
+      const local = join(mediaDir, `${taskId}-${commentId}-${basename(nodePath)}`);
+      writeFileSync(local, bytes);
+      savedMedia.push(local);
+      return local;
+    },
     now: () => now,
     graceMs: 0,
     retryBackoffMs: 0,
@@ -203,7 +220,7 @@ export function harness(nodeOverrides: NodeFakeOptions = {}, depOverrides: Parti
   svc.setGlobalCap({ auto: false, max: 9 });
 
   return {
-    db, svc, dispatcher, worktrees, topics, turns,
+    db, svc, dispatcher, worktrees, topics, turns, savedMedia,
     calls: fake.calls, created: fake.created, plantedWith: fake.plantedWith,
     advance: (ms: number) => { now += ms; },
     nowMs: () => now,

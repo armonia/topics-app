@@ -24,7 +24,7 @@ import { awaitsHuman } from "../../shared/workflow";
 import { NODE_UNREACHABLE_ERROR } from "../../shared/board";
 import type { Task, TaskService } from "./tasks";
 import { returnEmptyNodeRunToTodo } from "./task-dispatcher-remote-node-empty";
-import { isNodeError, type BundleResult, type CreateRunBody, type NodeRunBinding, type NodeRunReport } from "./node-client";
+import { isNodeError, type BundleResult, type CreateRunBody, type NodeRunBinding, type NodeRunComment, type NodeRunReport } from "./node-client";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -57,6 +57,8 @@ export interface NodeDeps {
   }) => Promise<{ runId: string }>;
   readRun: (input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }) => Promise<NodeRunReport>;
   fetchBundle: (input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }) => Promise<BundleResult>;
+  /** One attachment's bytes, by the exact path the node's own comment declared. Absent on an older node: media never mirrors. */
+  fetchMedia?: (input: { baseUrl: string; token: string; runId: string; path: string; delegation?: NodeRunBinding }) => Promise<Uint8Array | null>;
   cancelRun: (input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }) => Promise<void>;
   /** Where that machine answers, `null` when it is not a paired node. */
   baseUrlOf: (machineId: string) => string | null;
@@ -254,6 +256,14 @@ export interface RemoteNodeHost {
   captureDelivery?: (taskId: string) => Promise<boolean>;
   /** Measure the planted branch's bar and offer the card to the automatic land (fire and forget). */
   measureDelivery?: (taskId: string) => Promise<void>;
+  /**
+   * Land one of the node's own attachments under THIS machine's media, and hand
+   * back the local path. `null` = could not be saved (fetch failed, nowhere to
+   * write it): the comment then mirrors without that attachment, never blocking
+   * on it. Absent host = media never mirrors, same as an older node without
+   * `client.fetchMedia`.
+   */
+  saveNodeMedia?: (input: { taskId: string; commentId: string; nodePath: string; bytes: Uint8Array }) => string | null;
   log: (msg: string, err?: unknown) => void;
   /** Broadcast the updated task so live boards move the chip. */
   emit: (task: Task) => void;
@@ -970,7 +980,29 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * The anchor is read from the CARD and not only from memory, which is what
    * makes the rule survive a restart of this process.
    */
-  function mirrorNodeReport(taskId: string, node: NodeSlot, report: NodeRunReport): void {
+  /**
+   * One attachment of `c`, fetched from the node and landed under this
+   * machine's own media (KANBAN-76 follow-up): best-effort, like the rest of
+   * this mirror — a fetch that fails drops that ONE path, never the comment.
+   */
+  async function mirroredMedia(taskId: string, node: NodeSlot, c: NodeRunComment): Promise<string[] | undefined> {
+    const client = host.client;
+    if (!c.media?.length || !client?.fetchMedia || !host.saveNodeMedia) return undefined;
+    const landed: string[] = [];
+    for (const nodePath of c.media) {
+      try {
+        const bytes = await client.fetchMedia({
+          baseUrl: node.baseUrl, token: node.token, runId: node.runId, path: nodePath, delegation: node.delegation,
+        });
+        if (!bytes) continue;
+        const local = host.saveNodeMedia({ taskId, commentId: c.id, nodePath, bytes });
+        if (local) landed.push(local);
+      } catch (err) { log(`nodo: allegato ${nodePath} del commento ${c.id} non scaricato su ${taskId}`, err); }
+    }
+    return landed.length ? landed : undefined;
+  }
+
+  async function mirrorNodeReport(taskId: string, node: NodeSlot, report: NodeRunReport): Promise<void> {
     const got = svc.get(taskId);
     if (!got) return;
     if (report.dispatchState && report.dispatchState !== got.task.dispatchState) {
@@ -1001,6 +1033,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       if (!c.id || node.seen.has(c.id) || anchored.has(c.id)) continue;
       const fromAgent = isAgentAuthor(c.author);
       try {
+        const media = await mirroredMedia(taskId, node, c);
         svc.addComment({
           taskId,
           // THE AGENT KEEPS ITS VOICE. On the node an agent signs `agent:<id>`,
@@ -1016,6 +1049,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           // what the node's own machinery wrote stays bookkeeping.
           kind: c.kind === "delivery" ? "delivery" : fromAgent && c.kind === "comment" ? "comment" : "service",
           content: c.content,
+          media,
           messageId: c.id,
         });
         node.seen.add(c.id);
@@ -1368,7 +1402,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         }
         continue;
       }
-      mirrorNodeReport(taskId, node, report);
+      await mirrorNodeReport(taskId, node, report);
       // The node parked the run ITSELF (`backlog` + `failed`/`blocked`: its own
       // dispatch ran out of road, e.g. no runtime for the model). It will never
       // come back no matter how many more times this polls it, and mirroring

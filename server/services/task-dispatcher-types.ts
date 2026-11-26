@@ -63,6 +63,8 @@ export interface DispatcherDeps {
   captureDelivery?: (taskId: string) => Promise<boolean>;
   /** Measure a planted node delivery's bar and offer it to the automatic land (`services/node-delivery-meter.ts`). */
   measureDelivery?: (taskId: string) => Promise<void>;
+  /** Land one of a node's own attachments under this machine's own media. See `RemoteNodeHost.saveNodeMedia`. */
+  saveNodeMedia?: (input: { taskId: string; commentId: string; nodePath: string; bytes: Uint8Array }) => string | null;
   /**
    * I FILE LASCIATI NEL WORKTREE E MAI COMMITTATI, o `null` se non si sa.
    *

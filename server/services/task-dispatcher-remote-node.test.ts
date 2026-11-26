@@ -30,7 +30,7 @@
  */
 import { UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLifecycleHooks, type LifecycleHookPayload, type LifecycleHookRunner } from "./lifecycle-hooks";
@@ -956,6 +956,39 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     expect(mirrored).toHaveLength(1);
     // Dedup goes through the ANCHOR (KANBAN-72), never through the text.
     expect(mirrored[0].messageId).toBe("nc-1");
+  });
+
+  it("un'immagine allegata sul nodo arriva qui come un file che esiste davvero", async () => {
+    // The screenshot an agent attaches on the node lives at a path on the
+    // NODE's own disk: mirroring the comment as-is would leave `preview_image`
+    // pointing nowhere on this machine (card 9a850b73, 2026-11-26).
+    const nodePath = "/home/node-user/.topics/media/9a850b73-screenshot.png";
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    let comments: NodeRunReport["comments"] = [
+      { id: "nc-origine", author: "system", content: "Card specchiata da github.com/acme/alpha", kind: "service", createdAt: "2026-11-26T02:00:00.000Z" },
+    ];
+    const h = harness({ readRun: () => Promise.resolve(report({ comments })), media: { [nodePath]: bytes } });
+    h.seed();
+    await dispatch(h);
+    await poll(h); // primes the mirror: the origin note is our own dispatch coming back
+
+    comments = [
+      ...comments,
+      {
+        id: "nc-shot", author: "agent",
+        content: 'screenshot allegato mostra "fermo: tetto di spesa"',
+        kind: "comment", createdAt: "2026-11-26T02:10:00.000Z",
+        media: [nodePath],
+      },
+    ];
+    await poll(h);
+
+    const mirrored = h.comments().find((c) => c.messageId === "nc-shot");
+    expect(mirrored?.media).toHaveLength(1);
+    const localPath = mirrored!.media[0];
+    expect(existsSync(localPath)).toBe(true);
+    expect(readFileSync(localPath)).toEqual(Buffer.from(bytes));
+    expect(h.savedMedia).toContain(localPath);
   });
 
   it("an agent signing agent:<id> on the node keeps its comment, so the review does not say there was no summary", async () => {

@@ -12,7 +12,7 @@ import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees
 import { killProcessTree } from "../lib/process-tree";
 import { resolvePreviewCommand } from "../services/preview-command";
 import { branchExistsInRepo, resolveCommit, worktreeDiffStat } from "../services/branch-status";
-import { deliveryPointer } from "../services/own-commits";
+import { deliveryPointer, resolveMainRef } from "../services/own-commits";
 import { collectCardOwnBranches } from "../services/card-own-branches";
 import { subagentBranchesOf } from "../lib/subagent-store";
 import { getDatabase } from "../db";
@@ -387,7 +387,8 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       // già su main da una settimana. Registrarla avrebbe fatto leggere al
       // reviewer il diff sbagliato e all'audit un «atterrato» falso, che è
       // esattamente il guasto per cui l'audit esiste.
-      const pointer = await deliveryPointer(ref.repoPath, ref.branch, { ownRefs: cardOwnBranches(taskId) }).catch(() => null);
+      const mainRef = await resolveMainRef(ref.repoPath).catch(() => "main");
+      const pointer = await deliveryPointer(ref.repoPath, ref.branch, { mainRef, ownRefs: cardOwnBranches(taskId) }).catch(() => null);
       if (!pointer) return null;
       // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
       //
@@ -405,7 +406,7 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       //
       // Best-effort come tutto il resto di questa funzione: se git inciampa la
       // consegna passa lo stesso, senza misura (NULL, che non è zero).
-      const stat = await worktreeDiffStat(ref.worktreePath ?? ref.repoPath, { branch: ref.branch }).catch(() => null);
+      const stat = await worktreeDiffStat(ref.worktreePath ?? ref.repoPath, { branch: ref.branch, mainRef }).catch(() => null);
       // `repoPath` travels with the snapshot because the capture plants
       // `refs/consegne/<taskId>` on the delivered sha before writing the column
       // (`services/delivery-ref-keep.ts`): the land squashes and then deletes the
