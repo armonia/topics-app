@@ -1132,17 +1132,63 @@ describe("verifica del 31/10: i posti di una macchina contano le card che le son
     expect(ids.filter((id) => h.task(id).machineId === PC)).toHaveLength(OVERFLOW_SLOTS.node);
   });
 
-  it("il conteggio legge le card in coda o al lavoro su quella macchina, non quelle chiuse o archiviate", () => {
+  it("il conteggio legge le card in coda o con una corsa aperta su quella macchina, non quelle chiuse o archiviate", () => {
     const h = harness();
     h.seed("in-coda", { machineId: PC });
     h.seed("al-lavoro", { machineId: PC });
     h.seed("chiusa", { machineId: PC });
     h.seed("archiviata", { machineId: PC });
     h.seed("altrove", { machineId: CLOUD });
-    h.db.run("UPDATE tasks SET status = 'in_progress' WHERE id = 'al-lavoro'");
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 1 WHERE id = 'al-lavoro'");
     h.db.run("UPDATE tasks SET status = 'done' WHERE id = 'chiusa'");
     h.db.run("UPDATE tasks SET archived = 1 WHERE id = 'archiviata'");
     expect(h.svc.countOnMachine(PC)).toBe(2);
+  });
+
+  // 26/11: `nodes[].used` in the capacity line counted every card with a
+  // `machine_id` pin, even one the primary had already closed, or one
+  // waiting on something other than the node. A seat now counts only a run
+  // the primary still believes is open.
+  it("una corsa chiusa sul primario libera il posto, anche con machine_id ancora scritto", () => {
+    const h = harness();
+    h.seed("chiusa-ma-pinnata", { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 0 WHERE id = 'chiusa-ma-pinnata'");
+    expect(h.svc.countOnMachine(PC)).toBe(0);
+  });
+
+  it("una card in attesa di qualcosa che non è il nodo (una persona, una condizione) lascia il posto", () => {
+    const h = harness();
+    h.seed("in-attesa-altrove", { machineId: PC });
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'agent', node_run_open = 0 WHERE id = 'in-attesa-altrove'",
+    );
+    expect(h.svc.countOnMachine(PC)).toBe(0);
+  });
+
+  it("una card in attesa del nodo stesso (silenzioso) resta contata", () => {
+    const h = harness();
+    h.seed("in-attesa-del-nodo", { machineId: PC });
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'machine', node_run_open = 0 WHERE id = 'in-attesa-del-nodo'",
+    );
+    expect(h.svc.countOnMachine(PC)).toBe(1);
+  });
+
+  it("4 posti presi con 2 corse aperte sul primario: dopo un giro i posti contati sono 2", () => {
+    const h = harness();
+    h.seed("corsa-1", { machineId: CLOUD });
+    h.seed("corsa-2", { machineId: CLOUD });
+    h.seed("ferma-1", { machineId: CLOUD });
+    h.seed("ferma-2", { machineId: CLOUD });
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 1 WHERE id IN ('corsa-1', 'corsa-2')");
+    // The other two still carry `machine_id` but the primary never opened (or
+    // already closed) a run for them: before the reconciliation, the old SQL
+    // (`status IN ('todo','in_progress')`) counted all four.
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 0 WHERE id = 'ferma-1'");
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'agent', node_run_open = 0 WHERE id = 'ferma-2'",
+    );
+    expect(h.svc.countOnMachine(CLOUD)).toBe(2);
   });
 });
 

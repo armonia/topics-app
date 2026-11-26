@@ -917,9 +917,25 @@ overflowToMachine({ taskId, machineId, localMachineId }): Task | null {
       return row ? rowToTask(row) : null;
     },
 
+// A seat is held only by a run the primary still believes is open
+// (`node_run_open`), or by a `todo` card not yet launched there (no run
+// opened yet, so nothing to check it against). A card the primary itself
+// put in `waiting` says it is free to run anywhere EXCEPT when it is
+// waiting on this very machine (`wait_source = 'machine'`, the silent-node
+// retry in `task-dispatcher-remote-node.ts`): any other wait (a person, a
+// condition elsewhere) releases the seat at once instead of holding it
+// until the deferral window elapses. 26/11: a card closed on the primary
+// but still carrying `machine_id` counted as busy on a node that had
+// nothing left running for it.
 countOnMachine(machineId: string): number {
       const row = db.prepare(
-        "SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status IN ('todo', 'in_progress') AND archived = 0",
+        `SELECT COUNT(*) AS n FROM tasks
+          WHERE machine_id = ? AND archived = 0
+            AND (COALESCE(dispatch_state, '') != 'waiting' OR COALESCE(wait_source, 'agent') = 'machine')
+            AND (
+              (status = 'in_progress' AND node_run_open = 1)
+              OR (status = 'todo' AND node_run_open = 0)
+            )`,
       ).get(machineId) as { n: number } | null;
       return row?.n ?? 0;
     },
