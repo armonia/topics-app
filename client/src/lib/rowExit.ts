@@ -1,7 +1,7 @@
 /**
  * A sidebar row that is ARCHIVED leaves the column visibly, instead of
- * vanishing in one frame (26/11, the owner: «quando sto archiviando una tab non
- * c'è nessuna animazione ancora»).
+ * vanishing in one frame (26/11, the owner: "when I archive a tab there is still
+ * no animation at all").
  *
  * Archiving already counts down like a close (the fill and the ring, 1.5 s).
  * What was missing is the end: at the commit the data changes, React unmounts
@@ -79,8 +79,8 @@ export function markRowLeaving(key: string): void {
   if (typeof document === 'undefined' || prefersReducedMotion()) return;
   const now = performance.now();
   marks = marks.filter((m) => now - m.at < MARK_TTL_MS);
-  const sel = `[${ROW_EXIT_ATTR}="${CSS.escape(key)}"]`;
-  for (const node of Array.from(document.querySelectorAll<HTMLElement>(sel))) {
+  const selector = `[${ROW_EXIT_ATTR}="${CSS.escape(key)}"]`;
+  for (const node of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
     const column = node.closest<HTMLElement>('.sidebar-column');
     if (!column) continue;
     const rect = node.getBoundingClientRect();

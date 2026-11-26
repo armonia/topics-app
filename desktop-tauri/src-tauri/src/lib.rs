@@ -101,6 +101,7 @@ mod browser_panes;
 mod shortcuts_menu;
 mod sidecar_boot;
 mod window_chrome;
+mod traffic_light_geometry;
 mod os_integration;
 mod perf_metrics;
 use os_integration::*;

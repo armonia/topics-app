@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  SIDEBAR_INDENT_STEP, SIDEBAR_HOVER, RESTING_SURFACE, TAB_BUTTON, TAB_BUTTON_SQUARE, TAB_BUTTON_H, TAB_BUTTON_PX, tabButton, CHROME_BAR, CHROME_BAR_H, CHROME_BAR_SIDE, CHROME_BAR_SIDE_H_VAR, CHROME_ROW_SIDE_PX, CHROME_ROW_TAB_RESERVE_LEFT, chromeRowPx, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sectionCard, sectionIsland, sidebarRowCard,
+  SIDEBAR_INDENT_STEP, SIDEBAR_HOVER, RESTING_SURFACE, TAB_BUTTON, TAB_BUTTON_SQUARE, TAB_BUTTON_H, TAB_BUTTON_PX, tabButton, CHROME_BAR, CHROME_BAR_H, CHROME_BAR_SIDE, CHROME_BAR_SIDE_STYLE, CHROME_ROW_SIDE_PX, CHROME_ROW_TAB_RESERVE_LEFT, chromeRowPx, trafficLightsRowPx, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sectionCard, sectionIsland, sidebarRowCard,
 } from './selectionStyles';
 
 /**
@@ -91,6 +91,13 @@ describe('la riga di chrome e il comando in coda', () => {
  * 6 at the sides. These recompute the row from the button and the step.
  */
 describe('the title row is a tab and one step above and below', () => {
+  test('the lights get the row the window draws: 46 at the side, 40 with the strip or on the phone', () => {
+    expect(trafficLightsRowPx(false, false)).toBe(CHROME_ROW_SIDE_PX);
+    expect(trafficLightsRowPx(false, true)).toBe(CHROME_BAR_H);
+    expect(trafficLightsRowPx(true, false)).toBe(CHROME_BAR_H);
+    expect(trafficLightsRowPx(true, true)).toBe(CHROME_BAR_H);
+  });
+
   test('the number is the box plus a step on each side', () => {
     expect(risolvi(TAB_BUTTON_H, 'h').wide).toBe(TAB_BUTTON_PX);
     expect(CHROME_ROW_SIDE_PX).toBe(TAB_BUTTON_PX + 2 * ROW_INSET);
@@ -100,7 +107,7 @@ describe('the title row is a tab and one step above and below', () => {
 
   test('the bar and its variable say the same number, the strip keeps 40', () => {
     expect(risolvi(CHROME_BAR_SIDE, 'h').wide).toBe(CHROME_ROW_SIDE_PX);
-    expect((CHROME_BAR_SIDE_H_VAR as Record<string, string>)['--chrome-bar-h']).toBe(`${CHROME_ROW_SIDE_PX}px`);
+    expect((CHROME_BAR_SIDE_STYLE as Record<string, string>)['--chrome-bar-h']).toBe(`${CHROME_ROW_SIDE_PX}px`);
     expect(risolvi(CHROME_BAR, 'h').wide).toBe(CHROME_BAR_H);
     // Below 768 the row is the phone's 40 in both.
     expect(risolvi(CHROME_BAR_SIDE, 'h').compact).toBe(CHROME_BAR_H);

@@ -262,7 +262,7 @@ test.describe("Sidebar motion contract", () => {
       await unarchiveTopic(page.request, ids.top);
     });
 
-    // 26/11: «quando sto archiviando una tab non c'è nessuna animazione». An
+    // 26/11: "when I archive a tab there is no animation". An
     // archive from this window leaves as an inert copy of the row that slides
     // out and fades where the row was, while the rows below close the gap.
     test("archiving a chat from the column: the row slides out as it fades", async ({ page }) => {

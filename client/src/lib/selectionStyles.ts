@@ -1008,18 +1008,25 @@ export const CHROME_BAR = 'pane-chrome-bar chrome-glass flex items-center h-10 f
 export const CHROME_BAR_H = 40;
 export const CHROME_BAR_H_VAR = { '--chrome-bar-h': `${CHROME_BAR_H}px` } as CSSProperties;
 /**
- * The same row with the tabs at the side ({@link CHROME_ROW_SIDE_PX}): 46 from
- * 768px up. Only the title row of a desktop cell wears it, a branch that never
- * renders below 768 (the phone has its own), so its variable can be written
- * inline like the strip's. The `md:` keeps a touch tablet in the 768-1023 band,
- * whose JS takes the phone branch, on 40 all the same.
+ * The same row with the tabs at the side ({@link CHROME_ROW_SIDE_PX}): 46. Only
+ * the title row of a desktop cell wears it, a branch that never renders below
+ * the layout's 768 (`useLayoutMobile`, a width and not a finger: a touch tablet
+ * at 900 gets the desktop layout, and this row with it), so its variable can be
+ * written inline like the strip's. The `md:` restates that 768 in CSS for the
+ * frame between a resize and the flag catching up.
  */
 export const CHROME_BAR_SIDE =
   'pane-chrome-bar chrome-glass flex items-center h-10 md:h-[46px] flex-shrink-0 overflow-hidden min-w-0';
-export const CHROME_BAR_SIDE_H_VAR = { '--chrome-bar-h': `${CHROME_ROW_SIDE_PX}px` } as CSSProperties;
+export const CHROME_BAR_SIDE_STYLE = { '--chrome-bar-h': `${CHROME_ROW_SIDE_PX}px` } as CSSProperties;
 /** The desktop chrome row for where the tabs are: the strip's, or the side's. */
 export function chromeRowPx(strip: boolean): number {
   return strip ? CHROME_BAR_H : CHROME_ROW_SIDE_PX;
+}
+/** The row the native traffic lights centre on, the height the client sends
+ *  the shell: the phone layout's 40 (a narrow window), otherwise the desktop
+ *  row of the tabs' placement. */
+export function trafficLightsRowPx(phone: boolean, strip: boolean): number {
+  return phone ? CHROME_BAR_H : chromeRowPx(strip);
 }
 export const CHROME_BAR_SUB =
   'pane-chrome-bar chrome-glass flex items-center h-10 md:h-[34px] flex-shrink-0 overflow-hidden min-w-0';

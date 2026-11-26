@@ -3070,9 +3070,9 @@ function ProjectRowActions({
   onNewTopicInProject?: (projectPath: string) => void;
   onAddProjectPane?: (projectPath: string, type: PaneType, subType?: string) => void;
 }) {
-  const archiving = usePendingActionStatus(allArchived ? null : `archive-project:${pp}`);
-  const forgetting = usePendingActionStatus(onForgetClosed ? `forget-closed:${paneId}` : null);
-  const status = archiving ?? forgetting;
+  const archiveStatus = usePendingActionStatus(allArchived ? null : `archive-project:${pp}`);
+  const forgetStatus = usePendingActionStatus(onForgetClosed ? `forget-closed:${paneId}` : null);
+  const status = archiveStatus ?? forgetStatus;
   const hasAdd = !!(onNewTopicInProject || onAddProjectPane);
   if (!hasAdd && !onArchiveProject) return null;
   return (

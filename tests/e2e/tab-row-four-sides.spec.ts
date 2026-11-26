@@ -1,9 +1,9 @@
 /**
  * THE TOP ROW WITH THE TABS AT THE SIDE: ONE STEP ON ALL FOUR SIDES.
  *
- * 26/11, the owner: «le icone tipo sidebar ricerca aggiunta della sidebar
- * superiore, ma anche la tab del progetto aperta, non hanno spaziature fra di
- * loro e ai lati coerenti su tutti e 4 i lati». Measured on the live window
+ * 26/11, the owner: "the icons like sidebar, search, add in the top sidebar,
+ * and also the open project's tab, have no spacing between them and at the
+ * sides that is consistent on all 4 sides". Measured on the live window
  * before the change: the header's 34 buttons in a 40 row (3 above and below,
  * 6 at the sides) and the project's commands 28 wide with 2 between them.
  *
@@ -133,7 +133,8 @@ test.describe("the top row with the tabs at the side", () => {
       }
       // Pointer away and colours settled: the shot is the row at rest.
       await page.mouse.move(w / 2, h - 10);
-      await page.waitForTimeout(400);
+      await page.waitForFunction(() => document.getAnimations()
+        .every((a) => !(a instanceof CSSTransition) || a.playState !== "running"));
       if (SHOTS) {
         mkdirSync(SHOTS, { recursive: true });
         await page.screenshot({ path: join(SHOTS, `riga-${w}.png`), clip: { x: 0, y: 0, width: w, height: Math.min(h, 120) } });

@@ -637,9 +637,9 @@ export function ProjectSidebar({
     });
   };
 
-  // THE COLUMN CLOSES WITH ITS LAST ISLAND (26/11, the owner: «se si chiudono
-  // tutti i menu a tendina della sidebar progetto, si può chiudere anche la
-  // sidebar progetto»). A column of three closed headers holds nothing, so the
+  // THE COLUMN CLOSES WITH ITS LAST ISLAND (26/11, the owner: "if every
+  // dropdown of the project sidebar is closed, the project sidebar can close
+  // too"). A column of three closed headers holds nothing, so the
   // close that leaves no island open closes the column too, and reopening it
   // brings back the island that close took away: the column comes back as it
   // was before the last click. Over the islands ON SCREEN only: Git has none
@@ -648,6 +648,12 @@ export function ProjectSidebar({
   // all-closed state, or the frame where the repo status has not arrived yet,
   // must not shut a column nobody touched.
   const lastClosedRef = useRef<SectionId>('files');
+  // Whether the column is closed BECAUSE its last island closed. Reopening then
+  // brings that island back even if another one has appeared meanwhile: a repo
+  // that turns dirty while the column is closed makes a saved Git flag count
+  // again, and the column would come back on Git with the island just closed
+  // still shut.
+  const autoClosedRef = useRef(false);
   const anyIslandOpen = (sections: Record<SectionId, boolean>) =>
     sections.files || sections.processes || (gitVisible && sections.git);
 
@@ -659,6 +665,7 @@ export function ProjectSidebar({
     setExpandedSections(prev => ({ ...prev, [section]: opening }));
     if (closesColumn) {
       lastClosedRef.current = section;
+      autoClosedRef.current = true;
       onToggleCollapse();
     }
   };
@@ -668,7 +675,9 @@ export function ProjectSidebar({
   // closed, Files if that one has nothing to show any more: an open column
   // always shows something.
   const toggleColumn = () => {
-    if (effectiveCollapsed && !anyIslandOpen(expandedSections)) {
+    const autoClosed = autoClosedRef.current;
+    autoClosedRef.current = false;
+    if (effectiveCollapsed && (autoClosed || !anyIslandOpen(expandedSections))) {
       const back = lastClosedRef.current === 'git' && !gitVisible ? 'files' : lastClosedRef.current;
       ensureUsefulHeight(back);
       setExpandedSections(prev => ({ ...prev, [back]: true }));
@@ -937,6 +946,7 @@ export function ProjectSidebar({
     // one it opens or closes that section, as the section's own header does.
     const open = (section: SectionId) => () => {
       if (!effectiveCollapsed) { toggleSection(section); return; }
+      autoClosedRef.current = false;
       onToggleCollapse();
       // Stesso cancello del toggle: una sezione stretta a zero deve tornare
       // utile anche quando la si apre dalla rail, non solo dall'intestazione.

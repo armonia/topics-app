@@ -54,7 +54,7 @@ import { useWaitingQueueStore } from './state/waitingQueue';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { lazyWarm } from './lib/lazyWarm';
 import { loadPanelGrid } from './state/pane/panePreload';
-import { CHROME_BAR_H, ROW_INSET, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, STRIP_TOGGLE_SURFACE, chromeRowPx } from './lib/selectionStyles';
+import { ROW_INSET, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, STRIP_TOGGLE_SURFACE, trafficLightsRowPx } from './lib/selectionStyles';
 import { setTrafficLightsRow } from './lib/shell/window';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
@@ -469,12 +469,14 @@ function App() {
   }, [appSettings.pinnedClosable, paneStateHydrated, topicsLoading, isDetached, openPinsInBackground, sidebar.pinnedItems]);
 
   const placement = tabsPlacement(appSettings.tabsPosition, { phone: isMobile });
-  // The native lights centre on the row under them: the phone layout's 40
-  // (a narrow window), otherwise the row of the tabs' placement.
-  const lightsRowPx = isMobile ? CHROME_BAR_H : chromeRowPx(placement.strip);
+  // The native lights centre on the row under them. Only the main window
+  // sends it: the shell keeps ONE row, the main window's, and a narrow
+  // detached window drawing the phone's 40 would move the main window's lights
+  // off its 46.
+  const lightsRowPx = trafficLightsRowPx(isMobile, placement.strip);
   useEffect(() => {
-    if (isDesktop) setTrafficLightsRow(lightsRowPx);
-  }, [lightsRowPx]);
+    if (isDesktop && !isDetached) setTrafficLightsRow(lightsRowPx);
+  }, [lightsRowPx, isDetached]);
   const stripPaneIds = useMemo(
     () => (placement.columnSkipsStrip ? new Set(visiblePanels) : undefined),
     [placement.columnSkipsStrip, visiblePanels],

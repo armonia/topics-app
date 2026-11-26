@@ -48,8 +48,8 @@ export function tabStateKey(paneId: string, open: boolean): string {
  * (`data-pending` keeps the rail on screen when the pointer leaves, so the
  * cancel stays where it was pressed) and the row's left-to-right fill under it.
  * Archiving a closed terminal, browser or page showed only the circle turning
- * into a check (26/11: «quando sto archiviando una tab non c'è nessuna
- * animazione ancora»). Render it as a direct child of the row's card: the fill
+ * into a check (26/11: "when I archive a tab there is still no animation
+ * at all"). Render it as a direct child of the row's card: the fill
  * is absolute, and the card is what it fills.
  */
 export function TabStateRail({ className, ...ring }: {

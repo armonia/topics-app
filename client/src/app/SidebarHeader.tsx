@@ -128,8 +128,8 @@ export function SidebarHeader({
           // column, the SAME 6px that separates a card from the edge and a row
           // from its neighbour. With the mouse the buttons are a tab's 34, and
           // with the tabs at the side the row is 46: 34 + 2 * ROW_INSET, one
-          // step on all four sides as at the column's edges (26/11, «spaziature
-          // ... coerenti su tutti e 4 i lati»). With the strip on top it stays
+          // step on all four sides as at the column's edges (26/11, "spacing
+          // ... consistent on all 4 sides"). With the strip on top it stays
           // the strip's 40 (25/11, the buttons as tall as the tabs).
           // NO LINE UNDER THE HEADER (08/08). Above and below there is the same
           // surface, the column is chrome from top to bottom, so that line did

@@ -17,7 +17,7 @@ import { loadBoard, loadBrowser, loadAutomations, loadAgents, loadSystem, loadAc
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { AutomationsPhoneBell, AutomationsPhoneGlyph } from '../Sidebar/AutomationsRow';
 import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
-import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_BAR_SIDE, CHROME_BAR_SIDE_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, CHROME_ROW_TAB_RESERVE_LEFT, ROW_ACTION_BOX, ROW_INSET, STRIP_TOGGLE_SURFACE, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
+import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_BAR_SIDE, CHROME_BAR_SIDE_STYLE, CHROME_ROW_ACTION_RESERVE_LEFT, CHROME_ROW_TAB_RESERVE_LEFT, ROW_ACTION_BOX, ROW_INSET, STRIP_TOGGLE_SURFACE, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
 import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
@@ -1080,7 +1080,7 @@ export function StandaloneChatGroup({
         // gestore accetta: vedi `handleStandaloneDragOver`.
         data-drop-active={panelDragOver ? 'into' : undefined}
         className="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-shadow"
-        style={titleRow ? CHROME_BAR_SIDE_H_VAR : CHROME_BAR_H_VAR}
+        style={titleRow ? CHROME_BAR_SIDE_STYLE : CHROME_BAR_H_VAR}
         onMouseDownCapture={cardHandlers.onMouseDownCapture}
         onDragOver={cardHandlers.onDragOver}
         onDragLeave={cardHandlers.onDragLeave}

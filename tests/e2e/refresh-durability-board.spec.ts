@@ -410,8 +410,8 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     const win = await openProject(page);
 
     // Uno stato che NON e' il default: File chiusa (nasce aperta), Processi
-    // aperta (nasce chiusa). Processi per prima: chiudere l'ultima isola
-    // aperta chiude anche la colonna (26/11).
+    // aperta (nasce chiusa).
+    // Processes first: closing the last open island also closes the column (26/11).
     await portaSezione(win.getByTestId("project-sidebar-processes"), true);
     await portaSezione(win.getByTestId("project-sidebar-files"), false);
 
@@ -459,8 +459,8 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     await goToApp(page);
     const win = await openProject(page);
 
-    // Processi aperta prima di chiudere File: con File sola aperta, chiuderla
-    // chiuderebbe anche la colonna (26/11), e qui la colonna serve aperta.
+    // Processes open before Files closes: with Files the only open island,
+    // closing it would close the column too (26/11), and here it must stay open.
     await portaSezione(win.getByTestId("project-sidebar-processes"), true);
     await portaSezione(win.getByTestId("project-sidebar-files"), false);
     const partenza = await larghezzaColonna(win);

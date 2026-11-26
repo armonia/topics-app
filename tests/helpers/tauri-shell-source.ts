@@ -8,6 +8,7 @@ const SHELL_FILES = [
   "lib.rs",
   "browser_panes.rs",
   "window_chrome.rs",
+  "traffic_light_geometry.rs",
   "shortcuts_menu.rs",
   "sidecar_boot.rs",
   "perf_metrics.rs",
