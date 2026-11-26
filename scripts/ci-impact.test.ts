@@ -1,16 +1,23 @@
+/**
+ * Which e2e specs a pull request runs, chosen from the impact of its diff.
+ *
+ * @covers GATE-22
+ */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_REDUCED, TREE_GUARD_TESTS, coversOf, failedImpact, planFiles, scopeE2e, specFilesOfList, withTreeGuards } from "./ci-impact";
 
+// Split so the spec-coverage gate does not read these fixtures as this file's own declarations.
+const COVERS = "@" + "covers";
 const spec = (name: string, text = "") => ({ file: `tests/e2e/${name}`, text });
 const SPECS = [
-  spec("sidebar.spec.ts", "getByTestId('sidebar-row')\n * @covers SIDE-01"),
+  spec("sidebar.spec.ts", `getByTestId('sidebar-row')\n * ${COVERS} SIDE-01`),
   spec("chat.spec.ts"),
   spec("terminal.spec.ts"),
   spec("topics-archive-boot.spec.ts"),
-  spec("billing.spec.ts", "getByTestId('billing-panel')\n * @covers BILL-01"),
+  spec("billing.spec.ts", `getByTestId('billing-panel')\n * ${COVERS} BILL-01`),
 ];
 const noFile = () => null;
 
@@ -50,7 +57,7 @@ describe("scopeE2e", () => {
   });
 
   test("a changed test runs the specs that cover the same requirement", () => {
-    const read = () => "/** @covers BILL-01 */";
+    const read = () => `/** ${COVERS} BILL-01 */`;
     const scope = scopeE2e(["tests/unit/billing.test.ts"], SPECS, read);
     expect(scope.kind === "reduced" && scope.files).toContain("billing.spec.ts");
   });
@@ -94,7 +101,7 @@ describe("failedImpact", () => {
 
 describe("helpers", () => {
   test("coversOf reads every requirement id", () => {
-    expect(coversOf(" * @covers A-1\n * @covers BB2-30")).toEqual(["A-1", "BB2-30"]);
+    expect(coversOf(` * ${COVERS} A-1\n * ${COVERS} BB2-30`)).toEqual(["A-1", "BB2-30"]);
   });
 
   test("planFiles merges the selection with --only-changed, sorted and unique", () => {
