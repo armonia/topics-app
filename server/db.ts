@@ -77,6 +77,11 @@ export function getDatabase(): Database {
   return _db;
 }
 
+/** Whether the singleton is open now: for a timer that outlives a close (a test between two databases, a shutdown). */
+export function isDatabaseOpen(): boolean {
+  return _db !== null;
+}
+
 /**
  * Planner statistics for `tasks`, and only for `tasks`.
  *

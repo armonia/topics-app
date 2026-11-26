@@ -14,7 +14,7 @@
  * child's `subagents` row (`lib/subagent-store.ts`), not here.
  */
 import fs from "fs";
-import { getDatabase } from "../db";
+import { getDatabase, isDatabaseOpen } from "../db";
 import { warnThrottled } from "./warn-throttled";
 import { resetStaleSweep, sweepStaleResults } from "./subagent-stale-sweep";
 import { noteSubagentWaitChanged } from "./subagent-wait-events";
@@ -724,7 +724,7 @@ let childWatchTimer: ReturnType<typeof setInterval> | null = null;
 /** Start the watch, once for the process however many routers there are. */
 export function startChildWatch(): void {
   if (childWatchTimer) return;
-  childWatchTimer = setInterval(() => { void watchChildren(); sweepStaleResults(getDatabase(), deliverChildResult); }, CHILD_WATCH_MS);
+  childWatchTimer = setInterval(() => { void watchChildren(); if (isDatabaseOpen()) sweepStaleResults(getDatabase(), deliverChildResult); }, CHILD_WATCH_MS);
   childWatchTimer.unref?.();
 }
 
