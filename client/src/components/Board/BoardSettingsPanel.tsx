@@ -14,7 +14,7 @@
  * questo file tiene la struttura e le sezioni, non i singoli interruttori.
  */
 import { useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Laptop, PauseCircle, Sparkles } from 'lucide-react';
+import { CalendarClock, ChevronDown, ChevronRight, Laptop, PauseCircle, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
 import { MAX_CHECKS, boardApi, personPathsFromText, personPathsToText, type BoardSettings, type BoardSettingsPatch, type BoardTask, type BoardWorkflowView, type ReviewCheck } from '../../lib/board';
@@ -134,7 +134,9 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         className="flex min-h-6 cursor-pointer items-center justify-between gap-3 coarse:min-h-11"
         title={tr('board.settings.backlogTriageTitle')}
       >
-        <span>{tr('board.settings.backlogTriage')}</span>
+        <span className="flex items-center gap-1.5">
+          <CalendarClock className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.settings.backlogTriage')}
+        </span>
         <input
           type="checkbox"
           data-testid="board-backlog-triage"
