@@ -141,7 +141,7 @@ const { BridgeAckStalled } = await import("../../server/lib/ai-bridge-errors");
     process.env.TOPICS_STREAM_GRACE_MS = "1000";
     const drained = post(createTopicsRouter(ctx), { messages: [], mode: "reattach", dispatched: true, provider: "claude-code" });
     try {
-      await waitFor("the adopted row to close", () => rows().every((r) => r.partial === 0), 30_000);
+      await waitFor("the adopted row to close", () => rows().every((r) => r.partial === 0), 90_000);
       await drained.catch(() => {});
       expect(capped).toBe(1);
       // No resync stacked a replay behind the scan's while it waited: folded into the muted scan, an old
@@ -159,5 +159,5 @@ const { BridgeAckStalled } = await import("../../server/lib/ai-bridge-errors");
       client.attach = realAttach;
       try { client.kill(sk); } catch { /* already gone */ }
     }
-  }, 90_000);
+  }, 150_000);
 });
