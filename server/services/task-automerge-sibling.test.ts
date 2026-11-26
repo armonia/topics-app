@@ -54,13 +54,20 @@ describe("land with main open in a sibling worktree", () => {
     writeFileSync(join(mainWt, "a.txt"), "dirty\n");
     const res = await make().tryMerge("t1", "x");
     expect(res.status).toBe("skipped");
-    if (res.status === "skipped") expect(res.reason).toContain(mainWt);
+    if (res.status === "skipped") {
+      expect(res.code).toBe("dirty-checkout");
+      expect(res.reason).toContain(mainWt);
+    }
     sh(["checkout", "--", "a.txt"], mainWt);
   });
 
   test("clean sibling → merged, main advances there", async () => {
     const res = await make().tryMerge("t1", "x");
     expect(res.status).toBe("merged");
+    if (res.status === "merged") {
+      expect(res.landedNotLive).toBe(true);
+      expect(res.checkoutBranch).toBe("park");
+    }
     expect(sh(["log", "--oneline", "-1", "--format=%s"], mainWt)).toContain("merge");
     expect(sh(["status", "--porcelain"], mainWt)).toBe("");
   });

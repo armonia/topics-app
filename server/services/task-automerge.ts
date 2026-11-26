@@ -1577,7 +1577,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             if (path && lines.some((l) => l.trim() === `branch refs/heads/${defaultBranch}`)) { openAt = path; break; }
           }
         }
-        if (openAt) return mergeInOpenCheckout(openAt, defaultBranch, true);
+        // The live checkout (repoPath) stays on `cur`: the landing is on main but not live.
+        if (openAt) return mergeInOpenCheckout(openAt, cur || "detached HEAD", false);
 
         // The shared checkout is parked on a dev branch (a live session). Land in a
         // throwaway worktree pinned to main: the shared `main` ref advances, the dev

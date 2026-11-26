@@ -678,16 +678,17 @@ describe("task-automerge", () => {
     expect(git.calls.some((c) => c[0] === "worktree" && c[1] === "remove")).toBe(true);
   });
 
-  test("worktree add fails → 'skipped' (never merges)", async () => {
+  test("main already checked out in a sibling (worktree list) → merged there, not live, no `worktree add`", async () => {
     const git = fakeGit({
       "symbolic-ref --short": { stdout: "feature/x\n" },
       "rev-list --count": { stdout: "3\n" },
+      "worktree list": { stdout: "worktree /repo/main\nHEAD abc\nbranch refs/heads/main\n" },
       "worktree add": { code: 1, stderr: "fatal: 'main' is already checked out" },
     });
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
     const res = await am.tryMerge("t1", "x");
-    expect(res.status).toBe("skipped");
-    expect(git.calls.some((c) => c[0] === "merge" && c.includes("--no-ff"))).toBe(false);
+    expect(res.status).toBe("merged");
+    expect(git.calls.some((c) => c[0] === "worktree" && c[1] === "add")).toBe(false);
   });
 
   test("main open in a sibling worktree → merges there, never `worktree add`", async () => {
