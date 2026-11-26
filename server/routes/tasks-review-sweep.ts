@@ -57,7 +57,12 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
   /** No verdict about the commit this card delivers: never measured on it, or measured with no outcome. */
   function unmeasuredInReview(t: Task): boolean {
     if (!t.deliveryCommit || !t.deliveryBranch || (t.humanAsk ?? "").trim()) return false;
-    if (t.checksState === "unknown") return true;
+    // `null` is "never run" as much as `unknown` is: a node delivery whose
+    // meter never started (a restart cut it, the planted checkout was missing)
+    // sits in `null` forever, since nothing else ever asks it again. Treating
+    // it the same as `unknown` puts it through the same remeasure, the same
+    // cap on tries, and the same pacing against hammering a fresh delivery.
+    if (t.checksState === "unknown" || t.checksState === null) return true;
     return (t.checksState === "fail" || t.checksState === "pass") && !sameSha(t.checksCommit, t.deliveryCommit);
   }
 

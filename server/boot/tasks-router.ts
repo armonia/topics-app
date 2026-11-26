@@ -164,10 +164,14 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     },
     // A throwaway checkout of a branch planted from another machine, so its bar
     // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
+    // Detached on the DELIVERED COMMIT, not on the branch tip: the branch can
+    // move (a land, a new delivery) while the measure is running, and a
+    // checkout attached to it would follow HEAD without updating its files.
     nodeDeliveryCheckout: async (taskId) => {
       const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
-      if (!ref) return null;
-      return nodeChecks.open({ repoPath: ref.repoPath, branch: ref.branch, taskId });
+      const commit = dispatcherSvc.get(taskId)?.task.deliveryCommit;
+      if (!ref || !commit) return null;
+      return nodeChecks.open({ repoPath: ref.repoPath, commit, taskId });
     },
     onAutoLand: (api) => {
       late.misuraConsegnaNodo = api.measureNodeDelivery;
