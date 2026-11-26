@@ -691,15 +691,20 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
     }
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     let out = "";
+    let droppedBytes = 0;
     const outPromise = (async () => {
       const outReader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
       const outDecoder = new TextDecoder();
       for (;;) {
         const { value, done } = await outReader.read();
         if (done) break;
-        out = appendBoundedTail(out, outDecoder.decode(value, { stream: true }), MAX_CHECK_OUTPUT_BYTES).text;
+        const appended = appendBoundedTail(out, outDecoder.decode(value, { stream: true }), MAX_CHECK_OUTPUT_BYTES);
+        out = appended.text;
+        droppedBytes += appended.droppedBytes;
       }
-      out = appendBoundedTail(out, outDecoder.decode(), MAX_CHECK_OUTPUT_BYTES).text;
+      const appended = appendBoundedTail(out, outDecoder.decode(), MAX_CHECK_OUTPUT_BYTES);
+      out = appended.text;
+      droppedBytes += appended.droppedBytes;
       return out;
     })();
     let err = "";
@@ -742,6 +747,7 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
       {
         const appended = appendBoundedTail(err, decoder.decode(value, { stream: true }), MAX_CHECK_OUTPUT_BYTES);
         err = appended.text;
+        droppedBytes += appended.droppedBytes;
         slotScan = Math.max(0, slotScan - appended.droppedBytes);
       }
       if (queuedMs === null) {
@@ -794,7 +800,11 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
         }
       }
     }
-    err = appendBoundedTail(err, decoder.decode(), MAX_CHECK_OUTPUT_BYTES).text;
+    {
+      const appended = appendBoundedTail(err, decoder.decode(), MAX_CHECK_OUTPUT_BYTES);
+      err = appended.text;
+      droppedBytes += appended.droppedBytes;
+    }
     await outPromise;
     const code = await proc.exited;
     const combined = [out, err].filter((s) => s.trim()).join("\n");
@@ -811,6 +821,7 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
       notMeasured: code === NOT_MEASURED_EXIT,
       ...(queuedMs !== null ? { queuedMs } : {}),
       ...(slowdown !== null ? { slowdown } : {}),
+      ...(droppedBytes > 0 ? { droppedBytes } : {}),
       tail: failureTail(combined) || (timedOut ? "(nessun output prima del timeout)" : "(nessun output)"),
     };
   } catch (e) {

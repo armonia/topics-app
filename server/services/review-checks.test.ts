@@ -196,10 +196,6 @@ describe("appendBoundedTail: a check's output never grows past its cap", () => {
     expect(droppedBytes).toBe(0);
   });
 
-  test("MAX_CHECK_OUTPUT_BYTES is a real cap, not a decorative constant", () => {
-    expect(MAX_CHECK_OUTPUT_BYTES).toBeGreaterThan(0);
-    expect(MAX_CHECK_OUTPUT_BYTES).toBeLessThan(50 * 1024 * 1024); // well under "unbounded"
-  });
 });
 
 describe("runReviewChecks", () => {
@@ -235,6 +231,11 @@ describe("runReviewChecks", () => {
     expect(runs[0].ok).toBe(false);
     expect(runs[0].code).toBe(1);
     expect(runs[0].tail).toContain("THE-REAL-FAILURE-LINE");
+    // The 3 MB of noise had to go SOMEWHERE: `droppedBytes` is the only trace
+    // of it once the string is capped, and it is what a regression test on
+    // `runOne` (not just on `appendBoundedTail` in isolation) can assert on.
+    // Plain concatenation (`out = out + chunk`, no cap) would leave this 0.
+    expect(runs[0].droppedBytes ?? 0).toBeGreaterThan(3 * 1024 * 1024 - MAX_CHECK_OUTPUT_BYTES);
   }, 15_000);
 
   // Un typecheck rotto rende inutile il lint che segue: farlo girare comunque

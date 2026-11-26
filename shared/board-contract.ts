@@ -262,6 +262,14 @@ export interface CheckRun {
    * again instead of going back to its agent (`ciRemeasurable` in ci-evidence.ts).
    */
   transient?: boolean;
+  /**
+   * Bytes trimmed off the front of stdout/stderr while the command ran, because
+   * the combined output grew past `MAX_CHECK_OUTPUT_BYTES` (see
+   * `appendBoundedTail` in review-checks.ts). Zero for a quiet command; the only
+   * signal that a chatty or stuck one would otherwise have kept growing in memory
+   * without this cap.
+   */
+  droppedBytes?: number;
 }
 
 /** Config di dispatch per board (riga `board_settings`). */
