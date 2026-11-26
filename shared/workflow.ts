@@ -273,7 +273,7 @@ const PERSON_OWNED_QUESTION = new RegExp([ // allow-italian: the words agents wr
   'spes[ae]', 'cost\\w*', 'pagament\\w*', 'a pagamento', 'budget', 'abbonament\\w*', 'fattur\\w*', 'paid', 'billing', 'spend',
   'pubblic\\w*', 'publish', 'public', 'annunci\\w*', 'release', 'clienti?', 'customers?',
   'person[ae]', 'persone', 'utent[ei]', 'dati (reali|veri|vero|di person\\w*)', 'real people',
-  'irreversibil\\w*', 'irreversible', 'non si annulla', 'non reversibil\\w*', 'decisione di', 'decision of', 'decide (lui|lei)',
+  'irreversibil\\w*', 'irreversible', 'non si annulla', 'non reversibil\\w*', 'decisione di', 'decision of', 'decide (lui|lei)', // allow-italian: the words agents write, matched by value
 ].map((w) => `\\b${w}\\b`).join('|'), 'i');
 
 export function askNeedsPerson(text: string): boolean {
