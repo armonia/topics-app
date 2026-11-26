@@ -39,9 +39,13 @@ interface Frame { type: string; id?: string; [k: string]: unknown }
 /** Whether a connect to the socket goes through. The probe is closed at once. */
 function accepts(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const s = net.connect(socketPath);
+    // Listeners first, connect after: on Bun 1.3.8 a connect to a path that does not exist yet
+    // (ENOENT, the first probe right after the spawn) fails synchronously inside `net.connect`,
+    // before a listener attached on its return value could see it, and the test died on it.
+    const s = new net.Socket();
     s.once("connect", () => { s.destroy(); resolve(true); });
     s.once("error", () => resolve(false));
+    s.connect(socketPath);
   });
 }
 
