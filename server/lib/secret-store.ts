@@ -16,9 +16,11 @@
  * Nothing here writes a value to a log, to the SQLite DB, or to a process's
  * argv: the macOS write goes through `security -i` (interactive mode reads
  * its command from stdin, never from argv, so `ps` never sees it during the
- * call), and the age identity travels to `age` the same way, via stdin,
- * never as a `-i <path>` argument. Every rejection path reports the NAME,
- * never the value that came with it.
+ * call), with the value itself as `-X <hex>` rather than a quoted word, so a
+ * multi-line value (an age identity is several lines) can never close the
+ * command early and smuggle a second one in; and the age identity travels to
+ * `age` the same way, via stdin, never as a `-i <path>` argument. Every
+ * rejection path reports the NAME, never the value that came with it.
  *
  * The age identity (the private key) is sourced once, lazily, from
  * `$CREDENTIALS_DIRECTORY` (systemd `LoadCredentialEncrypted=`, a tmpfs
@@ -99,6 +101,16 @@ function quoteForSecurityStdin(value: string): string {
 }
 
 /**
+ * `-X <hex>` carries the password as hex digits instead of a quoted word, so
+ * a value with a newline (an age identity is several lines) can never close
+ * the `-i` command early and start a second one: hex has no quote,
+ * backslash or newline to escape in the first place.
+ */
+function toHex(value: string): string {
+  return Buffer.from(value, "utf8").toString("hex");
+}
+
+/**
  * `security`'s interactive mode reads one command per line from stdin and
  * never places it in argv, so the secret value never reaches `ps` for the
  * life of the call. This is the only path `pack` uses to write a value.
@@ -108,7 +120,7 @@ function keychainAdd(runner: CommandRunner, name: string, value: string): Comman
     "add-generic-password", "-U",
     "-s", quoteForSecurityStdin(KEYCHAIN_SERVICE),
     "-a", quoteForSecurityStdin(name),
-    "-w", quoteForSecurityStdin(value),
+    "-X", toHex(value),
   ].join(" ");
   return runner("security", ["-i"], `${command}\n`);
 }

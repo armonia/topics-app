@@ -211,11 +211,14 @@ describe("keychain secret store (fake `security`, no real Keychain touched)", ()
         return { status: 0, stdout: `${value}\n`, stderr: "" };
       }
       if (args[0] === "-i" && stdinData) {
-        const m = /add-generic-password.*-a\s+"((?:[^"\\]|\\.)*)"\s+-w\s+"((?:[^"\\]|\\.)*)"/.exec(stdinData);
-        if (m) {
-          const account = m[1]!.replace(/\\(.)/g, "$1");
-          const value = m[2]!.replace(/\\(.)/g, "$1");
-          items.set(account, value);
+        const commands = stdinData.split("\n").filter((line) => line.length > 0);
+        for (const line of commands) {
+          const m = /add-generic-password.*-a\s+"((?:[^"\\]|\\.)*)"\s+-X\s+([0-9a-f]+)/.exec(line);
+          if (m) {
+            const account = m[1]!.replace(/\\(.)/g, "$1");
+            const value = Buffer.from(m[2]!, "hex").toString("utf8");
+            items.set(account, value);
+          }
         }
         return { status: 0, stdout: "", stderr: "" };
       }
@@ -252,7 +255,28 @@ describe("keychain secret store (fake `security`, no real Keychain touched)", ()
       expect(call.args.join(" ")).not.toContain("test-value-not-a-real-secret");
     }
     const addCall = calls.find((c) => (c.stdin ?? "").includes("add-generic-password"));
-    expect(addCall?.stdin).toContain("test-value-not-a-real-secret");
+    expect(addCall?.stdin).toContain(Buffer.from("test-value-not-a-real-secret", "utf8").toString("hex"));
+  });
+
+  // Mutation point of the review's follow-up: `security -i` reads one
+  // command per line, and the old `-w "quoted"` form only escapes quotes and
+  // backslashes, not a newline inside the value. An age identity IS
+  // multi-line (`# created…`, `# public key…`, `AGE-SECRET-KEY-…`), so a
+  // value like it would close the add-generic-password command early and
+  // start a second, injected one. Put `-X <hex>` back to `-w <quoted>` and
+  // this test goes red: either the round trip breaks, or a second command
+  // shows up on stdin.
+  test("mutation: a multi-line value with quotes and backslashes round-trips, and stdin carries one command", async () => {
+    const secretAcrossLines = 'line one "quoted"\nline \\two\nAGE-SECRET-KEY-EXAMPLE';
+    const { runner, calls } = fakeSecurity();
+    const store = createKeychainSecretStore(TEST_ALLOWLIST, runner);
+    await store.pack({ [TEST_NAME]: secretAcrossLines });
+    expect(await store.read(TEST_NAME)).toBe(secretAcrossLines);
+
+    const addCall = calls.find((c) => (c.stdin ?? "").includes("add-generic-password"));
+    const commandLines = (addCall?.stdin ?? "").split("\n").filter((line) => line.length > 0);
+    expect(commandLines.length).toBe(1);
+    expect(commandLines[0]).not.toContain("\n");
   });
 });
 
