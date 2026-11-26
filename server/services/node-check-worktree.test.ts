@@ -135,8 +135,10 @@ describe("a node check checkout cut by a shutdown does not block the land", () =
     expect(listed(repo)).toHaveLength(1);
     const res = await land(repo);
     expect(res.status).toBe("merged");
-    // The next checkout of the same card sweeps what the cut left behind.
-    await measureThenCut(repo, checks, realGit);
+    // A card that lands is never measured again: nothing reopens its run
+    // folder, so what the cut left behind waits for the next boot sweep.
+    const pool = createNodeCheckWorktrees({ git: realGit, root: checks, resolveHead: headOf });
+    await pool.sweep();
     expect(readdirSync(checks)).toEqual([]);
   }, WITH_REAL_GIT);
 
