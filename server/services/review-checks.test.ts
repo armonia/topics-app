@@ -17,7 +17,9 @@ import {
   serializeReviewChecks,
   failureTail,
   MAX_CHECKS,
+  MAX_CHECK_OUTPUT_BYTES,
   NOT_MEASURED_EXIT,
+  appendBoundedTail,
   type CheckRun,
   checksVerdict,
 } from "./review-checks";
@@ -174,6 +176,32 @@ describe("failureTail", () => {
 
 });
 
+describe("appendBoundedTail: a check's output never grows past its cap", () => {
+  // Card f4e623d3: before this cap, `runOne` kept the WHOLE stdout/stderr of
+  // every check in memory as one growing string, and a chatty or stuck
+  // command drove the server's footprint to 9.1 GB. Reverting to plain
+  // concatenation (`text + chunk`, no slice) makes this fail: `text.length`
+  // would grow past `max` instead of staying capped.
+  test("a chunk past the cap pushes the oldest bytes out, the result never exceeds it", () => {
+    const { text, droppedBytes } = appendBoundedTail("a".repeat(10), "b".repeat(5), 10);
+    expect(text.length).toBe(10);
+    expect(droppedBytes).toBe(5);
+    // The tail is kept, the head is what is dropped.
+    expect(text).toBe("a".repeat(5) + "b".repeat(5));
+  });
+
+  test("under the cap, nothing is dropped", () => {
+    const { text, droppedBytes } = appendBoundedTail("hello ", "world", 100);
+    expect(text).toBe("hello world");
+    expect(droppedBytes).toBe(0);
+  });
+
+  test("MAX_CHECK_OUTPUT_BYTES is a real cap, not a decorative constant", () => {
+    expect(MAX_CHECK_OUTPUT_BYTES).toBeGreaterThan(0);
+    expect(MAX_CHECK_OUTPUT_BYTES).toBeLessThan(50 * 1024 * 1024); // well under "unbounded"
+  });
+});
+
 describe("runReviewChecks", () => {
   // La cartella nasce e muore negli hook: creata nel corpo del describe e
   // cancellata in fondo, sparirebbe PRIMA che i test girino (il corpo è
@@ -196,6 +224,18 @@ describe("runReviewChecks", () => {
     expect(runs[0].code).toBe(3);
     expect(runs[0].tail).toContain("esploso");
   });
+
+  // A check well past MAX_CHECK_OUTPUT_BYTES of stdout still ends up red for
+  // the right reason, with the real failure visible in the tail: bounding the
+  // buffer must not cost correctness.
+  test.concurrent("un comando molto chiacchierone resta leggibile: la coda vera arriva, non viene troncata", async () => {
+    const bigCmd =
+      "yes noise | head -c $((3 * 1024 * 1024)); echo; echo THE-REAL-FAILURE-LINE; exit 1";
+    const runs = await runReviewChecks([{ name: "chiacchierone", cmd: bigCmd }], { cwd, timeoutMs: stretched(10_000) });
+    expect(runs[0].ok).toBe(false);
+    expect(runs[0].code).toBe(1);
+    expect(runs[0].tail).toContain("THE-REAL-FAILURE-LINE");
+  }, 15_000);
 
   // Un typecheck rotto rende inutile il lint che segue: farlo girare comunque
   // costa minuti per produrre rumore.

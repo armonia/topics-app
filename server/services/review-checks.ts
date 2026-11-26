@@ -176,6 +176,33 @@ export const STATIC_RAILS_CHECK: ReviewCheck = {
 };
 /** Righe di output tenute per ogni check. Bastano a vedere l'errore, non riempiono il DB. */
 export const TAIL_LINES = 40;
+
+/**
+ * Cap on how much of a check's stdout/stderr this process holds at once.
+ *
+ * `failureTail` only ever keeps `TAIL_LINES` of the end, so there is no
+ * reason to retain more than a generous multiple of that while the process is
+ * still running. Before this cap, a hung or chatty check (card
+ * f4e623d3, measured: a review round with several checks in flight drove the
+ * server's footprint to 9.1 GB in under three hours) could print for the
+ * whole `DEFAULT_TIMEOUT_MS` before being killed, and every byte sat in
+ * memory as one growing string per stream per check.
+ */
+export const MAX_CHECK_OUTPUT_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Appends `chunk` to `text`, keeping only the last `max` bytes.
+ *
+ * Returns how many bytes were dropped off the front, so a caller tracking an
+ * absolute scan position into `text` (as `runOne` does for the slot markers)
+ * can shift it by the same amount instead of rescanning from zero.
+ */
+export function appendBoundedTail(text: string, chunk: string, max: number): { text: string; droppedBytes: number } {
+  const next = text + chunk;
+  if (next.length <= max) return { text: next, droppedBytes: 0 };
+  const droppedBytes = next.length - max;
+  return { text: next.slice(droppedBytes), droppedBytes };
+}
 /**
  * Tetto per comando. Un check che ci mette più di così non è un gate, è un blocco.
  *
@@ -583,8 +610,10 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
         ...opts.env,
       },
     });
-    // stdout is collected whole; stderr is read as it arrives, because two of
-    // its lines move the clock. `slot.ts` prints `SLOT_ACQUIRED_PREFIX` the
+    // stdout is read as it arrives and kept to its last MAX_CHECK_OUTPUT_BYTES
+    // (only the tail ever reaches a report); stderr is also read as it
+    // arrives, because two of its lines move the clock. `slot.ts` prints
+    // `SLOT_ACQUIRED_PREFIX` the
     // moment the command really starts, and the cap is restarted from there:
     // queueing for a slot is not the command's time (shared/slot-acquired.ts).
     // The runner prints `GATE_SLOWDOWN_PREFIX` when it has decided to take
@@ -661,7 +690,18 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
       }, opts.treeSampleMs ?? TREE_SAMPLE_MS);
     }
     opts.signal?.addEventListener("abort", onAbort, { once: true });
-    const outP = new Response(proc.stdout as ReadableStream<Uint8Array>).text();
+    let out = "";
+    const outPromise = (async () => {
+      const outReader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+      const outDecoder = new TextDecoder();
+      for (;;) {
+        const { value, done } = await outReader.read();
+        if (done) break;
+        out = appendBoundedTail(out, outDecoder.decode(value, { stream: true }), MAX_CHECK_OUTPUT_BYTES).text;
+      }
+      out = appendBoundedTail(out, outDecoder.decode(), MAX_CHECK_OUTPUT_BYTES).text;
+      return out;
+    })();
     let err = "";
     let queuedMs: number | null = null;
     // After the first acquired line: the run's token, where its next slot line
@@ -699,7 +739,11 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
-      err += decoder.decode(value, { stream: true });
+      {
+        const appended = appendBoundedTail(err, decoder.decode(value, { stream: true }), MAX_CHECK_OUTPUT_BYTES);
+        err = appended.text;
+        slotScan = Math.max(0, slotScan - appended.droppedBytes);
+      }
       if (queuedMs === null) {
         const q = parseSlotAcquired(err);
         if (q !== null) {
@@ -750,8 +794,8 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
         }
       }
     }
-    err += decoder.decode();
-    const out = await outP;
+    err = appendBoundedTail(err, decoder.decode(), MAX_CHECK_OUTPUT_BYTES).text;
+    await outPromise;
     const code = await proc.exited;
     const combined = [out, err].filter((s) => s.trim()).join("\n");
     return {
