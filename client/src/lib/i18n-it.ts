@@ -2485,6 +2485,7 @@ const IT: Dict = {
   'project.sidebar.collapseAll': 'Chiudi tutto',
   'project.sidebar.expand': 'Espandi la barra',
   'project.sidebar.hide': 'Nascondi la barra',
+  'sidebar.collapse': 'Chiudi la colonna',
   'project.sidebar.files': 'File',
   'project.sidebar.gitChanges': 'Modifiche git',
   'project.sidebar.processes': 'Processi',

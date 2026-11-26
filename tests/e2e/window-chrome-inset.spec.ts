@@ -55,6 +55,10 @@ const SIDEBAR = '[aria-label="Topics sidebar"]';
 const BOX = '[data-testid="traffic-lights-box"]';
 const TITLE_LABEL = '[data-testid="sidebar-topics-title"]';
 const BELL = '[data-testid="inbox-button"]';
+const HEADER_TOGGLE = '[data-testid="sidebar-collapse"]';
+/** A column wide enough for the word next to the four buttons: it hides
+ *  whole below about 302 (`.sidebar-header` in index.css). */
+const WORD_COLUMN = 320;
 const SEARCH = `${SIDEBAR} [aria-label="Search, open the command palette"]`;
 const ADD = `${SIDEBAR} [data-testid="pane-add-menu-trigger"]`;
 const BAR = ".pane-chrome-bar";
@@ -82,8 +86,9 @@ async function sidebarIsAway(page: Page): Promise<boolean> {
 }
 
 /**
- * The slide, one number per frame: the left edge of the leftmost thing in the
- * content's top bar (the toggle or the first tab, whichever is first). Started
+ * The slide, one number per frame: the left edge of the leftmost visible thing
+ * in the content's top bar (the toggle or the first tab, whichever is first;
+ * the toggle keeps its box while hidden, so it is skipped then). Started
  * BEFORE the toggle and left running past the end of the slide, so the last
  * samples are the resting position.
  */
@@ -99,7 +104,7 @@ async function sampleSlide(page: Page, trigger: () => Promise<void>, frames: num
           const el = document.querySelector(selector);
           if (!el) continue;
           const r = el.getBoundingClientRect();
-          if (r.width > 0) m = Math.min(m, r.left);
+          if (r.width > 0 && getComputedStyle(el).visibility !== "hidden") m = Math.min(m, r.left);
         }
         return m;
       };
@@ -179,19 +184,26 @@ test.describe("The room for the native lights", () => {
     expect(Math.abs(box.left - LIGHTS_LEFT), `box left ${box.left} vs ${LIGHTS_LEFT}`).toBeLessThanOrEqual(TOL);
   });
 
-  test("one step along the header: lights, word, bell, and search to add", async ({ page }) => {
+  test("one step along the header: lights, word, toggle, bell, and search to add", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "WINCTL-02" });
     await loadMacChrome(page);
-    const [box, word, bell, search, add] = await Promise.all([
+    await page.evaluate(({ sidebar, width }) => {
+      const bar = document.querySelector(sidebar) as HTMLElement;
+      bar.style.transition = "none";
+      bar.style.width = `${width}px`;
+    }, { sidebar: SIDEBAR, width: WORD_COLUMN });
+    const [box, word, toggle, bell, search, add] = await Promise.all([
       rectOf(page, BOX),
       rectOf(page, TITLE_LABEL),
+      rectOf(page, HEADER_TOGGLE),
       rectOf(page, BELL),
       rectOf(page, SEARCH),
       rectOf(page, ADD),
     ]);
     const gaps = {
       "lights to word": word.left - box.right,
-      "word to bell": bell.left - word.right,
+      "word to toggle": toggle.left - word.right,
+      "toggle to bell": bell.left - toggle.right,
       "search to add": add.left - search.right,
     };
     const values = Object.values(gaps);
@@ -230,7 +242,8 @@ test.describe("The room for the native lights", () => {
         rowBottom: Math.max(word.bottom, bell.bottom, add.bottom),
         pairs: [
           { name: "gap", left: box.right, right: word.left, top: word.top, height: word.height },
-          { name: "gap", left: word.right, right: bell.left, top: bell.top, height: bell.height },
+          { name: "gap", left: word.right, right: toggle.left, top: toggle.top, height: toggle.height },
+          { name: "gap", left: toggle.right, right: bell.left, top: bell.top, height: bell.height },
           { name: "gap", left: search.right, right: add.left, top: add.top, height: add.height },
         ],
       },
@@ -241,6 +254,29 @@ test.describe("The room for the native lights", () => {
       clip: { x: 0, y: 0, width: sidebar.width, height: 96 },
     });
     await page.evaluate(() => document.getElementById("e2e-annotations")?.remove());
+
+    // At the default 256 the word does not fit beside the lights: its box goes
+    // with it, so no blank opens between the lights and the toggle, and the
+    // step is the same one along the whole row.
+    await page.evaluate(({ sidebar }) => {
+      (document.querySelector(sidebar) as HTMLElement).style.width = "256px";
+    }, { sidebar: SIDEBAR });
+    await expect(page.locator(TITLE_LABEL)).toBeHidden();
+    const [box256, toggle256, bell256, search256, add256] = await Promise.all([
+      rectOf(page, BOX),
+      rectOf(page, HEADER_TOGGLE),
+      rectOf(page, BELL),
+      rectOf(page, SEARCH),
+      rectOf(page, ADD),
+    ]);
+    const gaps256 = {
+      "lights to toggle": toggle256.left - box256.right,
+      "toggle to bell": bell256.left - toggle256.right,
+      "search to add": add256.left - search256.right,
+    };
+    for (const [name, v] of Object.entries(gaps256)) {
+      expect(Math.abs(v - GAP), `at 256, ${name} = ${v.toFixed(1)}, expected ${GAP}`).toBeLessThanOrEqual(TOL);
+    }
   });
 
   test("the content's top bar never crosses the lights while the sidebar slides", async ({ browser }) => {
@@ -256,12 +292,19 @@ test.describe("The room for the native lights", () => {
       await openBaselineChats(page.request);
       await loadMacChrome(page);
       await openTestChat(page);
-      await expect(page.locator(BAR_TOGGLE)).toBeVisible();
+      // The measure means something only under the Mac chrome: say so here
+      // rather than as frames "under the lights" of a page with no lights.
+      await expect(page.locator(`${SIDEBAR} .sidebar-header`)).toHaveAttribute("data-window-chrome", "mac");
+      // With the column open its toggle is in its header and the bar has none
+      // (25/11); the bar's own shows once the column is away.
+      await expect(page.locator(HEADER_TOGGLE)).toBeVisible();
+      await expect(page.locator(BAR_TOGGLE)).toBeHidden();
 
       // Sixty frames: the slide is 200ms, the cleanup 60 more, and the rest of
       // the second is resting frames that tie the last moving one to the end.
       const collapse = await sampleSlide(page, () => page.keyboard.press("Meta+b"), 60);
       expect(await sidebarIsAway(page), "sidebar did not collapse").toBe(true);
+      await expect(page.locator(BAR_TOGGLE)).toBeVisible();
       judgeSlide(collapse, "collapse");
 
       const reopen = await sampleSlide(page, () => page.keyboard.press("Meta+b"), 60);

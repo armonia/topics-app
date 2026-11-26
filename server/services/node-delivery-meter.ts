@@ -17,6 +17,7 @@
  * not "the code is wrong". Such a card stays unmeasured and a person decides,
  * which is what happens today.
  */
+import { existsSync } from "node:fs";
 import { isCiEvidenceCheck, type ReviewCheck } from "../../shared/board";
 import type { ChecksLeg } from "./checks-gate";
 
@@ -46,12 +47,15 @@ interface NodeDeliveryMeterDeps {
   legMs?: number;
   /** Legs before giving up on a round that never settles. */
   maxLegs?: number;
+  /** Seam for the test: whether a path is on disk right now. */
+  existsSync?: (path: string) => boolean;
 }
 
 export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
   const log = deps.log ?? (() => undefined);
   const legMs = deps.legMs ?? 60_000;
   const maxLegs = deps.maxLegs ?? 80;
+  const exists = deps.existsSync ?? existsSync;
   const measuring = new Set<string>();
 
   async function measure(taskId: string): Promise<void> {
@@ -66,11 +70,23 @@ export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
     if (!deps.checkout) return;
     measuring.add(taskId);
     try {
-      const lease = await deps.checkout(taskId);
+      let lease = await deps.checkout(taskId);
       if (!lease) { log(`[node-meter] ${taskId.slice(0, 8)}: nessun checkout su cui misurare`); return; }
       try {
-        const at = async () => ({ cwd: lease.cwd, commit: await lease.head() });
+        const at = async () => ({ cwd: lease!.cwd, commit: await lease!.head() });
         for (let leg = 0; leg < maxLegs; leg++) {
+          // The cwd can be gone under the measure (a process before tore the
+          // checkout down before releasing its own lease): launching a command
+          // on a folder that is not there measures nothing, it only writes a
+          // `spawnError`. Redo the checkout on the same delivered commit
+          // instead, with no command ever launched on the void.
+          if (!exists(lease.cwd)) {
+            log(`[node-meter] ${taskId.slice(0, 8)}: checkout sparito, lo rifaccio`);
+            const fresh = await deps.checkout(taskId).catch(() => null);
+            if (!fresh) { log(`[node-meter] ${taskId.slice(0, 8)}: non misurato: checkout sparito`); return; }
+            lease = fresh;
+            continue;
+          }
           const out = await deps.runGate(taskId, task.projectId, legMs, at);
           if (out && "pending" in out) continue;
           break;

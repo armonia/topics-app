@@ -2264,6 +2264,7 @@ const EN = {
   'project.sidebar.collapseAll': 'Collapse all',
   'project.sidebar.expand': 'Expand sidebar',
   'project.sidebar.hide': 'Hide sidebar',
+  'sidebar.collapse': 'Collapse sidebar',
   'project.sidebar.files': 'Files',
   'project.sidebar.gitChanges': 'Git changes',
   'project.sidebar.processes': 'Processes',

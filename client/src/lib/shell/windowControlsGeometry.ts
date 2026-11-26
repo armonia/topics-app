@@ -27,11 +27,15 @@
  * positioning context of the group and starts at ROW_INSET from the window
  * edge):
  *
- *     mac:      lights at window x=12, 52 wide, then one ROW_INSET of air
- *               12 + 52 - ROW_INSET + ROW_INSET   =  64
- *     windows:  cells at `left-[6px]`, 3 x 18 with 4 of air between them,
- *               then one ROW_INSET of air
- *               6 + 54 + 8 + ROW_INSET            =  74
+ *     mac:      lights at window x=12, 52 wide
+ *               12 + 52 - ROW_INSET               =  58
+ *     windows:  cells at `left-[6px]`, 3 x 18 with 4 of air between them
+ *               6 + 54 + 8                        =  68
+ *
+ * The inset stops at the commands' edge. The one ROW_INSET of air after them
+ * belongs to what follows: the word's own margin while the word shows, the
+ * row's gap when it does not (`.sidebar-wordmark` in index.css), so the
+ * column's toggle never sits further than one step from the lights.
  *
  * The air between the commands and the word is ROW_INSET on purpose: it is the
  * same step the search and add pair keeps at the other end of the row, so the
@@ -62,8 +66,8 @@ export const WINDOW_CONTROLS_INSET_PX = 12;
  * SOURCE: a class assembled at runtime from the constants would never be
  * generated. The test in `WindowControls.test.tsx` keeps each pair in step.
  */
-export const TITLE_INSET_WITH_CONTROLS_MAC = 'pl-[64px]';
-export const TITLE_INSET_WITH_CONTROLS_WINDOWS = 'pl-[74px]';
+export const TITLE_INSET_WITH_CONTROLS_MAC = 'pl-[58px]';
+export const TITLE_INSET_WITH_CONTROLS_WINDOWS = 'pl-[68px]';
 
 /**
  * THE ROOM THE CONTENT KEEPS WHEN THE SIDEBAR IS AWAY, on the Mac only.
