@@ -164,6 +164,15 @@ barra dei menu.
   poi progetto con la sua icona (il nome accanto da pannello largo), titolo, chip di chi la segue;
   intestazione e righe in un solo riquadro con l'intestazione su `inset`, hover `app-hover` e anello
   di focus sulle righe.
+- La tab del browser nel titolo e la grammatica delle righe (26/11 «Approvato», #1688 e #1695):
+  dentro un progetto il browser in primo piano è il titolo, alto una riga e largo quanto la tab
+  attiva della striscia (300 il browser, 150 le altre) con l'indirizzo, e la sua pagina è un'isola
+  coi quattro angoli; righe, intestazioni delle isole e piede della colonna alti 34 e senza fondo a
+  riposo; ogni tab, anche chiusa, prende il fondo al passaggio.
+- La testata della colonna (26/11 «Approvato», #1695): semafori, «Topics» (sparisce intera quando
+  non ci sta), interruttore della colonna, campanella, poi cerca e «+»; i quattro tasti a misura di
+  tab (34, 44 sotto 768) senza fondo a riposo; l'interruttore del contenuto compare solo a colonna
+  chiusa.
 
 ## Feedback di Attilio
 
