@@ -1,6 +1,6 @@
 /** @covers LAND-16 */
 import { describe, expect, test } from "bun:test";
-import { mainRedStop, watchMainCi, type MainCiCommit, type MainCiPort, type MainCiVerdict } from "./main-ci-watch";
+import { failingTestNames, mainRedStop, watchMainCi, type MainCiCommit, type MainCiPort, type MainCiVerdict } from "./main-ci-watch";
 
 const NOW = 1_800_000_000;
 const commit = (sha: string, ageS = 3600): MainCiCommit => ({ sha, subject: `commit ${sha}`, at: NOW - ageS });
@@ -73,5 +73,20 @@ describe("mainRedStop: a land waits while main is red", () => {
     for (const state of ["pass", "pending", "none"] as const) {
       expect(await mainRedStop(portWith({ state, failed: [], url: null }))).toBeNull();
     }
+  });
+});
+
+describe("failingTestNames: the unit suite's own JUnit report, read for the failing testcases", () => {
+  test("a passing testcase is skipped, a failing one is named classname > name", () => {
+    const xml = `<testsuite>
+      <testcase classname="a.test.ts" name="passes"></testcase>
+      <testcase classname="a.test.ts" name="breaks"><failure message="boom"/></testcase>
+      <testcase classname="b.test.ts" name="errors"><error message="boom"/></testcase>
+    </testsuite>`;
+    expect(failingTestNames(xml)).toEqual(["a.test.ts > breaks", "b.test.ts > errors"]);
+  });
+
+  test("no failures, no names", () => {
+    expect(failingTestNames(`<testsuite><testcase classname="a" name="ok"/></testsuite>`)).toEqual([]);
   });
 });
