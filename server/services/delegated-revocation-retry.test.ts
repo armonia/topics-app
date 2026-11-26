@@ -77,6 +77,70 @@ describe("delegated revocation retry", () => {
       .toEqual({ state: "revoked", revoke_pending: 0, last_error: null });
   });
 
+  /**
+   * Review feedback 26/11, point 3b: a `blocks_live_dependent` 409 is not a
+   * transient failure, it will not clear until a human or another change
+   * resolves the dependent. Before the fix this 409 shared the SAME short
+   * `backoffMs` as a plain network error, so the governor's beat retried it
+   * every tick. Red if `blockedBackoffMs` stops using a longer wait: the
+   * second tick, just past the short backoff, would call `deleteBoardTask`
+   * again.
+   */
+  test("a 409 blocks_live_dependent waits the long backoff, not the short one", async () => {
+    const db = database();
+    db.run(`INSERT INTO delegated_node_requests VALUES
+      ('req','node','approved',NULL,'remote-req',NULL,'cap','auth',1,NULL,0)`);
+    db.run("INSERT INTO tasks VALUES ('run-blocked','project-local')");
+    db.run("INSERT INTO delegated_node_runs VALUES ('run-blocked','auth',NULL,NULL)");
+    let now = 0;
+    let calls = 0;
+    const retry = createDelegatedRevocationRetry({
+      db,
+      now: () => now,
+      backoffMs: 100,
+      deleteBoardTask: async () => {
+        calls += 1;
+        return new Response(JSON.stringify({ code: "blocks_live_dependent" }), { status: 409 });
+      },
+    });
+
+    await retry.tick({ force: true });
+    expect(calls).toBe(1);
+    const row = db.query("SELECT last_error FROM delegated_node_requests WHERE id='req'").get() as { last_error: string };
+    expect(row.last_error.startsWith("blocked:")).toBe(true);
+
+    // Past the plain short backoff, but nowhere near the blocked one.
+    now += 150;
+    await retry.tick();
+    expect(calls, "a blocked 409 must not be retried on the short backoff").toBe(1);
+  });
+
+  test("a plain cancel failure still retries on the short backoff", async () => {
+    const db = database();
+    db.run(`INSERT INTO delegated_node_requests VALUES
+      ('req','node','approved',NULL,'remote-req',NULL,'cap','auth',1,NULL,0)`);
+    db.run("INSERT INTO tasks VALUES ('run-flaky','project-local')");
+    db.run("INSERT INTO delegated_node_runs VALUES ('run-flaky','auth',NULL,NULL)");
+    let now = 0;
+    let calls = 0;
+    const retry = createDelegatedRevocationRetry({
+      db,
+      now: () => now,
+      backoffMs: 100,
+      deleteBoardTask: async () => {
+        calls += 1;
+        return new Response(null, { status: 500 });
+      },
+    });
+
+    await retry.tick({ force: true });
+    expect(calls).toBe(1);
+
+    now += 150;
+    await retry.tick();
+    expect(calls, "a plain failure keeps the short backoff, not the blocked one").toBe(2);
+  });
+
   test("overlapping ticks share one in-flight pass", async () => {
     const db = database();
     db.run(`INSERT INTO delegated_node_requests VALUES

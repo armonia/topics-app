@@ -13,6 +13,26 @@ interface PendingRevocationRow {
   claim_secret: string | null;
   capability_id: string | null;
   authorization_id: string | null;
+  last_error: string | null;
+}
+
+// A `blocks_live_dependent` 409 from the board is not a transient failure: the
+// cancel will keep failing until a human (or another automated change)
+// resolves the dependent, not after a short network-style backoff. Tagging
+// the error "blocked:" lets the retry pick a much longer wait for it, instead
+// of busy-looping on a condition that will not clear itself tick after tick.
+const BLOCKED_ERROR_PREFIX = "blocked:";
+
+// Distinguishes a `blocks_live_dependent` 409 (the board refusing a cancel on
+// a card that still blocks a live dependent) from any other failure, so the
+// caller can give it the much longer backoff above instead of hammering it.
+async function blockedErrorMessage(response: Response | null | undefined): Promise<string> {
+  if (response?.status !== 409) return `cancel returned ${response?.status ?? "no response"}`;
+  try {
+    const body = (await response.clone().json()) as { code?: unknown };
+    if (typeof body?.code === "string" && body.code) return `${BLOCKED_ERROR_PREFIX}${body.code}`;
+  } catch { /* body not readable as JSON, fall through to the generic tag */ }
+  return `${BLOCKED_ERROR_PREFIX}409`;
 }
 
 export function createDelegatedRevocationRetry(input: {
@@ -25,6 +45,9 @@ export function createDelegatedRevocationRetry(input: {
 }): DelegatedRevocationRetry {
   const now = input.now ?? Date.now;
   const backoffMs = input.backoffMs ?? 10_000;
+  // A blocked cancel waits a lot longer than a plain transient failure: there is
+  // no point hammering a 409 that only a dependent finishing or archiving can clear.
+  const blockedBackoffMs = backoffMs * 60;
   let running: Promise<{ attempted: number; pending: number }> | null = null;
 
   async function run(options: { requestId?: string; force?: boolean } = {}) {
@@ -33,8 +56,12 @@ export function createDelegatedRevocationRetry(input: {
     const args: Array<string | number> = [];
     if (options.requestId) { clauses.push("id=?"); args.push(options.requestId); }
     if (!options.force) {
-      clauses.push("(last_error IS NULL OR updated_at<=?)");
-      args.push(at - backoffMs);
+      clauses.push(
+        `(last_error IS NULL
+          OR (last_error NOT LIKE '${BLOCKED_ERROR_PREFIX}%' AND updated_at<=?)
+          OR (last_error LIKE '${BLOCKED_ERROR_PREFIX}%' AND updated_at<=?))`,
+      );
+      args.push(at - backoffMs, at - blockedBackoffMs);
     }
     const rows = input.db.query(`SELECT * FROM delegated_node_requests WHERE ${clauses.join(" AND ")}`)
       .all(...args) as PendingRevocationRow[];
@@ -65,6 +92,7 @@ export function createDelegatedRevocationRetry(input: {
          WHERE r.authorization_id=? AND r.cancel_confirmed_at IS NULL`)
         .all(row.authorization_id) as Array<{ run_id: string; project_id: string | null }>;
       let confirmed = true;
+      let blockedMessage: string | null = null;
       for (const run of runs) {
         if (!run.project_id) {
           input.db.query("UPDATE delegated_node_runs SET cancel_confirmed_at=?,cancel_error=NULL WHERE run_id=?")
@@ -73,7 +101,11 @@ export function createDelegatedRevocationRetry(input: {
         }
         try {
           const response = await input.deleteBoardTask(run.project_id, run.run_id);
-          if (!response?.ok) throw new Error(`cancel returned ${response?.status ?? "no response"}`);
+          if (!response?.ok) {
+            const message = await blockedErrorMessage(response);
+            if (message.startsWith(BLOCKED_ERROR_PREFIX)) blockedMessage = message;
+            throw new Error(message);
+          }
           input.db.query("UPDATE delegated_node_runs SET cancel_confirmed_at=?,cancel_error=NULL WHERE run_id=?")
             .run(now(), run.run_id);
         } catch (error) {
@@ -87,8 +119,8 @@ export function createDelegatedRevocationRetry(input: {
         input.db.query("UPDATE delegated_node_requests SET state='revoked',revoke_pending=0,last_error=NULL,updated_at=? WHERE id=? AND revoke_pending=1")
           .run(now(), row.id);
       } else {
-        input.db.query("UPDATE delegated_node_requests SET last_error='delegated_cancel_unconfirmed',updated_at=? WHERE id=? AND revoke_pending=1")
-          .run(now(), row.id);
+        input.db.query("UPDATE delegated_node_requests SET last_error=?,updated_at=? WHERE id=? AND revoke_pending=1")
+          .run(blockedMessage ?? "delegated_cancel_unconfirmed", now(), row.id);
       }
     }
     const pending = (input.db.query("SELECT COUNT(*) AS n FROM delegated_node_requests WHERE revoke_pending=1").get() as { n: number }).n;

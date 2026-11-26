@@ -20,6 +20,7 @@ export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: Re
     agentAskOnThread,
     annotateDeliveryClaims,
     assertBlockerValid,
+    assertNoLiveDependents,
     checkedStage,
     childLeftFlight,
     getTaskRow,
@@ -1617,6 +1618,15 @@ resolveParkedChildren(this: TaskService, { taskId, decision, by }): { task: Task
       // batch just because the other half has not archived yet (review
       // feedback, 26/11 — `archive` was throwing on the first of the two).
       const archiveBatchIds = decision === "archive" ? parked.map((c) => c.id) : [];
+      // Validate the WHOLE batch before archiving ANY of it. The loop below used to
+      // archive siblings one at a time with no precheck: the first sibling blocking
+      // only an EXTERNAL card (outside this batch) would archive fine, and the next
+      // one blocking an external dependent would throw mid-loop, leaving the batch
+      // half-archived and the parent stuck in `review` forever (review feedback,
+      // 26/11, point 3a).
+      if (decision === "archive") {
+        for (const c of parked) assertNoLiveDependents(c.id, archiveBatchIds);
+      }
       for (const c of parked) {
         if (decision === "requeue") {
           // Budget azzerato: un sottotask parcheggiato può aver bruciato tentativi

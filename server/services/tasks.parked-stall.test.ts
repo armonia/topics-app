@@ -459,6 +459,29 @@ describe("le due risposte, e cosa fanno davvero", () => {
     expect(archiviato(db, step2)).toBe(1);
   });
 
+  /**
+   * Review feedback 26/11, point 3a: the loop used to archive siblings one at
+   * a time with no precheck. step2 is blocked by an EXTERNAL card, outside the
+   * batch: before the fix, step1 archived fine and step2 then threw, leaving
+   * the batch half-archived and the parent stuck in review. Red without the
+   * batch-wide precheck: step1 ends up archived even though the whole call
+   * throws.
+   */
+  test("«archivia»: un dipendente ESTERNO su uno dei parcheggiati rifiuta tutto il lotto, senza toccarne nessuno", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" }).id;
+    const step1 = s.create({ projectId: PID, text: "step1", parentTaskId: padre }).id;
+    const step2 = s.create({ projectId: PID, text: "step2", parentTaskId: padre }).id;
+    const external = s.create({ projectId: PID, text: "external dependent", blockedByTaskId: step2 }).id;
+    s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+
+    expect(() => s.resolveParkedChildren({ taskId: padre, decision: "archive", by: "attilio" }))
+      .toThrow(/blocks_live_dependent|unfinished/);
+    expect(archiviato(db, step1), "il primo non deve restare archiviato da solo").toBe(0);
+    expect(archiviato(db, step2)).toBe(0);
+    expect(s.get(padre)!.task.status, "il padre resta in review, nessun esito a metà").toBe("review");
+    void external;
+  });
+
   test("rispondere due volte non inventa un secondo esito", () => {
     const { padre } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });

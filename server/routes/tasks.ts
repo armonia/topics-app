@@ -1259,6 +1259,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             createdSource: resolveCreatedSource(req, body) ?? `session:${sk}`,
             originTopicId: sess.topicId,
             bar: typeof body?.bar === "string" ? body.bar : null,
+            // A future step is a card with a real `blockedByTaskId` link, never a
+            // promise in a comment (`buildKickoff`, docs/board-protocol.md). The
+            // MCP `create_task` tool already sends this field; it was silently
+            // dropped here (review feedback, 26/11, point 4).
+            blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId : null,
           });
           const wait = scheduledWait(body);
           if (wait) svc.deferForWait({ taskId: task.id, reason: wait.reason, minutes: wait.minutes, by: "agent:session" });
