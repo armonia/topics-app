@@ -18,7 +18,7 @@ import { parseDeliverySettings, type DeliverySettings } from "./settings";
 import type { AdapterCall, AdapterResult } from "./adapter";
 
 const MIGRATIONS = join(import.meta.dir, "../../db/migrations");
-const FILES = ["20261014225051-scheduled-cards.sql", "20261121105631-scheduled-jobs.sql", "20261121160000-scheduled-job-command-output.sql", "20261126100000-scheduled-delivery.sql"];
+const FILES = ["20261014225051-scheduled-cards.sql", "20261121105631-scheduled-jobs.sql", "20261121160000-scheduled-job-command-output.sql", "20261126100000-scheduled-delivery.sql", "20261126180000-scheduled-delivery-guards.sql"];
 // The settings column is added by the real migration chain; here the table is not under test.
 const MIGRATION_SQL = FILES.map((file) => readFileSync(join(MIGRATIONS, file), "utf8").replace(/ALTER TABLE app_settings[^;]*;/g, ""));
 

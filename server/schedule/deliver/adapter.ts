@@ -14,7 +14,13 @@ import type { AdapterConfig, Destination } from "./settings";
 export interface AdapterValues extends Destination { title: string; jobId: string; runId: string; key: string }
 
 export interface AdapterCall { argv: string[]; env: Record<string, string>; stdin: string }
-export interface AdapterResult { exitCode: number; stdout: string; stderr: string }
+export interface AdapterResult {
+  exitCode: number; stdout: string; stderr: string;
+  /** The call went over its time limit, or left a pipe open after the process ended: it may have gone out. */
+  timedOut?: boolean;
+  /** The signal that ended the process, when it did not exit by itself. */
+  signalCode?: string | null;
+}
 /** Runs one call. Production spawns a process; tests record what they were given. */
 export type AdapterRunner = (call: AdapterCall) => Promise<AdapterResult>;
 
@@ -48,11 +54,59 @@ export function adapterCall(config: AdapterConfig, values: AdapterValues, stdin:
   return { argv: [resolved, ...argv.slice(1)], env, stdin };
 }
 
-export const spawnAdapter: AdapterRunner = async (call) => {
-  const child = Bun.spawn(call.argv, { env: call.env, stdin: new TextEncoder().encode(call.stdin), stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), ADAPTER_TIMEOUT_MS);
+export interface SpawnLimits {
+  /** Hard limit on the whole call. */
+  timeoutMs: number;
+  /** How long the pipes may stay open after the process itself is gone. */
+  pipeGraceMs: number;
+}
+const DEFAULT_LIMITS: SpawnLimits = { timeoutMs: ADAPTER_TIMEOUT_MS, pipeGraceMs: 2_000 };
+
+/** The process and everything it started: its own group on a POSIX system, the tree on Windows. */
+function killTree(pid: number): void {
   try {
-    const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    return { exitCode, stdout, stderr };
-  } finally { clearTimeout(timer); }
-};
+    if (process.platform === "win32") Bun.spawnSync(["taskkill", "/pid", String(pid), "/T", "/F"], { stdout: "ignore", stderr: "ignore" });
+    else process.kill(-pid, "SIGKILL");
+  } catch { /* already gone */ }
+}
+
+/** Reads a pipe into text as it comes, so what was written before a kill is still there. */
+function collect(stream: ReadableStream<Uint8Array>) {
+  const decoder = new TextDecoder();
+  let text = "";
+  const done = (async () => {
+    try { for await (const chunk of stream) text += decoder.decode(chunk, { stream: true }); } catch { /* a closed pipe ends the read */ }
+  })();
+  return { done, text: () => text };
+}
+
+const after = (ms: number) => new Promise<"late">((resolve) => { setTimeout(() => resolve("late"), ms).unref?.(); });
+
+/**
+ * Production runner. The process leads a group of its own so a grandchild that
+ * keeps stdout open cannot hold the sweep: past the time limit, or past a short
+ * grace once the process itself is gone, the group is killed and the call is
+ * reported as `timedOut` (it may have gone out, so nobody sends it again).
+ */
+export function createSpawnAdapter(limits: SpawnLimits = DEFAULT_LIMITS): AdapterRunner {
+  return async (call) => {
+    const child = Bun.spawn(call.argv, { env: call.env, stdin: new TextEncoder().encode(call.stdin), stdout: "pipe", stderr: "pipe", detached: true });
+    const out = collect(child.stdout);
+    const err = collect(child.stderr);
+    let timedOut = false;
+    const exited = await Promise.race([child.exited.then(() => "exited" as const), after(limits.timeoutMs)]);
+    if (exited === "late") {
+      timedOut = true;
+      killTree(child.pid);
+      await Promise.race([child.exited, after(limits.pipeGraceMs)]);
+    }
+    const piped = await Promise.race([Promise.all([out.done, err.done]).then(() => "closed" as const), after(limits.pipeGraceMs)]);
+    if (piped === "late") {
+      timedOut = true;
+      killTree(child.pid);
+    }
+    return { exitCode: child.exitCode ?? -1, signalCode: child.signalCode ?? null, timedOut, stdout: out.text(), stderr: err.text() };
+  };
+}
+
+export const spawnAdapter: AdapterRunner = createSpawnAdapter();

@@ -162,7 +162,8 @@ export function createJobsService(db: Database, options: JobsServiceOptions) {
       const byAgent = createdBy.startsWith(AGENT_CREATOR_PREFIX);
       const pausedByAgent = byAgent && enabled && (input.deliver != null || (options.agentJobMode?.() ?? "ask") === "ask");
       if (pausedByAgent) enabled = false;
-      const schedule = parseSchedule(input.schedule, enabled);
+      // The state the caller ASKED for decides about the past: a job an agent pauses still has to be a job that can run once turned on.
+      const schedule = parseSchedule(input.schedule, asked);
       const action = parseAction(input.action);
       const projectId = projectOf(input.projectId);
       checkWhere(projectId, action);
@@ -174,10 +175,11 @@ export function createJobsService(db: Database, options: JobsServiceOptions) {
       } else throw new JobsError("The id is not valid.");
       const at = now();
       const next = enabled ? firstOccurrence(schedule, at) : null;
-      db.prepare(`INSERT INTO scheduled_jobs (id, name, project_id, schedule_json, action_json, deliver_json, policy_json, enabled, next_run_at, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(id, name, projectId, JSON.stringify(schedule), JSON.stringify(action), deliverOf(input.deliver), JSON.stringify(policyOf(input.policy)),
-          enabled ? 1 : 0, next?.toISOString() ?? null, createdBy, at.toISOString(), at.toISOString());
+      const deliver = deliverOf(input.deliver);
+      db.prepare(`INSERT INTO scheduled_jobs (id, name, project_id, schedule_json, action_json, deliver_json, deliver_since, policy_json, enabled, awaiting_owner, next_run_at, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, name, projectId, JSON.stringify(schedule), JSON.stringify(action), deliver, deliver ? at.toISOString() : null, JSON.stringify(policyOf(input.policy)),
+          enabled ? 1 : 0, pausedByAgent ? 1 : 0, next?.toISOString() ?? null, createdBy, at.toISOString(), at.toISOString());
       if (pausedByAgent) options.onPausedByAgent?.({ id, name });
       return view(read(id)!);
     },
@@ -198,13 +200,18 @@ export function createJobsService(db: Database, options: JobsServiceOptions) {
       const policy = input.policy === undefined ? current.policy : policyOf(input.policy);
       const at = now();
       const scheduleChanged = JSON.stringify(schedule) !== JSON.stringify(current.schedule);
-      if (scheduleChanged && enabled && schedule.kind === "at") parseSchedule(schedule, true);
       const reEnabled = enabled && !current.enabled;
+      // A one-time job turned on (or moved) while its instant is gone would be accepted and never run.
+      if (enabled && schedule.kind === "at" && (scheduleChanged || reEnabled)) parseSchedule(schedule, true);
       let next = row.next_run_at;
       if (enabled && (scheduleChanged || reEnabled || !next)) next = firstOccurrence(schedule, at)?.toISOString() ?? null;
-      db.prepare("UPDATE scheduled_jobs SET name=?, project_id=?, schedule_json=?, action_json=?, deliver_json=?, policy_json=?, enabled=?, next_run_at=?, updated_at=? WHERE id=?")
-        .run(name, projectId, JSON.stringify(schedule), JSON.stringify(action),
-          input.deliver === undefined ? row.deliver_json : deliverOf(input.deliver), JSON.stringify(policy), enabled ? 1 : 0, next, at.toISOString(), id);
+      const deliver = input.deliver === undefined ? row.deliver_json : deliverOf(input.deliver);
+      // Only runs that finish after the delivery was added or changed are sent.
+      const deliverSince = !deliver ? null : deliver === row.deliver_json ? row.deliver_since : at.toISOString();
+      // A person turning the job on is the answer R26 waits for.
+      const awaitingOwner = enabled ? 0 : row.awaiting_owner;
+      db.prepare("UPDATE scheduled_jobs SET name=?, project_id=?, schedule_json=?, action_json=?, deliver_json=?, deliver_since=?, policy_json=?, enabled=?, awaiting_owner=?, next_run_at=?, updated_at=? WHERE id=?")
+        .run(name, projectId, JSON.stringify(schedule), JSON.stringify(action), deliver, deliverSince, JSON.stringify(policy), enabled ? 1 : 0, awaitingOwner, next, at.toISOString(), id);
       return view(read(id)!);
     },
 
@@ -217,7 +224,7 @@ export function createJobsService(db: Database, options: JobsServiceOptions) {
     },
 
     runNow(id: string): RunView {
-      live(id);
+      if (live(id).awaiting_owner) throw new JobsError("This job was created by an agent and waits for the owner to turn it on.", 409);
       const run = options.engine.runNow(id);
       if (!run) throw new JobsError("The run could not be created.", 409);
       return runView(db.query("SELECT * FROM scheduled_job_runs WHERE id = ?").get(run.id) as RunRow);

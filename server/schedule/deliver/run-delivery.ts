@@ -49,7 +49,8 @@ export function textToSend(run: Pick<RunRow, "status" | "stdout_tail" | "exit_co
   let out = (run.stdout_tail ?? "").trim();
   // The agent track writes a failure marker on the first line: the marker is not for the person.
   if (out.startsWith(AUTOMATION_FAILED)) out = out.split("\n").slice(1).join("\n").trim();
-  if (out === NO_REPLY) return null;
+  // `NO_REPLY` is the whole answer or its last line (R17): a text that ends with it has nothing to say.
+  if (out === NO_REPLY || out.endsWith("\n" + NO_REPLY)) return null;
   if (out) return out.slice(0, DELIVERED_CHARS);
   if (run.status === "error" && previousWasOk) return `${jobName}: the command failed (exit code ${run.exit_code ?? "unknown"}).`;
   return null;
@@ -71,6 +72,7 @@ export function createRunDelivery(options: RunDeliveryOptions) {
     const rows = db.query(`SELECT r.* FROM scheduled_job_runs r JOIN scheduled_jobs j ON j.id = r.job_id
       WHERE j.deliver_json IS NOT NULL AND r.finished_at IS NOT NULL AND r.finished_at > ?
         AND r.status IN ('ok','error','timeout','cancelled')
+        AND j.awaiting_owner = 0 AND (j.deliver_since IS NULL OR r.finished_at > j.deliver_since)
         AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.key = r.id) ORDER BY r.finished_at, r.rowid`).all(since) as RunRow[];
     const settings = options.settings();
     for (const run of rows) {
@@ -100,7 +102,7 @@ export function createRunDelivery(options: RunDeliveryOptions) {
   function alertBrokenJobs() {
     const since = new Date(now().getTime() - FRESH_MS).toISOString();
     const jobs = db.query(`SELECT DISTINCT j.id, j.name FROM scheduled_jobs j JOIN scheduled_job_runs r ON r.job_id = j.id
-      WHERE j.deleted_at IS NULL AND r.status IN ('error','timeout','failed_to_start') AND r.finished_at > ?`).all(since) as { id: string; name: string }[];
+      WHERE j.deleted_at IS NULL AND j.enabled = 1 AND r.status IN ('error','timeout','failed_to_start') AND r.finished_at > ?`).all(since) as { id: string; name: string }[];
     for (const job of jobs) {
       if (failureStreak(job.id) < FAILURES_BEFORE_ALERT) continue;
       options.alert({
@@ -117,7 +119,11 @@ export function createRunDelivery(options: RunDeliveryOptions) {
     async sweep(): Promise<void> {
       if (sweeping) return;
       sweeping = true;
-      try { alertBrokenJobs(); await deliverRuns(); } finally { sweeping = false; }
+      try {
+        // An alert that throws must not hold back the outcomes of the jobs.
+        try { alertBrokenJobs(); } catch (error) { console.warn("[schedule] failure alerts failed:", error); }
+        await deliverRuns();
+      } finally { sweeping = false; }
     },
   };
 }

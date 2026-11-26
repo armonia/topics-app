@@ -3,7 +3,7 @@
  * unlike a system row it counts on the bell, and it lights no chat.
  * @covers SCHED-07
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -13,7 +13,7 @@ import { unseenSnapshot } from "../db/notification-log";
 import { recordSubjectNotice } from "./owner-notices";
 import { jobSubject } from "../../shared/attention";
 import { createOwnerAlert } from "../schedule/deliver/owner-alert";
-import { configureAttentionStore, resetAttentionStore } from "./store";
+import { configureAttentionStore, getAttention, litSubjectCount, markAttentionSeen, resetAttentionStore } from "./store";
 
 let tmpRoot: string;
 beforeAll(() => {
@@ -56,5 +56,29 @@ describe("a job failure notice", () => {
     expect(raise(request)).toBe("already_today");
     expect(all()).toHaveLength(1);
     expect(unseenSnapshot().unseenKeys).toEqual(["job:j-2"]);
+  });
+});
+
+describe("a job failure lights its subject (what the bell, the Dock and the tray count)", () => {
+  test("the subject is lit as a finished error until it is seen", () => {
+    const before = litSubjectCount();
+    recordSubjectNotice({ subject: jobSubject("j-3"), title: "Nightly sync has failed 3 times in a row", dedupeKey: "alert:job:j-3:2026-11-26" });
+    const lit = getAttention("job:j-3");
+    expect(lit.lit).toBe(true);
+    expect(lit.state).toBe("finished");
+    expect(lit.outcome).toBe("error");
+    expect(lit.detail).toBe("Nightly sync has failed 3 times in a row");
+    expect(litSubjectCount()).toBe(before + 1);
+    markAttentionSeen([{ subject: "job:j-3", epoch: lit.epoch, turnAt: lit.lastTurnAt }]);
+    expect(getAttention("job:j-3").lit).toBe(false);
+    expect(litSubjectCount()).toBe(before);
+  });
+
+  test("a row that is not a failure (an agent made a job) reaches the log and lights nothing", () => {
+    recordSubjectNotice({ subject: jobSubject("j-4"), title: "An agent created a job", dedupeKey: "agent-job:j-4", lights: false });
+    const before = litSubjectCount();
+    expect(all()).toHaveLength(1);
+    expect(getAttention("job:j-4").lit).toBe(false);
+    expect(litSubjectCount()).toBe(before);
   });
 });

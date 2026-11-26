@@ -30,6 +30,17 @@ export const OWNER_ALERT_ENV = "TOPICS_OWNER_ALERT_COMMAND";
 const CLOCK = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 
 const text = (value: unknown) => (typeof value === "string" ? value : "");
+/** The owner when the fallback variable IS the delivery: its command knows where to send, so nothing is filled in. */
+const NO_DESTINATION: Destination = { channel: "", chat: "", thread: "" };
+
+const badZones = new Set<string>();
+/** A zone name `Intl` rejects would throw at every use; it is refused once, here, and logged once. */
+function zoneIsValid(tz: string): boolean {
+  try { new Intl.DateTimeFormat("en-CA", { timeZone: tz }); return true; } catch {
+    if (!badZones.has(tz)) { badZones.add(tz); console.warn(`[schedule] quiet hours ignored: "${tz}" is not a time zone.`); }
+    return false;
+  }
+}
 
 function adapterOf(value: unknown): AdapterConfig | null {
   if (!value || typeof value !== "object") return null;
@@ -52,10 +63,14 @@ export function parseDeliverySettings(raw: string | null | undefined, env: Recor
   try { const parsed = raw ? JSON.parse(raw) : {}; if (parsed && typeof parsed === "object") value = parsed as Record<string, unknown>; } catch { /* unreadable = nothing set */ }
   const owner = value.owner as Record<string, unknown> | undefined;
   const quiet = value.quietHours as Record<string, unknown> | undefined;
+  const configured = adapterOf(value.adapter);
+  const fromEnv = configured ? null : adapterFromEnv(env);
+  const zone = text(quiet?.tz);
   return {
-    adapter: adapterOf(value.adapter) ?? adapterFromEnv(env),
-    owner: owner && typeof owner === "object" ? { channel: text(owner.channel), chat: text(owner.chat), thread: text(owner.thread) } : null,
-    quietHours: quiet && CLOCK.test(text(quiet.from)) && CLOCK.test(text(quiet.to)) ? { from: text(quiet.from), to: text(quiet.to), tz: text(quiet.tz) || null } : null,
+    adapter: configured ?? fromEnv,
+    // With no setting at all, the variable of the project alerts is the delivery to the owner too (R21).
+    owner: owner && typeof owner === "object" ? { channel: text(owner.channel), chat: text(owner.chat), thread: text(owner.thread) } : fromEnv ? NO_DESTINATION : null,
+    quietHours: quiet && CLOCK.test(text(quiet.from)) && CLOCK.test(text(quiet.to)) && (!zone || zoneIsValid(zone)) ? { from: text(quiet.from), to: text(quiet.to), tz: zone || null } : null,
     agentJobs: value.agentJobs === "auto" ? "auto" : "ask",
   };
 }

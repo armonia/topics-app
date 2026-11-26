@@ -3,16 +3,21 @@
  *
  * The register gives the send its key (`claim`), and `delivering` is on disk
  * before the adapter is called. A try is repeated only when the adapter exits
- * with a non-zero code, three times at most; anything that may have gone out
+ * by itself with a non-zero code, three times at most; a timeout or a signal
+ * closes the send as `unknown` at once, and anything that may have gone out
  * is never sent again. What an adapter wrote on stderr is kept as the detail of
  * a failure and goes nowhere else.
  */
 import { adapterCall, spawnAdapter, type AdapterRunner, type AdapterValues } from "./adapter";
 import type { DeliveryRegistry, DeliveryState } from "./registry";
-import type { DeliverySettings } from "./settings";
+import type { AdapterConfig, DeliverySettings } from "./settings";
 
 export const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 2_000;
+
+const DESTINATION_PLACEHOLDER = /\{(channel|chat|thread)\}/;
+const hasDestination = (values: { channel: string; chat: string; thread: string }) => !!(values.channel || values.chat || values.thread);
+const adapterTakesDestination = (adapter: AdapterConfig) => [...adapter.argv, ...Object.values(adapter.env)].some((item) => DESTINATION_PLACEHOLDER.test(item));
 
 export interface SendRequest {
   key: string;
@@ -41,6 +46,11 @@ export function createSender(options: SenderOptions) {
       registry.record(request.key, request.kind, "not_delivered", "No delivery adapter is configured.");
       return registry.get(request.key)?.state ?? "not_delivered";
     }
+    // A destination nobody can pass to the command would be sent nowhere, or to the wrong place: refused, and said.
+    if (hasDestination(request.values) && !adapterTakesDestination(adapter)) {
+      registry.record(request.key, request.kind, "not_delivered", "The adapter has no {channel}, {chat} or {thread} placeholder, so it cannot be told the destination this job names.");
+      return registry.get(request.key)?.state ?? "not_delivered";
+    }
     if (!registry.claim(request.key, request.kind)) return registry.get(request.key)?.state ?? "unknown";
     let detail = "";
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -49,6 +59,12 @@ export function createSender(options: SenderOptions) {
       try {
         const call = adapterCall(adapter, { ...request.values, key: request.key }, request.text, options.env);
         const result = await runner(call);
+        // A timeout or a signal is not a refusal: the adapter may have sent already, and a repeat could send twice (R23).
+        if (result.timedOut || result.signalCode) {
+          const why = result.timedOut ? "went over its time limit" : `was stopped by ${result.signalCode}`;
+          registry.finish(request.key, "unknown", `The adapter ${why}: it may have gone out.`);
+          return "unknown";
+        }
         if (result.exitCode === 0) { registry.finish(request.key, "delivered"); return "delivered"; }
         detail = `Exit code ${result.exitCode}: ${result.stderr.trim().split("\n").pop() ?? ""}`.slice(0, 300);
       } catch (error) {

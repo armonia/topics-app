@@ -151,7 +151,7 @@ export function bootDispatchPrep(scope: AfterRouters1) {
     engine: scheduleEngine, now: scheduleNow,
     agentJobMode: () => scheduleDelivery.settings().agentJobs,
     // A job an agent made waits in pause: the person is told on the bell, under the job's own subject (R26).
-    onPausedByAgent: (job) => recordSubjectNotice({ subject: jobSubject(job.id), title: `An agent created the job "${job.name}"`, body: "It is paused until you turn it on.", dedupeKey: `agent-job:${job.id}` }),
+    onPausedByAgent: (job) => recordSubjectNotice({ subject: jobSubject(job.id), title: `An agent created the job "${job.name}"`, body: "It is paused until you turn it on.", dedupeKey: `agent-job:${job.id}`, lights: false }),
     projectPath: (projectId) => projectPathOfAnyId(ctx.db, (storeId) => ctx.projectStore.get(storeId)?.path, projectId) ?? null,
   });
 

@@ -20,7 +20,7 @@ export const SCHEDULE_TOOLS = [
   {
     name: "create_scheduled_job",
     description:
-      "Create a scheduled job: a command that Topics runs on a schedule and whose output can be delivered to the person outside the app. THE JOB IS BORN PAUSED when it has a `deliver` block, and also whenever the app setting asks for confirmation (the default): the person turns it on, you cannot. `schedule` is one of {kind:'cron', expr:'0 9 * * *', tz:'Europe/Rome'}, {kind:'every', minutes:30} or {kind:'at', at:'<ISO instant in the future>'}. `command` is an argv (a list of strings, no shell). `deliver` is {to:'owner'} (the destination the person configured) and is optional: with none the outcome stays in Topics. Returns the job with its id.",
+      "Create a scheduled job: a command that Topics runs on a schedule and whose output can be delivered to the person outside the app. THE JOB IS BORN PAUSED when it has a `deliver` block, and also whenever the app setting asks for confirmation (the default): the person turns it on, you cannot. `schedule` is one of {kind:'cron', expr:'0 9 * * *', tz:'UTC'}, {kind:'every', minutes:30} or {kind:'at', at:'<ISO instant in the future>'}. `command` is an argv (a list of strings, no shell). `deliver` is {to:'owner'} (the destination the person configured) and is optional: with none the outcome stays in Topics. Returns the job with its id.",
     inputSchema: {
       type: "object",
       properties: {
