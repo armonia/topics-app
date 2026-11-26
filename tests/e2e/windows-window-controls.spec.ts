@@ -76,6 +76,22 @@ test.describe("The Windows window commands", () => {
 
   test("the word starts after the cluster, with the row's own breathing space", async ({ page }) => {
     await page.goto("/?windowChrome=windows");
+    await page.waitForSelector(CELLS[0], { state: "visible", timeout: 15_000 });
+    // At the default 256 the word does not fit beside the cluster and the four
+    // buttons, and hides whole (25/11): the first thing after the cluster is
+    // the column's toggle, at the same breathing space.
+    const toggle = await boxOf(page, '[data-testid="sidebar-collapse"]');
+    const cluster = await boxOf(page, CELLS[CELLS.length - 1]);
+    expect(
+      toggle.x - (cluster.x + cluster.width),
+      "fra l'ultimo comando e l'interruttore della colonna, a 256",
+    ).toBeGreaterThanOrEqual(GAP - TOL);
+    // Wide enough for the word, set the way the drag does.
+    await page.evaluate(() => {
+      const bar = document.querySelector('[aria-label="Topics sidebar"]') as HTMLElement;
+      bar.style.transition = "none";
+      bar.style.width = "340px";
+    });
     await page.waitForSelector(TITLE, { state: "visible", timeout: 15_000 });
 
     const last = await boxOf(page, CELLS[CELLS.length - 1]);

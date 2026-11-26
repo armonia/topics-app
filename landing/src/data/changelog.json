@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.5.2",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "the sidebar's buttons are tabs, and every tab lights under the pointer",
+          "scope": "ui"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.0",
     "date": "2026-11-25",
     "sections": {
