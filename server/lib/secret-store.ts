@@ -1,65 +1,90 @@
 /**
- * One "read a secret" interface, backed by two implementations that store
- * the SAME closed list of names: the macOS Keychain, and an age-encrypted
- * file on every other platform (the server this fleet runs on once it
- * becomes the primary, `nodo-principale-a-mano` T3). Callers never know
- * which one answered: they ask for `keychain:<service>/<use>`, the same key
- * jarvis-channels already reads on the Mac.
+ * One "read a secret" interface, backed by two implementations: the macOS
+ * Keychain, and an age-encrypted file on every other platform (the server
+ * this fleet runs on once it becomes the primary, `nodo-principale-a-mano`
+ * T3). Callers never know which one answered: they ask for
+ * `keychain:<service>/<use>`, the same key jarvis-channels already reads on
+ * the Mac.
  *
+ * The closed list of names an installation accepts is NOT in this file
+ * (regola zero: this source ships to every installation). It comes from the
+ * caller, or from `<stateDir>/secrets/allowed-secret-names.json` by default —
+ * missing or empty, the store rejects every name, which is the safe default.
  * No real secret of this fleet is packed by this task; the acceptance bar
- * exercises a test value only. Nothing here writes a value to a log or to
- * the SQLite DB: the only writes are the two dedicated files below, and
- * every rejection path reports the NAME, never the value that came with it.
+ * exercises a test value and a test allowlist only.
  *
- * The age identity (the private key) is read once, lazily, into memory and
- * cached there; this module never writes it back to disk and never derives
- * it. Provisioning that file is out of scope here, so the default path
- * points at a file that does not exist until someone puts it there, and the
- * store simply answers empty until it does.
+ * Nothing here writes a value to a log, to the SQLite DB, or to a process's
+ * argv: the macOS write goes through `security -i` (interactive mode reads
+ * its command from stdin, never from argv, so `ps` never sees it during the
+ * call), and the age identity travels to `age` the same way, via stdin,
+ * never as a `-i <path>` argument. Every rejection path reports the NAME,
+ * never the value that came with it.
+ *
+ * The age identity (the private key) is sourced once, lazily, from
+ * `$CREDENTIALS_DIRECTORY` (systemd `LoadCredentialEncrypted=`, a tmpfs
+ * mount that is gone once the unit stops) or from an environment variable
+ * holding the key material itself; an explicit file path is accepted for
+ * manual/dev use only, and is refused if its permissions let anyone but its
+ * owner read it. Whichever source answers, the material stays in memory for
+ * the life of the store and this module never writes it back to disk.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { writeFileAtomic } from "./atomic-write";
 import { resolveStateDir } from "./data-dir";
 import { runBounded, SPAWN_TIMEOUT } from "./bounded-spawn";
 
-/** The closed list this fleet actually needs, decided in T3 (no Claude API key: that is T2's job). */
-export const SECRET_NAMES = [
-  "keychain:discord/bot-token",
-  "keychain:topics/agent-token",
-  "keychain:claude/git-crypt-key",
-  "keychain:hetzner/token",
-  "keychain:cloudflare/token",
-  "keychain:billing/token",
-  "keychain:litestream/age-key",
-] as const;
-
-export type SecretName = typeof SECRET_NAMES[number];
-export type SecretMap = Partial<Record<SecretName, string>>;
-
-const NAME_SET: ReadonlySet<string> = new Set(SECRET_NAMES);
-
-export function isKnownSecretName(name: string): name is SecretName {
-  return NAME_SET.has(name);
-}
+export type SecretName = string;
+export type SecretMap = Record<string, string>;
 
 export interface SecretStore {
-  /** Null for an unknown name (logged by name only) or one never packed. */
+  /** Null for a name outside the allowlist (logged by name only) or one never packed. */
   read(name: SecretName): Promise<string | null>;
-  /** Unknown names are refused one by one; the rest of the call still packs. */
-  pack(entries: SecretMap): Promise<void>;
+  /** Names outside the allowlist are refused one by one; the rest of the call still packs. */
+  pack(entries: Partial<SecretMap>): Promise<void>;
   unpack(): Promise<SecretMap>;
+}
+
+/** The closed list a single installation accepts; `names` backs enumeration for the Keychain backend. */
+export interface SecretAllowlist {
+  readonly names: readonly string[];
+  has(name: string): boolean;
+}
+
+export function createAllowlist(names: Iterable<string>): SecretAllowlist {
+  const list = Array.from(new Set(names));
+  const set = new Set(list);
+  return { names: list, has: (name) => set.has(name) };
+}
+
+const EMPTY_ALLOWLIST: SecretAllowlist = createAllowlist([]);
+
+const ALLOWED_NAMES_FILE = "allowed-secret-names.json";
+
+/** Reads the installation's own list from its state dir; a missing or malformed file answers empty, never a guess. */
+export function loadAllowlistFromStateDir(stateDir: string): SecretAllowlist {
+  const path = join(stateDir, "secrets", ALLOWED_NAMES_FILE);
+  if (!existsSync(path)) return EMPTY_ALLOWLIST;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (Array.isArray(parsed) && parsed.every((n) => typeof n === "string")) return createAllowlist(parsed);
+  } catch { /* malformed config answers empty, same as missing */ }
+  return EMPTY_ALLOWLIST;
 }
 
 // --- macOS: one generic-password item per name, under a fixed service. ---
 
 export interface CommandRunResult { status: number; stdout: string; stderr: string }
-export type CommandRunner = (cmd: string, args: string[]) => CommandRunResult;
+export type CommandRunner = (cmd: string, args: string[], stdinData?: string) => CommandRunResult;
 
 const KEYCHAIN_SERVICE = "topics-secrets";
 
-const defaultCommandRunner: CommandRunner = (cmd, args) => {
-  const r = Bun.spawnSync([cmd, ...args], { stdout: "pipe", stderr: "pipe" });
+const defaultCommandRunner: CommandRunner = (cmd, args, stdinData) => {
+  const r = Bun.spawnSync([cmd, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: stdinData === undefined ? undefined : Buffer.from(stdinData, "utf8"),
+  });
   return { status: r.exitCode ?? 1, stdout: r.stdout.toString("utf8"), stderr: r.stderr.toString("utf8") };
 };
 
@@ -68,23 +93,43 @@ function keychainFind(runner: CommandRunner, name: string): string | null {
   return r.status === 0 ? r.stdout.replace(/\n$/, "") : null;
 }
 
-export function createKeychainSecretStore(runner: CommandRunner = defaultCommandRunner): SecretStore {
+/** Mirrors `security -i`'s own tokenizer: double-quoted words, backslash escapes inside them. */
+function quoteForSecurityStdin(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * `security`'s interactive mode reads one command per line from stdin and
+ * never places it in argv, so the secret value never reaches `ps` for the
+ * life of the call. This is the only path `pack` uses to write a value.
+ */
+function keychainAdd(runner: CommandRunner, name: string, value: string): CommandRunResult {
+  const command = [
+    "add-generic-password", "-U",
+    "-s", quoteForSecurityStdin(KEYCHAIN_SERVICE),
+    "-a", quoteForSecurityStdin(name),
+    "-w", quoteForSecurityStdin(value),
+  ].join(" ");
+  return runner("security", ["-i"], `${command}\n`);
+}
+
+export function createKeychainSecretStore(allowlist: SecretAllowlist, runner: CommandRunner = defaultCommandRunner): SecretStore {
   return {
     async read(name) {
-      if (!isKnownSecretName(name)) { console.warn("[secret-store] rejected an unknown name"); return null; }
+      if (!allowlist.has(name)) { console.warn("[secret-store] rejected a name outside the allowlist"); return null; }
       return keychainFind(runner, name);
     },
     async pack(entries) {
       for (const [name, value] of Object.entries(entries)) {
-        if (!isKnownSecretName(name)) { console.warn(`[secret-store] refused to pack an unknown name: "${name}"`); continue; }
+        if (!allowlist.has(name)) { console.warn("[secret-store] refused to pack a name outside the allowlist"); continue; }
         if (value === undefined) continue;
-        const r = runner("security", ["add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", name, "-w", value]);
+        const r = keychainAdd(runner, name, value);
         if (r.status !== 0) throw new Error(`keychain write failed for "${name}": exit ${r.status}`);
       }
     },
     async unpack() {
       const out: SecretMap = {};
-      for (const name of SECRET_NAMES) {
+      for (const name of allowlist.names) {
         const value = keychainFind(runner, name);
         if (value !== null) out[name] = value;
       }
@@ -109,25 +154,55 @@ function recipientFromIdentity(identity: string): string | null {
   return m ? m[1] : null;
 }
 
-/**
- * Trusts the ciphertext to hold only allowlisted names: `pack` is the one
- * place that decides what gets persisted (see its guard below), so the
- * closed list is enforced once, not twice.
- */
+/** Decides what the ciphertext holds (pack is the one gate), so this parser does not filter again. */
 function parseSecretMap(json: string): SecretMap {
   let parsed: unknown;
   try { parsed = JSON.parse(json); } catch { return {}; }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
   const out: SecretMap = {};
   for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (typeof value === "string") out[name as SecretName] = value;
+    if (typeof value === "string") out[name] = value;
   }
   return out;
 }
 
+const CREDENTIALS_DIR_ENV = "CREDENTIALS_DIRECTORY";
+const IDENTITY_CREDENTIAL_NAME = "secret-store-identity";
+const IDENTITY_ENV_NAME = "TOPICS_SECRET_AGE_IDENTITY";
+
+/** A file readable by anyone but its owner is refused outright: never trusted as an identity source. */
+function readIdentityFile(path: string): string {
+  const mode = statSync(path).mode & 0o777;
+  if (mode & 0o077) throw new Error(`refusing identity file "${path}": readable by group or other (mode ${mode.toString(8)})`);
+  return readFileSync(path, "utf8");
+}
+
+/**
+ * In order: key material handed in directly, the env var holding the
+ * material itself, `$CREDENTIALS_DIRECTORY` (systemd's decrypted-at-startup
+ * tmpfs credential), then an explicit path for manual/dev use. No source
+ * here is a default that points at a real, pre-existing file: an
+ * unprovisioned installation answers null.
+ */
+function resolveIdentity(opts: AgeSecretStoreOptions): string | null {
+  if (opts.identity) return opts.identity;
+  const envValue = process.env[IDENTITY_ENV_NAME];
+  if (envValue) return envValue;
+  const credentialsDir = process.env[CREDENTIALS_DIR_ENV];
+  if (credentialsDir) {
+    const credentialPath = join(credentialsDir, IDENTITY_CREDENTIAL_NAME);
+    if (existsSync(credentialPath)) return readIdentityFile(credentialPath);
+  }
+  if (opts.identityPath && existsSync(opts.identityPath)) return readIdentityFile(opts.identityPath);
+  return null;
+}
+
 export interface AgeSecretStoreOptions {
-  /** Unlocked lazily, once, into memory; never rewritten by this module. */
-  identityPath: string;
+  allowlist: SecretAllowlist;
+  /** Key material already unlocked by the caller; takes priority over every other source. */
+  identity?: string;
+  /** Manual/dev fallback only; permissions are checked, see `readIdentityFile`. */
+  identityPath?: string;
   /** Where the packed, encrypted map lives. */
   secretsPath: string;
   run?: AgeRunner;
@@ -136,58 +211,74 @@ export interface AgeSecretStoreOptions {
 export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
   const run = opts.run ?? defaultAgeRunner;
   let cachedIdentity: string | null = null;
+  let identityResolved = false;
   const identity = (): string | null => {
-    if (cachedIdentity !== null) return cachedIdentity;
-    if (!existsSync(opts.identityPath)) return null;
-    cachedIdentity = readFileSync(opts.identityPath, "utf8");
+    if (identityResolved) return cachedIdentity;
+    identityResolved = true;
+    cachedIdentity = resolveIdentity(opts);
     return cachedIdentity;
   };
 
-  const unpack = async (): Promise<SecretMap> => {
-    if (!identity() || !existsSync(opts.secretsPath)) return {};
-    const ciphertext = readFileSync(opts.secretsPath, "utf8");
-    const { stdout, exitCode } = await run(["age", "-d", "-i", opts.identityPath], ciphertext);
+  /** The decrypted map, kept after the first `unpack`; `pack` replaces it with the fresh truth instead of leaving it stale. */
+  let cachedMap: SecretMap | null = null;
+
+  const decrypt = async (): Promise<SecretMap> => {
+    if (cachedMap) return cachedMap;
+    const id = identity();
+    if (!id || !existsSync(opts.secretsPath)) return {};
+    // Identity travels via stdin ("-i -"); the ciphertext path is the only
+    // thing age sees in its argv, and that path carries no secret.
+    const { stdout, exitCode } = await run(["age", "-d", "-i", "-", opts.secretsPath], id);
     if (exitCode !== 0 || !stdout.trim()) return {};
-    return parseSecretMap(stdout);
+    cachedMap = parseSecretMap(stdout);
+    return cachedMap;
   };
 
   return {
     async read(name) {
-      if (!isKnownSecretName(name)) { console.warn("[secret-store] rejected an unknown name"); return null; }
-      return (await unpack())[name] ?? null;
+      if (!opts.allowlist.has(name)) { console.warn("[secret-store] rejected a name outside the allowlist"); return null; }
+      return (await decrypt())[name] ?? null;
     },
     async pack(entries) {
       const id = identity();
       if (!id) throw new Error("age identity is not unlocked: nothing was packed");
       const recipient = recipientFromIdentity(id);
-      if (!recipient) throw new Error("age identity file has no public-key comment");
-      const next: SecretMap = { ...(await unpack()) };
+      if (!recipient) throw new Error("age identity has no public-key comment");
+      const next: SecretMap = { ...(await decrypt()) };
       for (const [name, value] of Object.entries(entries)) {
-        if (!isKnownSecretName(name)) { console.warn(`[secret-store] refused to pack an unknown name: "${name}"`); continue; }
+        if (!opts.allowlist.has(name)) { console.warn("[secret-store] refused to pack a name outside the allowlist"); continue; }
         if (value !== undefined) next[name] = value;
       }
       const { stdout, exitCode } = await run(["age", "-a", "-r", recipient], JSON.stringify(next));
       if (exitCode !== 0 || !stdout) throw new Error("age encryption failed");
       writeFileAtomic(opts.secretsPath, stdout, { mode: 0o600 });
+      cachedMap = next;
     },
-    unpack,
+    async unpack() {
+      return { ...(await decrypt()) };
+    },
   };
 }
 
 export interface CreateSecretStoreOptions {
   platform?: NodeJS.Platform;
   stateDir?: string;
+  allowlist?: SecretAllowlist;
+  identity?: string;
   identityPath?: string;
   secretsPath?: string;
 }
 
-/** Picks the backend by platform; every path below has a generic default that works empty. */
+/** Picks the backend by platform; every default below is generic and answers empty until someone provisions it. */
 export function createSecretStore(opts: CreateSecretStoreOptions = {}): SecretStore {
   const platform = opts.platform ?? process.platform;
-  if (platform === "darwin") return createKeychainSecretStore();
-  const dir = join(opts.stateDir ?? resolveStateDir(process.cwd()), "secrets");
+  const stateDir = opts.stateDir ?? resolveStateDir(process.cwd());
+  const allowlist = opts.allowlist ?? loadAllowlistFromStateDir(stateDir);
+  if (platform === "darwin") return createKeychainSecretStore(allowlist);
   return createAgeSecretStore({
-    identityPath: opts.identityPath ?? (process.env.TOPICS_SECRET_AGE_IDENTITY || join(dir, "identity.age-key")),
-    secretsPath: opts.secretsPath ?? join(dir, "secrets.age"),
+    allowlist,
+    identity: opts.identity,
+    identityPath: opts.identityPath,
+    secretsPath: opts.secretsPath ?? join(stateDir, "secrets", "secrets.age"),
   });
 }
