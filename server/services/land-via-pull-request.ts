@@ -89,7 +89,7 @@ const realFirstParent = async (cwd: string, commit: string): Promise<string | nu
 };
 
 /** gh missing (exit 127) or not logged in: there is no pull request path on this machine, only the local merge. */
-const GH_UNAVAILABLE = /exited 127|ENOENT|not found|gh auth login|not logged in|authenticat/i;
+const GH_UNAVAILABLE = /exited 127\b|ENOENT|not found|gh auth login|not logged in|authenticat/i;
 
 /** Real git fetch + fast-forward of local main onto the commit GitHub produced. */
 const realFastForwardMain: FastForwardMain = async (cwd, commit) => {
