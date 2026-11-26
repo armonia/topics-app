@@ -8,6 +8,7 @@
  * `assigned_topic_id` and wrote no `prior_branch`: the worktree later vanished
  * and the card pointed at a dead branch, so a rerun started from main.
  *
+ * @covers KANBAN-07
  * @covers WORKTREE-18
  */
 import { test, expect, describe } from "bun:test";

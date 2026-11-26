@@ -21,7 +21,8 @@
  * names the project, the folder is only the fallback.
  */
 import type { Database } from "bun:sqlite";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
+import { readTranscript } from "./transcript-calls";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { modelPrice } from "../../shared/model-pricing";
@@ -247,34 +248,6 @@ export function listTranscripts(root: string = join(homedir(), ".claude", "proje
       if (e.isDirectory()) walk(path, e.name, 0);
       else if (e.name.endsWith(".jsonl")) add(path, e.name.slice(0, -".jsonl".length), false);
     }
-  }
-  return out;
-}
-
-/** One transcript's calls: one per `message.id` (per-block lines repeat), with the model and the `cwd` the line itself carries. */
-export function readTranscript(path: string): Array<{ ts: number; tokens: CallTokens; model: string | null; cwd: string | null }> {
-  let raw: string;
-  try { raw = readFileSync(path, "utf8"); } catch { return []; }
-  const seen = new Set<string>();
-  const out: Array<{ ts: number; tokens: CallTokens; model: string | null; cwd: string | null }> = [];
-  for (const line of raw.split("\n")) {
-    if (!line.includes('"usage"')) continue;
-    let o: { type?: string; uuid?: string; timestamp?: string; cwd?: string; message?: { id?: string; model?: string; usage?: Record<string, unknown> } };
-    try { o = JSON.parse(line); } catch { continue; }
-    const u = o?.message?.usage;
-    if (o?.type !== "assistant" || !u) continue;
-    const id = o.message?.id ?? o.uuid;
-    if (id && seen.has(id)) continue;
-    if (id) seen.add(id);
-    const ts = Date.parse(o.timestamp ?? "");
-    if (!Number.isFinite(ts)) continue;
-    const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-    const cacheWrite = n(u.cache_creation_input_tokens);
-    const model = o.message?.model && o.message.model !== "<synthetic>" ? o.message.model : null;
-    out.push({
-      ts, model, cwd: o.cwd || null,
-      tokens: { input: n(u.input_tokens), output: n(u.output_tokens), cacheWrite, cacheRead: n(u.cache_read_input_tokens), cacheWrite1h: n((u.cache_creation as Record<string, unknown> | undefined)?.ephemeral_1h_input_tokens) },
-    });
   }
   return out;
 }

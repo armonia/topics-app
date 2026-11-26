@@ -1,5 +1,38 @@
 [
   {
+    "version": "2.5.6",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Bloat baseline: task-dispatcher-overflow.test.ts at 1715 after two cards land together",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.5",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the owner approved the title tab, the row grammar and the column header",
+          "en": "",
+          "scope": "design",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.4",
     "date": "2026-11-26",
     "sections": {
@@ -21,9 +54,27 @@
     "date": "2026-11-26",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "a spawnError is unmeasured, not a red bounce",
+          "en": "",
+          "scope": "checks",
+          "breaking": false
+        },
+        {
+          "it": "count a node seat only by a run the primary still believes open",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
+        {
+          "it": "Auto-land: a land waiting on the pull request's CI forgets the offer so the sweep asks again at the verdict",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)",
           "en": "",
@@ -44,14 +95,53 @@
           "en": "",
           "scope": "ui",
           "breaking": false
+        },
+        {
+          "it": "don't let an older comment outrank the newest one when carrying a node's thread",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "protect every comment of a resend's round, not two rows by position, in node run briefs",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ],
       "perf": [],
       "internal": [
         {
+          "it": "Land via PR: auto-merge off on every failed exit, re-read at the deadline, probe failure is a refusal, moved base reported, gh missing falls back to the local merge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix the gh-unavailable pattern word boundary",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "never requeue an empty run or bounce a landed card without checking against this Mac's own main",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Land via PR: a GitHub refusal falls back to the local merge, running checks release the queue, settle wait cut to 2 min",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "the narrowest column is 248, and the word hides beside the Windows cluster",
           "en": "",
           "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "a rimando after a land is not a closed card, and a job-level red is not always a preexisting one",
+          "en": "",
+          "scope": null,
           "breaking": false
         }
       ]
@@ -66,7 +156,17 @@
       "perf": [],
       "internal": [
         {
+          "it": "Land via PR only on the current origin/main base, switch auto-merge off when the state is unreadable, treat any hook failure as a refusal",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Fix ci-governor selftest race on SIGSTOP/SIGCONT delivery under load",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Read transcripts by bytes so a cut multi-byte character keeps its line, cap the parsed cache in bytes",
           "en": "",
           "scope": null
         }
@@ -196,6 +296,16 @@
           "breaking": false
         },
         {
+          "it": "Parse transcripts once and append: the usage meters no longer re-read gigabytes of transcripts into the server heap",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Keep the parsed transcripts of a whole week, not 600 files",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "spec-flow D20 design system gate with the recorded debt as baseline",
           "en": "",
           "scope": null,
@@ -208,10 +318,35 @@
           "breaking": false
         },
         {
+          "it": "Declare what the wait-keeps-branch test covers",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare the pull request land requirement and the test that covers it",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "aggiorna durate shard dal nightly del 2026-11-25 [skip ci]",
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Write in English the two comments main brought in Italian",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "List the wait path's git read in the sync-spawn scan with its reason",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Run the quota route test on an empty home, not on this machine's gigabytes of transcripts",
+          "en": "",
+          "scope": null
         },
         {
           "it": "la cura dei contenitori torna d'accordo con i suoi test e con il piano",
@@ -248,6 +383,11 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Give the quota route test the room a loaded machine needs",
+          "en": "",
+          "scope": null
         },
         {
           "it": "the parked-children question starts from a step that was being worked",
@@ -320,6 +460,11 @@
           "scope": null
         },
         {
+          "it": "Ask the pre-push hook about the merge message before GitHub writes it, and cover the pull request land wiring",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il test dell'adozione passa dal percorso vero: la figlia rilancia, viene archiviata, il servizio del genitore resta vivo",
           "en": "",
           "scope": null
@@ -370,6 +515,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Land through the pull request only when local main can follow it, and turn auto-merge off on give-up",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio",
           "en": "",
@@ -484,6 +634,16 @@
           "scope": null
         },
         {
+          "it": "mem-report: define G4 (device + server, agents excluded) and print it against the 1200 MB bar",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land a card by reusing its pull request's own GitHub auto-merge",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Land also refuses a delivery whose bar was measured only in part",
           "en": "",
           "scope": null
@@ -498,6 +658,16 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Allow shared-task-mapping.ts in the topicsRouting passage list after the shared.ts split",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lock the lower duplication count in the bloat baseline",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290",
@@ -541,7 +711,22 @@
           "breaking": false
         },
         {
+          "it": "Drop unused imports from tasks/shared-constants.ts (lint red on main)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land through the pull request only when its head is the commit to land",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Main verde dopo lo split di tasks/shared.ts: import rimasti e test che leggevano il file vecchio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Point the preview-rule test at shared-previews.ts after the split",
           "en": "",
           "scope": null
         }
@@ -5122,6 +5307,11 @@
           "en": "",
           "scope": "browser",
           "breaking": false
+        },
+        {
+          "it": "Publish --mobile-chrome-h before first paint so the scroll spacer does not shift on pane return",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Il test del refresh a server giù non trovava le tab perché non trovava la pagina: il banco bloccava il service worker (#1172)",
