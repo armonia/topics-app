@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.5.3",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.2",
     "date": "2026-11-26",
     "sections": {
