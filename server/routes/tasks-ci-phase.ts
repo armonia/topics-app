@@ -17,7 +17,7 @@ import { measureIntegration } from "../services/integration-measure";
 import { describeMainRed, MAIN_RED_MODEL, mainRedKey, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
 import { personPlace, scheduledReviewCmd } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
-import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict, scheduledBounceMessage } from "../services/red-bounce";
+import { MAIN_RED_NOTE, MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict, scheduledBounceMessage } from "../services/red-bounce";
 import { formatChecksComment } from "../services/review-checks";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { Task, TaskService } from "../services/tasks";
@@ -495,11 +495,17 @@ export function createCiPhase(deps: CiPhaseDeps) {
         `Tre giri di CI rossa dopo il land senza uscirne: ${why.split("\n")[0]!.slice(0, 200)}. Il lavoro è già su main: lascia riprovare l'agente rispondendo qui, oppure annulla il land con \`git revert -m 1 <commit>\` (il commit è nella riga «Mergiato su main» di questa card).`);
       return;
     }
+    // Kept as its OWN comment, starting with MAIN_RED_NOTE, so `reopenedByMainRed` can find it: prefixing
+    // the bounce message itself would hide it behind RED_BOUNCE_NOTE and break `bouncesSinceHuman`'s count.
+    const mainRedMark = `${MAIN_RED_NOTE}: il lavoro di questa card è già su main, il compito è un commit di correzione sopra, sul passo rosso nominato qui sotto.`;
     const message = redBounceMessage(done + 1, why) + "\n\n" +
+      "Il compito è un commit di correzione SOPRA main che sistemi il passo rosso nominato qui sopra: " +
+      "se il tuo ramo coincide con origin/main non vuol dire «niente da fare», vuol dire che la correzione non c'è ancora. " +
       "ATTENZIONE: il tuo lavoro è GIÀ SU MAIN (la riga «Mergiato su main» di questa card dice il commit) e il tuo ramo è stato rimosso. " +
       "Parti dal main aggiornato (`git fetch origin main`, ramo nuovo da `origin/main`), correggi IN AVANTI con un commit nuovo, niente revert. " +
       "Quando rimetti in review atterra da sola, senza passare da una persona.";
     try {
+      deps.svc.addComment({ taskId, author: "system", kind: "service", content: mainRedMark });
       deps.svc.addComment({ taskId, author: "system", content: message });
       // Fresh from the queue: the worktree the old session ran in is gone, the thread carries the context.
       const queued = deps.svc.update({ taskId, actor: "human", by: "system", projectId, patch: { status: "todo" }, statusReason: "la CI su main è rossa dopo il land" });

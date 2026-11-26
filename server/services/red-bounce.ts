@@ -31,6 +31,23 @@ export const RED_BOUNCE_NOTE = "Rimandata da sola all'agente: i check sono rossi
 /** The scheduled review's own note: its send-backs are not about a red bar, but they count in the same rounds. */
 export const SCHEDULED_BOUNCE_NOTE = "Rimandata dal ripasso a orario";
 
+/**
+ * First words of the note a card gets when main goes red AFTER its land (`tasks-ci-phase.ts`). The work is
+ * already on main and the job is a NEW commit on top of it, so "already in main, nothing to do" is the wrong
+ * verdict for such a card: the dispatcher reads this mark to never close it that way.
+ */
+export const MAIN_RED_NOTE = "La CI su main è rossa dopo il land";
+
+/** True when the card was last sent back by the post-land red on main, with no person's word since. */
+export function reopenedByMainRed(comments: readonly RedBounceComment[]): boolean {
+  for (let i = comments.length - 1; i >= 0; i--) {
+    const c = comments[i]!;
+    if (c.author === HUMAN_AUTHOR && (c.kind ?? "comment") === "comment") return false;
+    if (c.author === "system" && c.content.startsWith(MAIN_RED_NOTE)) return true;
+  }
+  return false;
+}
+
 export interface RedBounceCard {
   status: string;
   archived?: boolean;

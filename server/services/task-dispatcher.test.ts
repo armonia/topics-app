@@ -3769,6 +3769,19 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     h.dispatcher.shutdown();
   });
 
+  it("riaperta dalla CI rossa su main dopo il land: NON si chiude, riparte l'agente (26/11)", async () => {
+    const { h } = withProbe(true);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryBranch: "topics/ardent-grouse", deliveryCommit: "c2d20879ffffffffffffffffffffffffffffffff" });
+    h.db.run("UPDATE tasks SET reopened_actor = 'system', reopened_by = 'system' WHERE id = 't1'");
+    h.svc.addComment({ taskId: "t1", author: "system", content: "La CI su main è rossa dopo il land: check:spec-coverage" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).not.toBe("done");
+    h.dispatcher.shutdown();
+  });
+
   /** @covers CARDPROCESS-01 */
   it("la chiusura automatica su main ferma i processi della card", async () => {
     const stopped: string[] = [];

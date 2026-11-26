@@ -49,6 +49,7 @@
  * nobody has to go dig the thread for what was actually asked.
  */
 import { HUMAN_AUTHOR, isThreadSpeech, pendingQuestionComment } from "../../shared/board";
+import { reopenedByMainRed } from "./red-bounce";
 import { namesMacOnlyPaths } from "./dispatch-overflow";
 import type { Task, TaskService } from "./tasks";
 
@@ -93,7 +94,11 @@ export async function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, n
       let landed: boolean | null = null;
       try { landed = await deps.deliveryLanded(repoPath, priorCommit); }
       catch (err) { deps.log(`nodo: sonda già-su-main fallita per ${task.id}`, err); }
-      if (landed === true && task.reopenedActor !== "human") {
+      // A card sent back by the post-land red on main has its work ON main and still owes a fix on top of it.
+      const mainRed = landed === true && reopenedByMainRed(deps.svc.get(task.id)?.comments ?? []);
+      if (landed === true && mainRed) {
+        // Never closed as "already in main": falls through to the requeue below, the card stays in todo.
+      } else if (landed === true && task.reopenedActor !== "human") {
         try {
           const closed = deps.svc.settleLanded({
             taskId: task.id,
