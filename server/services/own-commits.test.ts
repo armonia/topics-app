@@ -366,6 +366,11 @@ describe("own-commits — il cablaggio della consegna in server.ts", () => {
   // lasciarlo puntato a un blocco ormai vuoto, dove sarebbe passato verde a
   // vuoto per sempre.
   const backfillSrc = readFileSync(join(import.meta.dir, "delivery-backfill.ts"), "utf8");
+  // IL CABLAGGIO HA TRASLOCATO ANCHE QUI il 26/11 (`task-delivery-reference.ts`),
+  // quando il test sulla wiring del `mainRef` al punto di chiamata ha chiesto un
+  // posto testabile: stesso spirito del trasloco del backfill sopra, il
+  // cancello segue il codice.
+  const deliveryRefSrc = readFileSync(join(import.meta.dir, "task-delivery-reference.ts"), "utf8");
 
   function blockIn(testo: string, from: string, to: string): string {
     const start = testo.indexOf(from);
@@ -387,8 +392,11 @@ describe("own-commits — il cablaggio della consegna in server.ts", () => {
     // da entrambi. Il cancello non cambia: quello che sorveglia e' che si
     // continui a chiedere il commit PROPRIO.
     const capture = block("const taskDeliveryRef = async (taskId: string)", "const taskCheckoutRef");
-    expect(capture).toContain("deliveryPointer(");
+    expect(capture).toContain("resolveDeliveryReference(");
     expect(capture).not.toContain("resolveCommit(");
+    const wired = blockIn(deliveryRefSrc, "export async function resolveDeliveryReference", "");
+    expect(wired).toContain("deliveryPointer(");
+    expect(wired).not.toContain("resolveCommit(");
   });
 
   test("il backfill periodico dell'audit fa la stessa domanda", () => {

@@ -982,24 +982,31 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    */
   /**
    * One attachment of `c`, fetched from the node and landed under this
-   * machine's own media (KANBAN-76 follow-up): best-effort, like the rest of
-   * this mirror — a fetch that fails drops that ONE path, never the comment.
+   * machine's own media (KANBAN-76 follow-up). `failed` is true when ANY path
+   * could not be landed (the fetch threw, or came back empty): the caller
+   * must NOT mark the comment seen in that case, or a single network hiccup
+   * loses the image for good — the comment never comes up for a retry again,
+   * because `anchored` (built from what is already mirrored) would then skip
+   * it even though it was never actually written (card 9a850b73, 2026-11-26).
    */
-  async function mirroredMedia(taskId: string, node: NodeSlot, c: NodeRunComment): Promise<string[] | undefined> {
+  async function mirroredMedia(
+    taskId: string, node: NodeSlot, c: NodeRunComment,
+  ): Promise<{ media: string[] | undefined; failed: boolean }> {
     const client = host.client;
-    if (!c.media?.length || !client?.fetchMedia || !host.saveNodeMedia) return undefined;
+    if (!c.media?.length || !client?.fetchMedia || !host.saveNodeMedia) return { media: undefined, failed: false };
     const landed: string[] = [];
+    let failed = false;
     for (const nodePath of c.media) {
       try {
         const bytes = await client.fetchMedia({
           baseUrl: node.baseUrl, token: node.token, runId: node.runId, path: nodePath, delegation: node.delegation,
         });
-        if (!bytes) continue;
+        if (!bytes) { failed = true; continue; }
         const local = host.saveNodeMedia({ taskId, commentId: c.id, nodePath, bytes });
-        if (local) landed.push(local);
-      } catch (err) { log(`nodo: allegato ${nodePath} del commento ${c.id} non scaricato su ${taskId}`, err); }
+        if (local) landed.push(local); else failed = true;
+      } catch (err) { failed = true; log(`nodo: allegato ${nodePath} del commento ${c.id} non scaricato su ${taskId}`, err); }
     }
-    return landed.length ? landed : undefined;
+    return { media: landed.length ? landed : undefined, failed };
   }
 
   async function mirrorNodeReport(taskId: string, node: NodeSlot, report: NodeRunReport): Promise<void> {
@@ -1033,7 +1040,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       if (!c.id || node.seen.has(c.id) || anchored.has(c.id)) continue;
       const fromAgent = isAgentAuthor(c.author);
       try {
-        const media = await mirroredMedia(taskId, node, c);
+        const { media, failed } = await mirroredMedia(taskId, node, c);
+        // Never mark it seen on a failed attachment: the comment is retried
+        // whole on the next poll, instead of landing forever without its image.
+        if (failed) continue;
         svc.addComment({
           taskId,
           // THE AGENT KEEPS ITS VOICE. On the node an agent signs `agent:<id>`,

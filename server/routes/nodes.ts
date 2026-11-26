@@ -760,29 +760,25 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
      * the NODE's disk, which the origin cannot read. `path` must be one the
      * node's OWN comments already declare — never an arbitrary read of this
      * machine's filesystem — so the allowlist is the run's own thread, not a
-     * directory prefix.
+     * directory prefix. Shared by the legacy and the delegated route below,
+     * which only differ in how they resolve `got`.
      */
-    const media = matchRoute(pathname, "/api/nodes/runs/:id/media");
-    if (media && method === "GET") {
-      const got = svc.get(media.id);
+    const serveRunMedia = (got: { comments: { media?: string[] | null }[] } | null | undefined): Response => {
       if (!got) return json({ error: "run not found", code: "not_found" }, 404);
       const wanted = url.searchParams.get("path") ?? "";
       const allowed = new Set(got.comments.flatMap((c) => c.media ?? []));
       if (!wanted || !allowed.has(wanted)) return json({ error: "not attached to this run", code: "forbidden" }, 403);
       if (!existsSync(wanted) || statSync(wanted).isDirectory()) return json({ error: "not found", code: "not_found" }, 404);
       return new Response(Bun.file(wanted), { status: 200, headers: { "content-type": getMimeType(wanted) } });
-    }
+    };
+
+    const media = matchRoute(pathname, "/api/nodes/runs/:id/media");
+    if (media && method === "GET") return serveRunMedia(svc.get(media.id));
 
     const delegatedMedia = matchRoute(pathname, "/api/nodes/delegated-runs/:id/media");
     if (delegatedMedia && method === "GET") {
       const task = await confinedRun(req, delegatedMedia.id);
-      if (!task) return json({ error: "run not found", code: "not_found" }, 404);
-      const got = svc.get(task.id)!;
-      const wanted = url.searchParams.get("path") ?? "";
-      const allowed = new Set(got.comments.flatMap((c) => c.media ?? []));
-      if (!wanted || !allowed.has(wanted)) return json({ error: "not attached to this run", code: "forbidden" }, 403);
-      if (!existsSync(wanted) || statSync(wanted).isDirectory()) return json({ error: "not found", code: "not_found" }, 404);
-      return new Response(Bun.file(wanted), { status: 200, headers: { "content-type": getMimeType(wanted) } });
+      return serveRunMedia(task ? svc.get(task.id) : null);
     }
 
     const run = matchRoute(pathname, "/api/nodes/runs/:id");

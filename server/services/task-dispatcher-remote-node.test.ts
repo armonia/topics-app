@@ -958,37 +958,53 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     expect(mirrored[0].messageId).toBe("nc-1");
   });
 
-  it("un'immagine allegata sul nodo arriva qui come un file che esiste davvero", async () => {
+  it("un'immagine allegata sul nodo arriva qui come un file che esiste davvero, e diventa l'anteprima della card", async () => {
     // The screenshot an agent attaches on the node lives at a path on the
     // NODE's own disk: mirroring the comment as-is would leave `preview_image`
-    // pointing nowhere on this machine (card 9a850b73, 2026-11-26).
+    // pointing nowhere on this machine (card 9a850b73, 2026-11-26). What the
+    // review bar actually asks is `previewImage` on the CARD, not just the
+    // comment's own mirrored `media` array.
     const nodePath = "/home/node-user/.topics/media/9a850b73-screenshot.png";
     const bytes = new Uint8Array([1, 2, 3, 4]);
-    let comments: NodeRunReport["comments"] = [
-      { id: "nc-origine", author: "system", content: "Card specchiata da github.com/acme/alpha", kind: "service", createdAt: "2026-11-26T02:00:00.000Z" },
-    ];
-    const h = harness({ readRun: () => Promise.resolve(report({ comments })), media: { [nodePath]: bytes } });
+    let current = report({
+      comments: [
+        { id: "nc-origine", author: "system", content: "Card specchiata da github.com/acme/alpha", kind: "service", createdAt: "2026-11-26T02:00:00.000Z" },
+      ],
+    });
+    const h = harness({
+      bundle: new Uint8Array([1, 2, 3, 4]),
+      readRun: () => Promise.resolve(current),
+      media: { [nodePath]: bytes },
+    });
     h.seed();
     await dispatch(h);
     await poll(h); // primes the mirror: the origin note is our own dispatch coming back
 
-    comments = [
-      ...comments,
-      {
-        id: "nc-shot", author: "agent",
-        content: 'screenshot allegato mostra "fermo: tetto di spesa"',
-        kind: "comment", createdAt: "2026-11-26T02:10:00.000Z",
-        media: [nodePath],
-      },
-    ];
+    // The attached comment arrives in the SAME report that delivers the
+    // branch to review: the mirror lands the attachment first, and only then
+    // `landNodeDelivery` moves the card into review and `promoteReviewPreview`
+    // fishes that just-mirrored attachment for `previewImage`.
+    current = report({
+      status: "review",
+      deliveryBranch: "topics/corsa-remota",
+      baseSha: "abcdef0123456789",
+      comments: [
+        { id: "nc-origine", author: "system", content: "Card specchiata da github.com/acme/alpha", kind: "service", createdAt: "2026-11-26T02:00:00.000Z" },
+        {
+          id: "nc-shot", author: "agent",
+          content: 'screenshot allegato mostra "fermo: tetto di spesa"',
+          kind: "comment", createdAt: "2026-11-26T02:10:00.000Z",
+          media: [nodePath],
+        },
+      ],
+    });
     await poll(h);
 
-    const mirrored = h.comments().find((c) => c.messageId === "nc-shot");
-    expect(mirrored?.media).toHaveLength(1);
-    const localPath = mirrored!.media[0];
-    expect(existsSync(localPath)).toBe(true);
-    expect(readFileSync(localPath)).toEqual(Buffer.from(bytes));
-    expect(h.savedMedia).toContain(localPath);
+    const t = h.task();
+    expect(t.status).toBe("review");
+    expect(t.previewImage).toBeTruthy();
+    expect(existsSync(t.previewImage!)).toBe(true);
+    expect(readFileSync(t.previewImage!)).toEqual(Buffer.from(bytes));
   });
 
   it("an agent signing agent:<id> on the node keeps its comment, so the review does not say there was no summary", async () => {
