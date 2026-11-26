@@ -182,13 +182,20 @@ export function createOverflow(ctx: DispatcherCtx) {
    * that does not answer, or sleeps, sends its cards back to the queue with a
    * deferral (`deferForSilentNode`): counted by live runs it read as empty and
    * took six cards on two slots, and each wake-up only added more.
+   * A run resting over there (a declared wait, a question to a person) gives
+   * its seat back in both reads, and takes it again when its chip says it works.
    */
   function machineLoad(machineId: string): number {
     let n = 0;
-    try { n = deps.svc.countOnMachine(machineId); } catch { n = Number.POSITIVE_INFINITY; }
+    let resting: ReadonlySet<string> = new Set();
+    try {
+      n = deps.svc.countOnMachine(machineId);
+      resting = new Set(deps.svc.restingOnMachine(machineId));
+    } catch { n = Number.POSITIVE_INFINITY; }
     const prefix = `node:${machineId}:`;
     let live = 0;
-    for (const slot of inFlight.values()) {
+    for (const [taskId, slot] of inFlight) {
+      if (resting.has(taskId)) continue;
       if (slot.node?.machineId === machineId || slot.sessionKey.startsWith(prefix)) live += 1;
     }
     return Math.max(n, live);

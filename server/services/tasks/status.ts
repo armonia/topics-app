@@ -15,7 +15,15 @@ import { readGlobalCap, readSpendCaps, readChecksMemFloorGB } from "../dispatch-
 import { isNodeChildRun } from "../node-child-run";
 import { checksMemFloorGB } from "../../../shared/checks-memory-floor";
 
-export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "countRunningOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend" | "agentSpendClearsAt"> {
+/**
+ * A run that holds no seat on its machine: in progress, and its chip says it
+ * declared a wait (`waiting`) or asks a person (`needs_input`). No turn runs
+ * there. A card in Todo with the `waiting` chip (a silent node's deferral) is
+ * not this: it waits for a seat, so it keeps counting.
+ */
+const RESTING_RUN_SQL = "(status = 'in_progress' AND dispatch_state IN ('waiting', 'needs_input'))";
+
+export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "countRunningOnMachine" | "restingOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend" | "agentSpendClearsAt"> {
   const {
     agentAskOnThread,
     annotateDeliveryClaims,
@@ -919,16 +927,25 @@ overflowToMachine({ taskId, machineId, localMachineId }): Task | null {
 
 countOnMachine(machineId: string): number {
       const row = db.prepare(
-        "SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status IN ('todo', 'in_progress') AND archived = 0",
+        `SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status IN ('todo', 'in_progress') AND archived = 0
+           AND NOT (${RESTING_RUN_SQL})`,
       ).get(machineId) as { n: number } | null;
       return row?.n ?? 0;
     },
 
 countRunningOnMachine(machineId: string, exceptTaskId?: string): number {
       const row = db.prepare(
-        "SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status = 'in_progress' AND archived = 0 AND id != ?",
+        `SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status = 'in_progress' AND archived = 0 AND id != ?
+           AND NOT (${RESTING_RUN_SQL})`,
       ).get(machineId, exceptTaskId ?? "") as { n: number } | null;
       return row?.n ?? 0;
+    },
+
+restingOnMachine(machineId: string): string[] {
+      const rows = db.prepare(
+        `SELECT id FROM tasks WHERE machine_id = ? AND archived = 0 AND ${RESTING_RUN_SQL}`,
+      ).all(machineId) as Array<{ id: string }>;
+      return rows.map((r) => r.id);
     },
 
 claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption, remote }): Task | null {
