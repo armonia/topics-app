@@ -116,9 +116,18 @@ export const TAB_SELECTED_SURFACE_SOFT =
 export const TAB_AS_TITLE_SURFACE =
   'tab-as-title bg-transparent hover:bg-[var(--tab-bg-sel)]';
 
+/** The column's toggle where it sits on the tab strip (the column away, or
+ *  no pane open): a strip tab at rest, its surface, edge and ink (25/11: the
+ *  sidebar's buttons wear the tabs' colours). */
+export const STRIP_TOGGLE_SURFACE =
+  `edge-lit ${TAB_RESTING_SURFACE} text-app-text-secondary hover:text-app-text`;
+
 export const RESTING_FILL_MOBILE = 'max-md:bg-black/[0.08] max-md:dark:bg-white/[0.10]';
+/** The open tabs' resting ground on its own, for a surface that holds rows
+ *  (an open island) and so takes no hover of its own: the rows inside it do. */
+const RESTING_FILL = 'bg-black/[0.05] dark:bg-white/[0.06]';
 export const RESTING_SURFACE =
-  'bg-black/[0.05] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.10] ' +
+  `${RESTING_FILL} hover:bg-black/[0.08] dark:hover:bg-white/[0.10] ` +
   // SOTTO I 768px IL RIALZO CRESCE, e prende il posto di una linea.
   //
   // Attilio ha chiesto «una linea separatrice per ogni tab principale, se ha
@@ -457,9 +466,10 @@ export const ROW_INSET = 6;
  * itself would move the scroller down, and nothing would ever pass behind.
  *
  * Two names, one number, and the number is only ever written here: the sidebar
- * declares the property, the scrolling column reads it. On a desktop it is
- * `0px` and the row is back in the flow, where it has a ground and nothing
- * passes behind it.
+ * declares the property, the scrolling column reads it. On a desktop the row is
+ * back in the flow, where it has a ground and nothing passes behind it, and the
+ * property is half of {@link COLUMN_GAP}: the other half of the step between
+ * the header's buttons (a row tall in a 40px row) and the first card.
  *
  * 56 is `h-14`, the height the header row has on a touch screen: two 44px
  * commands plus {@link ROW_INSET} above and below.
@@ -594,6 +604,41 @@ export const ROW_H = 'h-11 md:h-[34px] coarse:h-11';
 export const CARD_H = 'h-9 md:h-7';
 
 /**
+ * A chrome BUTTON drawn as a tab of the column: the bell, search, «+» and the
+ * column's toggle in the sidebar header (25/11, the owner: "all the
+ * notification and sidebar buttons [must] have the tabs' behaviour, size and
+ * colours"). A row's height and a row's corner, never narrower than it is
+ * tall; an icon-only one is square ({@link TAB_BUTTON_SQUARE}), one with a
+ * shortcut grows to hold it. Its ground comes from {@link tabButton}.
+ *
+ * The height is {@link TAB_BUTTON_H}, a row's WITHOUT the `coarse:` step of
+ * {@link ROW_H}: the rows these buttons sit in (the sidebar header, the
+ * window's title row) are 40px from 768px up whatever the pointer, and the
+ * column's drag minimum counts 34px buttons. A 44px button on a touch laptop
+ * would stick out of the row and, on Windows, run under Search.
+ *
+ * It replaces the raised, always-visible control ({@link RAISED_CONTROL}) in
+ * that header: a tab has no ground at rest, so neither does a button beside
+ * the tabs.
+ */
+export const TAB_BUTTON_H = 'h-11 md:h-[34px]';
+export const TAB_BUTTON =
+  `${TAB_BUTTON_H} min-w-11 md:min-w-[34px] rounded-lg flex items-center justify-center flex-shrink-0 transition-colors duration-instant`;
+export const TAB_BUTTON_SQUARE = 'w-11 md:w-[34px]';
+
+/**
+ * The tab button's ink and ground. At rest, a closed tab: no ground, the
+ * secondary ink, the rows' hover ground under the pointer. Active (its panel
+ * or menu is open), an open tab: its resting ground with the edge that goes
+ * with a ground, and the full ink.
+ */
+export function tabButton(active: boolean): string {
+  return active
+    ? `edge-lit ${RESTING_SURFACE} text-app-text`
+    : `text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
+}
+
+/**
  * The SHAPE of a section's header: a row's height, padding, gap and type. Its
  * ink and ground come from {@link sectionCard}, which knows if it is open.
  *
@@ -618,14 +663,14 @@ export const SECTION_CARD =
 
 /**
  * A section's header with its state, read like a TAB in the column: open, the
- * full ink and the rows' hover over the island's ground; closed, no ground, the
- * pointer included, and the secondary ink that lights under the pointer, as a
- * closed tab (`sidebarRowCard({ tab: 'closed' })`).
+ * full ink over the island's ground; closed, no ground at rest and the
+ * secondary ink. Both take the rows' hover ground under the pointer, as every
+ * tab does (`sidebarRowCard({ tab: 'closed' })`).
  */
 export function sectionCard(open: boolean): string {
   return open
     ? `${SECTION_CARD} text-app-text ${SIDEBAR_HOVER}`
-    : `${SECTION_CARD} text-app-text-secondary hover:text-app-text`;
+    : `${SECTION_CARD} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }
 
 /**
@@ -646,7 +691,7 @@ export const SECTION_ISLAND = 'rounded-xl overflow-hidden mx-1.5 my-[3px]';
  * background, as the tabs should already do").
  */
 export function sectionIsland(open: boolean): string {
-  return open ? `${SECTION_ISLAND} edge-lit bg-black/[0.05] dark:bg-white/[0.06]` : SECTION_ISLAND;
+  return open ? `${SECTION_ISLAND} edge-lit ${RESTING_FILL}` : SECTION_ISLAND;
 }
 /** Indent added per nesting level for sidebar child rows (px). */
 export const SIDEBAR_INDENT_STEP = 16;
@@ -1136,11 +1181,20 @@ export function sidebarRowCard(
   if (attention) return `${base} edge-lit ${attentionSurface(attention)}`;
   if (focused) return `${base} edge-lit ${SELECTED_SURFACE}`;
   if (tab === 'open') return `${base} edge-lit ${RESTING_SURFACE} text-app-text`;
-  // A closed row never takes a fill, the pointer included: the hover fill is a
-  // shade above the open tabs' resting one, so a closed row under the pointer
-  // read as open, and WKWebView keeps a hover on after the pointer leaves the
-  // window (25/11, a closed project that looked open). The text lights instead.
-  if (tab === 'closed') return `${base} text-app-text-secondary hover:text-app-text`;
+  // A closed row has no ground at rest and the same hover ground as every
+  // other tab (25/11, the owner: "shouldn't the hover background appear for
+  // all of them?"). It had none, the pointer included, for two reasons that
+  // are now handled where they happen instead of by a missing hover:
+  //  - the row that a click just closed stays under the pointer, and with a
+  //    ground it looked as if the close did nothing: `hoverQuiet.ts` marks it
+  //    `data-hover-quiet` until the pointer leaves it;
+  //  - WKWebView keeps a hover on after the pointer leaves the window: the
+  //    closed rows' hover ground waits for the pointer to be in the window
+  //    (`html[data-pointer-away]` in index.css).
+  // `closed-tab-row` is the handle of those two rules, on this branch only: a
+  // closed row with an attention fill returned above, and its fill is a
+  // signal, not a hover ground, so nothing may cancel it.
+  if (tab === 'closed') return `${base} closed-tab-row text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
   if (open) return `${base} text-app-text ${SIDEBAR_HOVER}`;
   return `${base} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }

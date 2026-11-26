@@ -1574,7 +1574,7 @@ export interface AppSettings {
   rustPtyBridgeEnabled: boolean;
   fontSize: number;       // 12-18
   messageDensity: 'compact' | 'comfortable';
-  sidebarWidth: number;   // 180-400
+  sidebarWidth: number;   // SIDEBAR_MIN_W-SIDEBAR_MAX_W (useSidebarAndLayout)
   sidebarCollapsed: boolean;
   /**
    * La larghezza a cui la sidebar torna quando si RIAPRE, in px.

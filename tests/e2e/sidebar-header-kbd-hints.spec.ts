@@ -1,25 +1,25 @@
 /**
- * THE HINT GIVES WAY BEFORE THE NAME.
+ * THE HINT GIVES WAY BEFORE THE NAME, AND THE NAME GOES WHOLE.
  *
  * The sidebar header holds, in this order from the left: the 64px the macOS
- * traffic lights are pinned to, the word «Topics», the bell, then Search and
- * «+» at the far end. Search and «+» each carry a keyboard hint inside them
- * (⌘K, ⌘N) and both are `flex-shrink-0`, so every pixel the row was short of
- * landed on the only `min-w-0` chain in the header — the word. Measured before
- * this card, at the DEFAULT sidebar width of 256px: the wordmark rendered
- * 18.7px against the 62 it wants, i.e. the app's own name as «To…», while two
- * hints repeating what the buttons' `title` already says stayed whole.
+ * traffic lights are pinned to, the word «Topics», the column's toggle, the
+ * bell, then Search and «+» at the far end, the four buttons a tab's size
+ * (34px) since 25/11. Search and «+» each carry a keyboard hint inside them
+ * (⌘K, ⌘N), a repetition of what their `title` already says.
  *
- * What is asserted here is the rule, not the two endpoints of it: across the
- * whole travel of the sidebar (180 to 400, its drag limits) there SHALL NOT be
- * a width where a hint is visible and the word is under its natural size.
+ * What is asserted is the rule, across the whole travel of the sidebar
+ * (SIDEBAR_MIN_W to 400, its drag limits): the word is either whole or not
+ * there at all (25/11, the owner: "let's hide the word altogether when it does
+ * not fit"), never «To…»; no hint is visible while the word is not; and the
+ * buttons never run into each other.
  *
  * HOW THE WIDTH IS SET. By writing `style.width` on the sidebar node, which is
  * exactly what the drag does: `useSidebarAndLayout` bypasses React while the
  * mouse is down and only commits to state on mouseup. Driving the test the
- * same way is what makes it a test of the mechanism that ships (a container
- * query on the row) rather than of a React re-render the drag never performs.
- * The delivery video does the real drag, with a real mouse.
+ * same way is what makes it a test of the mechanism that ships (container
+ * queries on the header, the hints first, then the word) rather than of a React re-render the
+ * drag never performs. The delivery video does the real drag, with a real
+ * mouse.
  *
  * @covers WINCTL-03
  */
@@ -43,22 +43,25 @@ const WORD = '[data-testid="sidebar-topics-title"]';
 const SEARCH = `${SIDEBAR} [aria-label="Search, open the command palette"]`;
 const ADD = `${SIDEBAR} [data-testid="pane-add-menu-trigger"]`;
 const HINTS = `${HEADER} .kbd-hint`;
+const BUTTONS = ["sidebar-collapse", "inbox-button", "pane-add-menu-trigger"].map((id) => `${HEADER} [data-testid="${id}"]`).concat(SEARCH);
 
-/** The sidebar's own drag limits (`useSidebarAndLayout`). */
-const DRAG_MIN = 180;
+/** The sidebar's own drag limits (`SIDEBAR_MIN_W`, `SIDEBAR_MAX_W` in
+ *  `useSidebarAndLayout`). */
+const DRAG_MIN = 248;
 const DRAG_MAX = 400;
-/** What the app ships with, and where the defect was measured. */
+/** What the app ships with. */
 const DEFAULT_WIDTH = 256;
-/** The sidebar at which the hints come back: a 300px row, and the column is
+/** The sidebar at which the hints come back: a 350px row, and the column is
  *  13px wider than its row (1px border plus two ROW_INSET). The row threshold
- *  is set for the widest font the app ships to (Linux CI measured the word at
- *  67.3px against 61.8 on a Mac, and fits everything from a 294px row) — see
- *  the two sweeps in index.css. */
-const HINTS_FIT_WIDTH = 313;
+ *  is set for the widest font the app ships to, see the sweep in index.css. */
+const HINTS_FIT_WIDTH = 363;
 /** Sub-pixel layout rounds; the assertions do not need more than this. */
 const TOL = 1;
 
-type Reading = { width: number; word: number; hintsVisible: number };
+/** `word` is the width the word shows: its own when it is there, 0 when it
+ *  is hidden. `overlaps` names the
+ *  pairs of header buttons whose boxes cross. */
+type Reading = { width: number; word: number; hintsVisible: number; overlaps: string[] };
 
 /** The app with the Mac chrome forced: the hints only exist where the
  *  modifier is ⌘ (`usesCtrl`), and that is also where the lights cost 64px. */
@@ -78,35 +81,46 @@ async function loadMacChrome(page: Page): Promise<void> {
     Object.defineProperty(navigator, "userAgentData", { get: () => undefined, configurable: true });
   }, PLATFORM);
   await page.goto(`${E2E_BASE}/?windowChrome=mac`);
-  await page.waitForSelector(SIDEBAR, { state: "visible", timeout: 15_000 });
-  await page.waitForSelector(WORD, { state: "visible", timeout: 15_000 });
+  await page.waitForSelector(HEADER, { state: "visible", timeout: 15_000 });
+  // Attached, not visible: at the default 256 the word does not fit and is
+  // hidden on purpose.
+  await page.waitForSelector(WORD, { state: "attached", timeout: 15_000 });
 }
 
 /** Set the column's width the way the drag does, then read the row back. */
 async function readAt(page: Page, width: number): Promise<Reading> {
   return page.evaluate(
-    ({ sidebar, word, hints, width }) => {
+    ({ sidebar, word, hints, buttons, width }) => {
       const bar = document.querySelector(sidebar) as HTMLElement;
       // `.sidebar-transition` animates width over 200ms. Without cutting it
       // out, every rect read here would be a FRAME OF THE ANIMATION and not
-      // the width asked for: the first version of this spec measured the
-      // wordmark at a 400px column and got the 18.7px of a 256px one, so it
-      // compared the defect against itself and passed while broken.
+      // the width asked for.
       bar.style.transition = "none";
       bar.style.width = `${width}px`;
       // Force the layout the container query depends on before measuring.
       void bar.offsetWidth;
       const label = document.querySelector(word) as HTMLElement;
+      const line = label.parentElement!.getBoundingClientRect();
+      const own = label.getBoundingClientRect();
       const visible = Array.from(document.querySelectorAll(hints)).filter(
         (k) => (k as HTMLElement).getBoundingClientRect().width > 0,
       ).length;
+      const boxes = buttons.map((sel) => ({ sel, r: (document.querySelector(sel) as HTMLElement).getBoundingClientRect() }));
+      const overlaps: string[] = [];
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          const a = boxes[i].r, b = boxes[j].r;
+          if (a.left < b.right - 0.5 && b.left < a.right - 0.5) overlaps.push(`${boxes[i].sel} x ${boxes[j].sel}`);
+        }
+      }
       return {
         width: bar.getBoundingClientRect().width,
-        word: label.getBoundingClientRect().width,
+        word: own.top < line.bottom - 1 ? own.width : 0,
         hintsVisible: visible,
+        overlaps,
       };
     },
-    { sidebar: SIDEBAR, word: WORD, hints: HINTS, width },
+    { sidebar: SIDEBAR, word: WORD, hints: HINTS, buttons: BUTTONS, width },
   );
 }
 
@@ -121,16 +135,13 @@ test.describe("The keyboard hints yield before the wordmark", () => {
     mkdirSync(MEDIA_DIR, { recursive: true });
   });
 
-  test("at the default 256px the name is whole and no hint is shown", async ({ page }) => {
+  test("at the default 256px no hint and no part of the name: the four buttons, side by side", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "WINCTL-03" });
     await loadMacChrome(page);
-    const natural = await naturalWordWidth(page);
     const r = await readAt(page, DEFAULT_WIDTH);
-    expect(
-      r.word,
-      `wordmark ${r.word.toFixed(1)}px at a ${r.width}px sidebar, natural ${natural.toFixed(1)}px`,
-    ).toBeGreaterThanOrEqual(natural - TOL);
+    expect(r.word, `the word shows ${r.word.toFixed(1)}px at ${DEFAULT_WIDTH}px: whole or nothing`).toBe(0);
     expect(r.hintsVisible, `${r.hintsVisible} hint(s) still visible at ${DEFAULT_WIDTH}px`).toBe(0);
+    expect(r.overlaps, `buttons crossing at ${DEFAULT_WIDTH}px`).toEqual([]);
     await expect(page.locator(SEARCH)).toBeVisible();
     await expect(page.locator(ADD)).toBeVisible();
   });
@@ -144,7 +155,7 @@ test.describe("The keyboard hints yield before the wordmark", () => {
     await expect(page.locator(ADD)).toHaveAttribute("title", /\u2318N/);
   });
 
-  test("at the threshold the hints come back, and the name is still whole", async ({ page }) => {
+  test("at the threshold the hints come back, and the name is whole", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "WINCTL-03" });
     await loadMacChrome(page);
     const natural = await naturalWordWidth(page);
@@ -156,51 +167,19 @@ test.describe("The keyboard hints yield before the wordmark", () => {
     ).toBeGreaterThanOrEqual(natural - TOL);
   });
 
-  test("no width in the whole travel shows a hint over a shrunken name", async ({ page }) => {
+  test("no width in the whole travel shows part of the name, a hint without it, or two buttons crossing", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "WINCTL-03" });
     await loadMacChrome(page);
     const natural = await naturalWordWidth(page);
+    expect(natural, "the word is whole at the widest column").toBeGreaterThan(40);
     const offenders: string[] = [];
     for (let w = DRAG_MIN; w <= DRAG_MAX; w += 2) {
       const r = await readAt(page, w);
-      if (r.hintsVisible > 0 && r.word < natural - TOL) {
-        offenders.push(`${w}px: word ${r.word.toFixed(1)} < ${natural.toFixed(1)} with ${r.hintsVisible} hint(s)`);
-      }
+      if (r.word > 0 && r.word < natural - TOL) offenders.push(`${w}px: the word cut to ${r.word.toFixed(1)} of ${natural.toFixed(1)}`);
+      if (r.hintsVisible > 0 && r.word === 0) offenders.push(`${w}px: ${r.hintsVisible} hint(s) and no word`);
+      if (r.overlaps.length) offenders.push(`${w}px: ${r.overlaps.join(", ")}`);
     }
-    expect(offenders, `widths where a hint outlived the name:\n${offenders.join("\n")}`).toEqual([]);
-  });
-
-  test("the before and after of 256px, with the numbers read off the DOM", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "WINCTL-03" });
-    await loadMacChrome(page);
-    const natural = await naturalWordWidth(page);
-
-    // BEFORE is not a stale screenshot from another branch: it is this build
-    // with the one class that carries the rule taken off the row, which is
-    // exactly the layout that measured 18.7px.
-    // Tag the row first: once the class is off, the selector that found it is
-    // gone too, and re-finding it by its Tailwind classes would pick whatever
-    // else in the column happens to be a flex row.
-    await page.evaluate((header) => {
-      const row = document.querySelector(header) as HTMLElement;
-      row.dataset.e2eHeader = "1";
-      row.classList.remove("sidebar-header");
-    }, HEADER);
-    const before = await readAt(page, DEFAULT_WIDTH);
-    await annotate(page, `PRIMA — sidebar ${DEFAULT_WIDTH}px`, before, natural);
-    await page.screenshot({ path: join(MEDIA_DIR, "sidebar-kbd-hints-256-before.png"), clip: shotClip() });
-    await clearAnnotations(page);
-
-    await page.evaluate(() => {
-      (document.querySelector("[data-e2e-header]") as HTMLElement).classList.add("sidebar-header");
-    });
-    const after = await readAt(page, DEFAULT_WIDTH);
-    await annotate(page, `DOPO — sidebar ${DEFAULT_WIDTH}px`, after, natural);
-    await page.screenshot({ path: join(MEDIA_DIR, "sidebar-kbd-hints-256-after.png"), clip: shotClip() });
-    await clearAnnotations(page);
-
-    expect(before.word, "the before shot did not reproduce the defect").toBeLessThan(natural - TOL);
-    expect(after.word, "the after shot does not show a whole wordmark").toBeGreaterThanOrEqual(natural - TOL);
+    expect(offenders, `widths that break the rule:\n${offenders.join("\n")}`).toEqual([]);
   });
 
   test("dragging the column shows the hints leave and come back", async ({ browser }) => {
@@ -215,16 +194,16 @@ test.describe("The keyboard hints yield before the wordmark", () => {
       const hints = page.locator(HINTS);
       await expect(hints.first()).toBeHidden();
 
-      await dragSidebarTo(page, DEFAULT_WIDTH, 360);
+      await dragSidebarTo(page, DEFAULT_WIDTH, 380);
       await expect(hints.first()).toBeVisible();
       await expect(hints.nth(1)).toBeVisible();
 
-      await dragSidebarTo(page, 360, 220);
+      await dragSidebarTo(page, 380, 300);
       await expect(hints.first()).toBeHidden();
 
-      await dragSidebarTo(page, 220, DEFAULT_WIDTH);
+      await dragSidebarTo(page, 300, DEFAULT_WIDTH);
       await expect(hints.first()).toBeHidden();
-      await expect(page.locator(WORD)).toBeVisible();
+      await expect(page.locator(SEARCH)).toBeVisible();
     } finally {
       await ctx.close();
       if (video) await video.saveAs(join(MEDIA_DIR, "sidebar-kbd-hints-resize.webm"));
@@ -232,52 +211,6 @@ test.describe("The keyboard hints yield before the wordmark", () => {
     }
   });
 });
-
-/** The header plus a little air, at whatever the column measures now. */
-function shotClip() {
-  return { x: 0, y: 0, width: 420, height: 120 };
-}
-
-/**
- * The measured rects drawn over the row as fixed labels, then removed. The
- * numbers come from `getBoundingClientRect`, not from eyes.
- */
-async function annotate(page: Page, caption: string, r: Reading, natural: number): Promise<void> {
-  await page.evaluate(
-    ({ word, caption, r, natural }) => {
-      const label = document.querySelector(word) as HTMLElement;
-      const box = label.getBoundingClientRect();
-      const root = document.createElement("div");
-      root.id = "e2e-annotations";
-      root.style.cssText =
-        "position:fixed;inset:0;pointer-events:none;z-index:2147483647;font:11px/1.4 ui-monospace,monospace;";
-      const el = (css: string, text = "") => {
-        const d = document.createElement("div");
-        d.style.cssText = css;
-        d.textContent = text;
-        root.appendChild(d);
-      };
-      el(
-        `position:absolute;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;outline:1px solid #e0245e;`,
-      );
-      el(`position:absolute;left:8px;top:${box.bottom + 8}px;color:#e0245e;white-space:nowrap;`, caption);
-      el(
-        `position:absolute;left:8px;top:${box.bottom + 24}px;color:#e0245e;white-space:nowrap;`,
-        `wordmark ${r.word.toFixed(1)}px / ${natural.toFixed(1)} naturali`,
-      );
-      el(
-        `position:absolute;left:8px;top:${box.bottom + 40}px;color:#0a58ca;white-space:nowrap;`,
-        `hint visibili: ${r.hintsVisible}`,
-      );
-      document.body.appendChild(root);
-    },
-    { word: WORD, caption, r, natural },
-  );
-}
-
-async function clearAnnotations(page: Page): Promise<void> {
-  await page.evaluate(() => document.getElementById("e2e-annotations")?.remove());
-}
 
 /**
  * The real gesture: press the resize band, move, release. The band sits at
