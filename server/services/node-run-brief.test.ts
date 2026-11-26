@@ -86,6 +86,24 @@ describe("nodeRunDescription", () => {
     expect(agentsOnly).toContain("REVISIONE-FINE");
   });
 
+  it("un revisore automatico, anche se parla come un agente, non è la chiacchiera dell'agente che ha consegnato (596e3d88, 26/11)", () => {
+    // 10 numbered points, over 2.000 characters: all ten must arrive, even
+    // with an older human aside in the thread and a delivery from an agent
+    // different from the one writing the review.
+    const points = Array.from({ length: 10 }, (_, i) =>
+      `${i + 1}. Punto numero ${i + 1} con un bel po' di testo per allungare la frase e farla assomigliare a un vero punto di revisione dettagliato e lungo, cosi' da arrivare a piu' di duemila caratteri totali nel commento completo, superando quindi il vecchio tetto di MAX_COMMENT_CHARS.`);
+    const review = points.join("\n");
+    expect(review.length).toBeGreaterThan(MAX_COMMENT_CHARS);
+    expect(review.length).toBeLessThan(MAX_REVIEW_CHARS);
+    const out = nodeRunDescription("d", [
+      comment({ author: "user", kind: "comment", content: "guarda questo per favore" }),
+      comment({ author: "agent:worker1", kind: "delivery", content: "CONSEGNA PRECEDENTE" }),
+      comment({ author: "agent:revisore1", kind: "comment", content: review }),
+    ]);
+    for (const p of points) expect(out).toContain(p);
+    expect(out).not.toContain("[...cut");
+  });
+
   it("la revisione più recente non consuma il budget: la consegna precedente resta anche con una revisione lunga", () => {
     // A 10.000-character review used to spend the thread budget and push the previous delivery out.
     const review = `REVISIONE-INIZIO\n${"difetto riga\n".repeat(700)}REVISIONE-FINE`;
