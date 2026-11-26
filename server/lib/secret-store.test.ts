@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
-  createAllowlist, createAgeSecretStore, createKeychainSecretStore, createSecretStore,
+  createAllowlist, createAgeSecretStore, createKeychainSecretStore, createSecretStore, hasControlCharacter,
   loadAllowlistFromStateDir, type CommandRunResult, type AgeRunResult,
 } from "./secret-store";
 
@@ -197,6 +197,13 @@ describe("age secret store", () => {
 });
 
 describe("keychain secret store (fake `security`, no real Keychain touched)", () => {
+  /**
+   * Imitates the two behaviours of the real tool that matter here, both read
+   * off a real Keychain on 2026-11-26: `security -i` consumes ONE command per
+   * line (a newline inside a quoted word ends the command and starts the
+   * next), and `find-generic-password -w` prints HEX DIGITS instead of the
+   * data as soon as the stored data holds a byte below 0x20.
+   */
   function fakeSecurity() {
     const items = new Map<string, string>();
     const calls: Array<{ args: string[]; stdin?: string }> = [];
@@ -206,19 +213,20 @@ describe("keychain secret store (fake `security`, no real Keychain touched)", ()
       if (args[0] === "find-generic-password") {
         const a = args.indexOf("-a");
         const account = a >= 0 ? args[a + 1]! : "";
-        const value = items.get(account);
-        if (value === undefined) return { status: 44, stdout: "", stderr: "not found" };
-        return { status: 0, stdout: `${value}\n`, stderr: "" };
+        const stored = items.get(account);
+        if (stored === undefined) return { status: 44, stdout: "", stderr: "not found" };
+        const printed = hasControlCharacter(stored) ? Buffer.from(stored, "utf8").toString("hex") : stored;
+        return { status: 0, stdout: `${printed}\n`, stderr: "" };
       }
       if (args[0] === "-i" && stdinData) {
-        const commands = stdinData.split("\n").filter((line) => line.length > 0);
-        for (const line of commands) {
-          const m = /add-generic-password.*-a\s+"((?:[^"\\]|\\.)*)"\s+-X\s+([0-9a-f]+)/.exec(line);
-          if (m) {
-            const account = m[1]!.replace(/\\(.)/g, "$1");
-            const value = Buffer.from(m[2]!, "hex").toString("utf8");
-            items.set(account, value);
+        for (const line of stdinData.split("\n").filter((l) => l.length > 0)) {
+          const quoted = /add-generic-password.*-a\s+"((?:[^"\\]|\\.)*)"\s+-w\s+"((?:[^"\\]|\\.)*)"/.exec(line);
+          if (quoted) {
+            items.set(quoted[1]!.replace(/\\(.)/g, "$1"), quoted[2]!.replace(/\\(.)/g, "$1"));
+            continue;
           }
+          const hex = /add-generic-password.*-a\s+"((?:[^"\\]|\\.)*)"\s+-X\s+([0-9a-f]+)/.exec(line);
+          if (hex) items.set(hex[1]!.replace(/\\(.)/g, "$1"), Buffer.from(hex[2]!, "hex").toString("utf8"));
         }
         return { status: 0, stdout: "", stderr: "" };
       }
@@ -226,6 +234,14 @@ describe("keychain secret store (fake `security`, no real Keychain touched)", ()
     };
     return { runner, calls, items };
   }
+
+  test("the fake mirrors the real tool: stored data with a control byte comes back as hex digits", () => {
+    const { runner, items } = fakeSecurity();
+    items.set(TEST_NAME, "two\nlines");
+    const read = runner("security", ["find-generic-password", "-s", "topics-secrets", "-a", TEST_NAME, "-w"]);
+    expect(read.status).toBe(0);
+    expect(read.stdout.trim()).toBe(Buffer.from("two\nlines", "utf8").toString("hex"));
+  });
 
   test("pack then read round-trips a test value", async () => {
     const { runner } = fakeSecurity();
@@ -255,7 +271,36 @@ describe("keychain secret store (fake `security`, no real Keychain touched)", ()
       expect(call.args.join(" ")).not.toContain("test-value-not-a-real-secret");
     }
     const addCall = calls.find((c) => (c.stdin ?? "").includes("add-generic-password"));
-    expect(addCall?.stdin).toContain(Buffer.from("test-value-not-a-real-secret", "utf8").toString("hex"));
+    expect(addCall?.stdin).toContain(`b64:${Buffer.from("test-value-not-a-real-secret", "utf8").toString("base64")}`);
+  });
+
+  // Mutation point of the review of 2026-11-26: store the value as it is (or
+  // as `-X <hex>`) instead of `b64:<base64>` and this test goes red, because
+  // the fake answers in hex for data holding a newline, exactly as the real
+  // `security -w` did on a Keychain test entry: `read()` would hand the
+  // caller hex digits instead of the age identity.
+  test("mutation: a value is stored as printable b64 and read back decoded, never as hex", async () => {
+    const secretAcrossLines = 'line one "quoted"\nline \\two\nAGE-SECRET-KEY-EXAMPLE';
+    const { runner, items } = fakeSecurity();
+    const store = createKeychainSecretStore(TEST_ALLOWLIST, runner);
+    await store.pack({ [TEST_NAME]: secretAcrossLines });
+    const stored = items.get(TEST_NAME) ?? "";
+    expect(stored.startsWith("b64:")).toBe(true);
+    expect(stored).not.toContain("\n");
+    expect(await store.read(TEST_NAME)).toBe(secretAcrossLines);
+  });
+
+  test("an entry this store did not write is an error, not a value", async () => {
+    const { runner, items } = fakeSecurity();
+    items.set(TEST_NAME, "written-by-something-else");
+    const store = createKeychainSecretStore(TEST_ALLOWLIST, runner);
+    await expect(store.read(TEST_NAME)).rejects.toThrow(/not written by this store/);
+  });
+
+  test("an allowlist never accepts a name with a control character, whatever the config says", () => {
+    const injected = `${TEST_NAME}"\nadd-generic-password -U -s x -a y -w "z`;
+    expect(createAllowlist([injected]).has(injected)).toBe(false);
+    expect(createAllowlist([injected]).names).toEqual([]);
   });
 
   // Mutation point of the review's follow-up: `security -i` reads one
@@ -263,9 +308,9 @@ describe("keychain secret store (fake `security`, no real Keychain touched)", ()
   // backslashes, not a newline inside the value. An age identity IS
   // multi-line (`# created…`, `# public key…`, `AGE-SECRET-KEY-…`), so a
   // value like it would close the add-generic-password command early and
-  // start a second, injected one. Put `-X <hex>` back to `-w <quoted>` and
-  // this test goes red: either the round trip breaks, or a second command
-  // shows up on stdin.
+  // start a second, injected one. Write the raw value instead of its base64
+  // form and this test goes red: either the round trip breaks, or a second
+  // command shows up on stdin.
   test("mutation: a multi-line value with quotes and backslashes round-trips, and stdin carries one command", async () => {
     const secretAcrossLines = 'line one "quoted"\nline \\two\nAGE-SECRET-KEY-EXAMPLE';
     const { runner, calls } = fakeSecurity();
