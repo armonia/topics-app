@@ -59,6 +59,7 @@ const checksFloorFields = (svc: TaskService): { checksMemFloorGB: number } =>
   ({ checksMemFloorGB: svc.getChecksMemFloorGB() });
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { resolveCreatedSource } from "../lib/created-by";
+import { duplicateRejection, findCreationTwins, groupSeriesOnCreate, hasCardWithKey } from "../services/card-triage";
 import { createTaskService, projectIdForPath, type TaskService } from "../services/tasks";
 import { familyLinks } from "../../shared/project-family";
 import { loadFamilyRows } from "../services/project-family-rows";
@@ -1046,21 +1047,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // Same duplicate gate as the ordinary agent surface. A global task is
         // still a normal task on one real board, so collision detection belongs
         // to that board and an explicit override remains auditable in the body.
-        if (body?.allow_duplicate !== true && typeof body?.text === "string" && body.text.trim()) {
-          const twins = svc
-            .findDuplicates({ projectId, text: body.text, limit: 3, rootsOnly: true })
-            .filter((near) => near.duplicate);
-          if (twins.length > 0) {
-            return json({
-              error: `a card already says it: "${twins[0]!.task.text}". Read that one and comment on it with comment_global_task; if it really is different work, create again with allow_duplicate: true.`,
-              code: "duplicate",
-              duplicates: twins.map((near) => ({
-                id: near.task.id,
-                text: near.task.text,
-                score: Number(near.score.toFixed(3)),
-              })),
-            }, 409);
-          }
+        // A retry of a creation that worked (same idempotency key) gets its
+        // card back from `create`: the gate must not turn it into a 409.
+        if (body?.allow_duplicate !== true && !hasCardWithKey(db, body?.idempotency_key) && typeof body?.text === "string" && body.text.trim()) {
+          const twins = findCreationTwins(svc, projectId, body.text);
+          if (twins.length > 0) return json(duplicateRejection(twins, "comment_global_task"), 409);
         }
 
         try {
@@ -1211,28 +1202,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // come ha sempre fatto, e un cancello che parla per primo trasformava
         // quel 404 in un 409 (preso da `tasks.test.ts`, che era verde).
         const wantsParent = typeof body?.parent_task_id === "string" && body.parent_task_id;
-        if (body?.allow_duplicate !== true && !wantsParent && typeof body?.text === "string" && body.text.trim()) {
-          const twins = svc
-            .findDuplicates({ projectId: sess.projectId, text: body.text, limit: 3, rootsOnly: true })
-            .filter((n) => n.duplicate);
-          if (twins.length > 0) {
-            return json(
-              {
-                // Gli id NON stanno in questa stringa: stanno in `duplicates[]`,
-                // e il client MCP li appende al messaggio (`httpJson`). Qui si
-                // dice cosa FARE, e si nomina il parametro esatto: un agente che
-                // legge «rimanda con allow_duplicate» e non sa come si scrive
-                // finisce per riscrivere il titolo storto finché passa.
-                error: `a card already says it: "${twins[0]!.task.text}". Read that one and comment on it with add_comment; if it really is another job, recreate with allow_duplicate: true.`,
-                code: "duplicate",
-                duplicates: twins.map((n) => ({ id: n.task.id, text: n.task.text, score: Number(n.score.toFixed(3)) })),
-              },
-              409,
-            );
-          }
+        if (body?.allow_duplicate !== true && !wantsParent && !hasCardWithKey(db, body?.idempotency_key) && typeof body?.text === "string" && body.text.trim()) {
+          const twins = findCreationTwins(svc, sess.projectId, body.text);
+          // The ids are in `duplicates[]`; the sentence names the exact parameter to send (see `duplicateRejection`).
+          if (twins.length > 0) return json(duplicateRejection(twins, "add_comment"), 409);
         }
         try {
-          const task = svc.create({
+          const created = svc.create({
             projectId: sess.projectId,
             // Narrated here rather than cast: the service is the one that
             // says "task text is required", and an empty string is how a
@@ -1261,7 +1237,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             bar: typeof body?.bar === "string" ? body.bar : null,
           });
           const wait = scheduledWait(body);
-          if (wait) svc.deferForWait({ taskId: task.id, reason: wait.reason, minutes: wait.minutes, by: "agent:session" });
+          if (wait) svc.deferForWait({ taskId: created.id, reason: wait.reason, minutes: wait.minutes, by: "agent:session" });
+          // A numbered batch ("Lavori programmati 3/8: ...") is born under the card that names it.
+          const task = groupSeriesOnCreate({ svc, broadcast: broadcastToAll }, created, "agent:session");
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task: wait ? svc.get(task.id)!.task : task });
           // The chat's request became a card: the chat is told, the coordinator
           // reads it in the log (`services/card-origin-notice.ts`).

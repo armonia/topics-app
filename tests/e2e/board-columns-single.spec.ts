@@ -51,7 +51,7 @@ const topics: string[] = [];
 const ids: Record<string, string> = {};
 
 async function createTask(request: Req, key: string, board: string, text: string, status: string) {
-  const res = await request.post(`${BASE}/api/boards/${board}/tasks`, { data: { text, status } });
+  const res = await request.post(`${BASE}/api/boards/${board}/tasks`, { data: { text, status, allowDuplicate: true } });
   expect(res.ok(), `POST ${text}`).toBe(true);
   const { id } = (await res.json()) as { id: string };
   createdTasks.push({ board, id });

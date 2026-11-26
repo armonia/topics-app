@@ -193,14 +193,45 @@ export function createCures(deps: CureDeps) {
 
   const today = () => new Date(now()).toISOString().slice(0, 10);
 
+  /** Where the problem key starts inside the key of an investigation card (`topics-check:YYYY-MM-DD:<key>`), 1-based. */
+  const keyAt = INVESTIGATION_KEY.length + "YYYY-MM-DD:".length + 1;
+  /** The title of a card for this problem; the card of a bounce says so, no stuck cause describes it. */
+  const causeTitle = (p: Problem): string => `Verifica: ${p.cause === "bounce" ? BOUNCE_TEXT : CAUSE_TEXT[p.cause]}`; // allow-italian: board card title
+  /** The start of the line a joining card leaves on its cause card (see `rowLine`). */
+  const ROW_PREFIX = "Altra card ferma per la stessa causa:"; // allow-italian: board comment
+  /** The line a joining card leaves on its cause card: exact text, so «is this problem on a row?» is an equality. */
+  const rowLine = (p: Problem): string => `${ROW_PREFIX} ${p.taskId}. Problema ${p.key}.`; // allow-italian: board comment
+
+  /**
+   * The open investigation card of this problem's cause on the board, oldest first: the one every other stuck
+   * card of the same cause joins as a row (six cards stopped for the same reason are one problem, not six cards).
+   * A hung node is the NODE's problem, its key names the machine: it has no cause card.
+   */
+  function causeCard(p: Problem, boardId: string): { id: string } | null {
+    if (p.cause === "hung-node") return null;
+    return db.query("SELECT id FROM tasks WHERE project_id = ? AND claude_task_id LIKE ? AND substr(claude_task_id, ?, ?) = ? AND status != 'done' AND COALESCE(archived, 0) = 0 ORDER BY created_at LIMIT 1")
+      .get(boardId, `${INVESTIGATION_KEY}%`, keyAt, p.cause.length + 1, `${p.cause}:`) as { id: string } | null;
+  }
+
   /**
    * One open card per problem key is enough, today's or an older one, and a restart does not change that:
-   * the rule reads the database, never the memory. A card closed today is not reopened the same day.
+   * the rule reads the database, never the memory. A card closed today is not reopened the same day. A problem
+   * that already joined the open card of its cause as a row is under investigation too.
    */
   function investigated(p: Problem, boardId: string): boolean {
-    const keyAt = INVESTIGATION_KEY.length + "YYYY-MM-DD:".length + 1;
-    return !!db.query("SELECT 1 FROM tasks WHERE project_id = ? AND claude_task_id LIKE ? AND substr(claude_task_id, ?) = ? AND ((status != 'done' AND COALESCE(archived, 0) = 0) OR substr(created_at, 1, 10) = ?)")
-      .get(boardId, `${INVESTIGATION_KEY}%`, keyAt, p.key, today());
+    if (db.query("SELECT 1 FROM tasks WHERE project_id = ? AND claude_task_id LIKE ? AND substr(claude_task_id, ?) = ? AND ((status != 'done' AND COALESCE(archived, 0) = 0) OR substr(created_at, 1, 10) = ?)")
+      .get(boardId, `${INVESTIGATION_KEY}%`, keyAt, p.key, today())) return true;
+    const card = causeCard(p, boardId);
+    return !!card && !!db.query("SELECT 1 FROM task_comments WHERE task_id = ? AND author = ? AND content = ?").get(card.id, UNKNOWN_CURE_AUTHOR, rowLine(p));
+  }
+
+  /** The stuck card becomes a row of the cause card, and the title of the card says how many cards are stopped. */
+  function joinCauseCard(p: Problem, card: { id: string }): void {
+    svc.addComment({ taskId: card.id, author: UNKNOWN_CURE_AUTHOR, kind: "service", content: rowLine(p), once: true });
+    const rows = (db.query("SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ? AND author = ? AND content LIKE ?")
+      .get(card.id, UNKNOWN_CURE_AUTHOR, `${ROW_PREFIX}%`) as { n: number }).n;
+    deps.emit(svc.update({ taskId: card.id, actor: "agent", by: UNKNOWN_CURE_AUTHOR, patch: { text: `${causeTitle(p)} (${rows + 1} card ferme)` } })); // allow-italian: board card title
+    note(p.taskId, `Indagine aperta: card ${card.id}.`); // allow-italian: board comment
   }
 
   /** Investigation cards (any kind) opened on `day`: what the cap counts. */
@@ -213,6 +244,9 @@ export function createCures(deps: CureDeps) {
     if (!inv.boardId) return "off";
     const day = today();
     if (investigated(p, inv.boardId)) return "skipped";
+    // A row opens no card, so the day's cap is not spent on it.
+    const open = causeCard(p, inv.boardId);
+    if (open) { joinCauseCard(p, open); return "investigated"; }
     const opened = openedToday(inv.boardId, day);
     if (opened >= inv.perDay) {
       const line = `Tetto di ${inv.perDay} indagini al giorno raggiunto: non apro un'altra card per questo problema.`; // allow-italian: board comment
@@ -222,7 +256,7 @@ export function createCures(deps: CureDeps) {
     }
     const card = svc.create({
       projectId: inv.boardId, status: "backlog", idempotencyKey: `${INVESTIGATION_KEY}${day}:${p.key}`,
-      text: `Verifica: ${p.cause === "bounce" ? BOUNCE_TEXT : CAUSE_TEXT[p.cause]}`, // allow-italian: board card title
+      text: causeTitle(p),
       description: `Problema ${p.key}: la card ${p.taskId} resta rossa nella Verifica e la cura nota non c'è o non l'ha tolta.`, // allow-italian: board card body
     });
     note(p.taskId, `Indagine aperta: card ${card.id}.`); // allow-italian: board comment

@@ -100,7 +100,7 @@ test("a card gets its .env and its setup, and two worktrees keep distinct ports 
     removeCli = installSlowTurnCli();
 
     for (const title of [`Card setup A ${stamp}`, `Card setup B ${stamp}`]) {
-      const created = await request.post(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks`, { data: { text: title, status: "todo" } });
+      const created = await request.post(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks`, { data: { text: title, status: "todo", allowDuplicate: true } });
       expect(created.ok(), await created.text()).toBeTruthy();
       taskIds.push(((await created.json()) as { id: string }).id);
     }

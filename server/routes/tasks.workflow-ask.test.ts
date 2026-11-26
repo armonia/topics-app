@@ -92,7 +92,8 @@ test("a machine card born in review has no column to name but the plain one: hum
   expect(plain.status).toBe(201);
   expect(plain.body).toMatchObject({ status: "review" });
   expect(plain.body.stage).toBeUndefined();
-  const asked = await born({ human_ask: "Which layout?" });
+  // Another title: the same words from a machine would be the open twin of the card above, handed back (see tasks.triage.test.ts).
+  const asked = await born({ human_ask: "Which layout?", text: "layout question born in review" });
   expect(asked.status).toBe(201);
   expect(asked.body).toMatchObject({ humanAsk: "Which layout?" });
 });

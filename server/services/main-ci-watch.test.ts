@@ -1,6 +1,6 @@
 /** @covers LAND-16 */
 import { describe, expect, test } from "bun:test";
-import { mainRedStop, watchMainCi, type MainCiCommit, type MainCiPort, type MainCiVerdict } from "./main-ci-watch";
+import { describeMainRedAgain, mainRedKey, mainRedKeyPrefix, mainRedStop, watchMainCi, type MainCiCommit, type MainCiPort, type MainCiVerdict } from "./main-ci-watch";
 
 const NOW = 1_800_000_000;
 const commit = (sha: string, ageS = 3600): MainCiCommit => ({ sha, subject: `commit ${sha}`, at: NOW - ageS });
@@ -73,5 +73,26 @@ describe("mainRedStop: a land waits while main is red", () => {
     for (const state of ["pass", "pending", "none"] as const) {
       expect(await mainRedStop(portWith({ state, failed: [], url: null }))).toBeNull();
     }
+  });
+});
+
+describe("the line a still-open red card receives when main goes red again", () => {
+  test("it carries the new sha in full (the key to write it once), the red jobs and the run", () => {
+    const line = describeMainRedAgain({ sha: "b".repeat(40), subject: "fix: altra cosa", at: NOW }, { state: "fail", failed: ["gates", "unit"], url: "https://ci/run/9" });
+    expect(line).toContain("b".repeat(40));
+    expect(line).toContain("`gates`, `unit`");
+    expect(line).toContain("https://ci/run/9");
+  });
+
+  test("with no job named and no run, it still says the sha and does not invent either", () => {
+    const line = describeMainRedAgain({ sha: "c".repeat(40), subject: "x", at: NOW }, { state: "fail", failed: [], url: null });
+    expect(line).toContain("c".repeat(40));
+    expect(line).not.toContain("Job rossi");
+    expect(line).not.toContain("Run:");
+  });
+
+  test("every key of a project starts with the project's prefix, and only with its own", () => {
+    expect(mainRedKey("p1", "abc").startsWith(mainRedKeyPrefix("p1"))).toBe(true);
+    expect(mainRedKey("p2", "abc").startsWith(mainRedKeyPrefix("p1"))).toBe(false);
   });
 });

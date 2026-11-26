@@ -14,7 +14,7 @@ import { runGit } from "../lib/run-git";
 import { awaitCiEvidence, closeCiDraft, spawnCapped } from "../services/ci-evidence";
 import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
 import { measureIntegration } from "../services/integration-measure";
-import { describeMainRed, MAIN_RED_MODEL, mainRedKey, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
+import { describeMainRed, describeMainRedAgain, MAIN_RED_MODEL, mainRedKey, mainRedKeyPrefix, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
 import { personPlace } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
 import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict } from "../services/red-bounce";
@@ -544,6 +544,20 @@ export function createCiPhase(deps: CiPhaseDeps) {
       open: (commit, verdict) => {
         const key = mainRedKey(projectId, commit.sha);
         if (deps.db.query("SELECT 1 FROM tasks WHERE claude_task_id = ?").get(key)) return false;
+        // Main went red AGAIN while the card of an earlier red is still open: that card is told, a second one is not opened.
+        const prefix = mainRedKeyPrefix(projectId);
+        const earlier = deps.db.query(
+          "SELECT id FROM tasks WHERE project_id = ? AND substr(claude_task_id, 1, ?) = ? AND archived = 0 AND status != 'done' AND parent_task_id IS NULL ORDER BY created_at LIMIT 1",
+        ).get(projectId, prefix.length, prefix) as { id: string } | null;
+        if (earlier) {
+          // The sha is in the line: a sweep that finds it already there writes nothing.
+          if (!deps.db.query("SELECT 1 FROM task_comments WHERE task_id = ? AND instr(content, ?) > 0").get(earlier.id, commit.sha)) {
+            deps.svc.addComment({ taskId: earlier.id, projectId, author: "system", kind: "service", content: describeMainRedAgain(commit, verdict) });
+            const noted = deps.svc.get(earlier.id, { projectId })?.task;
+            if (noted) deps.broadcast({ type: "task:updated", projectId, task: noted });
+          }
+          return false;
+        }
         const task = deps.svc.create({
           projectId, text: mainRedTitle(commit.sha), status: "todo", createdBy: "cron:main-ci", idempotencyKey: key, model: MAIN_RED_MODEL,
           description: describeMainRed(commit, verdict),

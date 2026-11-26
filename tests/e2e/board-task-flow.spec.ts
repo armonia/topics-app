@@ -46,7 +46,7 @@ test.describe("Board: the Task flow in one take", () => {
   test.beforeAll(async ({ request }) => {
     const seed = async (text: string, status: "backlog" | "todo" | "done"): Promise<string> => {
       const res = await request.post(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks`, {
-        data: { text, status: status === "done" ? "todo" : status },
+        data: { text, status: status === "done" ? "todo" : status, allowDuplicate: true },
       });
       expect(res.ok(), `the board API refused to seed "${text}"`).toBe(true);
       const { id } = (await res.json()) as { id: string };

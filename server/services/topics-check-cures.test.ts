@@ -153,7 +153,8 @@ describe("what the cures cannot clear opens one card", () => {
     const h = setup(); h.card("1"); h.card("2");
     const db = h.db;
     const cures = createCures({ db, svc: h.svc, now: () => NOW, emit: () => {}, reassign: () => false });
-    const s = sample([stuck("1", "memory"), stuck("2", "memory")]);
+    // Two CAUSES: a second stuck card of the same cause is a row of the first card and spends nothing of the cap.
+    const s = sample([stuck("1", "memory"), stuck("2", "resources")]);
     const one = { boardId: "inv", perDay: 1 };
     expect(cures.run(s, T, one).map((o) => o.outcome)).toEqual(["investigated", "capped"]);
     expect(cures.run(s, T, one).map((o) => o.outcome)).toEqual(["skipped", "capped"]);
@@ -186,10 +187,11 @@ describe("what the cures cannot clear opens one card", () => {
     h.cures.run(sample(), T, ON_BOARD);
     expect(h.opened()).toHaveLength(0);
   });
-  test("key mutation: two different problems are two cards, not one", () => {
+  test("key mutation: two causes are two cards, and every problem keeps its own key", () => {
     const h = setup(); h.card("x"); h.card("y");
     h.cures.run(sample([stuck("x", "memory"), stuck("y", "memory"), stuck("y", "resources")]), T, ON_BOARD);
-    expect(h.opened()).toHaveLength(3);
+    // memory:x opens the card of its cause, memory:y is a row of it, resources:y is another cause: another card.
+    expect(h.opened()).toHaveLength(2);
     expect(new Set(problemsOf(sample([stuck("x", "memory"), stuck("y", "memory")]), T).map((p) => p.key)).size).toBe(2);
   });
   test("with no board chosen no card opens and nothing throws", () => {
@@ -197,13 +199,116 @@ describe("what the cures cannot clear opens one card", () => {
     expect(h.cures.run(sample([stuck("m", "memory")]), T, OFF)).toEqual([{ key: "memory:m", outcome: "off" }]);
     expect(h.opened()).toHaveLength(0);
   });
-  test("the daily cap: the fourth problem opens no card and the line says so", () => {
+  test("the daily cap: the fourth cause opens no card and the line says so", () => {
     const h = setup();
     for (const id of ["1", "2", "3", "4"]) h.card(id);
-    const out = h.cures.run(sample(["1", "2", "3", "4"].map((id) => stuck(id, "memory"))), T, ON_BOARD);
+    const causes = ["memory", "resources", "spend", "plan"] as const;
+    const out = h.cures.run(sample(["1", "2", "3", "4"].map((id, i) => stuck(id, causes[i]!))), T, ON_BOARD);
     expect(out.map((o) => o.outcome)).toEqual(["investigated", "investigated", "investigated", "capped"]);
     expect(h.opened()).toHaveLength(3);
     expect(h.lines("4").join(" ")).toContain("Tetto di 3");
+  });
+});
+
+describe("stuck cards of one cause are ONE card, not one card each", () => {
+  /** Six cards stopped for the same cause («unknown»): in todo, so the requeue cure has nothing to do and the cause goes straight to investigation. */
+  const six = ["a", "b", "c", "d", "e", "f"];
+  const unknownSix = () => sample(six.map((id) => stuck(id, "unknown")));
+
+  test("six cards stopped for the same cause open one card; the other five are rows of it", () => {
+    const h = setup(); for (const id of six) h.card(id, null, "todo");
+    const out = h.cures.run(unknownSix(), T, ON_BOARD);
+    expect(out.map((o) => o.outcome)).toEqual(Array(6).fill("investigated"));
+    expect(h.opened()).toHaveLength(1);
+    const card = h.opened()[0]!;
+    const rows = h.lines(card.id).filter((l) => l.startsWith("Altra card ferma per la stessa causa:"));
+    expect(rows).toHaveLength(5);
+    for (const id of six.slice(1)) expect(rows.join("\n")).toContain(`Problema unknown:${id}.`);
+  });
+
+  test("the title says the cause and how many cards are stopped, and the first card of the cause is not renamed", () => {
+    const h = setup(); for (const id of six.slice(0, 2)) h.card(id, null, "todo");
+    h.cures.run(sample([stuck("a", "unknown")]), T, ON_BOARD);
+    expect(h.opened()[0]!.text).toBe("Verifica: nessun turno vivo e nessuna domanda aperta");
+    h.cures.run(sample([stuck("a", "unknown"), stuck("b", "unknown")]), T, ON_BOARD);
+    expect(h.opened()[0]!.text).toBe("Verifica: nessun turno vivo e nessuna domanda aperta (2 card ferme)");
+  });
+
+  test("every stuck card says which card is looking at it", () => {
+    const h = setup(); for (const id of six) h.card(id, null, "todo");
+    h.cures.run(unknownSix(), T, ON_BOARD);
+    const cardId = h.opened()[0]!.id;
+    for (const id of six) expect(h.lines(id).join(" ")).toContain(`Indagine aperta: card ${cardId}.`);
+  });
+
+  test("the next round finds each problem under investigation: nothing more is written, nothing is cured again", () => {
+    const h = setup(); for (const id of six) h.card(id, null, "todo");
+    h.cures.run(unknownSix(), T, ON_BOARD);
+    const before = h.lines(h.opened()[0]!.id).length;
+    NOW += 5 * 60_000;
+    const again = h.cures.run(unknownSix(), T, ON_BOARD);
+    expect(again.map((o) => o.outcome)).toEqual(Array(6).fill("skipped"));
+    expect(h.lines(h.opened()[0]!.id)).toHaveLength(before);
+    expect(h.opened()).toHaveLength(1);
+  });
+
+  test("two different causes are two cards with two different titles", () => {
+    const h = setup(); h.card("a", null, "todo"); h.card("b", null, "todo");
+    h.cures.run(sample([stuck("a", "unknown"), stuck("b", "attempts")]), T, ON_BOARD);
+    const titles = h.opened().map((c) => c.text);
+    expect(titles).toHaveLength(2);
+    expect(new Set(titles).size).toBe(2);
+  });
+
+  test("a row opens no card, so the day's cap is not spent on it", () => {
+    const h = setup(); for (const id of six) h.card(id, null, "todo"); h.card("z", null, "todo");
+    const cap = { boardId: "inv", perDay: 1 };
+    const out = h.cures.run(sample([...six.map((id) => stuck(id, "unknown")), stuck("z", "attempts")]), T, cap);
+    expect(out.map((o) => o.outcome)).toEqual([...Array(6).fill("investigated"), "capped"]);
+    expect(h.opened()).toHaveLength(1);
+  });
+
+  test("a cause card that is closed no longer collects: the next stuck card of that cause opens a new one", () => {
+    const h = setup(); h.card("a", null, "todo"); h.card("b", null, "todo");
+    h.cures.run(sample([stuck("a", "unknown")]), T, ON_BOARD);
+    h.db.run("UPDATE tasks SET status = 'done' WHERE claude_task_id LIKE 'topics-check:%'");
+    NOW += 5 * 60_000;
+    expect(h.cures.run(sample([stuck("b", "unknown")]), T, ON_BOARD)[0]!.outcome).toBe("investigated");
+    expect(h.opened()).toHaveLength(2);
+  });
+
+  test("the card of another board is not the cause card of this board", () => {
+    const h = setup(); h.card("a", null, "todo"); h.card("b", null, "todo");
+    h.cures.run(sample([stuck("a", "unknown")]), T, ON_BOARD);
+    h.cures.run(sample([stuck("b", "unknown")]), T, { boardId: "other", perDay: 3 });
+    expect(h.opened()).toHaveLength(2);
+  });
+
+  test("with no board chosen nothing opens and nothing is written as a row", () => {
+    const h = setup(); for (const id of six) h.card(id, null, "todo");
+    expect(h.cures.run(unknownSix(), T, OFF).map((o) => o.outcome)).toEqual(Array(6).fill("off"));
+    expect(h.opened()).toHaveLength(0);
+  });
+
+  test("a hung node stays the node's own problem: two nodes are two cards, not rows of one", () => {
+    const h = setup(); h.card("h1", "m1"); h.card("h2", "m2");
+    const cures = createCures({ db: h.db, svc: h.svc, now: () => NOW, emit: () => {}, reassign: () => false, breaker: { failure: () => {}, isOpen: () => false } });
+    const s = sample([stuck("h1", "hung-node"), stuck("h2", "hung-node")]);
+    expect(cures.run(s, T, ON_BOARD).map((o) => o.outcome)).toEqual(["cured", "cured"]);
+    expect(cures.run(s, T, ON_BOARD).map((o) => o.outcome)).toEqual(["investigated", "investigated"]);
+    expect(h.opened()).toHaveLength(2);
+  });
+
+  test("a restart forgets the memory, not the rows: a new process does not write the rows again", () => {
+    const h = setup(); for (const id of six.slice(0, 3)) h.card(id, null, "todo");
+    const start = () => createCures({ db: h.db, svc: h.svc, now: () => NOW, emit: () => {}, reassign: () => false });
+    const s = sample(six.slice(0, 3).map((id) => stuck(id, "unknown")));
+    start().run(s, T, ON_BOARD);
+    const lines = h.lines(h.opened()[0]!.id).length;
+    NOW += 15_000;
+    start().run(s, T, ON_BOARD);
+    expect(h.lines(h.opened()[0]!.id)).toHaveLength(lines);
+    expect(h.opened()).toHaveLength(1);
   });
 });
 
@@ -464,7 +569,7 @@ describe("a restart forgets the memory, not the cards", () => {
   test("the cap line is written once a day across restarts", () => {
     const h = setup(); h.card("1"); h.card("2");
     const start = () => createCures({ db: h.db, svc: h.svc, now: () => NOW, emit: () => {}, reassign: () => false });
-    const s = sample([stuck("1", "memory"), stuck("2", "memory")]);
+    const s = sample([stuck("1", "memory"), stuck("2", "resources")]);
     for (const c of [start(), start(), start()]) { NOW += 15_000; c.run(s, T, { boardId: "inv", perDay: 1 }); }
     expect(h.lines("2").filter((l) => l.includes("Tetto"))).toHaveLength(1);
     h.db.run("UPDATE tasks SET status = 'done' WHERE claude_task_id LIKE 'topics-check:%'");
@@ -573,7 +678,7 @@ describe("what the view says", () => {
   test("the cap stays in the view on the round after it was reached, with the real cures", async () => {
     const h = setup(); h.card("1"); h.card("2");
     const cures = createCures({ db: h.db, svc: h.svc, now: () => NOW, emit: () => {}, reassign: () => false });
-    const s = sample([stuck("1", "memory"), stuck("2", "memory")]);
+    const s = sample([stuck("1", "memory"), stuck("2", "resources")]);
     const round = createTopicsCheck({
       db: h.db, now: () => NOW,
       settings: () => ({ ...parseSettings(null), checks: [], investigation: { boardId: "inv", perDay: 1 } }),
@@ -582,7 +687,7 @@ describe("what the view says", () => {
     await round.tick();
     NOW += 5 * 60_000;
     await round.tick();
-    expect(round.current().cures.capped).toEqual(["memory:2"]);
+    expect(round.current().cures.capped).toEqual(["resources:2"]);
   });
   test("summarizeCures leaves out what did nothing", () => {
     expect(summarizeCures([{ key: "a", outcome: "off" }, { key: "b", outcome: "skipped" }])).toEqual({ cured: [], investigated: [], capped: [] });

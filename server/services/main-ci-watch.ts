@@ -118,6 +118,23 @@ export const mainRedTitle = (sha: string): string => `CI rossa su main dopo ${sh
 /** The dedupe key of a sha: a second sweep finds the card it opened. */
 export const mainRedKey = (projectId: string, sha: string): string => `main-ci-red:${projectId}:${sha}`;
 
+/** The shared start of every `mainRedKey` of a project: the way to find the red card that is still open. */
+export const mainRedKeyPrefix = (projectId: string): string => `main-ci-red:${projectId}:`;
+
+/**
+ * The line a still-open red card receives when main goes red again on another sha: the new commit, the jobs
+ * and the run, so the repair on that card reads the whole story instead of a second card repeating it. The
+ * sha is in the words on purpose: that is what keeps a sweep from writing the same line twice.
+ */
+export function describeMainRedAgain(c: MainCiCommit, v: MainCiVerdict): string {
+  return [
+    `La CI di main è rossa anche sul commit \`${c.sha}\` («${c.subject}»), mentre questa card è ancora aperta.`,
+    v.failed.length ? `Job rossi: ${v.failed.map((n) => `\`${n}\``).join(", ")}.` : "",
+    v.url ? `Run: ${v.url}` : "",
+    "Non apro un'altra card: la riparazione di questa copre anche il nuovo commit.",
+  ].filter(Boolean).join(" ");
+}
+
 /** The real port: git for the commits, `gh` for the push runs of ci.yml. */
 export function realMainCiPort(repoPath: string): MainCiPort {
   const git = (args: string[]) => runGit(repoPath, args, { timeoutMs: 60_000, env: { GIT_TERMINAL_PROMPT: "0" } });

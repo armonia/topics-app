@@ -31,6 +31,7 @@ import { invalidateProbeCache } from "../services/url-probe-cache";
 import { staleTaskModelError, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
+import { groupSeriesOnCreate, mergeIntoOpenTwin } from "../services/card-triage";
 import { readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
 import { CI_PHASE_MODES, MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_COLUMNS, parseCiPhase, parsePersonPaths } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
@@ -561,7 +562,11 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           if (typeof bornMachine === "string" && !ctx.machineStore.get(bornMachine)) {
             return json({ error: `machineId "${bornMachine}" is not a known machine`, code: "unknown_machine" }, 400);
           }
-          const task = svc.create({
+          const createdBy = resolveCreatedBy(req, body);
+          // An agent or a schedule asking again for a card that is still open gets that card back, not a twin.
+          const twin = mergeIntoOpenTwin({ svc, broadcast: broadcastToAll }, { projectId: effectiveProjectId, createdBy, body });
+          if (twin) return json({ ...twin, duplicateOf: twin.id });
+          const created = svc.create({
             projectId: effectiveProjectId,
             text: body?.text,
             description: body?.description ?? null,
@@ -579,7 +584,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             stayLocal: body?.stayLocal === true,
             stayLocalReason: typeof body?.stayLocalReason === "string" ? body.stayLocalReason : null,
             // Who opened it: the interface marks itself, anyone else is automation.
-            createdBy: resolveCreatedBy(req, body),
+            createdBy,
             // Channel and acceptance bar as the caller declares them; the chat
             // it came from is DISPLAY only (a caller can name any id, so it
             // must never grant closing power: that stays server-set).
@@ -594,15 +599,10 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             humanAsk: typeof body?.human_ask === "string" ? body.human_ask
               : typeof body?.humanAsk === "string" ? body.humanAsk : undefined,
           });
-          // THE BIRTH ATTACHMENTS, BEFORE THE DISPATCH.
-          //
-          // The board composer now takes images and files (paste, drop,
-          // paperclip): they arrive inside the create and not through a
-          // separate POST /comments, for one reason only. The dispatch fires
-          // a few lines below, so a comment sent after the response would
-          // race the kickoff and the agent would read the card without the
-          // screenshot the task exists for. Written here, the files are on
-          // the card before anybody picks it up.
+          // A numbered batch ("Lavori programmati 3/8: ...") is born under the card that names it.
+          const task = groupSeriesOnCreate({ svc, broadcast: broadcastToAll }, created, createdBy);
+          // BIRTH ATTACHMENTS, BEFORE THE DISPATCH: images and files arrive inside the create, not through a later POST
+          // /comments, which would race the kickoff below (the agent would read the card without its screenshot).
           const bornMedia = filterMedia(body?.media) ?? [];
           if (bornMedia.length) {
             try {

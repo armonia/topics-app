@@ -15,16 +15,20 @@ describe("main's CI watch", () => {
   let verdict: MainCiVerdict; let enters: string[]; let asked: number;
   let sweep: (() => Promise<number>) | null = null;
   const SHA = "0123456789abcdef0123456789abcdef01234567";
+  const SHA2 = "89abcdef0123456789abcdef0123456789abcdef";
+  const SHA3 = "fedcba9876543210fedcba9876543210fedcba98";
+  /** The newest commit of main: a test moves it to say that main went red again on another one. */
+  let head = SHA;
 
   beforeEach(() => {
     db = setCiPhaseMode(freshDb(), "after"); svc = createTaskService(db);
     verdict = { state: "fail", failed: ["gates", "unit"], url: "https://github.example/run/42" };
-    enters = []; asked = 0;
+    enters = []; asked = 0; head = SHA;
   });
 
   async function setup(withCiRows = true) {
     const port: MainCiPort = {
-      recent: async () => { asked += 1; return [{ sha: SHA, subject: "fix a typo from a chat", at: Math.floor(Date.now() / 1000) - 3600 }]; },
+      recent: async () => { asked += 1; return [{ sha: head, subject: "fix a typo from a chat", at: Math.floor(Date.now() / 1000) - 3600 }]; },
       verdict: async () => verdict,
       entersAt: async (_commit, sha) => enters.includes(sha),
     };
@@ -61,6 +65,46 @@ describe("main's CI watch", () => {
     db.prepare("UPDATE tasks SET archived = 1 WHERE id = ?").run(card!.id);
     await sweep!();
     expect(s.redCards()).toHaveLength(1);
+  }, 30_000);
+
+  test("main red AGAIN on another sha while the first red card is open: that card is told, no second card; once per sha", async () => {
+    const s = await setup();
+    await sweep!();
+    const [first] = s.redCards();
+    head = SHA2;
+    verdict = { state: "fail", failed: ["unit"], url: "https://github.example/run/43" };
+    await sweep!();
+    await sweep!();
+    expect(s.redCards()).toHaveLength(1);
+    const lines = db.query("SELECT author, kind, content FROM task_comments WHERE task_id = ? AND instr(content, ?) > 0").all(first!.id, SHA2) as Array<{ author: string; kind: string; content: string }>;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.author).toBe("system");
+    expect(lines[0]!.content).toContain("https://github.example/run/43");
+    expect(lines[0]!.content).toContain("`unit`");
+    // Back on the sha that opened the card: it is already the card's own, so nothing is written about it.
+    head = SHA;
+    await sweep!();
+    expect(db.query("SELECT 1 FROM task_comments WHERE task_id = ? AND instr(content, ?) > 0").all(first!.id, `rossa anche sul commit \`${SHA}\``)).toHaveLength(0);
+    expect(s.redCards()).toHaveLength(1);
+  }, 30_000);
+
+  test("the earlier red card is done (repaired): a new red opens a new card, as before", async () => {
+    const s = await setup();
+    await sweep!();
+    const [first] = s.redCards();
+    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(first!.id);
+    head = SHA3;
+    await sweep!();
+    const cards = s.redCards();
+    expect(cards).toHaveLength(2);
+    expect(cards.some((c) => c.text === `CI rossa su main dopo ${SHA3.slice(0, 8)}: riparare`)).toBe(true);
+  }, 30_000);
+
+  test("the open red card of ANOTHER project does not stand in for this project's red", async () => {
+    const s = await setup();
+    db.prepare("INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, claude_task_id) VALUES ('elsewhere', 'other-board', 'CI rossa su main dopo 12345678: riparare', 'todo', 'x', 'x', 'main-ci-red:other-board:12345678')").run();
+    await sweep!();
+    expect(s.redCards().filter((c) => c.id !== "elsewhere")).toHaveLength(1);
   }, 30_000);
 
   test("a green main opens nothing", async () => {
