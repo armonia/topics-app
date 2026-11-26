@@ -11,8 +11,8 @@
  * Each of those decisions is a number this file reads off the screen rather
  * than a sentence in a docstring:
  *
- *  1. THE CARD FITS, AT EVERY WIDTH. The column can be 180, 256 or 400 wide
- *     (`useSidebarAndLayout` clamps the drag to `max(180, min(400, x))`, and
+ *  1. THE CARD FITS, AT EVERY WIDTH. The column can be 248, 256 or 400 wide
+ *     (`useSidebarAndLayout` clamps the drag to `max(248, min(400, x))`, and
  *     `DEFAULT_SETTINGS.sidebarWidth` is 256). At each of them the band does
  *     not overflow its box and the card does not overflow its own: a name that
  *     does not fit truncates, it does not push the numbers off the edge. The
@@ -20,7 +20,7 @@
  *     VERIFIED on the sidebar box: a test that measures a 256px column three
  *     times measures nothing.
  *
- *  2. THE CHIPS SCROLL, THEY DO NOT WRAP. Three people at 180 do not fit on
+ *  2. THE CHIPS SCROLL, THEY DO NOT WRAP. Five people at 248 do not fit on
  *     one line, and the answer is a row that scrolls, not a band that grows a
  *     second line: the ONLY box in the band allowed to hold more than it
  *     shows is the chip row. `flex-wrap` is read from the computed style and
@@ -54,7 +54,7 @@ import { beat } from "./helpers/evidence";
 import { E2E_BASE } from "./helpers/test-server";
 import { CHIP_TARGET_PX } from "../../client/src/components/Sidebar/identityChip";
 import {
-  alone, crowd, friendsAway, openMenu, populated, setSidebarWidth, stubIdentity, withMachineNumbers,
+  alone, crowd, friendsAway, openMenu, populated, setSidebarWidth, stubIdentity, throng, withMachineNumbers,
 } from "./helpers/identity-stub";
 
 hermetic(test);
@@ -69,10 +69,10 @@ const BAND = '[data-testid="identity-block"]';
 
 /**
  * The three widths the column can actually be at. Not round numbers picked for
- * a test: 180 and 400 are the two ends the resize drag clamps to, 256 is what a
+ * a test: 248 and 400 are the two ends the resize drag clamps to, 256 is what a
  * fresh installation starts on.
  */
-const WIDTHS = [180, 256, 400] as const;
+const WIDTHS = [248, 256, 400] as const;
 
 interface Box { top: number; bottom: number; left: number; right: number; width: number; height: number }
 
@@ -245,18 +245,19 @@ async function shootColumn(page: Page, file: string): Promise<void> {
 }
 
 test.describe("the foot of the column", () => {
-  test("CHIPS-01: the card fits and the chips scroll, at 180, 256 and 400", async ({ page }) => {
+  test("CHIPS-01: the card fits and the chips scroll, at 248, 256 and 400", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
-    // TWO POPULATIONS, because the failure modes are opposite: two chips is
-    // the ordinary morning and fits at every width, three is the one that
-    // does not fit at 180 and has to SCROLL rather than wrap. The machine's
-    // numbers are on for both, because the card with memory, CPU and a dot is
-    // the widest the card ever gets, and that is the pressure the 180px column
-    // has to survive.
+    // THREE POPULATIONS, because the failure modes are opposite: two and
+    // three chips are the ordinary mornings and fit at every width, five is
+    // the one that does not fit at 248 and has to SCROLL rather than wrap.
+    // The machine's numbers are on for all, because the card with memory, CPU
+    // and a dot is the widest the card ever gets, and that is the pressure the
+    // narrowest column has to survive.
     await withMachineNumbers(page);
     const cases = [
       { name: "two-here", population: populated(), chips: 2 },
       { name: "three-here", population: crowd(), chips: 3 },
+      { name: "five-here", population: throng(), chips: 5 },
     ];
     const measures: Array<{ case: string; asked: number; column: number; chips: number } & BandGeometry> = [];
 
@@ -321,7 +322,7 @@ test.describe("the foot of the column", () => {
         ).toBeGreaterThanOrEqual(before.right);
       }
       // AND WHEN THEY DO NOT FIT, THE ROW SCROLLS. This is the case that
-      // separates "scrolls" from "happened to fit": three chips at 180 are
+      // separates "scrolls" from "happened to fit": five chips at 248 are
       // wider than the row, and the row has to say so in its own budget.
       const chipsWidth = spread[spread.length - 1]!.right - spread[0]!.left;
       if (chipsWidth > row.clientWidth) {
@@ -345,7 +346,7 @@ test.describe("the foot of the column", () => {
 
   test("CHIPS-02: every chip and the card are at least CHIP_TARGET_PX on both sides", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
-    // Measured at 180: the narrowest column is where a button would be
+    // Measured at 248: the narrowest column is where a button would be
     // squeezed under its floor.
     const cases = [
       { name: "populated", population: crowd(), expected: ["friend-chip", "friend-chip", "friend-chip", "identity-me-profile"] },
@@ -357,7 +358,7 @@ test.describe("the foot of the column", () => {
     await page.goto("/");
     for (const c of cases) {
       await stubIdentity(page, c.population);
-      await setSidebarWidth(page, 180);
+      await setSidebarWidth(page, 248);
       await expect(page.getByTestId("friend-chip")).toHaveCount(c.expected.length - 1, { timeout: 20000 });
       const seen = (await bandGeometry(page)).buttons;
       // The whole set, not "some buttons": a band that lost a chip would
@@ -481,7 +482,7 @@ test.describe("the foot of the column", () => {
     test.info().annotations.push({ type: "spec", description: "STATUSLINE-04" });
     await stubIdentity(page, crowd());
     await page.goto("/");
-    await setSidebarWidth(page, 180);
+    await setSidebarWidth(page, 248);
     const chips = page.getByTestId("friend-chip");
     await expect(chips).toHaveCount(3, { timeout: 20000 });
     // ONE PER PERSON, with the first name on the chip and the whole name on
@@ -493,13 +494,16 @@ test.describe("the foot of the column", () => {
     await expect(chips.nth(0)).toHaveAttribute("aria-label", "Anna Prova");
     await expect(nameOf(1)).toHaveText("Bruno");
     await expect(nameOf(2)).toHaveText("Carla");
-    // AND THE ROW SCROLLS, at 180 with three names: this is the shape the
-    // requirement names, read from the row's own budget.
+    // AND THE ROW SCROLLS when the names outgrow it: five at 248, the
+    // narrowest column, read from the row's own budget.
+    await stubIdentity(page, throng());
+    await setSidebarWidth(page, 248);
+    await expect(chips).toHaveCount(5, { timeout: 20000 });
     const row = (await bandGeometry(page)).row!;
     expect(row.flexWrap).toBe("nowrap");
-    expect(row.scrollWidth, `three chips in a ${row.clientWidth}px row: scrollWidth ${row.scrollWidth}`)
+    expect(row.scrollWidth, `five chips in a ${row.clientWidth}px row: scrollWidth ${row.scrollWidth}`)
       .toBeGreaterThan(row.clientWidth);
-    await shootColumn(page, "three-here-180.png");
+    await shootColumn(page, "five-here-248.png");
 
     // A chip leads to THAT person: a count could only lead to a list.
     await chips.nth(0).click();

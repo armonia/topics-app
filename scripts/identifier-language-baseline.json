@@ -6844,8 +6844,7 @@
       "nomi",
       "precedente",
       "riga",
-      "riserva",
-      "varchi"
+      "riserva"
     ],
     "tests/e2e/tab-close-ring-touch.spec.ts": [
       "TETTO",

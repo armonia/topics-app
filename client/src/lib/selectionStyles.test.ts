@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  SIDEBAR_INDENT_STEP, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sectionCard, sectionIsland, sidebarRowCard,
+  SIDEBAR_INDENT_STEP, SIDEBAR_HOVER, RESTING_SURFACE, TAB_BUTTON, TAB_BUTTON_SQUARE, TAB_BUTTON_H, tabButton, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sectionCard, sectionIsland, sidebarRowCard,
 } from './selectionStyles';
 
 /**
@@ -187,9 +187,30 @@ describe('le due famiglie di altezza, e le tre misure interne', () => {
     // Open, the island is the card, with the open tabs' resting ground.
     expect(atRest(sectionIsland(true))).toEqual(['bg-black/[0.05]']);
     expect(sectionIsland(true)).toContain('edge-lit');
-    // The pointer: a closed header lights its ink, an open one takes the rows' hover.
-    expect(sectionCard(false)).not.toContain('hover:bg-');
-    expect(sectionCard(true)).toContain('hover:bg-black/[0.05]');
+    // The pointer: every tab takes the rows' hover ground, a closed one too
+    // (25/11: "shouldn't the hover background appear for all of them?").
+    for (const cls of [sectionCard(false), sectionCard(true), sidebarRowCard({ tab: 'closed' }), sidebarRowCard({})]) {
+      expect(cls).toContain(SIDEBAR_HOVER);
+    }
+  });
+
+  test('a button beside the tabs is a tab: a row tall, no ground at rest, an open tab while open', () => {
+    // 25/11: "all the notification and sidebar buttons [must] have the tabs'
+    // behaviour, size and colours".
+    const heights = TAB_BUTTON.split(/\s+/).filter((c) => /^(?:md:|coarse:)?h-/.test(c));
+    expect(heights.join(' ')).toBe(TAB_BUTTON_H);
+    // A row's height without its touch step: the rows these buttons sit in
+    // are 40px from 768px up for every pointer.
+    expect(ROW_H.startsWith(TAB_BUTTON_H)).toBe(true);
+    expect(`${TAB_BUTTON} ${TAB_BUTTON_SQUARE}`).not.toContain('coarse:');
+    const atRest = (cls: string) => cls.split(/\s+/).filter((c) => /^(?:max-md:|md:)?bg-/.test(c));
+    expect(atRest(tabButton(false))).toEqual([]);
+    expect(tabButton(false)).not.toContain('edge-lit');
+    expect(tabButton(false)).toContain(SIDEBAR_HOVER);
+    expect(tabButton(true)).toContain(RESTING_SURFACE);
+    expect(tabButton(true)).toContain('edge-lit');
+    // Square, as wide as a row is tall at every width.
+    expect(TAB_BUTTON_SQUARE.replace(/w-/g, 'h-')).toBe(TAB_BUTTON_H);
   });
 
   test("l'aria DENTRO non è quella FRA: due domande, due numeri", () => {
