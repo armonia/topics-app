@@ -53,6 +53,8 @@ export interface EngineOptions {
   now?: () => Date;
   /** Cap on command and agent runs open at once (R10). */
   maxConcurrent?: () => number;
+  /** Called at the end of every tick: delivery of finished runs and failure alerts hang here (R22 to R24). */
+  onTick?: (instant: Date) => void;
 }
 
 export function createScheduleEngine(db: Database, options: EngineOptions) {
@@ -270,6 +272,7 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
       }
     }
     advancePending(instant, out);
+    try { options.onTick?.(instant); } catch (error) { console.warn("[schedule] after-tick hook failed:", error); }
     return out;
   }
 

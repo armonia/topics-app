@@ -4,6 +4,7 @@ import { PREVIEW_RULE, RECOMMENDED_OPTION_RULE, REVIEW_CARD_RULE, TASK_STATUSES 
 import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { OUTBOUND_TOOLS } from "./outbound-tools";
 import { COMMAND_TOOLS } from "./command-tools";
+import { SCHEDULE_TOOLS } from "./schedule-tools";
 import { BIND_LOOPBACK_NOTE, runScriptBindNote } from "../../shared/background-work";
 import { SHOW_VIEW_TOOL } from "./view-tools";
 
@@ -508,6 +509,7 @@ export const TOOLS = [
     annotations: MODIFICA,
   },
   ...OUTBOUND_TOOLS,
+  ...SCHEDULE_TOOLS,
   {
     name: "ask_user_question",
     description:

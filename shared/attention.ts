@@ -109,6 +109,7 @@ export const TOPIC_SUBJECT_PREFIX = "topic:";
 export const TERMINAL_SUBJECT_PREFIX = "terminal:";
 export const TASK_SUBJECT_PREFIX = "task:";
 export const SYSTEM_SUBJECT_PREFIX = "system:";
+export const JOB_SUBJECT_PREFIX = "job:";
 
 export function topicSubject(topicId: string): string {
   return `${TOPIC_SUBJECT_PREFIX}${topicId}`;
@@ -120,6 +121,11 @@ export function terminalSubject(terminalId: string): string {
 
 export function taskSubject(taskId: string): string {
   return `${TASK_SUBJECT_PREFIX}${taskId}`;
+}
+
+/** A scheduled job's own subject: its failure row counts on the bell, unlike a system row. */
+export function jobSubject(jobId: string): string {
+  return `${JOB_SUBJECT_PREFIX}${jobId}`;
 }
 
 export function systemSubject(key: string): string {

@@ -30,7 +30,14 @@ export interface JobsServiceOptions {
   now?: () => Date;
   /** The directory of a project, or null when it does not exist. */
   projectPath: (projectId: string) => string | null;
+  /** `ask`: a job an agent creates is born paused. `auto`: only one with a delivery is (R26). Default `ask`. */
+  agentJobMode?: () => "ask" | "auto";
+  /** Called once for a job an agent created that was put in pause, so the person is told. */
+  onPausedByAgent?: (job: { id: string; name: string }) => void;
 }
+
+/** The creator name an agent's tool writes (`agent:<session>`); the people and the importer write anything else. */
+export const AGENT_CREATOR_PREFIX = "agent:";
 
 export interface CreateInput {
   id?: unknown; name?: unknown; projectId?: unknown; schedule?: unknown; action?: unknown;
@@ -147,8 +154,14 @@ export function createJobsService(db: Database, options: JobsServiceOptions) {
     /** With an id and an initial state given, so an importer can bring jobs over as they were (R31). */
     create(input: CreateInput): ScheduledJobView {
       const name = parseName(input.name);
-      const enabled = input.enabled === undefined ? true : input.enabled;
-      if (typeof enabled !== "boolean") throw new JobsError("enabled must be true or false.");
+      const asked = input.enabled === undefined ? true : input.enabled;
+      if (typeof asked !== "boolean") throw new JobsError("enabled must be true or false.");
+      let enabled: boolean = asked;
+      const createdBy = typeof input.createdBy === "string" && input.createdBy.trim() ? input.createdBy.trim().slice(0, 80) : "user";
+      // R26: a job an agent makes with a delivery is always born in pause; with `ask` every one is. Not a security fence: an agent already has a shell.
+      const byAgent = createdBy.startsWith(AGENT_CREATOR_PREFIX);
+      const pausedByAgent = byAgent && enabled && (input.deliver != null || (options.agentJobMode?.() ?? "ask") === "ask");
+      if (pausedByAgent) enabled = false;
       const schedule = parseSchedule(input.schedule, enabled);
       const action = parseAction(input.action);
       const projectId = projectOf(input.projectId);
@@ -159,13 +172,13 @@ export function createJobsService(db: Database, options: JobsServiceOptions) {
         id = input.id;
         if (read(id)) throw new JobsError("A job with this id already exists.", 409);
       } else throw new JobsError("The id is not valid.");
-      const createdBy = typeof input.createdBy === "string" && input.createdBy.trim() ? input.createdBy.trim().slice(0, 80) : "user";
       const at = now();
       const next = enabled ? firstOccurrence(schedule, at) : null;
       db.prepare(`INSERT INTO scheduled_jobs (id, name, project_id, schedule_json, action_json, deliver_json, policy_json, enabled, next_run_at, created_by, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(id, name, projectId, JSON.stringify(schedule), JSON.stringify(action), deliverOf(input.deliver), JSON.stringify(policyOf(input.policy)),
           enabled ? 1 : 0, next?.toISOString() ?? null, createdBy, at.toISOString(), at.toISOString());
+      if (pausedByAgent) options.onPausedByAgent?.({ id, name });
       return view(read(id)!);
     },
 
