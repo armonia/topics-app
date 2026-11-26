@@ -41,7 +41,7 @@ describe("the CI phase, `after` rule", () => {
   });
   afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });
 
-  async function setup() {
+  async function setup(extra: Partial<Parameters<typeof createTasksRouter>[2]> = {}) {
     const router = createTasksRouter(makeCtx(db, []), undefined, {
       taskCheckoutRef: async () => ({ cwd, commit }),
       realignForChecks: async () => ({ ok: true, note: null }),
@@ -66,6 +66,7 @@ describe("the CI phase, `after` rule", () => {
       stampLanding: async (taskId: string, verdict: string) => {
         if (verdict !== "ask") svc.recordLandingState({ taskId, state: verdict as never, checkedAt: new Date().toISOString(), witnessed: true });
       },
+      ...extra,
     } as Parameters<typeof createTasksRouter>[2]);
     const task = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "rifai il bottone" }))!.json();
     const id = task.id as string;
@@ -132,6 +133,30 @@ describe("the CI phase, `after` rule", () => {
     expect(note?.content).toContain("unit-ci");
     expect(note?.content).toContain("GIÀ SU MAIN");
     expect(back.task.humanAsk ?? "").toBe("");
+  }, 30_000);
+
+  test("red predates this card's own push (same job already failing before): not its fault, stays landed (25/11)", async () => {
+    const ENTER_SHA = "1111111111111111111111111111111111111111";
+    const BEFORE_SHA = "2222222222222222222222222222222222222222";
+    const port = {
+      recent: async () => [
+        { sha: ENTER_SHA, subject: "this card's push", at: 2000 },
+        { sha: BEFORE_SHA, subject: "an earlier push", at: 1000 },
+      ],
+      verdict: async (sha: string) => (sha === ENTER_SHA || sha === BEFORE_SHA)
+        ? { state: "fail" as const, failed: ["unit-ci"], url: null }
+        : { state: "none" as const, failed: [], url: null },
+      entersAt: async (c: string, sha: string) => c === commit && sha === ENTER_SHA,
+    };
+    const s = await setup({ mainCiPort: async () => port } as never);
+    await s.deliver();
+    verdicts = ["fail"];
+    await s.approve();
+    await s.settle();
+    expect(merges).toEqual([s.id]);
+    expect(s.read().status).toBe("done"); // stays landed, not bounced
+    expect(s.state()).toBe("green");
+    expect(s.thread().some((c) => c.content.includes("lo era già prima di questa card"))).toBe(true);
   }, 30_000);
 
   test("three rounds without a person: the card waits for one, who is offered the revert", async () => {

@@ -24,6 +24,19 @@
  * same verdict each time). The second empty run in a row pins it HERE for the
  * same six hours: this machine has every tool the nodes may lack, and its own
  * run ends in review like any local one.
+ *
+ * NOT when the card's OWN prior delivery is already inside main (25/11: 47
+ * empty runs a day, 178 in a week, one card reworked four times in the same
+ * day always on the same already-landed commit). The node saying "nothing to
+ * deliver" is read here as "missing tool" or "nothing to change" by guessing;
+ * this machine can answer for real, because its own `main` is pushed to
+ * origin right after every land. So before anything else this checks the
+ * card's last recorded delivery against THIS machine's `main`, never against
+ * the node's own worktree (a node's local main can be stale, which is a second
+ * cause of the same bounce: an agent there declaring "already on main" against
+ * a branch that never saw the real origin). `true` closes the card with the
+ * proof in the thread; `false` or unknown falls through to the guesses below,
+ * unchanged.
  */
 import { pendingQuestionComment } from "../../shared/board";
 import { namesMacOnlyPaths } from "./dispatch-overflow";
@@ -36,6 +49,10 @@ interface EmptyRunDeps {
   log: (msg: string, err?: unknown) => void;
   /** A machine's display name, for the line that says where the previous empty run happened. */
   nameOf?: (machineId: string) => string;
+  /** Is a commit already inside THIS machine's `main`? Absent = the guard below is skipped. */
+  deliveryLanded?: (repoPath: string, commit: string) => Promise<boolean | null>;
+  /** This machine's own checkout for the card's project, never the node's. Absent = the guard below is skipped. */
+  repoPathOfTask?: (taskId: string) => string | null;
 }
 
 /**
@@ -47,8 +64,32 @@ interface EmptyRunDeps {
  */
 export const EMPTY_RUN_PIN_MS = 6 * 60 * 60_000;
 
-/** `true` = the card is back in the queue and the caller has nothing more to do. */
-export function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeName: string): boolean {
+/** `true` = the card is back in the queue (or closed) and the caller has nothing more to do. */
+export async function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeName: string): Promise<boolean> {
+  // The card's last recorded delivery, already inside OUR main: nothing to redo, whatever the node thought.
+  const priorCommit = task.deliveryCommit ?? task.priorCommit ?? null;
+  if (priorCommit && deps.deliveryLanded && deps.repoPathOfTask) {
+    const repoPath = deps.repoPathOfTask(task.id);
+    if (repoPath) {
+      let landed: boolean | null = null;
+      try { landed = await deps.deliveryLanded(repoPath, priorCommit); }
+      catch (err) { deps.log(`nodo: sonda già-su-main fallita per ${task.id}`, err); }
+      if (landed === true) {
+        try {
+          const closed = deps.svc.settleLanded({
+            taskId: task.id,
+            by: "system",
+            reason: `La corsa su «${nodeName}» è finita senza nessun commit: il lavoro consegnato (${priorCommit.slice(0, 8)}) ` +
+              "è già dentro main, niente da rifare.",
+          });
+          if (closed && closed.status === "done") {
+            deps.emit(closed);
+            return true;
+          }
+        } catch (err) { deps.log(`nodo: chiusura della card già atterrata fallita per ${task.id}`, err); }
+      }
+    }
+  }
   // A card naming this Mac's own files comes back empty from ANY node, also one a person sent by hand: in review it
   // asked a choice nobody had to make (10/11, five cards twice in 2-5 min). It goes back here, pinned.
   const macOnly = namesMacOnlyPaths({ text: task.text, description: task.description ?? task.descriptionPreview });
