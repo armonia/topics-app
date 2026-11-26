@@ -17,7 +17,7 @@ import { loadBoard, loadBrowser, loadAutomations, loadAgents, loadSystem, loadAc
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { AutomationsPhoneBell, AutomationsPhoneGlyph } from '../Sidebar/AutomationsRow';
 import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
-import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_ACTION_BOX, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
+import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, ROW_ACTION_BOX, ROW_INSET, STRIP_TOGGLE_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
 import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
@@ -1121,7 +1121,7 @@ export function StandaloneChatGroup({
                 event.preventDefault();
                 openTabSheet(titleSheetKey, 'commands');
               }}
-              className={`flex-1 flex items-center min-w-0 overflow-hidden outline-none ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
+              className={`flex-1 flex items-center min-w-0 overflow-hidden outline-none ${onToggleSidebar ? `${CHROME_ROW_ACTION_RESERVE_LEFT} column-toggle-room` : 'pl-1.5'}`}
             >
               {/* The open chat's chosen colour, before its name: the phone
                   has no tab strip and its list is a drawer, so without this
@@ -1167,7 +1167,7 @@ export function StandaloneChatGroup({
             // badges hang inside it and are not cut (25/11).
             <div
               data-testid="cell-title-row"
-              className={`flex-1 flex items-center min-w-0 self-stretch ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
+              className={`flex-1 flex items-center min-w-0 self-stretch ${onToggleSidebar ? `${CHROME_ROW_ACTION_RESERVE_LEFT} column-toggle-room` : 'pl-1.5'}`}
             >
               {surfaceInFront && !(projectInTitle && projectTitleTaken) && renderTabBar(true)}
               {projectInTitle && <div ref={setTitleTabSlot} className="flex items-center min-w-0 empty:hidden" data-testid="title-inner-tab" />}
@@ -1194,19 +1194,20 @@ export function StandaloneChatGroup({
             <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{renderTabBar(false)}</div>
           )}
           {onToggleSidebar && (
-            // La coppia del «+» in coda alla riga: stesso box
-            // (`ROW_ACTION_BOX`), stesso incasso derivato, stessa scatola
-            // rialzata, e `raised-control-overlay` perché anche questo sta
-            // SOPRA la strip delle tab, che gli scorre sotto.
+            // Shown only while the column is away (`.column-toggle`): with the
+            // column open it sits in the sidebar header, before the bell.
+            // A strip tab's box and colours (25/11: the sidebar's buttons wear
+            // the tabs' size and colours), its resting surface opaque enough
+            // for the tabs that scroll under it.
             // Absolute, so the bar's padding does not move it: `left` is its
             // own inset (ROW_INSET, the number behind CHROME_ROW_ACTION_INSET_LEFT)
             // plus the same variable, with the same transition.
             <div
-              className="content-chrome-inset raised-control-overlay absolute top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10"
+              className="column-toggle content-chrome-inset absolute top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10"
               style={{ left: `calc(${ROW_INSET}px + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))` }}
               {...NO_DRAG_REGION}
             >
-              <SidebarToggleButton onClick={onToggleSidebar} size="action" testId="sidebar-reopen" className={`edge-lit ${RAISED_CONTROL} rounded-lg`} />
+              <SidebarToggleButton onClick={onToggleSidebar} size="action" testId="sidebar-reopen" surface={STRIP_TOGGLE_SURFACE} />
             </div>
           )}
         </div>

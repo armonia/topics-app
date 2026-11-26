@@ -1,5 +1,80 @@
 [
   {
+    "version": "2.5.5",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the owner approved the title tab, the row grammar and the column header",
+          "en": "",
+          "scope": "design",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.4",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "una card ripresa dopo un land non risulta atterrata per il merge del giro prima (#1703)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.5.3",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.2",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "the sidebar's buttons are tabs, and every tab lights under the pointer",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the narrowest column is 248, and the word hides beside the Windows cluster",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.1",
     "date": "2026-11-25",
     "sections": {
