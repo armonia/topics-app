@@ -17,7 +17,7 @@ import { loadBoard, loadBrowser, loadAutomations, loadAgents, loadSystem, loadAc
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { AutomationsPhoneBell, AutomationsPhoneGlyph } from '../Sidebar/AutomationsRow';
 import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
-import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, ROW_ACTION_BOX, ROW_INSET, STRIP_TOGGLE_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
+import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_BAR_SIDE, CHROME_BAR_SIDE_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, CHROME_ROW_TAB_RESERVE_LEFT, ROW_ACTION_BOX, ROW_INSET, STRIP_TOGGLE_SURFACE, TAB_GAP_CLASS, TAB_LABEL } from '../../lib/selectionStyles';
 import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
@@ -267,6 +267,9 @@ export function StandaloneChatGroup({
 }: StandaloneChatGroupProps) {
   const tr = useT();
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
+  // The title row (tabs at the side, desktop): its bar is a tab and one step
+  // above and below it, 46, where the strip's bar stays 40 (CHROME_ROW_SIDE_PX).
+  const titleRow = !mobile && !tabStrip;
 
   // Topics + terminal sessions from TopicsContext — both used to be
   // drilled here as props.
@@ -1077,7 +1080,7 @@ export function StandaloneChatGroup({
         // gestore accetta: vedi `handleStandaloneDragOver`.
         data-drop-active={panelDragOver ? 'into' : undefined}
         className="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-shadow"
-        style={CHROME_BAR_H_VAR}
+        style={titleRow ? CHROME_BAR_SIDE_H_VAR : CHROME_BAR_H_VAR}
         onMouseDownCapture={cardHandlers.onMouseDownCapture}
         onDragOver={cardHandlers.onDragOver}
         onDragLeave={cardHandlers.onDragLeave}
@@ -1100,7 +1103,7 @@ export function StandaloneChatGroup({
             (index.css) eases the padding on the same 200ms as the slide, which
             is what keeps the strip clear of the lights on every frame. */}
         <div
-          className={`${CHROME_BAR} pr-0 select-none app-drag-region ${onToggleSidebar ? 'content-chrome-inset' : ''}`}
+          className={`${titleRow ? CHROME_BAR_SIDE : CHROME_BAR} pr-0 select-none app-drag-region ${onToggleSidebar ? 'content-chrome-inset' : ''}`}
           style={cellLit ? { ...lightsInset, ...FOCUSED_CELL_EDGE } : lightsInset}
           data-cell-lit={inSplit ? String(cellLit) : undefined}
           {...DRAG_REGION}
@@ -1167,14 +1170,14 @@ export function StandaloneChatGroup({
             // badges hang inside it and are not cut (25/11).
             <div
               data-testid="cell-title-row"
-              className={`flex-1 flex items-center min-w-0 self-stretch ${onToggleSidebar ? `${CHROME_ROW_ACTION_RESERVE_LEFT} column-toggle-room` : 'pl-1.5'}`}
+              className={`flex-1 flex items-center min-w-0 self-stretch ${onToggleSidebar ? `${CHROME_ROW_TAB_RESERVE_LEFT} column-toggle-room` : 'pl-1.5'}`}
             >
               {surfaceInFront && !(projectInTitle && projectTitleTaken) && renderTabBar(true)}
               {projectInTitle && <div ref={setTitleTabSlot} className="flex items-center min-w-0 empty:hidden" data-testid="title-inner-tab" />}
               {/* The strip's "+", kept where the strip went: it adds INTO this
                   cell, which the header's "+" cannot. */}
               {(inSplit || projectInTitle || newChatInCell || availableTypes.length > 0) && (
-                <div className="ml-auto mr-1.5 flex items-center gap-0.5 flex-shrink-0 app-no-drag" {...NO_DRAG_REGION}>
+                <div className={`ml-auto mr-1.5 flex items-center ${TAB_GAP_CLASS} flex-shrink-0 app-no-drag`} {...NO_DRAG_REGION}>
                   {projectInTitle && <div ref={setTitleSlot} className="flex items-center empty:hidden" data-testid="title-project-tools" />}
                   {inSplit && activePaneId && (
                     <CellHeaderCommands paneId={activePaneId} canZoom={canZoom} isZoomed={isZoomed} onToggleZoom={onToggleZoom} onReattach={handleUnsolo} />
@@ -1186,6 +1189,7 @@ export function StandaloneChatGroup({
                     onAddPane={handleAddPane}
                     availableTypes={availableTypes}
                     noElectronDrag
+                    triggerVariant="tab"
                   />}
                 </div>
               )}
@@ -1207,7 +1211,7 @@ export function StandaloneChatGroup({
               style={{ left: `calc(${ROW_INSET}px + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))` }}
               {...NO_DRAG_REGION}
             >
-              <SidebarToggleButton onClick={onToggleSidebar} size="action" testId="sidebar-reopen" surface={STRIP_TOGGLE_SURFACE} />
+              <SidebarToggleButton onClick={onToggleSidebar} size={titleRow ? 'tab' : 'action'} testId="sidebar-reopen" surface={STRIP_TOGGLE_SURFACE} />
             </div>
           )}
         </div>

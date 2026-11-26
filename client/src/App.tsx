@@ -54,7 +54,8 @@ import { useWaitingQueueStore } from './state/waitingQueue';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { lazyWarm } from './lib/lazyWarm';
 import { loadPanelGrid } from './state/pane/panePreload';
-import { ROW_INSET, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, STRIP_TOGGLE_SURFACE } from './lib/selectionStyles';
+import { CHROME_BAR_H, ROW_INSET, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, STRIP_TOGGLE_SURFACE, chromeRowPx } from './lib/selectionStyles';
+import { setTrafficLightsRow } from './lib/shell/window';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
@@ -468,6 +469,12 @@ function App() {
   }, [appSettings.pinnedClosable, paneStateHydrated, topicsLoading, isDetached, openPinsInBackground, sidebar.pinnedItems]);
 
   const placement = tabsPlacement(appSettings.tabsPosition, { phone: isMobile });
+  // The native lights centre on the row under them: the phone layout's 40
+  // (a narrow window), otherwise the row of the tabs' placement.
+  const lightsRowPx = isMobile ? CHROME_BAR_H : chromeRowPx(placement.strip);
+  useEffect(() => {
+    if (isDesktop) setTrafficLightsRow(lightsRowPx);
+  }, [lightsRowPx]);
   const stripPaneIds = useMemo(
     () => (placement.columnSkipsStrip ? new Set(visiblePanels) : undefined),
     [placement.columnSkipsStrip, visiblePanels],
@@ -769,6 +776,7 @@ function App() {
         sidebarRef={sidebarRef}
         sidebarContentRef={sidebarContentRef}
         isMobile={isMobile}
+        tabStrip={placement.strip}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={toggleSidebar}
         sidebarWidth={sidebarWidth}
@@ -928,11 +936,17 @@ function App() {
           // HERE as well as on #main-content: this wrapper is a sibling of the
           // content, not a child, so it inherits nothing from it. Measured
           // before this line existed: left stayed at 8 with the sidebar away.
+          // On a desktop it sits where a cell's own toggle would, one step
+          // (ROW_INSET) from the top and the left: a tab button on the 46 row
+          // of the tabs at the side, centred on 23 like the lights; the
+          // strip's 28 on its 40 row, centred on 20.
           className="content-chrome-inset absolute z-30 flex items-center gap-1"
           style={{
             [CONTENT_CHROME_INSET_PROPERTY as string]: contentChromeInset,
-            left: `calc(0.5rem + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))`,
-            top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem',
+            left: isMobile
+              ? `calc(0.5rem + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))`
+              : `calc(${ROW_INSET}px + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))`,
+            top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : ROW_INSET,
           }}
         >
           {/* The SAME button as the one on the tab strip, a strip tab's
@@ -940,7 +954,7 @@ function App() {
               Not `bg-surface`: under 768px it COLLAPSES onto the chrome
               (index.css), and the only way to reopen the column when no pane
               is open vanished into the background precisely on the phone. */}
-          <SidebarToggleButton onClick={toggleSidebar} title={`Expand sidebar (${shortcut('B')})`} size="action" surface={STRIP_TOGGLE_SURFACE} />
+          <SidebarToggleButton onClick={toggleSidebar} title={`Expand sidebar (${shortcut('B')})`} size={!isMobile && !placement.strip ? 'tab' : 'action'} surface={STRIP_TOGGLE_SURFACE} />
         </div>
       )}
 

@@ -15,7 +15,7 @@ import { PaneAddMenu } from '../components/Shared/PaneAddMenu';
 import { SidebarToggleButton } from '../components/Shared/SidebarToggleButton';
 import { TopicsLoadDot } from '../components/Sidebar/TopicsLoadDot';
 import { shortcut, usesCtrl } from '../lib/shortcutLabel';
-import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, MOBILE_SIDEBAR_HEADER_H_COMPACT, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, TAB_BUTTON, TAB_BUTTON_SQUARE, tabButton } from '../lib/selectionStyles';
+import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, MOBILE_SIDEBAR_HEADER_H_COMPACT, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, TAB_BUTTON, TAB_BUTTON_SQUARE, chromeRowPx, tabButton } from '../lib/selectionStyles';
 import type { useWebSocket } from '../hooks/useWebSocket';
 import type { TopicsMenuState } from './useTopicsMenu';
 import { Inbox } from './lazyHosts';
@@ -34,6 +34,8 @@ const isTauriMac = isTauri && typeof navigator !== 'undefined' && /Mac/i.test(na
 
 interface SidebarHeaderProps {
   isMobile: boolean;
+  /** The tabs have a strip on top: the row is the strip's 40, otherwise 46. */
+  tabStrip: boolean;
   topicsMenu: TopicsMenuState;
   wsStatus: ReturnType<typeof useWebSocket>['status'];
   topicsError: string | null;
@@ -49,7 +51,7 @@ interface SidebarHeaderProps {
 /** The head of the sidebar column: the title, the column's toggle, the bell,
  *  search and the add menu. */
 export function SidebarHeader({
-  isMobile, topicsMenu, wsStatus, topicsError, onWSMessage,
+  isMobile, tabStrip, topicsMenu, wsStatus, topicsError, onWSMessage,
   setSearchScope, setShowSearch, handleQuickCreateTopic, handleStandaloneAddPane,
   onToggleSidebar,
 }: SidebarHeaderProps) {
@@ -124,9 +126,11 @@ export function SidebarHeader({
           // 48: 2px above and 2 below, i.e. «the keys touch the edge». 44 + 2 *
           // ROW_INSET = 56 (`h-14`) and the air goes back to that of the whole
           // column, the SAME 6px that separates a card from the edge and a row
-          // from its neighbour. With the mouse the buttons are a row's 34 and
-          // the row stays 40: 34 + 2 * 3, the half step a row of the column
-          // keeps above and below it (25/11, the buttons as tall as the tabs).
+          // from its neighbour. With the mouse the buttons are a tab's 34, and
+          // with the tabs at the side the row is 46: 34 + 2 * ROW_INSET, one
+          // step on all four sides as at the column's edges (26/11, «spaziature
+          // ... coerenti su tutti e 4 i lati»). With the strip on top it stays
+          // the strip's 40 (25/11, the buttons as tall as the tabs).
           // NO LINE UNDER THE HEADER (08/08). Above and below there is the same
           // surface, the column is chrome from top to bottom, so that line did
           // not separate two things: it only drew a boundary. The two commands
@@ -160,7 +164,7 @@ export function SidebarHeader({
             // a tap, each on its own (Topics and the bell with inline
             // `pointerEvents: 'auto'`, the window controls with their own
             // class): the wrappers let everything through.
-            isMobile ? 'mobile-top-veil pointer-events-none absolute inset-x-0 z-10' : 'h-10'
+            isMobile ? 'mobile-top-veil pointer-events-none absolute inset-x-0 z-10' : ''
           }`} data-window-chrome={windowChrome} {...DRAG_REGION}
           // A1: compact at the head (44, the buttons), whole while scrolling
           // (56). Out of flow in both cases, so the size moves nothing,
@@ -170,10 +174,14 @@ export function SidebarHeader({
             paddingRight: ROW_INSET,
             paddingLeft: ROW_INSET,
             gap: ROW_INSET,
+            // The desktop row is the content's chrome row beside it: a tab and
+            // one step above and below with the tabs at the side (46), the
+            // strip's 40 with them on top. The lights centre on it either way
+            // (`setTrafficLightsRow`).
             ...(isMobile ? {
               top: 'env(safe-area-inset-top, 0px)',
               height: mobileTopFull ? MOBILE_SIDEBAR_HEADER_H : MOBILE_SIDEBAR_HEADER_H_COMPACT,
-            } : null),
+            } : { height: chromeRowPx(tabStrip) }),
           }}
         >
           {/* ONE STEP FROM EDGE TO EDGE. The pair at the other end of this row
@@ -200,7 +208,7 @@ export function SidebarHeader({
                 the Mac's traffic lights come out (`trafficLightPosition`
                 { x: 12, y: 12 }, i.e. ROW_INSET into this wrapper), see
                 WindowControls. They are absolute, so they add nothing to this
-                row: `h-10` stays `h-10` whether they are lit or not. */}
+                row: its height stays the same whether they are lit or not. */}
             {/* `min-w-0`, AND IT IS LOAD-BEARING. This wrapper sits between the
                 shrinkable left group and the title button, and a flex child
                 defaults to `min-width: auto`: without it the wrapper refuses to
@@ -239,8 +247,9 @@ export function SidebarHeader({
                   DOM node stands where they are, so nothing here could assert
                   that the word starts to their right, or by how much. This is
                   the rectangle the shell pins them to (`apply_traffic_lights`,
-                  lib.rs: x=12 in the window, 52 wide, centred on the 40px
-                  header), in the wrapper's coordinates: 6 = 12 - ROW_INSET.
+                  window_chrome.rs: x=12 in the window, 52 wide, centred on
+                  this row, 46 or 40), in the wrapper's coordinates: 6 = 12 -
+                  ROW_INSET.
                   It paints nothing, catches nothing and is not read aloud; it
                   only exists so a test can ask where the lights are. */}
               {windowChrome === 'mac' && (
@@ -295,12 +304,14 @@ export function SidebarHeader({
                 // reads worse than a clear difference. With ROW_PX the title goes to 14
                 // and the hover lift stays flush with the card edge.
                 // THE HEIGHT IS DICTATED BY THE ROW, and the row is dictated by its
-                // commands: `h-14` with the finger around 44 buttons, `h-10` with
-                // the mouse around 28 buttons (see the header comment).
+                // commands: `h-14` with the finger around 44 buttons, 46 (or the
+                // strip's 40) with the mouse around 34 buttons (see the header
+                // comment).
                 // The title followed neither: a fixed `min-h-7`, which with 17px
                 // text becomes 29.5 inside a 56 row, measured. Effect: its lift
                 // ended 13px above the bottom of the row while Search and «+»,
-                // next to it, reach 6.
+                // next to it, reach 6. With the mouse it is a tab button tall (34),
+                // so its lift keeps the same step from the row as they do (26/11).
                 // From afar it reads as extra space under the header, and it is half of the
                 // «double spacing» seen on the phone. As a side effect the menu's target
                 // goes from 29.5 to 44, i.e. to the threshold every other command of
@@ -308,7 +319,7 @@ export function SidebarHeader({
                 // `isMobile` and not `md:`: in the header that predicate decides,
                 // and two mechanisms in the same row diverge (it is the defect
                 // just removed from the tab bar).
-                className={`${WORD_STEP} flex items-center min-w-0 ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 ${isMobile ? 'min-h-11' : 'min-h-7'} rounded-lg transition-colors cursor-pointer ${
+                className={`${WORD_STEP} flex items-center min-w-0 ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 ${isMobile ? 'min-h-11' : 'min-h-[34px]'} rounded-lg transition-colors cursor-pointer ${
                   // Lift in ALPHA, not `bg-app-hover`: this button sits on the
                   // chrome, and an opaque one calibrated on `--bg-surface` goes
                   // the wrong way there in light theme. See SIDEBAR_HOVER.

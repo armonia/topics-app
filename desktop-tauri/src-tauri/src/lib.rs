@@ -9,7 +9,7 @@
 // APIs the shell bridge calls directly.
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 
 /// The app-chord forwarding allowlist, GENERATED from the shared shortcut
 /// registry (`shared/shortcuts.ts`) by `scripts/gen-shortcuts.ts`. Both native
@@ -207,6 +207,14 @@ mod mac {
 /// titlebar is transparent (`Overlay`), so we re-assert this state on those
 /// window events — mirroring the Electron shell's re-pin pattern.
 static TRAFFIC_LIGHTS_VISIBLE: AtomicBool = AtomicBool::new(false);
+
+/// Height (px) of the client's top chrome row, which the traffic lights centre
+/// on: 40 with the tab strip (the default, and what a client that predates the
+/// `row` argument draws), 46 with the tabs at the side (`CHROME_ROW_SIDE_PX`
+/// in `client/src/lib/selectionStyles.ts`). The client sends it with
+/// `set_traffic_lights` whenever the tab placement changes; the window events
+/// that re-pin the lights read it back from here.
+static TRAFFIC_LIGHTS_ROW_PX: AtomicU32 = AtomicU32::new(40);
 
 /// True once a real quit is in progress (tray "Esci"). The window's CloseRequested
 /// handler HIDES to the tray instead of closing while this is false, so the red

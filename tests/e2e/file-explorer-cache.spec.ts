@@ -53,6 +53,18 @@ test.describe("l'albero dei file sopravvive alla chiusura", () => {
   const intestazione = (page: import("@playwright/test").Page) =>
     page.locator('[data-testid="project-sidebar-files"]');
 
+  /**
+   * Processes open, so Files is not the last open island: closing that one
+   * closes the whole column (26/11), and these tests close and reopen Files
+   * inside an open column.
+   */
+  const apriProcessi = async (page: import("@playwright/test").Page) => {
+    const processi = page.locator('[data-testid="project-sidebar-processes"]');
+    await expect(processi).toBeVisible({ timeout: 10000 });
+    if ((await processi.getAttribute("aria-expanded")) !== "true") await processi.click();
+    await expect(processi).toHaveAttribute("aria-expanded", "true");
+  };
+
   test("riaprendo la sezione l'albero c'e SUBITO, senza spinner", async ({
     fileExplorerPage,
     page,
@@ -65,6 +77,7 @@ test.describe("l'albero dei file sopravvive alla chiusura", () => {
 
     const header = intestazione(page);
     await expect(header).toBeVisible({ timeout: 5000 });
+    await apriProcessi(page);
 
     // Closed, the tree is out of sight. It is no longer unmounted (the section
     // is kept hidden, see project-sidebar-kept-sections.spec.ts), but the store
@@ -99,6 +112,7 @@ test.describe("l'albero dei file sopravvive alla chiusura", () => {
     await expect(albero.getByText("newfile.txt")).toBeVisible({ timeout: 10000 });
 
     const header = intestazione(page);
+    await apriProcessi(page);
     for (let i = 0; i < 6; i++) {
       await header.click();
       await header.click();
@@ -192,6 +206,7 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
     const header = page.locator('[data-testid="project-sidebar-files"]');
     await expect(header).toBeVisible({ timeout: 15000 });
+    await apriProcessi(page);
     if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
 
     // The section is an island (25/11): the card is the box around the header,

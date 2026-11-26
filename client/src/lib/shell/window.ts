@@ -26,4 +26,14 @@ export function showTrafficLights(): void {
   if (isTauri) { void tauriInvoke('set_traffic_lights', { visible: true }); }
 }
 
+/**
+ * Centre the traffic lights on the client's top chrome row, `rowPx` tall: 46
+ * with the tabs at the side, 40 with the strip (`chromeRowPx`). The shell keeps
+ * the number and re-pins the lights with it on every resize and focus. A shell
+ * that predates the argument ignores it and stays on 40. No-op on web.
+ */
+export function setTrafficLightsRow(rowPx: number): void {
+  if (isTauri) { void tauriInvoke('set_traffic_lights', { visible: true, row: rowPx }); }
+}
+
 

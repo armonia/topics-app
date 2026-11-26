@@ -339,7 +339,7 @@ test.describe("split, from zero", () => {
       await tools.getByTestId("project-rail-button").nth(1).click();
       await expect.poll(() => gitSection.evaluate((el) => el.clientHeight)).toBe(gitOpen);
       await tools.getByTestId("project-card").click();
-      await expect(page.getByTestId("project-sidebar")).toHaveCount(0);
+      await expect(page.getByTestId("project-sidebar")).toBeHidden();
 
       // No bar of its own: no tab of its chats, its commands on the title row.
       await expect(page.locator(`[role="tab"][data-pane-id="${inner.id}"]`)).toHaveCount(0);

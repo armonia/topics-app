@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  SIDEBAR_INDENT_STEP, SIDEBAR_HOVER, RESTING_SURFACE, TAB_BUTTON, TAB_BUTTON_SQUARE, TAB_BUTTON_H, tabButton, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sectionCard, sectionIsland, sidebarRowCard,
+  SIDEBAR_INDENT_STEP, SIDEBAR_HOVER, RESTING_SURFACE, TAB_BUTTON, TAB_BUTTON_SQUARE, TAB_BUTTON_H, TAB_BUTTON_PX, tabButton, CHROME_BAR, CHROME_BAR_H, CHROME_BAR_SIDE, CHROME_BAR_SIDE_H_VAR, CHROME_ROW_SIDE_PX, CHROME_ROW_TAB_RESERVE_LEFT, chromeRowPx, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sectionCard, sectionIsland, sidebarRowCard,
 } from './selectionStyles';
 
 /**
@@ -81,6 +81,36 @@ describe('la riga di chrome e il comando in coda', () => {
     expect(risolvi(CHROME_ROW_ACTION_RESERVE_LEFT, 'pl')).toEqual(
       risolvi(CHROME_ROW_ACTION_RESERVE, 'pr'),
     );
+  });
+});
+
+/**
+ * THE ROW WITH THE TABS AT THE SIDE (26/11): one step on all four sides.
+ * «non hanno spaziature fra di loro e ai lati coerenti su tutti e 4 i lati»:
+ * the row was the strip's 40 around 34 tall buttons, 3 above and below against
+ * 6 at the sides. These recompute the row from the button and the step.
+ */
+describe('the title row is a tab and one step above and below', () => {
+  test('the number is the box plus a step on each side', () => {
+    expect(risolvi(TAB_BUTTON_H, 'h').wide).toBe(TAB_BUTTON_PX);
+    expect(CHROME_ROW_SIDE_PX).toBe(TAB_BUTTON_PX + 2 * ROW_INSET);
+    expect(chromeRowPx(false)).toBe(CHROME_ROW_SIDE_PX);
+    expect(chromeRowPx(true)).toBe(CHROME_BAR_H);
+  });
+
+  test('the bar and its variable say the same number, the strip keeps 40', () => {
+    expect(risolvi(CHROME_BAR_SIDE, 'h').wide).toBe(CHROME_ROW_SIDE_PX);
+    expect((CHROME_BAR_SIDE_H_VAR as Record<string, string>)['--chrome-bar-h']).toBe(`${CHROME_ROW_SIDE_PX}px`);
+    expect(risolvi(CHROME_BAR, 'h').wide).toBe(CHROME_BAR_H);
+    // Below 768 the row is the phone's 40 in both.
+    expect(risolvi(CHROME_BAR_SIDE, 'h').compact).toBe(CHROME_BAR_H);
+  });
+
+  test("the room for the column's toggle is step + tab button + step", () => {
+    const box = { wide: risolvi(TAB_BUTTON_SQUARE, 'w').wide, compact: risolvi(TAB_BUTTON_SQUARE, 'w').compact };
+    const pl = risolvi(CHROME_ROW_TAB_RESERVE_LEFT, 'pl');
+    expect(pl.wide).toBe(ROW_INSET + box.wide + ROW_INSET);
+    expect(pl.compact).toBe(ROW_INSET + box.compact + ROW_INSET);
   });
 });
 

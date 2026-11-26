@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 
 import { animateEl, EASE, MOTION } from '../../lib/motion';
+import { playLeftRows } from '../../lib/rowExit';
 import { liveTranslate } from './useCellFlip';
 
 /**
@@ -25,7 +26,9 @@ import { liveTranslate } from './useCellFlip';
  *  - a unit that MOVED slides over `MOTION.base` (a row crossing space);
  *  - a unit that is NEW fades in over `MOTION.fast`, where it already is, so
  *    the rows sliding out of its way never cross an opaque copy of it;
- *  - a unit that LEFT is gone at once, and the ones after it slide up.
+ *  - a unit that LEFT is gone at once, and the ones after it slide up;
+ *    an ARCHIVED one leaves as an inert copy that slides out and fades
+ *    over the same time (`lib/rowExit`, played after the pass).
  *
  * Positions are taken RELATIVE TO THE NEAREST ENCLOSING UNIT (or to the
  * scrolling column, plus its scrollTop). Two consequences, both wanted:
@@ -180,6 +183,7 @@ export function useSidebarRowFlip(root: RefObject<HTMLElement | null>): void {
     // first frame, and nothing flies in.
     const units = flipPass(column, state.current, measured.current);
     measured.current = true;
+    playLeftRows(column);
     const ro = observer.current;
     if (!ro) return;
     // An observer holds its targets: a row that left must be let go, or a
