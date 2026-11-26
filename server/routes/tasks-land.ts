@@ -8,7 +8,7 @@ import type { LandingState } from "../services/landing-audit";
 import { mainRedStop } from "../services/main-ci-watch";
 import { createLandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { type TaskAttempt } from "../services/task-attempts";
-import { createAutoLander, SCHEDULED_REVIEW_PREFIX, scheduledReviewCmd } from "../services/auto-land";
+import { autoLandVerdict, createAutoLander, SCHEDULED_REVIEW_PREFIX, sameCommit, scheduledReviewCmd, type AutoLandBoard } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
 import type { Task } from "../services/tasks";
 import type { CheckRun } from "../../shared/board";
@@ -189,6 +189,10 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
    * node lane once its bar is measured. The land it queues is told not to
    * realign the branch: the bar measured the delivered commit.
    */
+  const autoLandBoard = (projectId: string): AutoLandBoard => {
+    const settings = svc.getBoardSettings(projectId);
+    return { autoMerge: settings.dispatchAutoMerge, declaredChecks: settings.reviewChecks.length, scheduledReview: scheduledMinutes(projectId) > 0 };
+  };
   const autoLander = createAutoLander({
     read: (taskId, projectId) => {
       const got = svc.get(taskId, { projectId });
@@ -198,10 +202,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       const row = db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
       return { ...got, task: { ...got.task, archived: !!row?.archived } } as ReturnType<Parameters<typeof createAutoLander>[0]["read"]>;
     },
-    board: (projectId) => {
-      const settings = svc.getBoardSettings(projectId);
-      return { autoMerge: settings.dispatchAutoMerge, declaredChecks: settings.reviewChecks.length, scheduledReview: scheduledMinutes(projectId) > 0 };
-    },
+    board: (projectId) => autoLandBoard(projectId),
     land: (projectId, taskId, recheck) => enqueueLand(projectId, taskId, { noRealign: true, recheck }),
     note: (taskId, text) => {
       svc.addComment({ taskId, author: "system", kind: "service", content: text });
@@ -283,13 +284,15 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   function startScheduledPass(t: Task): void {
     const minutes = scheduledMinutes(t.projectId);
     if (minutes <= 0 || scheduledRunning) return;
-    const stamp = db.query("SELECT ai_review_reminded_at AS at, archived FROM tasks WHERE id = ?").get(t.id) as { at?: string | null; archived?: number } | null;
+    const stamp = db.query("SELECT ai_review_reminded_at AS at, archived, prior_commit AS prior FROM tasks WHERE id = ?").get(t.id) as { at?: string | null; archived?: number; prior?: string | null } | null;
     if (stamp?.archived) return;
     const card: ScheduledReviewCard = {
       id: t.id, projectId: t.projectId, status: t.status, humanAsk: t.humanAsk ?? null,
       deliveryBranch: t.deliveryBranch ?? null, deliveryCommit: t.deliveryCommit ?? null,
       checksState: t.checksState ?? null, checksCommit: t.checksCommit ?? null,
       lastPassAt: stamp?.at ?? null, reviewAt: t.reviewAt ?? t.updatedAt ?? null,
+      // A send-back clears the delivery and keeps its commit as `prior_commit`: the same commit delivered again asks for more.
+      sentBackOnCommit: sameCommit(stamp?.prior ?? null, t.deliveryCommit ?? null),
     };
     if (!scheduledReviewDue(card, Date.now(), minutes)) return;
     // A commit that could not be measured MAX_UNMEASURED_PASSES times in a row is left alone until it changes.
@@ -344,11 +347,22 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         } finally { rmSync(cwd, { recursive: true, force: true }); }
       }),
       turnIsLive: () => cardTurnIsLive(t),
-      bounce: (c, why) => ciPhase.bounceWithReason(c.projectId, c.id, why),
-      answer: (c, text) => {
-        // The question is answered, so it is no longer waiting on a person; the agent gets the answer and goes on.
-        try { svc.update({ taskId: c.id, actor: "human", by: "system", projectId: c.projectId, patch: { humanAsk: null } }); } catch { return false; }
-        return ciPhase.bounceWithReason(c.projectId, c.id, `Risposta del revisore alla tua domanda: ${text}`);
+      bounce: (c, why) => ciPhase.bounceWithReason(c.projectId, c.id, why, { as: "scheduled" }),
+      // The question stays on the card until the send-back happened: the review decision clears it, a refusal leaves it with the person.
+      answer: (c, text) => ciPhase.bounceWithReason(c.projectId, c.id, `Risposta del revisore alla tua domanda: ${text}`, { as: "answer" }),
+      close: (c, proof) => {
+        const got = svc.get(c.id, { projectId: c.projectId });
+        if (!got) return false;
+        const row = db.query("SELECT archived FROM tasks WHERE id = ?").get(c.id) as { archived?: number } | null;
+        // The same verdict the land asks, with the review's row already in the bar: a person who spoke, a question, open steps still hold.
+        const verdict = autoLandVerdict({ ...got.task, archived: !!row?.archived } as Parameters<typeof autoLandVerdict>[0], autoLandBoard(c.projectId), got.comments);
+        if (!verdict.ok) return false;
+        try {
+          svc.addComment({ taskId: c.id, author: "system", kind: "service", content: `Chiusa dal ripasso a orario senza land: ${proof}.` });
+          const done = svc.reviewDecision({ taskId: c.id, by: "system", decision: "approve", projectId: c.projectId });
+          broadcastToAll({ type: "task:updated", projectId: c.projectId, task: done });
+          return true;
+        } catch { return false; }
       },
       clear: (c, note) => {
         const fresh = svc.get(c.id, { projectId: c.projectId })?.task;

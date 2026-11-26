@@ -122,11 +122,29 @@ export async function deliveryDiff(repoPath: string, commit: string): Promise<st
   return diff.code === 0 ? diff.stdout : null;
 }
 
-/** Is `commit` already inside origin/main? `null` = git could not say (a missing commit is a clean `false`). */
-export async function isOnMain(repoPath: string, commit: string): Promise<boolean | null> {
+/** Brings origin/main up to date: a claim is checked against the remote as it is now, not as this machine last saw it. */
+async function fetchMain(repoPath: string): Promise<boolean> {
+  const r = await runGit(repoPath, ["fetch", "--quiet", "origin", "main"], { timeoutMs: SPAWN_TIMEOUT.write, env: { GIT_TERMINAL_PROMPT: "0" } });
+  return r.code === 0;
+}
+
+/** A failed spawn answers 1 with the reason in stderr (see `runGit`): only a silent 1 is a real "no". */
+async function isAncestorOfMain(repoPath: string, commit: string): Promise<boolean | null> {
   const r = await runGit(repoPath, ["merge-base", "--is-ancestor", commit, "origin/main"], { timeoutMs: SPAWN_TIMEOUT.query });
   if (r.code === 0) return true;
-  return r.code === 1 ? false : null;
+  if (r.code === 1) return r.stderr.trim() ? null : false;
+  // 128: git does not know the object. A commit this repository never had is not on main; anything else is "no answer".
+  const known = await runGit(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`], { timeoutMs: SPAWN_TIMEOUT.query });
+  return known.code === 1 && !known.stderr.trim() ? false : null;
+}
+
+/**
+ * Is `commit` inside origin/main, as it is now? `null` = could not tell (the fetch failed, git did not answer,
+ * a spawn failed): "I do not know" is never "no".
+ */
+export async function isOnMain(repoPath: string, commit: string): Promise<boolean | null> {
+  if (!(await fetchMain(repoPath))) return null;
+  return isAncestorOfMain(repoPath, commit);
 }
 
 const ON_MAIN_CLAIM = /(gi[aà] (su|in) main|already (on|in) main)/i;
@@ -142,12 +160,21 @@ export function claimedMainShas(text: string): string[] {
   return [...new Set(out)];
 }
 
-/** Claimed shas that origin/main does not contain: the claim is checked against the remote branch, not believed. */
-export async function falseMainClaims(repoPath: string, text: string): Promise<string[]> {
+/**
+ * Claimed shas that origin/main certainly does not contain: the claim is checked against the remote branch after a
+ * fetch, not believed. `null` = nothing could be said (no fetch, or every check was "no answer"); a sha git could
+ * not judge is left out, never counted as false.
+ */
+export async function falseMainClaims(repoPath: string, text: string): Promise<string[] | null> {
+  const shas = claimedMainShas(text).slice(0, 10);
+  if (shas.length === 0) return [];
+  if (!(await fetchMain(repoPath))) return null;
   const bad: string[] = [];
-  for (const sha of claimedMainShas(text).slice(0, 10)) {
-    const on = await isOnMain(repoPath, sha);
-    if (on !== true) bad.push(sha);
+  let answered = 0;
+  for (const sha of shas) {
+    const on = await isAncestorOfMain(repoPath, sha);
+    if (on !== null) answered += 1;
+    if (on === false) bad.push(sha);
   }
-  return bad;
+  return answered === 0 ? null : bad;
 }

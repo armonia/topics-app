@@ -48,6 +48,8 @@ export interface ScheduledReviewCard {
   lastPassAt: string | null;
   /** When the card entered review (ISO); a card younger than half the interval is left to the other doors. */
   reviewAt: string | null;
+  /** The card was sent back while it delivered this very commit: the send-back asked for more work than the commit holds. */
+  sentBackOnCommit?: boolean;
 }
 
 /** A failed test: the file always, the test name when the runner said it. */
@@ -101,6 +103,8 @@ export interface ScheduledReviewDeps {
   clear(card: ScheduledReviewCard, note: string): void;
   /** Offer the card to the automatic land's own verdict; `true` = it said yes. */
   land(card: ScheduledReviewCard): Promise<boolean>;
+  /** Close a card whose delivery is already on origin/main, with git's proof and no merge; `true` = it closed. */
+  close(card: ScheduledReviewCard, proof: string): boolean;
   /** Write the stamp of this pass. */
   stamp(card: ScheduledReviewCard, atIso: string): void;
   /** One line for a card left alone for a reason somebody should see. */
@@ -164,10 +168,14 @@ export async function reviewScheduled(card: ScheduledReviewCard, deps: Scheduled
     return deps.bounce(card, why) ? "bounced" : "skipped";
   }
 
+  // `null` is "could not tell", never "no": the card then goes through the ordinary review below.
   const onMain = await deps.onMain(card).catch(() => null);
-  if (onMain === true) {
+  // A card sent back on this very commit asked for more work than the commit holds: being on main does not close it.
+  if (onMain === true && !card.sentBackOnCommit) {
+    const ask = (card.humanAsk ?? "").trim();
+    if (ask && !asksOnlyApproval(ask)) return "person";
     deps.clear(card, "il commit consegnato è già contenuto in origin/main (git merge-base --is-ancestor)");
-    return (await deps.land(card)) ? "landed" : "held";
+    return deps.close(card, `\`${short(commit)}\` è già contenuto in origin/main (git merge-base --is-ancestor): niente da fondere`) ? "landed" : "held";
   }
 
   const report = await deps.inspect(card, files).catch((e): InspectionReport => ({ kind: "unmeasured", why: String(e) }));

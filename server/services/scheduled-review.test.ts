@@ -3,6 +3,7 @@ import { conflictedFiles, failedTestNames } from "./scheduled-review-inspect";
 import { resolveWorkflowRules } from "../../shared/workflow";
 import { autoLandVerdict, scheduledReviewCmd, type AutoLandCard } from "./auto-land";
 import { buildSensePrompt, claimedMainShas, diffIsClipped, newSenseNonce, parseSense, senseModelFor } from "./scheduled-review-sense";
+import { bouncesSinceHuman, scheduledBounceMessage } from "./red-bounce";
 import { reviewScheduled, scheduledReviewDue, type InspectionReport, type ScheduledReviewCard, type ScheduledReviewDeps, type SenseVerdict } from "./scheduled-review";
 
 const NOW = Date.parse("2026-11-25T12:00:00Z");
@@ -14,7 +15,7 @@ const card = (over: Partial<ScheduledReviewCard> = {}): ScheduledReviewCard => (
 });
 
 function harness(report: InspectionReport, files: string[] = ["server/a.ts", "server/a.test.ts"], over: Partial<ScheduledReviewDeps> = {}) {
-  const calls = { bounced: [] as string[], answered: [] as string[], cleared: [] as string[], landAsked: 0, stamped: 0 };
+  const calls = { bounced: [] as string[], answered: [] as string[], cleared: [] as string[], closed: [] as string[], landAsked: 0, stamped: 0 };
   const deps: ScheduledReviewDeps = {
     files: async () => files,
     personPaths: () => [],
@@ -28,6 +29,7 @@ function harness(report: InspectionReport, files: string[] = ["server/a.ts", "se
     answer: (_c, text) => { calls.answered.push(text); return true; },
     clear: (_c, note) => { calls.cleared.push(note); },
     land: async () => { calls.landAsked += 1; return true; },
+    close: (_c, proof) => { calls.closed.push(proof); return true; },
     stamp: () => { calls.stamped += 1; },
     ...over,
   };
@@ -120,6 +122,35 @@ describe("scheduled review: judgement of sense and history (25/11)", () => {
     const { deps, calls } = harness({ kind: "green", tested: [] }, undefined, { onMain: async () => true });
     expect(await reviewScheduled(card(), deps)).toBe("landed");
     expect(calls.cleared[0]).toContain("origin/main");
+    // It closes with git's proof: the land would only find "nothing" and leave the card in review.
+    expect(calls.closed[0]).toContain("origin/main");
+    expect(calls.landAsked).toBe(0);
+  });
+
+  test("a card sent back on this very commit is not closed by it being on main: the send-back asked for more work", async () => {
+    const { deps, calls } = harness({ kind: "green", tested: [] }, undefined, { onMain: async () => true });
+    await reviewScheduled(card({ sentBackOnCommit: true }), deps);
+    expect(calls.closed).toEqual([]);
+  });
+
+  test("'could not tell' is not 'on main' and not 'false': the ordinary review goes on", async () => {
+    const { deps, calls } = harness({ kind: "green", tested: [] }, undefined, { onMain: async () => null, falseMainClaims: async () => null });
+    expect(await reviewScheduled(card(), deps)).toBe("landed");
+    expect(calls.closed).toEqual([]);
+    expect(calls.bounced).toEqual([]);
+  });
+
+  test("a question that is not only an approval keeps an on-main card with its person", async () => {
+    const { deps, calls } = harness({ kind: "green", tested: [] }, undefined, { onMain: async () => true });
+    expect(await reviewScheduled(card({ humanAsk: "should I buy the plan?" }), deps)).toBe("person");
+    expect(calls.closed).toEqual([]);
+  });
+
+  test("the scheduled send-back has its own words and counts as a round", () => {
+    const msg = scheduledBounceMessage(2, "i test toccati sono rossi in a.test.ts");
+    expect(msg).toContain("ripasso a orario");
+    expect(msg).not.toContain("i check sono rossi");
+    expect(bouncesSinceHuman([{ author: "system", content: msg, kind: "comment" }])).toBe(1);
   });
 
   test("a technical question of the agent is answered by the reviewer, not left to a person", async () => {

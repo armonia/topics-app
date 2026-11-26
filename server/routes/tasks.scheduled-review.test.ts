@@ -31,7 +31,7 @@ describe("the scheduled review, end to end through the sweep", () => {
   beforeEach(() => { db = freshDb(); svc = createTaskService(db); merges = []; });
   afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });
 
-  async function deliverAndSweep(doors: { inspect: InspectionReport; sense?: SenseVerdict }, files: string[] = ["server/lib/git-numstat.ts", "server/lib/git-numstat.test.ts"]) {
+  async function deliverAndSweep(doors: { inspect: InspectionReport; sense?: SenseVerdict; onMain?: boolean; sentBack?: boolean }, files: string[] = ["server/lib/git-numstat.ts", "server/lib/git-numstat.test.ts"]) {
     const router = createTasksRouter(makeCtx(db, []), undefined, {
       taskCheckoutRef: async () => ({ cwd, commit: "abc1234" }),
       realignForChecks: async () => ({ ok: true, note: null }),
@@ -46,7 +46,7 @@ describe("the scheduled review, end to end through the sweep", () => {
         inspect: async () => doors.inspect,
         sense: async () => doors.sense ?? { kind: "ok", note: "does what the card asks" },
         falseMainClaims: async () => [],
-        onMain: async () => false,
+        onMain: async () => doors.onMain ?? false,
       },
       onAutoLand: (api: { sweepAutoLand: () => Promise<number> }) => { sweep = api.sweepAutoLand; },
       autoMerge: {
@@ -74,6 +74,7 @@ describe("the scheduled review, end to end through the sweep", () => {
     await Bun.sleep(80);
     expect(merges).toEqual([]);
     expect(svc.get(task.id)!.task.status).toBe("review");
+    if (doors.sentBack) db.prepare("UPDATE tasks SET prior_commit = 'abc1234' WHERE id = ?").run(task.id);
     // The card has waited longer than the interval.
     db.prepare("UPDATE tasks SET review_at = ? WHERE id = ?").run(new Date(Date.now() - 3_600_000).toISOString(), task.id);
     await sweep!();
@@ -105,6 +106,18 @@ describe("the scheduled review, end to end through the sweep", () => {
     expect(merges).toEqual([]);
     expect(d.read().task.status).not.toBe("review");
     expect(d.read().comments.map((c) => c.content).join("\n")).toContain("taking places");
+  }, 30_000);
+
+  test("a premise already on main closes the card with git's proof, through the real close", async () => {
+    const d = await deliverAndSweep({ inspect: { kind: "green", tested: [] }, onMain: true });
+    expect(merges).toEqual([]);
+    expect(d.read().task.status).toBe("done");
+    expect(d.read().comments.map((c) => c.content).join("\n")).toContain("origin/main");
+  }, 30_000);
+
+  test("the same premise on a card sent back on that commit is not closed by the proof, it gets the ordinary review", async () => {
+    const d = await deliverAndSweep({ inspect: { kind: "green", tested: [] }, onMain: true, sentBack: true });
+    expect(d.read().comments.map((c) => c.content).join("\n")).not.toContain("senza land");
   }, 30_000);
 
   test("a delivery in a person's place is never decided by the pass", async () => {
