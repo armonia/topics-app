@@ -148,8 +148,10 @@ describe("a node check checkout cut by a shutdown does not block the land", () =
     expect(branchTrees(repo)).toEqual([]);
     const res = await land(repo);
     expect(res.status).toBe("merged");
-    // The next checkout of the same card sweeps what the cut left behind.
-    await measureThenCut(repo, checks, realGit);
+    // A card that lands is never measured again: nothing reopens its run
+    // folder, so what the cut left behind waits for the next boot sweep.
+    const pool = createNodeCheckWorktrees({ git: realGit, root: checks, resolveHead: headOf });
+    await pool.sweep();
     expect(readdirSync(checks)).toEqual([]);
   }, WITH_REAL_GIT);
 
@@ -226,7 +228,9 @@ describe("no node check checkout outlives the server that opened it", () => {
   test("a checkout this process holds survives the sweep, even one opened in the same instant", async () => {
     const { repo, checks } = repoWithNodeBranch();
     const pool = createNodeCheckWorktrees({ git: realGit, root: checks, resolveHead: headOf });
-    // The previous process left this card's folder and another one.
+    // The previous process left this card's folder and another one; neither
+    // one's name is a run folder, so they are both stale, even the one
+    // sharing the card id the new measure below is about to open.
     checkoutFor(repo, checks, "dddddddd");
     const leftover = join(checks, "8e9c2873");
     mkdirSync(leftover);
@@ -238,9 +242,11 @@ describe("no node check checkout outlives the server that opened it", () => {
       pool.sweep(),
     ]);
 
-    expect(gone.map((p) => p.slice(checks.length + 1))).toEqual(["dddddddd"]);
+    expect(gone.map((p) => p.slice(checks.length + 1)).sort()).toEqual(["8e9c2873", "dddddddd"]);
     expect(lease).not.toBeNull();
-    expect(existsSync(join(lease!.cwd, "stale.txt"))).toBe(false);
+    // Its own run folder, not the stale one sharing the card prefix.
+    expect(basename(lease!.cwd)).not.toBe("8e9c2873");
+    expect(basename(lease!.cwd).startsWith("8e9c2873-")).toBe(true);
     expect(existsSync(join(lease!.cwd, "server", "delivered.txt"))).toBe(true);
     expect(git(lease!.cwd, "status", "--porcelain").trim()).toBe("");
     expect(await pool.sweep()).toEqual([]);
@@ -249,6 +255,32 @@ describe("no node check checkout outlives the server that opened it", () => {
     await lease!.release();
     expect(readdirSync(checks)).toEqual([]);
     expect(listed(repo)).toHaveLength(1);
+  }, WITH_REAL_GIT);
+
+  test("two measures of the same card overlap without either one losing its folder", async () => {
+    const { repo, checks } = repoWithNodeBranch();
+    const pool = createNodeCheckWorktrees({ git: realGit, root: checks, resolveHead: headOf });
+
+    const [first, second] = await Promise.all([
+      pool.open({ repoPath: repo, branch: BRANCH, taskId: "3d189f49-test" }),
+      pool.open({ repoPath: repo, branch: BRANCH, taskId: "3d189f49-test" }),
+    ]);
+
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    // The bug: both runs computed the same path, so the second one's
+    // pre-add discard deleted the folder the first one was still using.
+    expect(first!.cwd).not.toBe(second!.cwd);
+    expect(existsSync(first!.cwd)).toBe(true);
+    expect(existsSync(second!.cwd)).toBe(true);
+    expect(git(first!.cwd, "status", "--porcelain").trim()).toBe("");
+    expect(git(second!.cwd, "status", "--porcelain").trim()).toBe("");
+
+    await first!.release();
+    expect(existsSync(second!.cwd)).toBe(true);
+    expect(git(second!.cwd, "status", "--porcelain").trim()).toBe("");
+    await second!.release();
+    expect(readdirSync(checks)).toEqual([]);
   }, WITH_REAL_GIT);
 
   test("an open waits for the boot sweep's git, so a prune cannot pull the ground from under its add", async () => {
@@ -292,7 +324,7 @@ describe("no node check checkout outlives the server that opened it", () => {
         // SIGKILL mid-checkout: half the files written, and the registration
         // still "locked initializing", which git removes only when the add ends.
         killed = true;
-        const tree = args[2]!;
+        const tree = args[args.length - 2]!;
         deleteHalf(tree);
         writeFileSync(join(repo, ".git", "worktrees", basename(tree), "locked"), "initializing\n");
         return { code: 137 };
