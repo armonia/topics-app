@@ -1612,6 +1612,11 @@ resolveParkedChildren(this: TaskService, { taskId, decision, by }): { task: Task
       const firma = by || "system";
       const ts = now();
       const children: Task[] = [];
+      // One decision archives the WHOLE batch together: a `blockedByTaskId`
+      // between two parked siblings (step2 waits on step1) must not reject the
+      // batch just because the other half has not archived yet (review
+      // feedback, 26/11 — `archive` was throwing on the first of the two).
+      const archiveBatchIds = decision === "archive" ? parked.map((c) => c.id) : [];
       for (const c of parked) {
         if (decision === "requeue") {
           // Budget azzerato: un sottotask parcheggiato può aver bruciato tentativi
@@ -1656,7 +1661,7 @@ resolveParkedChildren(this: TaskService, { taskId, decision, by }): { task: Task
           const t = getTaskRow(c.id);
           if (t) children.push(rowToTask(t));
         } else {
-          children.push(this.archive({ taskId: c.id }));
+          children.push(this.archive({ taskId: c.id, excludeDependentIds: archiveBatchIds }));
         }
       }
       // The copy lives in `shared/board.ts`, next to the predicate that has to

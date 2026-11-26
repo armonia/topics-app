@@ -1549,6 +1549,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       }
       if (method === "DELETE") {
         try {
+          // A card still the live blocker (blockedByTaskId) of an unfinished
+          // dependent is refused BEFORE anything else: `archive()` throws the
+          // same `blocks_live_dependent`, but by then the live agent below was
+          // already killed and the open children already detached — a 409
+          // that still left the damage behind (review feedback, 26/11).
+          svc.assertArchivable({ taskId, projectId });
           // Un task che sparisce dalla board si porta dietro il suo agente:
           // archiviare senza tagliare il turno lascia un agente che lavora per
           // nessuno (vedi `detachLiveAgent`). Prima di archiviare, quindi.

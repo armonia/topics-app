@@ -1356,6 +1356,27 @@ describe("blocked-by dependency", () => {
     expect(s.get(blocker.id)?.task.archived).toBe(true);
   });
 
+  /**
+   * Review feedback 26/11, point 2: the cascade used to bypass the gate,
+   * which only looked at the root. Parent P, child A (alive), external card C
+   * blocked by A: `archive(P)` cascaded over A and silently unblocked C.
+   * Red with the mutation: checking live dependents on `taskId` alone,
+   * instead of on the whole subtree, lets `archive({ taskId: parent.id })`
+   * through.
+   */
+  test("archive rejects a cascade that would unblock a dependent of a NON-root descendant", () => {
+    const parent = s.create({ projectId: PID, text: "parent" });
+    const child = s.create({ projectId: PID, text: "child", parentTaskId: parent.id });
+    const external = s.create({ projectId: PID, text: "external dependent", blockedByTaskId: child.id });
+    expect(() => s.archive({ taskId: parent.id })).toThrow(/blocks_live_dependent|unfinished/);
+    expect(s.get(parent.id)?.task.archived).toBe(false);
+    expect(s.get(child.id)?.task.archived).toBe(false);
+    s.update({ taskId: external.id, actor: "human", by: "u", patch: { blockedByTaskId: null } });
+    s.archive({ taskId: parent.id });
+    expect(s.get(parent.id)?.task.archived).toBe(true);
+    expect(s.get(child.id)?.task.archived).toBe(true);
+  });
+
   test("listBlockedBy returns the alive dependents", () => {
     const a = s.create({ projectId: PID, text: "a" });
     const b = s.create({ projectId: PID, text: "b", blockedByTaskId: a.id });

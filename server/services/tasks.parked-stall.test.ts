@@ -440,6 +440,25 @@ describe("le due risposte, e cosa fanno davvero", () => {
     expect(chiuso.status).toBe("done");
   });
 
+  /**
+   * Review feedback 26/11, point 3: two parked children, step2 blocked by
+   * step1. Before the fix, `archive()` refused step1 because step2 was still
+   * live: a `blockedByTaskId` INSIDE the batch that
+   * `resolveParkedChildren("archive")` is archiving together must not reject
+   * it. Red without `excludeDependentIds`, with `blocks_live_dependent`.
+   */
+  test("«archivia»: un blockedByTaskId interno al lotto non blocca gli altri parcheggiati", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" }).id;
+    const step1 = s.create({ projectId: PID, text: "step1", parentTaskId: padre }).id;
+    const step2 = s.create({ projectId: PID, text: "step2", parentTaskId: padre, blockedByTaskId: step1 }).id;
+    s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+
+    const esito = s.resolveParkedChildren({ taskId: padre, decision: "archive", by: "attilio" })!;
+    expect(esito.children).toHaveLength(2);
+    expect(archiviato(db, step1)).toBe(1);
+    expect(archiviato(db, step2)).toBe(1);
+  });
+
   test("rispondere due volte non inventa un secondo esito", () => {
     const { padre } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });

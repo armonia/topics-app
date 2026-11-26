@@ -319,6 +319,49 @@ function getTaskRow(taskId: string): any {
 
 
 /**
+   * Archiving `taskId` must not silently unblock a live dependent:
+   * `isDispatchBlocked` reads `blocker.archived = 1` the same as `blocker.status
+   * = 'done'`. Walks the WHOLE subtree `archiveSubtree` is about to take down —
+   * a root-only check misses a non-done CHILD that is itself still the blocker
+   * of a card outside the subtree (`?withChildren=1`, a grandchild in
+   * `status.ts`/`worktree.ts`). Dependents INSIDE the same subtree are not
+   * blockers: they archive together, in the same call. `extraExclude` covers a
+   * sibling batch archived in the same decision (`resolveParkedChildren`),
+   * where an internal `blockedByTaskId` between two parked children must not
+   * block the batch either.
+   */
+  function assertNoLiveDependents(taskId: string, extraExclude: Iterable<string> = []): void {
+    const descendantRows = db.prepare(
+      `WITH RECURSIVE subtree(id) AS (
+         SELECT id FROM tasks WHERE id = ?
+         UNION ALL
+         SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+       )
+       SELECT t.id, t.status FROM subtree s JOIN tasks t ON t.id = s.id`,
+    ).all(taskId) as Array<{ id: string; status: string }>;
+    if (descendantRows.length === 0) return;
+    // A member already `done` had already unblocked its dependents before this
+    // call (`isDispatchBlocked` reads done the same as archived): archiving it
+    // changes nothing, so it is never the reason to reject.
+    const nonDoneIds = descendantRows.filter((r) => r.status !== "done").map((r) => r.id);
+    if (nonDoneIds.length === 0) return;
+    const exclude = new Set(descendantRows.map((r) => r.id));
+    for (const id of extraExclude) exclude.add(id);
+    const placeholders = nonDoneIds.map(() => "?").join(", ");
+    const liveDependents = db.prepare(
+      `SELECT id FROM tasks WHERE blocked_by_task_id IN (${placeholders}) AND archived = 0 AND status != 'done'`,
+    ).all(...nonDoneIds) as Array<{ id: string }>;
+    const outside = liveDependents.filter((r) => !exclude.has(r.id));
+    if (outside.length > 0) {
+      throw new TaskServiceError(
+        "blocks_live_dependent",
+        `archiving would leave ${outside.length} unfinished card(s) waiting on a blocker (blockedByTaskId) going away: point them at another blocker or finish/archive them first.`,
+      );
+    }
+  }
+
+
+/**
    * Un padre può ancora ADOTTARE?
    *
    * Archiviato no, e questo si guardava già. CHIUSO nemmeno, e questo mancava:
@@ -407,6 +450,7 @@ function getTaskRow(taskId: string): any {
     agentAskOnThread,
     archiveSubtree,
     assertBlockerValid,
+    assertNoLiveDependents,
     bindService,
     checkedStage,
     commentOriginColumn,
