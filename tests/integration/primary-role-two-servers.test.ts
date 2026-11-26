@@ -147,6 +147,9 @@ async function bootOnce(s: ServerUnderTest): Promise<void> {
       APP_DATA_DIR: join(s.root, "app-data"),
       TOPICS_HOME: join(s.root, "topics-home"),
       TOPICS_PUBLIC_DIR: join(s.root, "public"),
+      // From a worktree checkout server.ts strips TOPICS_TUNNEL_PORT (isolation); this
+      // test owns every port and home below, so it opts out and the tunnel doors exist.
+      TOPICS_ALLOW_WORKTREE_PROD: "1",
       TOPICS_BROWSER_SWEEP: "0",
       TOPICS_DISABLE_PTY_BRIDGE: "1",
       TOPICS_PTY_SOCKET: join(s.root, "pty.sock"),
