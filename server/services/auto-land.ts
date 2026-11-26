@@ -465,5 +465,8 @@ export function createAutoLander(deps: AutoLanderDeps) {
     for (const id of [...attempted.keys()]) if (!inReview.has(id)) attempted.delete(id);
   }
 
-  return { tryLand, forgetExcept, isWaiting: (taskId: string) => waiting.has(taskId) };
+  /** A land that is waiting on GitHub's own verdict is not a refusal: the commit may be offered again. */
+  function forget(taskId: string): void { attempted.delete(taskId); }
+
+  return { tryLand, forgetExcept, forget, isWaiting: (taskId: string) => waiting.has(taskId) };
 }
