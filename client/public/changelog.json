@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.5.5",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the owner approved the title tab, the row grammar and the column header",
+          "en": "",
+          "scope": "design",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.4",
     "date": "2026-11-26",
     "sections": {

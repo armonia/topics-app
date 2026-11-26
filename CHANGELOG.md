@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.5 — 2026-11-26
+
+### Sotto il cofano
+- **design** · the owner approved the title tab, the row grammar and the column header
+
 ## 2.5.4 — 2026-11-26
 
 ### Correzioni
