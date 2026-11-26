@@ -8,7 +8,7 @@ import type { useMenuPreferences } from '../hooks/useUserMenuHost';
 import type { useSidebarState } from '../hooks/useSidebarState';
 import type { useWebSocket } from '../hooks/useWebSocket';
 import { OPEN_INBOX_EVENT } from '../lib/inboxEvents';
-import { ROW_INSET, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from '../lib/selectionStyles';
+import { COLUMN_GAP, ROW_INSET, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from '../lib/selectionStyles';
 import { NEXT_WAITING_EVENT } from '../state/waitingQueue';
 import { SidebarHeader } from './SidebarHeader';
 import type { TopicsMenuState } from './useTopicsMenu';
@@ -18,6 +18,8 @@ interface AppSidebarProps {
   sidebarContentRef: RefObject<HTMLDivElement | null>;
   isMobile: boolean;
   sidebarCollapsed: boolean;
+  /** Collapses the column, from the toggle in its header. */
+  onToggleSidebar: () => void;
   sidebarWidth: number;
   floatingSplits: boolean;
   viewportHeight: number | null;
@@ -48,7 +50,7 @@ interface AppSidebarProps {
  * version banner slot, identity band, transport alarm and the row of doors.
  */
 export function AppSidebar({
-  sidebarRef, sidebarContentRef, isMobile, sidebarCollapsed, sidebarWidth, floatingSplits,
+  sidebarRef, sidebarContentRef, isMobile, sidebarCollapsed, onToggleSidebar, sidebarWidth, floatingSplits,
   viewportHeight, topicsMenu, wsStatus, topicsError, onWSMessage, sidebar, menuPreferences,
   splitLayoutAvailable, setSearchScope, setShowSearch, setShowChangelogFromMenu,
   handleReopenClosedTab, openHistoryUrl, handleQuickCreateTopic, handleStandaloneAddPane,
@@ -135,10 +137,15 @@ export function AppSidebar({
           // behind the status bar from the first pixel, the way a native list
           // does. It used to carry the height of the row on top of the inset,
           // which left a full row of dead space under the notch.
+          //
+          // On a desktop the header's buttons are a row tall (34) in a 40px
+          // row, so their ink ends 3px above the list: the list adds the other
+          // half of the column's step, and the painted gap under the header is
+          // one step, as between two cards (HDRGAP-01).
           paddingTop: isMobile ? 0 : 'env(safe-area-inset-top, 0px)',
           [SIDEBAR_SCROLL_TOP_PROPERTY as string]: isMobile
             ? 'var(--sat, 0px)'
-            : '0px',
+            : `${COLUMN_GAP / 2}px`,
           // The column is `fixed inset-y-0`: it escapes the root's padding, so
           // it reserves the bottom band itself. And it reserves it INSIDE the
           // scroller, not as the column's padding: the button row has no
@@ -162,6 +169,7 @@ export function AppSidebar({
           setShowSearch={setShowSearch}
           handleQuickCreateTopic={handleQuickCreateTopic}
           handleStandaloneAddPane={handleStandaloneAddPane}
+          onToggleSidebar={onToggleSidebar}
         />
 
         {/* SidebarControls removed: search is now the inline header input,

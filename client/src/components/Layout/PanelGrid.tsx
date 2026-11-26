@@ -2925,7 +2925,7 @@ export function PanelGrid({
           the inset on the left, the same one a cell's own bar uses. */}
       {isZoomed && onToggleSidebar && (
         <div
-          className="absolute z-10 flex items-center app-no-drag"
+          className="column-toggle absolute z-10 flex items-center app-no-drag"
           data-testid="pane-zoom-sidebar-toggle"
           style={{
             top: 0,

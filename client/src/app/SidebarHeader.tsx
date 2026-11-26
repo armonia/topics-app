@@ -12,12 +12,19 @@ import { windowChrome } from '../lib/shell/windowChrome';
 import { DRAG_REGION, NO_DRAG_REGION } from '../lib/shell/dragRegion';
 import { WindowControls } from '../components/Shared/WindowControls';
 import { PaneAddMenu } from '../components/Shared/PaneAddMenu';
+import { SidebarToggleButton } from '../components/Shared/SidebarToggleButton';
 import { TopicsLoadDot } from '../components/Sidebar/TopicsLoadDot';
 import { shortcut, usesCtrl } from '../lib/shortcutLabel';
-import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, MOBILE_SIDEBAR_HEADER_H_COMPACT, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from '../lib/selectionStyles';
+import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, MOBILE_SIDEBAR_HEADER_H_COMPACT, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, TAB_BUTTON, TAB_BUTTON_SQUARE, tabButton } from '../lib/selectionStyles';
 import type { useWebSocket } from '../hooks/useWebSocket';
 import type { TopicsMenuState } from './useTopicsMenu';
 import { Inbox } from './lazyHosts';
+import { useT } from '../hooks/useT';
+
+/** The step between the window's commands and the title: the insets stop at
+ *  the commands' edge (`windowControlsGeometry.ts`), so the word carries the
+ *  one ROW_INSET of air itself, and leaves it to the row's gap when it hides. */
+const WORD_STEP = windowChrome === 'mac' || windowChrome === 'windows' ? 'ml-1.5' : '';
 
 // Tauri-on-macOS: the native traffic lights are permanent and the shell pins
 // their frames (`apply_traffic_lights`, lib.rs). The room the rows keep for
@@ -35,13 +42,18 @@ interface SidebarHeaderProps {
   setShowSearch: Dispatch<SetStateAction<boolean>>;
   handleQuickCreateTopic: () => unknown;
   handleStandaloneAddPane: ComponentProps<typeof PaneAddMenu>['onAddPane'];
+  /** Collapses the column: the toggle before the bell, with the mouse. */
+  onToggleSidebar: () => void;
 }
 
-/** The head of the sidebar column: the title, the bell, search and the add menu. */
+/** The head of the sidebar column: the title, the column's toggle, the bell,
+ *  search and the add menu. */
 export function SidebarHeader({
   isMobile, topicsMenu, wsStatus, topicsError, onWSMessage,
   setSearchScope, setShowSearch, handleQuickCreateTopic, handleStandaloneAddPane,
+  onToggleSidebar,
 }: SidebarHeaderProps) {
+  const tr = useT();
   const {
     showTopicsMenu, setShowTopicsMenu, mobileTopFull, topicsMenuRef,
     setTopicsMenuPos, resetTopicsMenuRequest,
@@ -52,18 +64,17 @@ export function SidebarHeader({
   // the finger at the foot, where the thumb reaches. Two copies of the JSX would
   // be two buttons that open the same thing and diverge at the first touch-up,
   // which is exactly how the duplicate menus this pass removed were born. Only
-  // the SIZE changes: 44px with the finger, 28 with the mouse.
+  // the SIZE changes: 44px with the finger, a row's 34 with the mouse.
   const sidebarSearchButton = (
     <button
       onClick={() => { setSearchScope('all'); setShowSearch(true); }}
-      className={`edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
+      className={`${TAB_BUTTON} ${isMobile ? TAB_BUTTON_SQUARE : ''} gap-1.5 ${tabButton(false)} cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
       style={{ pointerEvents: 'auto', ...(isMobile ? null : GLYPH_KBD_PADDING) }}
       title={`Search (${shortcut('K')})`}
       aria-label="Search, open the command palette"
     >
       {/* 16 and not 14: next to a system icon (WhatsApp's «+» is the yardstick
-          used) a 14 glyph in a 28 box reads as half a control. Sixteen fills
-          the box without touching its edges. */}
+          used) a 14 glyph reads as half a control. */}
       <Search size={isMobile ? 20 : 16} className="flex-shrink-0" aria-hidden="true" />
       {/* No label with the finger: the button sits NEXT to the title, in a row
           where every horizontal pixel is contested, and the magnifier alone
@@ -113,8 +124,9 @@ export function SidebarHeader({
           // 48: 2px above and 2 below, i.e. «the keys touch the edge». 44 + 2 *
           // ROW_INSET = 56 (`h-14`) and the air goes back to that of the whole
           // column, the SAME 6px that separates a card from the edge and a row
-          // from its neighbour. With the mouse the buttons are 28 and the row
-          // stays 40, which is the same identity: 28 + 2 * 6 = 40.
+          // from its neighbour. With the mouse the buttons are a row's 34 and
+          // the row stays 40: 34 + 2 * 3, the half step a row of the column
+          // keeps above and below it (25/11, the buttons as tall as the tabs).
           // NO LINE UNDER THE HEADER (08/08). Above and below there is the same
           // surface, the column is chrome from top to bottom, so that line did
           // not separate two things: it only drew a boundary. The two commands
@@ -149,7 +161,7 @@ export function SidebarHeader({
             // `pointerEvents: 'auto'`, the window controls with their own
             // class): the wrappers let everything through.
             isMobile ? 'mobile-top-veil pointer-events-none absolute inset-x-0 z-10' : 'h-10'
-          }`} {...DRAG_REGION}
+          }`} data-window-chrome={windowChrome} {...DRAG_REGION}
           // A1: compact at the head (44, the buttons), whole while scrolling
           // (56). Out of flow in both cases, so the size moves nothing,
           // `data-compact` is the spec's handle.
@@ -244,11 +256,23 @@ export function SidebarHeader({
                 />
               )}
               {!isMobile ? (
-                <span
-                  data-testid="sidebar-topics-title"
-                  className={`flex min-h-7 items-center ${ROW_PX} py-0.5 font-semibold text-app-text tracking-[-0.01em] truncate text-title`}
-                >
-                  Topics
+                // THE WORD GOES WHOLE OR NOT AT ALL (25/11, the owner: "let's
+                // hide the word altogether when it does not fit"). The box is
+                // one line tall and wraps: a zero-width first item holds the
+                // line, so a word that does not fit beside it drops to the
+                // second line, which the box clips. No width is written down,
+                // so no font or platform can make it wrong. The keyboard hints
+                // still go first, and below the width the word needs the box
+                // goes too (`.sidebar-wordmark` in index.css): a box left
+                // holding a wrapped-away word would be a blank between the
+                // lights and the column's toggle.
+                <span className={`sidebar-wordmark ${WORD_STEP} flex h-7 flex-wrap overflow-hidden before:h-7 before:w-0 before:content-['']`}>
+                  <span
+                    data-testid="sidebar-topics-title"
+                    className={`flex h-7 items-center ${ROW_PX} font-semibold text-app-text tracking-[-0.01em] whitespace-nowrap text-title`}
+                  >
+                    Topics
+                  </span>
                 </span>
               ) : (
               <button
@@ -284,7 +308,7 @@ export function SidebarHeader({
                 // `isMobile` and not `md:`: in the header that predicate decides,
                 // and two mechanisms in the same row diverge (it is the defect
                 // just removed from the tab bar).
-                className={`flex items-center min-w-0 ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 ${isMobile ? 'min-h-11' : 'min-h-7'} rounded-lg transition-colors cursor-pointer ${
+                className={`${WORD_STEP} flex items-center min-w-0 ${isTauriMac ? 'gap-2' : 'gap-1'} ${ROW_PX} py-0.5 ${isMobile ? 'min-h-11' : 'min-h-7'} rounded-lg transition-colors cursor-pointer ${
                   // Lift in ALPHA, not `bg-app-hover`: this button sits on the
                   // chrome, and an opaque one calibrated on `--bg-surface` goes
                   // the wrong way there in light theme. See SIDEBAR_HOVER.
@@ -363,9 +387,23 @@ export function SidebarHeader({
                 «+» are no longer, having moved down into the bottom row. The same
                 button, mounted on the other side: the panel anchors to the
                 trigger's rectangle and keeps itself inside the screen. */}
+            {/* THE COLUMN'S TOGGLE, BEFORE THE BELL (25/11, the owner: "the
+                button to open and close should be before the notifications
+                icon"). It closes the column from where the column is; once
+                closed, the one that reopens it sits on the tab strip. Not on
+                the phone: there the column is a drawer, closed by a swipe or
+                by tapping the content. */}
+            {!isMobile && (
+              <SidebarToggleButton
+                onClick={onToggleSidebar}
+                size="tab"
+                title={`${tr('sidebar.collapse')} (${shortcut('B')})`}
+                testId="sidebar-collapse"
+              />
+            )}
             {!isMobile && (
               <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
-                <Suspense fallback={<span className="w-7 h-7 flex-shrink-0" aria-hidden="true" />}>
+                <Suspense fallback={<span className={`${TAB_BUTTON} ${TAB_BUTTON_SQUARE}`} aria-hidden="true" />}>
                   <Inbox onWSMessage={onWSMessage} isMobile={isMobile} />
                 </Suspense>
               </div>
@@ -374,7 +412,7 @@ export function SidebarHeader({
 
           {isMobile && (
             <div className="app-no-drag flex-shrink-0" {...NO_DRAG_REGION}>
-              <Suspense fallback={<span className="w-7 h-7 flex-shrink-0" aria-hidden="true" />}>
+              <Suspense fallback={<span className={`${TAB_BUTTON} ${TAB_BUTTON_SQUARE}`} aria-hidden="true" />}>
                 <Inbox onWSMessage={onWSMessage} isMobile />
               </Suspense>
             </div>
@@ -386,7 +424,7 @@ export function SidebarHeader({
               attached to the logo, and now they are back aligned to the right,
               which is where the eye looks for shortcuts. They are always the
               SAME two buttons, defined once above: only the size changes, 44px
-              with the finger and 28 with the mouse. */}
+              with the finger and a row's 34 with the mouse. */}
           {/* ON THE PHONE THERE IS NOTHING ELSE AT THE TOP.
               «On one side topics, clickable; on the other nothing else» (12/08).
               Search and «+» do not disappear: they go down into the bottom row

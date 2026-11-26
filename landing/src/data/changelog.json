@@ -1,5 +1,33 @@
 [
   {
+    "version": "2.5.4",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "una card ripresa dopo un land non risulta atterrata per il merge del giro prima (#1703)",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.2",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "the sidebar's buttons are tabs, and every tab lights under the pointer",
+          "scope": "ui"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.0",
     "date": "2026-11-25",
     "sections": {
