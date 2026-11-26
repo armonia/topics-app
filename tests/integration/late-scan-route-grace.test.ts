@@ -40,8 +40,8 @@ beforeAll(async () => {
   // A SHORT root, not `tmpdir()`: under the unit runner that is a long per-file scratch
   // path, and the bridge socket in it breaks the 104-character unix socket limit, so the
   // daemon never starts (the turn then dies with "send stopped in the queue").
-  mkdirSync("/tmp/topics-test", { recursive: true });
-  tempDir = mkdtempSync(join("/tmp/topics-test", "lsrg-"));
+  const { testTmpDir: shortTmpDir } = await import("./helpers");
+  tempDir = shortTmpDir("lsrg");
   mkdirSync(join(tempDir, "data"), { recursive: true });
   setEnv("DATA_DIR", join(tempDir, "data"));
   setEnv("TOPICS_DATA_DIR", join(tempDir, "data"));
