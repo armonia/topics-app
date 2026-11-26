@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrimaryRole } from "./primary-role";
@@ -224,6 +224,15 @@ describe("primary switch", () => {
     expect(mode(join(h.receiver.stateDir, "nodes", "m-new.token"))).toBe(0o600);
     expect(mode(join(h.receiver.stateDir, "license-token"))).toBe(0o600);
     expect(mode(join(h.receiver.secretsDir, "installation-id"))).toBe(0o600);
+  });
+
+  ownerModeTest("the restored DB is closed to owner-only even when the staged copy arrived wider", async () => {
+    const h = harness();
+    await runPrimarySwitch(h.deps);
+    // A staged DB widened on its way (another umask, a copy by hand) must not stay readable by others.
+    chmodSync(join(h.receiver.stateDir, INCOMING_DIR, DB_NAME), 0o644);
+    reboot(h.receiver, "m-new");
+    expect(mode(h.receiver.dbPath)).toBe(0o600);
   });
 
   test("the old primary refuses writes after the switch, before and after its restart", async () => {
