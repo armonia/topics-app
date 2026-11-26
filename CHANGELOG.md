@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.2 — 2026-11-26
+
+### Correzioni
+- **ui** · the sidebar's buttons are tabs, and every tab lights under the pointer
+
+### Sotto il cofano
+- **e2e** · the narrowest column is 248, and the word hides beside the Windows cluster
+
 ## 2.5.1 — 2026-11-25
 
 ### Sotto il cofano
