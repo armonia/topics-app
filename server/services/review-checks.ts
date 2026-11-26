@@ -1033,3 +1033,22 @@ export const TOUCHED_TESTS_CHECK: ReviewCheck = { name: "test:touched:review", c
 export function hasTouchedTests(cwd: string): boolean {
   return hasScript(cwd, TOUCHED_TESTS_CHECK.name);
 }
+
+/** Changed paths that only a macOS-specific build or launcher reads: the CI
+ *  reader runs on Linux and never exercises them, so a swap fallback to its
+ *  verdict would be a false green for exactly these files. */
+const MAC_ONLY_DIFF_PATTERNS: readonly RegExp[] = [/^desktop-tauri\//, /(^|\/)launchd(\/|[._-])/, /(^|\/)darwin(\/|[._-])/];
+
+/** True when every changed path (against `base`) matches a macOS-only pattern.
+ *  An empty or unreadable diff is NOT mac-only: with nothing to go on, the
+ *  safer read is "ordinary diff, the swap fallback may apply". */
+export function isMacOnlyDiff(cwd: string, base: readonly string[] = ["origin/main", "main"]): boolean {
+  let files: readonly string[] = [];
+  for (const ref of base) {
+    try {
+      const diff = Bun.spawnSync(["git", "diff", "--name-only", `${ref}...HEAD`], { cwd });
+      if (diff.exitCode === 0) { files = diff.stdout.toString().split("\n").map((l) => l.trim()).filter(Boolean); break; }
+    } catch { /* try the next base */ }
+  }
+  return files.length > 0 && files.every((f) => MAC_ONLY_DIFF_PATTERNS.some((p) => p.test(f)));
+}
