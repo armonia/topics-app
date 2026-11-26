@@ -293,12 +293,12 @@
   "tolerance_pct": 5,
   "max_lines": 800,
   "min_clone_lines": 20,
-  "duplicated_lines": 291,
-  "clone_groups": 10,
+  "duplicated_lines": 290,
+  "clone_groups": 11,
   "files": {
-    "client/src/App.tsx": 1148,
+    "client/src/App.tsx": 1140,
 
-    "client/src/components/Board/Card.tsx": 2343,
+    "client/src/components/Board/Card.tsx": 2350,
 
     "client/src/components/Board/FloatingTaskComposer.tsx": {
       "lines": 908,
@@ -307,7 +307,7 @@
       ]
     },
 
-    "client/src/components/Board/KanbanBoardPane.tsx": 1595,
+    "client/src/components/Board/KanbanBoardPane.tsx": 1561,
 
     "client/src/components/Board/TaskDetail.tsx": 1471,
 
@@ -322,7 +322,7 @@
     },
 
     "client/src/components/Chat/ChatPane.tsx": {
-      "lines": 1317,
+      "lines": 1313,
       "why": [
         "2026-10-03, commands-ui: +93 on main (1969), the command card's state and the stream:command-answer listener, the aliases resolved before routing, /status /help /resume /permissions /fast /rename /export, the pinned line. The card, the picker and the answer types live in their own files.",
         "2026-10-03, merged with main 5125e396b (tornata 3b): 2092 measured. Main 1969 -> 1986 bought +17 (⌘F: the find bar and the chat finder, the pinned model for the route); this branch +106 on top (the command card replaces the old banner, the commands listed above)."
@@ -331,17 +331,17 @@
 
     "client/src/components/Chat/MessageList.tsx": 2525,
 
-    "client/src/components/Layout/GroupLayout.tsx": 1946,
+    "client/src/components/Layout/GroupLayout.tsx": 1890,
 
-    "client/src/components/Layout/PaneTabBar.tsx": 1755,
+    "client/src/components/Layout/PaneTabBar.tsx": 1718,
 
     "client/src/components/Layout/PanelGrid.tsx": 2944,
 
-    "client/src/components/Layout/StandaloneChatGroup.tsx": 1309,
+    "client/src/components/Layout/StandaloneChatGroup.tsx": 1277,
 
     "client/src/components/Layout/hooks/usePaneOrdering.ts": 820,
 
-    "client/src/components/Layout/hooks/useProjectLayout.ts": 2013,
+    "client/src/components/Layout/hooks/useProjectLayout.ts": 2002,
 
     "client/src/components/MessageContent.tsx": {
       "lines": 1263,
@@ -354,7 +354,7 @@
 
     "client/src/components/Project/GitChanges.tsx": 1859,
 
-    "client/src/components/Project/ProjectSidebar.tsx": 1427,
+    "client/src/components/Project/ProjectSidebar.tsx": 1379,
 
     "client/src/components/Shared/CommandPalette.tsx": 1085,
 
@@ -362,13 +362,13 @@
 
     "client/src/components/Sidebar/PinnedTiles.tsx": 1207,
 
-    "client/src/components/Sidebar/TopicTree.tsx": 3284,
+    "client/src/components/Sidebar/TopicTree.tsx": 3290,
 
     "client/src/components/Terminal/SingleTerminalPane.tsx": 1620,
 
     "client/src/hooks/useChat.ts": 1189,
 
-    "client/src/hooks/usePanelLifecycle.ts": 2921,
+    "client/src/hooks/usePanelLifecycle.ts": 2894,
 
     "client/src/hooks/useRemoteBrowser.ts": {
       "lines": 1683,
@@ -377,16 +377,16 @@
       ]
     },
 
-    "client/src/hooks/useTauriBrowser.ts": 2218,
+    "client/src/hooks/useTauriBrowser.ts": 2212,
 
-    "client/src/lib/board.ts": 1492,
+    "client/src/lib/board.ts": 1488,
 
     "client/src/lib/buildSidebarItems.test.ts": 1073,
 
-    "client/src/lib/buildSidebarItems.ts": 1069,
+    "client/src/lib/buildSidebarItems.ts": 1067,
 
     "client/src/lib/i18n-en.ts": {
-      "lines": 3815,
+      "lines": 3673,
       "why": [
         "2026-10-15, first-run (D6a): 3024 measured. Main 2863 -> 2992 since the last record (scheduled cards and the merges before them); this branch +32 on top, the strings of the first-run screen and its provider box.",
         "2026-10-03, commands-ui: +56 on main (2790), the English twin of the same keys.",
@@ -395,7 +395,7 @@
     },
 
     "client/src/lib/i18n-it.ts": {
-      "lines": 4175,
+      "lines": 4033,
       "why": [
         "2026-10-15, live-terminals-launchd: 3393 measured on main 703294a85. The last +12 (over the 3381 ceiling) are the liveTerminals.* strings of #331, the menu of the terminals live on the Mac; the other +161 came in under the ceiling through D5f, D6a and D6d. Recorded by hand, this row only.",
         "2026-10-03, commands-ui: +56 on main (3147), the strings of the three menu groups, /resume, the command card, /fast /rename /export, the week bar, the pinned line and the board hint.",
@@ -403,7 +403,7 @@
       ]
     },
 
-    "client/src/lib/selectionStyles.ts": 1200,
+    "client/src/lib/selectionStyles.ts": 1171,
 
     "client/src/lib/tabLink.test.ts": 1016,
 
@@ -416,7 +416,7 @@
     "client/src/state/signals.ts": 1089,
 
     "client/src/types/index.ts": {
-      "lines": 1705,
+      "lines": 1696,
       "why": [
         "2026-10-04, notifications-redesign (client half): 1647 on main, +23 measured. The two attention frames in the WS union (attention:init, attention:updated) and PhaseTier split from AttentionTier, which now has three lit tiers (needs-you, error, done)."
       ]
@@ -434,7 +434,7 @@
 
     "desktop-tauri/pty-bridge/src/bridge.rs": 1275,
 
-    "desktop-tauri/src-tauri/src/browser_panes.rs": 5683,
+    "desktop-tauri/src-tauri/src/browser_panes.rs": 5608,
 
     "desktop-tauri/src-tauri/src/os_integration.rs": 1031,
 
@@ -442,9 +442,9 @@
 
     "desktop-tauri/src-tauri/src/sidecar_boot.rs": 3337,
 
-    "desktop-tauri/src-tauri/src/window_chrome.rs": 2212,
+    "desktop-tauri/src-tauri/src/window_chrome.rs": 2150,
 
-    "playwright.config.ts": 889,
+    "playwright.config.ts": 879,
 
     "relay/ponte-ws.test.ts": 969,
 
@@ -464,7 +464,7 @@
 
     "scripts/board-vs-chat.ts": 1959,
 
-    "scripts/check-identifier-language.ts": 874,
+    "scripts/check-identifier-language.ts": 868,
 
     "scripts/check-route-latency.ts": 1069,
 
@@ -524,13 +524,13 @@
 
     "server/lib/tab-resolver.ts": 1018,
 
-    "server/mcp/topics-mcp-server.test.ts": 2574,
+    "server/mcp/topics-mcp-server.test.ts": 2573,
 
     "server/providers/acp.ts": 917,
 
-    "server/providers/claude-code.ts": 3850,
+    "server/providers/claude-code.ts": 3847,
 
-    "server/providers/codex.ts": 1340,
+    "server/providers/codex.ts": 1347,
 
     "server/providers/index.ts": {
       "lines": 841,
@@ -540,13 +540,13 @@
     },
 
     "server/providers/muse.ts": {
-      "lines": 1041,
+      "lines": 1048,
       "why": [
         "2026-10-06, muse-provider: new file, the Muse chat provider as a deliberate CodexProvider mirror (one-shot exec + sid resume, JSONL mapping, abort, usage). The mirror is also the +113 duplicated lines / +5 clone groups recorded above."
       ]
     },
 
-    "server/providers/native/agent-loop.ts": 1375,
+    "server/providers/native/agent-loop.ts": 1370,
 
     "server/providers/native/auth.ts": 891,
 
@@ -584,8 +584,6 @@
       ]
     },
 
-    "server/routes/chat-handler.ts": 811,
-
     "server/routes/chat.outage-direct-answer.test.ts": 1159,
 
     "server/routes/chat.ts": 1113,
@@ -603,25 +601,32 @@
 
     "server/routes/outbound.test.ts": 1049,
 
-    "server/routes/tasks-board.ts": 1619,
+    "server/routes/chat-handler.ts": 811,
 
-    "server/routes/tasks-land.ts": 1077,
+    "server/routes/tasks-board.ts": 1605,
+
+    "server/routes/tasks-land.ts": {
+      "lines": 1077,
+      "why": [
+        "2026-11-26, scheduled review of technical cards (card fe59766e): 917 on main -> 1077, +160. The wiring of the clock-driven pass (due check, one pass at a time, the verdict applied as land or send-back), the CI-phase gate that lands only with the reviewer's line on the commit, and the agent's question kept until the send-back happens. The judgement itself lives in services/scheduled-review*.ts."
+      ]
+    },
 
     "server/routes/tasks.test.ts": 2887,
 
-    "server/routes/tasks.ts": 1519,
+    "server/routes/tasks.ts": 1514,
 
     "server/routes/terminal.ts": 1216,
 
     "server/routes/topics.control.test.ts": 869,
 
-    "server/routes/topics.ts": 1406,
+    "server/routes/topics.ts": 1380,
 
     "server/services/ci-evidence.test.ts": 821,
 
     "server/services/ci-evidence.ts": 1090,
 
-    "server/services/dispatch-capacity.ts": 1254,
+    "server/services/dispatch-capacity.ts": 1248,
 
     "server/services/external-proxy.ts": 926,
 
@@ -635,21 +640,22 @@
 
     "server/services/task-automerge.test.ts": 1103,
 
-    "server/services/task-automerge.ts": 1764,
+    "server/services/task-automerge.ts": 1765,
 
     "server/services/task-dispatcher-admission.test.ts": 812,
 
     "server/services/task-dispatcher-held-resume-quiet.test.ts": 818,
 
     "server/services/task-dispatcher-overflow.test.ts": {
-      "lines": 1605,
+      "lines": 1715,
       "why": [
-        "2026-11-22, card pinned at its machine's seats: 1556 on main -> 1578, +22 the two cases of a pinned card held in todo while its node is at its seats (no claim, no attempt spent) and started once a seat frees, on the file's own harness and fake machines."
+        "2026-11-22, card pinned at its machine's seats: 1556 on main -> 1578, +22 the two cases of a pinned card held in todo while its node is at its seats (no claim, no attempt spent) and started once a seat frees, on the file's own harness and fake machines.",
+        "2026-11-26, two cards landed together: 1586 -> 1715, +129. Card e4fe62e2 (+46): a waiting or closed run no longer holds a node seat. Card a06e82ad (+64): an empty run whose work is already on main is not put back in todo. Each one alone stayed under the ceiling; together they cross it."
       ]
     },
 
     "server/services/task-dispatcher-remote-node.test.ts": {
-      "lines": 1574,
+      "lines": 1507,
       "why": [
         "2026-11-21, corsa vuota due volte di fila: 1497 on main -> 1507, +10 the second empty node run in a row stays on this machine for six hours instead of bouncing to a third node (f562cda4 ran 11 times in 35 minutes), on the lane's own fake node and clock.",
         "2026-10-26, copia vecchia dopo un riavvio: 998 on main -> 1124, +126 the five cases of the stale mirror a node hands back after a server restart (retired and requeued, the slot freed, a cancel that fails keeps it, one that never works parks the card, a live run is never taken for it) on the lane's own fake node and clock, which a second file would have to copy.",
@@ -658,7 +664,7 @@
     },
 
     "server/services/task-dispatcher-remote-node.ts": {
-      "lines": 1711,
+      "lines": 1671,
       "why": [
         "2026-11-22, corsa sul nodo che sopravvive al riavvio (card 4a1a6d3d): 1527 on main -> 1662, +135 reattachOpenRun and the six reasons NOT to reattach: on boot, an in_progress card with a machineId and an open node_run_id is reattached with readRun and polled inside the node's slots instead of always being requeued, while a run the node no longer has, one it closed or parked, one whose card was archived over there, one handing back the delivery this card already carries or already sent back, a delegated authorization that no longer names this capability and machine, a node that never answers inside the timeout, and a card another path relaunched while readRun was in the air all still go back to the queue (or are left to that other path). Its tests live in task-dispatcher-remote-node-restart.test.ts, on the lane's shared bench.",
         "2026-10-30, overflow dispatch (card 6d60b323): 939 on main -> 982, +43 a card's own branch carried to the node (pushed first, parked when it cannot reach origin) and a cloud account without an active environment parked with its cause instead of deferred as a silent node. The push lives in branch-on-origin.ts.",
@@ -668,32 +674,33 @@
 
     "server/services/task-dispatcher.test.ts": 5166,
 
-    "server/services/tasks-service-types.ts": 887,
+    "server/services/tasks-service-types.ts": 882,
 
-    "server/services/tasks.delivery.test.ts": 1091,
+    "server/services/tasks.delivery.test.ts": 1088,
 
     "server/services/tasks.test.ts": 2865,
 
-    "server/services/tasks.ts": 928,
+    "server/services/tasks.ts": 910,
 
-    "server/services/tasks/status.ts": 1857,
+
+    "server/services/tasks/status.ts": 1840,
 
     "server/services/voice-call/call.test.ts": 816,
 
-    "server/services/worktree-gc.test.ts": 1003,
+    "server/services/worktree-gc.test.ts": 919,
 
-    "server/services/worktree-gc.ts": 904,
+    "server/services/worktree-gc.ts": 871,
 
-    "server/utils.ts": 1462,
+    "server/utils.ts": 1459,
 
     "shared/board.test.ts": 1313,
 
     "shared/relay-protocol.ts": 1098,
 
-    "shared/types.ts": 1751,
+    "shared/types.ts": 1740,
 
     "shared/ws-outbound.ts": {
-      "lines": 1797,
+      "lines": 1785,
       "why": [
         "2026-10-03, commands-ui: +15 on main (1600), the stream:command-answer frame schema."
       ]
@@ -709,11 +716,11 @@
 
     "tests/e2e/grid-split.spec.ts": 949,
 
-    "tests/e2e/helpers/api-fixtures.ts": 990,
+    "tests/e2e/helpers/api-fixtures.ts": 986,
 
     "tests/e2e/layout-edge-cases.spec.ts": 967,
 
-    "tests/e2e/pane-zoom.spec.ts": 1773,
+    "tests/e2e/pane-zoom.spec.ts": 1772,
 
     "tests/e2e/sidebar-pinned-tiles.spec.ts": 2774,
 
@@ -721,7 +728,7 @@
 
     "tests/e2e/sidebar.spec.ts": 1008,
 
-    "tests/e2e/split-dnd-matrix.spec.ts": 1644,
+    "tests/e2e/split-dnd-matrix.spec.ts": 1643,
 
     "tests/e2e/topic-browser-window.spec.ts": 1836,
 
@@ -743,6 +750,6 @@
 
     "tests/integration/process-run-command.test.ts": 836,
 
-    "tests/unit/ws-outbound-schema.test.ts": 949
+    "tests/unit/ws-outbound-schema.test.ts": 946
   }
 }
