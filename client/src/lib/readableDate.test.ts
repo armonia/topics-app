@@ -1,3 +1,6 @@
+/**
+ * @covers READABLE-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { readableDate } from './readableDate';
 

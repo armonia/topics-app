@@ -1,3 +1,6 @@
+/**
+ * @covers READABLE-02
+ */
 import { describe, expect, test } from "bun:test";
 import { toolPhrase } from "./tool-phrase";
 
