@@ -1134,17 +1134,63 @@ describe("verifica del 31/10: i posti di una macchina contano le card che le son
     expect(ids.filter((id) => h.task(id).machineId === PC)).toHaveLength(OVERFLOW_SLOTS.node);
   });
 
-  it("il conteggio legge le card in coda o al lavoro su quella macchina, non quelle chiuse o archiviate", () => {
+  it("il conteggio legge le card in coda o con una corsa aperta su quella macchina, non quelle chiuse o archiviate", () => {
     const h = harness();
     h.seed("in-coda", { machineId: PC });
     h.seed("al-lavoro", { machineId: PC });
     h.seed("chiusa", { machineId: PC });
     h.seed("archiviata", { machineId: PC });
     h.seed("altrove", { machineId: CLOUD });
-    h.db.run("UPDATE tasks SET status = 'in_progress' WHERE id = 'al-lavoro'");
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 1 WHERE id = 'al-lavoro'");
     h.db.run("UPDATE tasks SET status = 'done' WHERE id = 'chiusa'");
     h.db.run("UPDATE tasks SET archived = 1 WHERE id = 'archiviata'");
     expect(h.svc.countOnMachine(PC)).toBe(2);
+  });
+
+  // 26/11: `nodes[].used` in the capacity line counted every card with a
+  // `machine_id` pin, even one the primary had already closed, or one
+  // waiting on something other than the node. A seat now counts only a run
+  // the primary still believes is open.
+  it("una corsa chiusa sul primario libera il posto, anche con machine_id ancora scritto", () => {
+    const h = harness();
+    h.seed("chiusa-ma-pinnata", { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 0 WHERE id = 'chiusa-ma-pinnata'");
+    expect(h.svc.countOnMachine(PC)).toBe(0);
+  });
+
+  it("una card in attesa di qualcosa che non è il nodo (una persona, una condizione) lascia il posto", () => {
+    const h = harness();
+    h.seed("in-attesa-altrove", { machineId: PC });
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'agent', node_run_open = 0 WHERE id = 'in-attesa-altrove'",
+    );
+    expect(h.svc.countOnMachine(PC)).toBe(0);
+  });
+
+  it("una card in attesa del nodo stesso (silenzioso) resta contata", () => {
+    const h = harness();
+    h.seed("in-attesa-del-nodo", { machineId: PC });
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'machine', node_run_open = 0 WHERE id = 'in-attesa-del-nodo'",
+    );
+    expect(h.svc.countOnMachine(PC)).toBe(1);
+  });
+
+  it("4 posti presi con 2 corse aperte sul primario: dopo un giro i posti contati sono 2", () => {
+    const h = harness();
+    h.seed("corsa-1", { machineId: CLOUD });
+    h.seed("corsa-2", { machineId: CLOUD });
+    h.seed("ferma-1", { machineId: CLOUD });
+    h.seed("ferma-2", { machineId: CLOUD });
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 1 WHERE id IN ('corsa-1', 'corsa-2')");
+    // The other two still carry `machine_id` but the primary never opened (or
+    // already closed) a run for them: before the reconciliation, the old SQL
+    // (`status IN ('todo','in_progress')`) counted all four.
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 0 WHERE id = 'ferma-1'");
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'agent', node_run_open = 0 WHERE id = 'ferma-2'",
+    );
+    expect(h.svc.countOnMachine(CLOUD)).toBe(2);
   });
 });
 
@@ -1591,8 +1637,72 @@ describe("overflow: una corsa vuota su un nodo lo salta, non ferma la card sul M
     const h = harness();
     h.seed(CARD, { machineId: PC });
     h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), CARD]);
-    const ok = returnEmptyNodeRunToTodo({ svc: h.svc, releaseAndEmit: (a) => h.svc.release(a), emit: () => {}, log: () => {} }, h.task(CARD), "PC Windows");
+    const ok = await returnEmptyNodeRunToTodo({ svc: h.svc, releaseAndEmit: (a) => h.svc.release(a), emit: () => {}, log: () => {} }, h.task(CARD), "PC Windows");
     expect(ok).toBe(true);
+    expect(h.task(CARD).stayLocal).toBe(false);
+    expect(h.task(CARD).overflowSkipMachine).toBe(PC);
+  });
+
+  it("il delivery di prima è già dentro main: chiusa, non torna in todo (25/11)", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET delivery_commit = 'deadbeef' WHERE id = ?", [CARD]);
+    const emitted: unknown[] = [];
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: (t) => emitted.push(t),
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("done");
+    expect(emitted.length).toBe(1);
+    expect(h.thread(CARD)).toContain("deadbeef".slice(0, 8));
+    expect(h.thread(CARD)).toContain("già dentro main");
+  });
+
+  it("rimandata dopo il land, corsa vuota: non chiude, va in review con la nota del rimando (26/11)", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'review', delivery_commit = 'deadbeef' WHERE id = ?", [CARD]);
+    h.svc.addComment({ taskId: CARD, author: "user", content: "manca il caso del rosso preesistente, aggiungi il test" });
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(h.task(CARD).reopenedActor).toBe("human");
+    const emitted: unknown[] = [];
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: (t) => emitted.push(t),
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("review");
+    expect(emitted.length).toBeGreaterThan(0);
+    expect(h.thread(CARD)).toContain("manca il caso del rosso preesistente");
+    expect(h.thread(CARD)).toContain("il nodo non ha fatto niente");
+  });
+
+  it("nessun delivery precedente, o non è su main: comportamento di oggi, torna in todo", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET delivery_commit = 'deadbeef', overflowed_at = ? WHERE id = ?", [new Date().toISOString(), CARD]);
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: () => {},
+      log: () => {},
+      deliveryLanded: async () => false,
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("todo");
     expect(h.task(CARD).stayLocal).toBe(false);
     expect(h.task(CARD).overflowSkipMachine).toBe(PC);
   });
@@ -1735,12 +1845,12 @@ describe("a remote run that rests gives its seat back", () => {
   it("a card waiting in Todo for a silent node keeps its seat", () => {
     const { h } = restingHarness();
     h.seed("deferred", { machineId: PC });
-    h.db.run("UPDATE tasks SET dispatch_state = 'waiting' WHERE id = 'deferred'");
+    h.db.run("UPDATE tasks SET dispatch_state = 'waiting', wait_source = 'machine' WHERE id = 'deferred'");
     h.seed("resting", { machineId: PC });
     h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'waiting' WHERE id = 'resting'");
     // No chip at all is a card at work, not one at rest (NULL never matches IN).
     h.seed("no-chip", { machineId: PC });
-    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = NULL WHERE id = 'no-chip'");
+    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = NULL, node_run_open = 1 WHERE id = 'no-chip'");
     expect(h.svc.countOnMachine(PC)).toBe(2);
     expect(h.svc.countRunningOnMachine(PC)).toBe(1);
     expect(h.svc.restingOnMachine(PC)).toEqual(["resting"]);

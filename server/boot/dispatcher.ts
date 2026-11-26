@@ -92,6 +92,12 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     // dentro main, la card si chiude invece di far ripartire un agente sopra
     // codice che c'è già. Stessa risposta che legge l'audit degli atterraggi.
     deliveryLanded: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
+    // The empty-node-run guard reads THIS machine's checkout, same resolver the cloud node lane
+    // already uses for its own repo lookup (`dispatch-prep.ts`, `cloudNode`).
+    repoPathOfTask: (taskId) => {
+      const projectId = dispatcherSvc.get(taskId)?.task.projectId;
+      return projectId ? projectPathForNode(projectId) ?? null : null;
+    },
     // Must match the catch-all dir tasks.ts scaffolds (join(workspaceDir,
     // "generale")): a session resolved here renders standalone, not as a project.
     catchAllProjectPath: join(DISPATCH_WORKSPACE_DIR, "generale"),

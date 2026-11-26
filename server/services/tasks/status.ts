@@ -925,10 +925,30 @@ overflowToMachine({ taskId, machineId, localMachineId }): Task | null {
       return row ? rowToTask(row) : null;
     },
 
+// A seat is held only by a run the primary still believes is open
+// (`node_run_open`), or by a `todo` card not yet launched there (no run
+// opened yet, so nothing to check it against). A card the primary itself
+// put in `waiting` says it is free to run anywhere EXCEPT when it is
+// waiting on this very machine (`wait_source = 'machine'`, the silent-node
+// retry in `task-dispatcher-remote-node.ts`): any other wait (a person, a
+// condition elsewhere) releases the seat at once instead of holding it
+// until the deferral window elapses. 26/11: a card closed on the primary
+// but still carrying `machine_id` counted as busy on a node that had
+// nothing left running for it. A run at work there that rests on a declared
+// wait or a question (`RESTING_RUN_SQL`) gives its seat back as well. A card
+// claimed for it (chip `starting`) holds its seat before its run opens: it is
+// in no live slot until `beginRun`, so without this a launch counts nowhere.
 countOnMachine(machineId: string): number {
       const row = db.prepare(
-        `SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status IN ('todo', 'in_progress') AND archived = 0
-           AND NOT (${RESTING_RUN_SQL})`,
+        `SELECT COUNT(*) AS n FROM tasks
+          WHERE machine_id = ? AND archived = 0
+            AND (COALESCE(dispatch_state, '') != 'waiting' OR COALESCE(wait_source, 'agent') = 'machine')
+            AND (
+              (status = 'in_progress' AND node_run_open = 1)
+              OR (status = 'in_progress' AND node_run_open = 0 AND dispatch_state = 'starting')
+              OR (status = 'todo' AND node_run_open = 0)
+            )
+            AND NOT (${RESTING_RUN_SQL})`,
       ).get(machineId) as { n: number } | null;
       return row?.n ?? 0;
     },
@@ -1030,7 +1050,7 @@ isDispatchBlocked(taskId): boolean {
       return !!r;
     },
 
-release(this: TaskService, { taskId, requeue, reason, by, parkState, rollbackAttempt, keepStatus }): Task {
+release(this: TaskService, { taskId, requeue, reason, by, parkState, rollbackAttempt, keepStatus, keepInTodo }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       // A DONE CARD STAYS DONE. Measured 12/11 on 403aad1f: closed at 13:04, a
@@ -1078,7 +1098,11 @@ release(this: TaskService, { taskId, requeue, reason, by, parkState, rollbackAtt
       // ha trovato un guasto, ha trovato la fine normale della storia — e quella
       // card può stare in qualunque colonna.
       const parkKeepsStatus = !requeue && (keepStatus === true || row.status === "review");
-      const status: TaskStatus = requeue ? "todo" : parkKeepsStatus ? (row.status as TaskStatus) : "backlog";
+      // A park that stays VISIBLE in the queue column: the card leaves the
+      // dispatch loop through its own state (`failed` + spent attempts), not by
+      // moving to backlog, where nobody looks (retry budget spent).
+      const parkInTodo = !requeue && !parkKeepsStatus && keepInTodo === true;
+      const status: TaskStatus = requeue || parkInTodo ? "todo" : parkKeepsStatus ? (row.status as TaskStatus) : "backlog";
       // Requeue shows the 'in coda' chip; a park carries an EXPLICIT state so the
       // board can tell a genuine FAILURE ('failed') from a config BLOCK ('blocked')
       // — both used to collapse to null and read as a manual "fermato".
