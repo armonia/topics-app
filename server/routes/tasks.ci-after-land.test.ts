@@ -159,6 +159,53 @@ describe("the CI phase, `after` rule", () => {
     expect(s.thread().some((c) => c.content.includes("lo era già prima di questa card"))).toBe(true);
   }, 30_000);
 
+  test("same job red before and after, but on the SAME test: still stays landed, named by test (26/11)", async () => {
+    const ENTER_SHA = "3333333333333333333333333333333333333333";
+    const BEFORE_SHA = "4444444444444444444444444444444444444444";
+    const port = {
+      recent: async () => [
+        { sha: ENTER_SHA, subject: "this card's push", at: 2000 },
+        { sha: BEFORE_SHA, subject: "an earlier push", at: 1000 },
+      ],
+      verdict: async (sha: string) => (sha === ENTER_SHA || sha === BEFORE_SHA)
+        ? { state: "fail" as const, failed: ["unit-ci"], url: null, failedTests: ["flaky.test.ts > a flaky test"] }
+        : { state: "none" as const, failed: [], url: null },
+      entersAt: async (c: string, sha: string) => c === commit && sha === ENTER_SHA,
+    };
+    const s = await setup({ mainCiPort: async () => port } as never);
+    await s.deliver();
+    verdicts = ["fail"];
+    await s.approve();
+    await s.settle();
+    expect(s.read().status).toBe("done");
+    expect(s.thread().some((c) => c.content.includes("sugli stessi test di prima"))).toBe(true);
+  }, 30_000);
+
+  test("same job red before and after, but a DIFFERENT test: this card's own red, bounces (26/11)", async () => {
+    const ENTER_SHA = "5555555555555555555555555555555555555555";
+    const BEFORE_SHA = "6666666666666666666666666666666666666666";
+    const port = {
+      recent: async () => [
+        { sha: ENTER_SHA, subject: "this card's push", at: 2000 },
+        { sha: BEFORE_SHA, subject: "an earlier push", at: 1000 },
+      ],
+      verdict: async (sha: string) => sha === ENTER_SHA
+        ? { state: "fail" as const, failed: ["unit-ci"], url: null, failedTests: ["app.test.ts > the new behaviour"] }
+        : sha === BEFORE_SHA
+        ? { state: "fail" as const, failed: ["unit-ci"], url: null, failedTests: ["flaky.test.ts > a flaky test"] }
+        : { state: "none" as const, failed: [], url: null },
+      entersAt: async (c: string, sha: string) => c === commit && sha === ENTER_SHA,
+    };
+    const s = await setup({ mainCiPort: async () => port } as never);
+    await s.deliver();
+    verdicts = ["fail"];
+    await s.approve();
+    await s.settle();
+    const back = svc.get(s.id)!;
+    expect(back.task.status).toBe("todo"); // this card's own red, not preexisting
+    expect(back.comments.some((c) => c.content.startsWith(RED_BOUNCE_NOTE))).toBe(true);
+  }, 30_000);
+
   test("three rounds without a person: the card waits for one, who is offered the revert", async () => {
     const s = await setup();
     await s.deliver();

@@ -37,10 +37,29 @@
  * a branch that never saw the real origin). `true` closes the card with the
  * proof in the thread; `false` or unknown falls through to the guesses below,
  * unchanged.
+ *
+ * NOT when a PERSON sent that delivery back asking for more (25/11, second
+ * review). `main` having the old commit is exactly what a rimando looks like:
+ * the delivery that got landed or reviewed is on main for that reason, and the
+ * rimando is the new work nobody did yet. Closing on `landed === true` without
+ * looking would drop the request on the floor the moment a node answers empty.
+ * `reopenedActor === "human"` is this card's own mark of that rimando (set by
+ * the same transition that leaves `review`/`done`, `tasks/status.ts`): when it
+ * is set, the card goes to review instead, quoting the person's own words so
+ * nobody has to go dig the thread for what was actually asked.
  */
-import { pendingQuestionComment } from "../../shared/board";
+import { HUMAN_AUTHOR, isThreadSpeech, pendingQuestionComment } from "../../shared/board";
 import { namesMacOnlyPaths } from "./dispatch-overflow";
 import type { Task, TaskService } from "./tasks";
+
+/** The last thing a person said on the card, thread speech only: the rimando's own words. */
+function lastHumanWord(comments: readonly { author: string; content: string; kind?: string | null }[]): string | null {
+  for (let i = comments.length - 1; i >= 0; i--) {
+    const c = comments[i]!;
+    if (c.author === HUMAN_AUTHOR && isThreadSpeech(c)) return c.content;
+  }
+  return null;
+}
 
 interface EmptyRunDeps {
   svc: TaskService;
@@ -74,7 +93,7 @@ export async function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, n
       let landed: boolean | null = null;
       try { landed = await deps.deliveryLanded(repoPath, priorCommit); }
       catch (err) { deps.log(`nodo: sonda già-su-main fallita per ${task.id}`, err); }
-      if (landed === true) {
+      if (landed === true && task.reopenedActor !== "human") {
         try {
           const closed = deps.svc.settleLanded({
             taskId: task.id,
@@ -87,6 +106,22 @@ export async function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, n
             return true;
           }
         } catch (err) { deps.log(`nodo: chiusura della card già atterrata fallita per ${task.id}`, err); }
+      } else if (landed === true) {
+        // A person sent this back after it landed: the node doing nothing did not do THAT. Review, not done.
+        try {
+          const sentBackText = lastHumanWord(deps.svc.get(task.id)?.comments ?? []) ?? "(testo non trovato nel thread)";
+          deps.releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true });
+          // `actor: "human"` is the permission axis, not the attribution: a system bounce to review is
+          // not an agent DELIVERING (the gate at `tasks/status.ts` that demands a `summary` would refuse
+          // it), the same reason `askPersonAfter` in `tasks-ci-phase.ts` reads. `by: "dispatcher"` is the
+          // real signature, in the thread note right below.
+          deps.emit(deps.svc.update({ taskId: task.id, actor: "human", by: "dispatcher", patch: { status: "review" } }));
+          deps.svc.addComment({
+            taskId: task.id, author: "system", kind: "service",
+            content: `La corsa su «${nodeName}» è finita senza nessun commit: il nodo non ha fatto niente, il rimando chiedeva: "${sentBackText}"`,
+          });
+          return true;
+        } catch (err) { deps.log(`nodo: la card rimandata ${task.id} non è tornata in review`, err); }
       }
     }
   }

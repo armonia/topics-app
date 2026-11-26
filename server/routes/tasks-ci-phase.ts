@@ -398,14 +398,21 @@ export function createCiPhase(deps: CiPhaseDeps) {
   }
 
   /**
-   * Was main already red, on the same job(s), before this card's own commit entered it? Each landed
-   * card pushes to main on its own (the comment above `bisectAfterLand` says so), so the commit right
-   * before this one's own push IS the previous card's push — reading its verdict tells whether the red
+   * Was main already red, on the same JOB, before this card's own commit entered it? Each landed card
+   * pushes to main on its own (the comment above `bisectAfterLand` says so), so the commit right before
+   * this one's own push IS the previous card's push — reading its verdict tells whether the red
    * predates this card instead of guessing from the batch. `null` = cannot tell (no port, no commit, the
    * push is not among main's recent history, or the one before it answered green/pending): the caller
    * bounces as it always did.
+   *
+   * A JOB can hold many tests: the same job red before and after proves nothing by itself when a
+   * DIFFERENT test broke it (25/11, second review) — and while main stays red, it would call every card
+   * after it innocent forever. So when both verdicts carry `failedTests` (the unit suite's own JUnit
+   * report, `main-ci-watch.ts`), the comparison is by TEST: preexisting only if every test failing now
+   * was already failing before. Without names on either side (an older run, the artifact gone) the job
+   * overlap is the only signal left, and `byTest: false` says so for the note on the card.
    */
-  async function wasPreexistingRed(projectId: string, taskId: string): Promise<{ failedBefore: string[] } | null> {
+  async function wasPreexistingRed(projectId: string, taskId: string): Promise<{ failedBefore: string[]; byTest: boolean } | null> {
     if (!deps.mainCiPort) return null;
     const port = await deps.mainCiPort(projectId).catch(() => null);
     if (!port) return null;
@@ -423,8 +430,12 @@ export function createCiPhase(deps: CiPhaseDeps) {
     if (!mine || mine.state !== "fail") return null;
     const before = await port.verdict(oldestFirst[idx - 1]!.sha).catch(() => null);
     if (!before || before.state !== "fail") return null;
+    if (mine.failedTests && mine.failedTests.length && before.failedTests) {
+      const allOld = mine.failedTests.every((t) => before.failedTests!.includes(t));
+      return allOld ? { failedBefore: before.failedTests, byTest: true } : null;
+    }
     const overlap = mine.failed.some((j) => before.failed.includes(j));
-    return overlap ? { failedBefore: before.failed } : null;
+    return overlap ? { failedBefore: before.failed, byTest: false } : null;
   }
 
   /**
@@ -443,8 +454,11 @@ export function createCiPhase(deps: CiPhaseDeps) {
         try {
           deps.svc.addComment({
             taskId, author: "system", kind: "service",
-            content: `La CI di main è rossa, ma lo era già prima di questa card (${pre.failedBefore.join(", ") || "stesso job"}): ` +
-              "non è il rosso di questa card, resta atterrata.",
+            content: pre.byTest
+              ? `La CI di main è rossa, ma sugli stessi test di prima (${pre.failedBefore.join(", ") || "nessuno nominato"}): ` +
+                "non è il rosso di questa card, resta atterrata."
+              : `La CI di main è rossa, ma lo era già prima di questa card (${pre.failedBefore.join(", ") || "stesso job"}, nomi dei test non disponibili): ` +
+                "non è il rosso di questa card, resta atterrata.",
           });
         } catch { /* best-effort */ }
         deps.broadcast({ type: "task:updated", projectId, task: t });
