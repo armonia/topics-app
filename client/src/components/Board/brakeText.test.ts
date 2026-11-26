@@ -121,6 +121,12 @@ describe('the 24h spend cap, which stops every card whatever its provider', () =
     expect(queueChipView(readBrakeAnswer({ ...answer, brakes: [], held: [] }, NOW), NOW, tr, 'it')).toBeNull();
   });
 
+  test('on the narrow layout the chip names the spend cap, since the gauge is off screen', () => {
+    const state = readBrakeAnswer({ ...answer, brakes: [], held: [] }, NOW);
+    expect(queueChipView(state, NOW, tr, 'it', true)?.who).toBe(tr('brake.spend.who'));
+    expect(queueChipView(state, NOW, tr, 'it')).toBeNull();
+  });
+
   test('the Todo strip counts the cards it stops, and says when they restart', () => {
     const state = readBrakeAnswer(answer, NOW);
     expect(columnNoteView(state, new Set(['a', 'b']), NOW, tr, 'it')).toEqual({ head: '2 aspettano il tetto di spesa', tail: 'Partono da sole domani alle 01:56.' });

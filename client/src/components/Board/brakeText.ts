@@ -103,9 +103,11 @@ export function spendWhy(s: SpendStop, nowMs: number, tr: Translate, locale: str
 }
 
 /** What the chip says: the walls that hold a card, else null (no chip). The 24h
- *  spend cap is read from the "In progress" column header instead (`loadWordKey`
- *  in `dispatchLoad.ts`), not named here. */
-export function queueChipView(state: DispatchBrakeState, nowMs: number, tr: Translate, locale: string): BrakeChipView | null {
+ *  spend cap is named only when `withSpend` is set, for the narrow layout where
+ *  the "In progress" column (whose gauge says it, `loadWordKey` in
+ *  `dispatchLoad.ts`) is not on screen. */
+export function queueChipView(state: DispatchBrakeState, nowMs: number, tr: Translate, locale: string, withSpend = false): BrakeChipView | null {
+  if (withSpend && state.spend) return { who: tr('brake.spend.who'), why: spendWhy(state.spend, nowMs, tr, locale) };
   return brakeChipView(holdingBrakes(state), nowMs, tr, locale);
 }
 
