@@ -20,9 +20,8 @@
  * @covers CCLI-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from "fs";
+import { mkdirSync, rmSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { tmpdir } from "os";
 import { writeNumberedCli } from "../helpers/numbered-fake-cli";
 
 let tempDir = "";
@@ -37,7 +36,11 @@ const LATE_MS = 3500;
 beforeAll(async () => {
   const { __resetAiBridgeClientForTests } = await import("../../server/lib/ai-bridge-client");
   __resetAiBridgeClientForTests();
-  tempDir = mkdtempSync(join(tmpdir(), "late-scan-route-grace-"));
+  // A SHORT root, not `os.tmpdir()`: the test shards give every file a TMPDIR of ~60 characters, the
+  // daemon's socket path then reaches 106 bytes and Bun cannot bind a unix socket from 104 on, so the
+  // daemon never opens ("failed to connect after spawning daemon", measured in the gate).
+  const { testTmpDir } = await import("./helpers");
+  tempDir = testTmpDir("late-scan-route-grace-bridge");
   mkdirSync(join(tempDir, "data"), { recursive: true });
   setEnv("DATA_DIR", join(tempDir, "data"));
   setEnv("TOPICS_DATA_DIR", join(tempDir, "data"));
