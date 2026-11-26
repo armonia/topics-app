@@ -44,10 +44,9 @@ export function Avatar({ text, color, size = 18 }: { text: string; color: string
   );
 }
 
-function RowShell({ focused, attention, nested, depth = 0, className, expanded, onClick, onContextMenu, children }: {
+function RowShell({ focused, attention, depth = 0, className, expanded, onClick, onContextMenu, children }: {
   focused?: boolean;
   attention?: Attention;
-  nested?: boolean;
   depth?: number;
   className?: string;
   /** Set on a row that opens and closes a group; omitted on every other row. */
@@ -68,7 +67,7 @@ function RowShell({ focused, attention, nested, depth = 0, className, expanded, 
       style={depth ? { marginLeft: 6 + depth * 16 } : undefined}
       className={clsx(
         `group ${ROW_CARD} flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} cursor-pointer ${TAB_LABEL_TYPE} select-none`,
-        sidebarRowCard({ focused, attention, nested, open: true }),
+        sidebarRowCard({ focused, attention, open: true }),
         onClick && FOCUS_RING,
         className,
       )}
@@ -155,7 +154,7 @@ export function OrgRow({ org, copy, focused, onClick, onMenuSelect }: {
 export function NavRow({ item, label, focused, onClick }: { item: NavItemModel; label: string; focused?: boolean; onClick?: () => void }) {
   const Icon = NAV_ICON[item.kind];
   return (
-    <RowShell focused={focused} nested depth={1} onClick={onClick}>
+    <RowShell focused={focused} depth={1} onClick={onClick}>
       <span className={ROW_GLYPH_SLOT}><Icon size={ROW_GLYPH} aria-hidden="true" /></span>
       <span className={clsx('min-w-0 flex-1 truncate', focused ? 'text-app-text' : 'text-app-text-secondary group-hover:text-app-text')}>{label}</span>
       {item.count !== undefined && (
@@ -192,7 +191,7 @@ export function ChatGroupHeading({ label, newLabel, active, onNew }: { label: st
 export function ChatRow({ chat, focused, depth = 1, copy, onClick }: { chat: SidebarChatModel; focused?: boolean; depth?: number; copy: UiCopy; onClick?: () => void }) {
   return (
     <>
-      <RowShell focused={focused} nested={depth > 0} depth={depth} onClick={onClick}>
+      <RowShell focused={focused} depth={depth} onClick={onClick}>
         <span className={ROW_GLYPH_SLOT}><MessageSquare size={ROW_GLYPH} aria-hidden="true" /></span>
         <span className="min-w-0 flex-1 truncate text-app-text-secondary group-hover:text-app-text">{chat.title}</span>
         {chat.age && <span className="shrink-0 text-mini tabular-nums text-app-text-tertiary">{chat.age}</span>}

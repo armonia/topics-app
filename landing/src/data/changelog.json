@@ -1,5 +1,73 @@
 [
   {
+    "version": "2.5.4",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "una card ripresa dopo un land non risulta atterrata per il merge del giro prima (#1703)",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.2",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "the sidebar's buttons are tabs, and every tab lights under the pointer",
+          "scope": "ui"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.0",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "one row grammar in the sidebar, and no ground at rest",
+          "scope": "ui"
+        },
+        {
+          "text": "the reused browser view passes the island flag too",
+          "scope": "tauri"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.110",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a pop-out window is dressed on the main thread, not on a tokio worker",
+          "scope": "tauri"
+        },
+        {
+          "text": "a project's browser in front is the title, and its page is an island",
+          "scope": "ui"
+        },
+        {
+          "text": "corner_plan is macOS-only outside tests, like its neighbours",
+          "scope": "tauri"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.108",
     "date": "2026-11-25",
     "sections": {

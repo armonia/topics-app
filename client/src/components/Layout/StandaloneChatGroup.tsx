@@ -17,7 +17,7 @@ import { loadBoard, loadBrowser, loadAutomations, loadAgents, loadSystem, loadAc
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { AutomationsPhoneBell, AutomationsPhoneGlyph } from '../Sidebar/AutomationsRow';
 import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
-import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_ACTION_BOX, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
+import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, ROW_ACTION_BOX, ROW_INSET, STRIP_TOGGLE_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
 import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
@@ -63,6 +63,7 @@ import { currentWindowLabel } from '../../lib/shell/tauri';
 import type { SendMessageOptions } from '@/hooks/useChat';
 import { SubjectInFront, useSeenFocusedPane } from '../../state/paneSeen';
 import { topicSubject } from '../../../../shared/attention';
+import { BrowserIsland } from '../Browser/BrowserIsland';
 
 // `lazyWarm`, not `lazy`, for the pane bodies: their chunks are asked for at
 // boot from the local pane-store snapshot (`state/pane/panePreload`), and a
@@ -556,6 +557,11 @@ export function StandaloneChatGroup({
   // this row (`titleSlot`).
   const projectInTitle = !mobile && !tabStrip && !!surfaceInFront && isProjectPaneId(surfaceInFront.id);
   const [titleSlot, setTitleSlot] = useState<HTMLDivElement | null>(null);
+  // Inside the project, a browser in front puts ITS tab on this row in place of
+  // the project's (25/11: the browser's tab was nowhere): the window draws it
+  // into `titleTabSlot` and says so through `setProjectTitleTaken`.
+  const [titleTabSlot, setTitleTabSlot] = useState<HTMLDivElement | null>(null);
+  const [projectTitleTaken, setProjectTitleTaken] = useState(false);
   const cellLit = inSplit && !!focusedPanelId && validatedOrderedIds.includes(focusedPanelId);
   // The room under the traffic lights, on the toggle cell only (the header below says why).
   const lightsInset = onToggleSidebar ? { paddingLeft: `var(${CONTENT_CHROME_INSET_PROPERTY}, 0px)` } : undefined;
@@ -872,6 +878,9 @@ export function StandaloneChatGroup({
       const ctx = getBrowserContextFromPaneId(paneId) || browserContextId;
       return (
         <LazyPane>
+          {/* An island on the window's ground with the tabs at the side, as in a
+              project (`BrowserIsland`); a split cell keeps its own card. */}
+          <BrowserIsland on={!mobile && !tabStrip && !inSplit}>
           <RemoteBrowserPanel
             contextId={ctx}
             // Restore the tab to its last page after a window restart (the
@@ -906,6 +915,7 @@ export function StandaloneChatGroup({
             // in that topic's folder, when it has one (NEWTAB-ARC-04).
             projectPath={topics[ctx]?.projectPath}
           />
+          </BrowserIsland>
         </LazyPane>
       );
     }
@@ -918,6 +928,8 @@ export function StandaloneChatGroup({
           projectPath={projectPath}
           chromeless={!mobile && !tabStrip}
           titleSlot={isPaneActive ? titleSlot : null}
+          titleTabSlot={isPaneActive ? titleTabSlot : null}
+          onTitleTab={isPaneActive ? setProjectTitleTaken : undefined}
           // Same signal the browser pane above gets, for the same reason: the
           // keep-alive wrapper's `display:none` does not reach the panes nested
           // inside this window (nor their OS-level native views), so a window
@@ -1109,7 +1121,7 @@ export function StandaloneChatGroup({
                 event.preventDefault();
                 openTabSheet(titleSheetKey, 'commands');
               }}
-              className={`flex-1 flex items-center min-w-0 overflow-hidden outline-none ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
+              className={`flex-1 flex items-center min-w-0 overflow-hidden outline-none ${onToggleSidebar ? `${CHROME_ROW_ACTION_RESERVE_LEFT} column-toggle-room` : 'pl-1.5'}`}
             >
               {/* The open chat's chosen colour, before its name: the phone
                   has no tab strip and its list is a drawer, so without this
@@ -1155,9 +1167,10 @@ export function StandaloneChatGroup({
             // badges hang inside it and are not cut (25/11).
             <div
               data-testid="cell-title-row"
-              className={`flex-1 flex items-center min-w-0 self-stretch ${onToggleSidebar ? CHROME_ROW_ACTION_RESERVE_LEFT : 'pl-1.5'}`}
+              className={`flex-1 flex items-center min-w-0 self-stretch ${onToggleSidebar ? `${CHROME_ROW_ACTION_RESERVE_LEFT} column-toggle-room` : 'pl-1.5'}`}
             >
-              {surfaceInFront && renderTabBar(true)}
+              {surfaceInFront && !(projectInTitle && projectTitleTaken) && renderTabBar(true)}
+              {projectInTitle && <div ref={setTitleTabSlot} className="flex items-center min-w-0 empty:hidden" data-testid="title-inner-tab" />}
               {/* The strip's "+", kept where the strip went: it adds INTO this
                   cell, which the header's "+" cannot. */}
               {(inSplit || projectInTitle || newChatInCell || availableTypes.length > 0) && (
@@ -1181,19 +1194,20 @@ export function StandaloneChatGroup({
             <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{renderTabBar(false)}</div>
           )}
           {onToggleSidebar && (
-            // La coppia del «+» in coda alla riga: stesso box
-            // (`ROW_ACTION_BOX`), stesso incasso derivato, stessa scatola
-            // rialzata, e `raised-control-overlay` perché anche questo sta
-            // SOPRA la strip delle tab, che gli scorre sotto.
+            // Shown only while the column is away (`.column-toggle`): with the
+            // column open it sits in the sidebar header, before the bell.
+            // A strip tab's box and colours (25/11: the sidebar's buttons wear
+            // the tabs' size and colours), its resting surface opaque enough
+            // for the tabs that scroll under it.
             // Absolute, so the bar's padding does not move it: `left` is its
             // own inset (ROW_INSET, the number behind CHROME_ROW_ACTION_INSET_LEFT)
             // plus the same variable, with the same transition.
             <div
-              className="content-chrome-inset raised-control-overlay absolute top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10"
+              className="column-toggle content-chrome-inset absolute top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10"
               style={{ left: `calc(${ROW_INSET}px + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))` }}
               {...NO_DRAG_REGION}
             >
-              <SidebarToggleButton onClick={onToggleSidebar} size="action" testId="sidebar-reopen" className={`edge-lit ${RAISED_CONTROL} rounded-lg`} />
+              <SidebarToggleButton onClick={onToggleSidebar} size="action" testId="sidebar-reopen" surface={STRIP_TOGGLE_SURFACE} />
             </div>
           )}
         </div>
