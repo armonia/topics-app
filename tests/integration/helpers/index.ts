@@ -22,6 +22,8 @@ import path from "node:path";
 import { closeDatabase, getDatabase } from "../../../server/db";
 import type { AppContext } from "../../../server/types";
 import { trackTestTmpDir } from "../../setup/test-tmp-dirs";
+import { guardAgainstOrphans, releaseFromOrphanGuard } from "../../helpers/orphan-guard";
+import { killProcessTree } from "../../../server/lib/process-tree";
 import { topicsHome } from "../../../server/services/daemon-state";
 
 /**
@@ -219,7 +221,11 @@ export function freePort(): number {
 export interface RealServer {
   port: number;
   baseUrl: string;
-  /** SIGTERM the child and wait for it to exit. Call from `afterAll`. */
+  /**
+   * Kills the child's whole process GROUP and waits for it to exit. Call from
+   * `afterAll`. A plain SIGTERM on the child used to leave behind anything the
+   * server had spawned itself (card 617a7a68).
+   */
   stop(): Promise<void>;
 }
 
@@ -284,7 +290,14 @@ export async function spawnRealServer(root: string): Promise<RealServer> {
     },
     stdout: "pipe",
     stderr: "pipe",
+    // Leader of its own process group, so ONE signal to `-pid` reaches whatever
+    // the server spawned itself, and so the detached watchdog below can clean
+    // it up after a cut run. `stop()` relies on it.
+    detached: true,
   });
+  // Registered before the readiness probe: a run cut while the server is still
+  // booting is how the orphans of card 617a7a68 were born.
+  guardAgainstOrphans({ groupLeaderPid: child.pid, root });
 
   const baseUrl = `http://127.0.0.1:${port}`;
   // 60 s of readiness polling, not 15: under a loaded fleet (measured at load
@@ -298,15 +311,33 @@ export async function spawnRealServer(root: string): Promise<RealServer> {
         return {
           port,
           baseUrl,
-          async stop() { child.kill("SIGTERM"); await child.exited; },
+          async stop() { await stopSpawnedServer(child); },
         };
       }
     } catch { /* not listening yet */ }
     await new Promise((r) => setTimeout(r, 50));
   }
+  try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
   child.kill("SIGKILL");
+  releaseFromOrphanGuard(child.pid);
   const errorOutput = await new Response(child.stderr as ReadableStream).text().catch(() => "");
   throw new Error(`the spawned server never answered on ${port}\n${errorOutput.slice(-2000)}`);
+}
+
+/**
+ * Stops a server spawned as a group leader: the group first (so a tunnel helper
+ * or a worktree command it started goes with it), SIGKILL on the group if it is
+ * still there, and only then does the watchdog stop watching that pid.
+ */
+async function stopSpawnedServer(child: ReturnType<typeof Bun.spawn>): Promise<void> {
+  await killProcessTree(child.pid, 5000, { group: true });
+  await Promise.race([child.exited, Bun.sleep(10_000)]);
+  if (child.exitCode === null) {
+    try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
+    child.kill("SIGKILL");
+  }
+  await child.exited;
+  releaseFromOrphanGuard(child.pid);
 }
 
 /**

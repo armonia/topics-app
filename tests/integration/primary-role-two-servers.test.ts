@@ -62,6 +62,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSy
 import { join } from "node:path";
 import { freePort, PROJECT_ROOT, spawnedServerHostEnv, testTmpDir } from "./helpers";
 import { slackMs } from "../helpers/time-slack";
+import { guardAgainstOrphans, releaseFromOrphanGuard } from "../helpers/orphan-guard";
 import { gitEnv } from "../setup/bun-test-preload";
 import { restrictMachineLikeDevices } from "../../server/lib/node-scope";
 import { killProcessTree } from "../../server/lib/process-tree";
@@ -168,6 +169,9 @@ async function bootOnce(s: ServerUnderTest): Promise<void> {
     detached: true,
   });
   closeSync(logFd);
+  // Registered BEFORE the readiness probe below: a run cut while the server is
+  // still booting is exactly how the orphans of card 617a7a68 were born.
+  guardAgainstOrphans({ groupLeaderPid: s.child.pid, root: s.root });
   if (!running.includes(s)) running.push(s);
   const until = Date.now() + slackMs(90_000);
   while (Date.now() < until) {
@@ -192,6 +196,7 @@ async function stop(s: ServerUnderTest): Promise<void> {
     child.kill("SIGKILL");
   }
   await child.exited;
+  releaseFromOrphanGuard(child.pid);
 }
 
 function writePrimaryState(s: ServerUnderTest, primaryMachineId: string, epoch: number): void {
@@ -318,24 +323,14 @@ afterAll(async () => {
   await Promise.all(running.map((s) => stop(s)));
 });
 
-// `afterAll` only runs when this file reaches the end of its own suite: a run
-// cut off mid-test (Ctrl-C, a CI cancel) delivers SIGINT/SIGTERM to the process
-// instead. Under `bun test` that signal never reaches a `process.on("SIGINT"/
-// "SIGTERM", ...)` listener at all (measured: the runner's own handling exits
-// first, the listener body never runs), so an async afterAll-style cleanup
-// registered there is dead code. `process.on("exit", ...)` DOES fire, but only
-// synchronous work is safe inside it (no event loop tick survives it): a direct
-// `process.kill(-pid, "SIGKILL")` on each server's own process group is
-// synchronous and reaches anything that server spawned itself, the same way
-// `stop()`'s `group: true` fallback does. Without this, both servers would run
-// on with their test environment forever, the way two of them were still up
-// fifteen hours after a cut run (card 92aaf67e).
-process.on("exit", () => {
-  for (const s of running) {
-    if (!s.child) continue;
-    try { process.kill(-s.child.pid, "SIGKILL"); } catch { /* already gone */ }
-  }
-});
+// `afterAll` only runs when this file reaches the end of its own suite. A run
+// cut off mid-test is cleaned up by the detached watchdog `bootOnce` registers
+// each server with (tests/helpers/orphan-guard.ts), and NOT by a hook of this
+// process: measured on bun 1.4.4, SIGINT and SIGTERM sent to `bun test` while a
+// test runs kill neither the runner nor the test, and `process.on("exit", ...)`
+// does not fire on either; the signal that does end a cut run is SIGKILL, which
+// runs no code at all. An earlier version of this file cleaned up from
+// `process.on("exit")` and was dead code (card 617a7a68).
 
 describe("default unchanged: no primary chosen", () => {
   test("a virgin server claims a todo card and lets requests without an epoch through", async () => {
