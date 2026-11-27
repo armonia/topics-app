@@ -166,6 +166,8 @@ export interface MemoryFloor {
    * captured at mount and quietly ignored every change.
    */
   floorGB: () => number;
+  /** One-minute load divided by core count; above `LOAD_CEILING_PER_CORE` a new command waits. Absent = not read. */
+  loadPerCore?: () => number;
   /** What one round may wait on anything but the floor of a calm Mac, before
    *  running anyway. Default `MEMORY_WAIT_MAX_MS`; the calm floor's own budget is
    *  `MEMORY_WAIT_CALM_MAX_MS`, or this one when this one is shorter. */
@@ -189,7 +191,18 @@ const MEMORY_POLL_MS = 5_000;
 /** One release per window across rounds: the herd of 15/09 (four commands on one poll) cannot recur. */
 export const RELEASE_SPACING_MS = 120_000;
 
-export type WaitReason = "swap" | "measuring" | "room" | "spacing" | "turn";
+export type WaitReason = "swap" | "load" | "measuring" | "room" | "spacing" | "turn";
+
+/**
+ * One-minute load per core above which no NEW check command starts (card
+ * 9fecea98). On 25-26/11/2026 the guardian found the server mute 31 times, every
+ * one at a load of 9-58 on 12 cores with the swap file 84-95% full: the check
+ * trees (4-7 GB each) were the part of that load the server itself spawned, and
+ * nothing in the admission read the load. 2 per core is under the machine-wide
+ * ceiling (3 per core) so this brake fires first. It spends the long budget, so
+ * a load nobody here causes still lets the round through after 30 minutes.
+ */
+export const LOAD_CEILING_PER_CORE = 2;
 
 /**
  * The two budgets, and the two clocks that spend them. `calmFloor` is the floor
@@ -215,6 +228,8 @@ interface DecisionInput {
   held: HeldMemory;
   swap: SwapVerdict;
   floorGB: number;
+  /** Load per core at this poll; undefined = not measured. */
+  loadPerCore?: number;
   /** The last release, when it belongs to ANOTHER round. */
   otherRoundRelease: { at: number; running: boolean } | null;
   /** Another round has been waiting since before this wait began. */
@@ -246,6 +261,7 @@ interface DecisionInput {
  */
 function holdReason(i: DecisionInput): WaitReason | null {
   if (i.swap.sustained) return "swap";
+  if (i.loadPerCore != null && i.loadPerCore > LOAD_CEILING_PER_CORE) return "load";
   if (i.otherRoundRelease?.running && i.now - i.otherRoundRelease.at < RELEASE_SPACING_MS) return "spacing";
   // FLOOR OFF: neither of the two memory reasons applies, and that includes
   // "measuring". Waiting for a window to fill so it can be compared against a
@@ -295,6 +311,8 @@ function waitLine(name: string, reason: WaitReason, held: HeldMemory, swap: Swap
   switch (reason) {
     case "swap":
       return `[review-checks] "${name}" waits: the Mac is in sustained swap (${swapSigns(swap)})`;
+    case "load":
+      return `[review-checks] "${name}" waits: the Mac load is over ${LOAD_CEILING_PER_CORE} per core`;
     case "spacing":
       return `[review-checks] "${name}" waits: "${lastRelease?.name ?? "?"}" of another delivery started ${Math.round((now - (lastRelease?.at ?? now)) / 1000)} s ago, one release per 2 min`;
     case "turn":
@@ -326,6 +344,7 @@ const duration = (ms: number): string =>
 function failOpenLine(name: string, heldBy: WaitReason, waitedMs: number, spentMs: number, budgetMs: number): string {
   const said: Record<WaitReason, string> = {
     swap: "still in swap",
+    load: "still over the load ceiling",
     room: "no room",
     measuring: "still measuring free memory",
     spacing: "still spaced from another delivery",
@@ -373,9 +392,10 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
         // reads could straddle a write from the panel and log a floor that is
         // not the one that held the command.
         const floorGB = read(floor.floorGB, CHECKS_MEM_FLOOR_DEFAULT_GB);
+        const loadPerCore = floor.loadPerCore ? read(floor.loadPerCore, undefined as number | undefined) : undefined;
         const other = lastRelease && lastRelease.round !== round ? lastRelease : null;
         const olderWaiter = [...waitingSince].some(([r, since]) => r !== round && since < from);
-        const d = releaseDecision({ held, swap, floorGB, otherRoundRelease: other, olderWaiter, now: t, spent, maxWaitMs });
+        const d = releaseDecision({ held, swap, floorGB, loadPerCore, otherRoundRelease: other, olderWaiter, now: t, spent, maxWaitMs });
         // A round being stopped starts nothing, so it holds no release either.
         if (signal?.aborted || stopping) return () => {};
         if (d.release) {

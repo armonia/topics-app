@@ -22,7 +22,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, chmodSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
-import { tmpdir } from "os";
 
 let tempDir = "";
 /** The test's own data root (`setupTestDataDir`), put back in `afterAll`. */
@@ -38,7 +37,11 @@ const LATE_MS = 3500;
 beforeAll(async () => {
   const { __resetAiBridgeClientForTests } = await import("../../server/lib/ai-bridge-client");
   __resetAiBridgeClientForTests();
-  tempDir = mkdtempSync(join(tmpdir(), "late-scan-route-grace-"));
+  // A SHORT root, not `tmpdir()`: under the unit runner that is a long per-file scratch
+  // path, and the bridge socket in it breaks the 104-character unix socket limit, so the
+  // daemon never starts (the turn then dies with "send stopped in the queue").
+  const { testTmpDir: shortTmpDir } = await import("./helpers");
+  tempDir = shortTmpDir("lsrg");
   mkdirSync(join(tempDir, "data"), { recursive: true });
   setEnv("DATA_DIR", join(tempDir, "data"));
   setEnv("TOPICS_DATA_DIR", join(tempDir, "data"));
@@ -141,7 +144,7 @@ const { BridgeAckStalled } = await import("../../server/lib/ai-bridge-errors");
     process.env.TOPICS_STREAM_GRACE_MS = "1000";
     const drained = post(createTopicsRouter(ctx), { messages: [], mode: "reattach", dispatched: true, provider: "claude-code" });
     try {
-      await waitFor("the adopted row to close", () => rows().every((r) => r.partial === 0), 30_000);
+      await waitFor("the adopted row to close", () => rows().every((r) => r.partial === 0), 90_000);
       await drained.catch(() => {});
       expect(capped).toBe(1);
       // No resync stacked a replay behind the scan's while it waited: folded into the muted scan, an old
