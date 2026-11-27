@@ -45,7 +45,15 @@ export interface BackfillDeps<D = unknown> {
   buildProjectCandidates(a: { projectStore: ProjectStore; workspaceDir: string; extraPaths?: () => string[] }): ProjectCandidate[];
   deliveryBranchDeps(candidati: ProjectCandidate[]): D;
   resolveDeliveryBranch(deps: D, taskId: string): Promise<{ repoPath: string; branch: string } | null>;
-  deliveryPointer(repoPath: string, branch: string): Promise<{ branch: string; commit: string | null } | null>;
+  /**
+   * Same question `taskDeliveryRef` asks: the literal ref `"main"` is this
+   * checkout's OWN branch, which a card's worktree never moves and the project's
+   * real default (often `origin/main`) always does. Without resolving it here
+   * `deliveryPointer` falls back to that stale local ref, and a branch that is
+   * all ahead of `origin/main` reads as zero own commits.
+   */
+  resolveMainRef(repoPath: string): Promise<string>;
+  deliveryPointer(repoPath: string, branch: string, opts?: { mainRef?: string }): Promise<{ branch: string; commit: string | null } | null>;
   worktreeDiffStat(cwd: string, opts: { branch?: string }): Promise<{ filesChanged: number; insertions: number; deletions: number } | null>;
   /**
    * Plant the ref that outlives the branch (`services/delivery-ref-keep.ts`).
@@ -98,7 +106,8 @@ export async function backfillDeliveries<D>(deps: BackfillDeps<D>): Promise<void
     // lavoro di un'altra sessione sopra le card senza consegna.
     // Awaited: the audit right below must see what we just recorded, otherwise
     // a backfilled task waits a full interval for its first verdict.
-    const ptr = await deps.deliveryPointer(ref.repoPath, ref.branch).catch(() => null);
+    const mainRef = await deps.resolveMainRef(ref.repoPath).catch(() => "main");
+    const ptr = await deps.deliveryPointer(ref.repoPath, ref.branch, { mainRef }).catch(() => null);
     // Niente commit propri (o domanda senza risposta): non si scrive niente e si
     // riprova al giro dopo — se intanto l'altro branch landa o sparisce, la
     // stessa domanda cambia risposta da sola. In particolare NON si ripiega

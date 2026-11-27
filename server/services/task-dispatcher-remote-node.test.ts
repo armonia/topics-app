@@ -30,12 +30,12 @@
  */
 import { UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLifecycleHooks, type LifecycleHookPayload, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { pendingQuestionComment } from "../../shared/board";
-import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./task-dispatcher-remote-node";
+import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_MEDIA_RETRY_POLLS, NODE_RETIRE_TRIES } from "./task-dispatcher-remote-node";
 import { createNodeBranchPlanter } from "./node-branch-plant";
 import { createDeliveryCapture, type DeliveryCapture, type DeliveryRef } from "./task-delivery-capture";
 import type { TaskFile } from "../../shared/task-labels";
@@ -984,6 +984,146 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     expect(mirrored).toHaveLength(1);
     // Dedup goes through the ANCHOR (KANBAN-72), never through the text.
     expect(mirrored[0].messageId).toBe("nc-1");
+  });
+
+  it("un'immagine allegata sul nodo arriva qui come un file che esiste davvero, e diventa l'anteprima della card", async () => {
+    // The screenshot an agent attaches on the node lives at a path on the
+    // NODE's own disk: mirroring the comment as-is would leave `preview_image`
+    // pointing nowhere on this machine (card 9a850b73, 2026-11-26). What the
+    // review bar actually asks is `previewImage` on the CARD, not just the
+    // comment's own mirrored `media` array.
+    const nodePath = "/home/node-user/.topics/media/9a850b73-screenshot.png";
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    let current = report({
+      comments: [
+        { id: "nc-origine", author: "system", content: "Card specchiata da github.com/acme/alpha", kind: "service", createdAt: "2026-11-26T02:00:00.000Z" },
+      ],
+    });
+    const h = harness({
+      bundle: new Uint8Array([1, 2, 3, 4]),
+      readRun: () => Promise.resolve(current),
+      media: { [nodePath]: bytes },
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h); // primes the mirror: the origin note is our own dispatch coming back
+
+    // The attached comment arrives in the SAME report that delivers the
+    // branch to review: the mirror lands the attachment first, and only then
+    // `landNodeDelivery` moves the card into review and `promoteReviewPreview`
+    // fishes that just-mirrored attachment for `previewImage`.
+    current = report({
+      status: "review",
+      deliveryBranch: "topics/corsa-remota",
+      baseSha: "abcdef0123456789",
+      comments: [
+        { id: "nc-origine", author: "system", content: "Card specchiata da github.com/acme/alpha", kind: "service", createdAt: "2026-11-26T02:00:00.000Z" },
+        {
+          id: "nc-shot", author: "agent",
+          content: 'screenshot allegato mostra "fermo: tetto di spesa"',
+          kind: "comment", createdAt: "2026-11-26T02:10:00.000Z",
+          media: [nodePath],
+        },
+      ],
+    });
+    await poll(h);
+
+    const t = h.task();
+    expect(t.status).toBe("review");
+    expect(t.previewImage).toBeTruthy();
+    expect(existsSync(t.previewImage!)).toBe(true);
+    expect(readFileSync(t.previewImage!)).toEqual(Buffer.from(bytes));
+  });
+
+  it("un allegato sparito dal nodo (null) arriva una volta, senza quel percorso, e non viene ritentato", async () => {
+    // `fetchMedia` answering `null` is the node's own doc for a DEFINITIVE
+    // absence (403/404, the file never there or gone): the comment must still
+    // land, missing only that attachment, not be retried forever.
+    const nodePath = "/home/node-user/.topics/media/9a850b73-screenshot.png";
+    let current = report({ comments: [] });
+    const h = harness({ bundle: new Uint8Array([1]), readRun: () => Promise.resolve(current), media: {} });
+    h.seed();
+    await dispatch(h);
+    await poll(h); // seeds
+
+    current = report({
+      comments: [
+        {
+          id: "nc-shot", author: "agent", content: "screenshot allegato.",
+          kind: "comment", createdAt: "2026-11-27T02:10:00.000Z", media: [nodePath],
+        },
+      ],
+    });
+    await poll(h, 3); // well past NODE_MEDIA_RETRY_POLLS: a `null` is never a retry
+
+    const landed = h.comments().filter((c) => c.messageId === "nc-shot");
+    expect(landed).toHaveLength(1);
+    expect(landed[0].media ?? []).toEqual([]);
+    expect(landed[0].content).toContain("screenshot.png");
+    expect(h.calls.filter((c) => c === `media:${nodePath}`)).toHaveLength(1);
+  });
+
+  it("un allegato che lancia errori passeggeri viene ritentato, e se continua a farlo arriva comunque senza immagine dopo il tetto", async () => {
+    const nodePath = "/home/node-user/.topics/media/9a850b73-screenshot.png";
+    let current = report({ comments: [] });
+    let throwing = true;
+    const h = harness({
+      bundle: new Uint8Array([1]),
+      readRun: () => Promise.resolve(current),
+      fetchMedia: async () => { if (throwing) throw new Error("timeout"); return new Uint8Array([9]); },
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h); // seeds
+
+    current = report({
+      comments: [
+        {
+          id: "nc-shot", author: "agent", content: "screenshot allegato.",
+          kind: "comment", createdAt: "2026-11-27T02:10:00.000Z", media: [nodePath],
+        },
+      ],
+    });
+    await poll(h); // 1st try: throws, not yet mirrored
+    expect(h.comments().some((c) => c.messageId === "nc-shot")).toBe(false);
+
+    throwing = false; // a transient failure heals before the cap
+    await poll(h);
+    const healed = h.comments().filter((c) => c.messageId === "nc-shot");
+    expect(healed).toHaveLength(1);
+    expect(healed[0].media).toBeTruthy();
+  });
+
+  it("un allegato che lancia SEMPRE arriva senza immagine dopo NODE_MEDIA_RETRY_POLLS tentativi, mai prima e mai dopo", async () => {
+    const nodePath = "/home/node-user/.topics/media/9a850b73-screenshot.png";
+    let current = report({ comments: [] });
+    const h = harness({
+      bundle: new Uint8Array([1]),
+      readRun: () => Promise.resolve(current),
+      fetchMedia: async () => { throw new Error("gateway timeout"); },
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h); // seeds
+
+    current = report({
+      comments: [
+        {
+          id: "nc-shot", author: "agent", content: "screenshot allegato.",
+          kind: "comment", createdAt: "2026-11-27T02:10:00.000Z", media: [nodePath],
+        },
+      ],
+    });
+    await poll(h, NODE_MEDIA_RETRY_POLLS - 1);
+    expect(h.comments().some((c) => c.messageId === "nc-shot")).toBe(false);
+
+    await poll(h); // the NODE_MEDIA_RETRY_POLLS-th try: gives up and mirrors anyway
+    const landed = h.comments().filter((c) => c.messageId === "nc-shot");
+    expect(landed).toHaveLength(1);
+    expect(landed[0].media ?? []).toEqual([]);
+
+    await poll(h, 2); // already mirrored: no further fetch, no duplicate
+    expect(h.comments().filter((c) => c.messageId === "nc-shot")).toHaveLength(1);
   });
 
   it("an agent signing agent:<id> on the node keeps its comment, so the review does not say there was no summary", async () => {

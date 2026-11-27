@@ -281,7 +281,11 @@ const PROJECT_MARKERS = [
 // terminal may have been rooted there. NOT the app data root — its `workspace/<name>`
 // children are legit catch-all projects (see scanWorkspace); we only strip the
 // well-known non-project homes below.
-const NON_PROJECT_DOTDIR = /\/\.(claude|config|cache|local|npm|bun|cargo|rustup|ssh|vscode|cursor|git|Trash|topics)(\/|$)/;
+const NON_PROJECT_DOTDIR = /\/\.(config|cache|local|npm|bun|cargo|rustup|ssh|vscode|cursor|git|Trash|topics)(\/|$)/;
+
+// `~/.claude` itself and its runtime subfolders are not projects, but a registered
+// project may live in a folder under it (`~/.claude/<name>`).
+const CLAUDE_HOME_NON_PROJECT = /\/\.claude(\/(worktrees|projects|plugins|skills|agents)(\/|$)|$)/;
 
 /**
  * Pure display filter: which candidate dirs are offered as SELECTABLE boards in
@@ -308,7 +312,7 @@ export function isSelectableProjectDir(
   if (p === resolve(generale)) return false;
   if (isInsideDir(p, tasksDir)) return false;
   if (p === resolve(deps.homeDir)) return false;
-  if (NON_PROJECT_DOTDIR.test(p)) return false;
+  if (NON_PROJECT_DOTDIR.test(p) || CLAUDE_HOME_NON_PROJECT.test(p)) return false;
   const exists = deps.exists ?? existsSync;
   if (!exists(p)) return false;
   // Workspace-nested dir → must look like a real project, not a runtime husk.
