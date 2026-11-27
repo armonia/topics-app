@@ -154,7 +154,7 @@ export async function handlePrimarySwitch(req: Request, deps: PrimarySwitchTrigg
       upload: transport.upload,
       commit: transport.commit,
       restartSelf: restartThisServerSoon,
-      ...(typeof body.drainTimeoutMs === "number" && body.drainTimeoutMs >= 0 ? { drainTimeoutMs: body.drainTimeoutMs } : {}),
+      ...(typeof body.drainTimeoutMs === "number" && Number.isFinite(body.drainTimeoutMs) && body.drainTimeoutMs >= 0 ? { drainTimeoutMs: body.drainTimeoutMs } : {}),
     });
     return answer(report, report.ok ? 200 : report.outcome === "refused" ? 409 : 502);
   } finally {

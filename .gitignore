@@ -436,6 +436,13 @@ tools/out/win/probe/
 # Paired-node tokens (server/routes/machines.ts writes them under STATE_DIR,
 # which is the checkout root when the server runs from a checkout).
 /nodes/
+# What a primary switch leaves under STATE_DIR (server/lib/primary-switch.ts): the
+# staging of both sides and the state files set aside, tokens included.
+/primary-incoming/
+/primary-outgoing/
+/nodes.prima-*/
+/license-token.prima-*
+/installation-id.prima-*
 
 # Cloud Claude run state (server.ts keeps it at STATE_DIR/claude-cloud-runs.json, written via a
 # .tmp rename): same checkout-root story as nodes/, and a dirty checkout aborts the production restart.

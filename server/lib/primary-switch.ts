@@ -455,7 +455,8 @@ export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restore
       const from = stagedPath(inputs.stateDir, f.name);
       const to = join(roots[target.kind], ...target.path);
       if (target.kind === "transcripts") transcripts++;
-      else setAsideIfPresent(to, epoch);
+      // A transcript this computer already had is kept too, next to the one that replaces it.
+      setAsideIfPresent(to, epoch);
       if (target.kind === "secrets") ensurePrivateDir(inputs.secretsDir);
       copyPrivate(from, to, roots[target.kind], target.kind === "state");
     }
@@ -470,6 +471,8 @@ export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restore
 
   // Staged files no manifest completed: an upload that failed or was abandoned.
   if (existsSync(incoming)) discardIncoming(inputs.stateDir);
+  // A whole DB copy a switch left behind when the process died mid-way: no switch runs at boot.
+  rmSync(join(inputs.stateDir, OUTGOING_DIR), { recursive: true, force: true });
 
   const retired = readRetired(inputs.appDataDir);
   if (retired?.phase === "pending-set-aside") {
