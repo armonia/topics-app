@@ -1,6 +1,11 @@
 import { describe, test, expect } from 'bun:test';
 import { projectNamesForBoard } from './boardProjectsStore';
 
+/**
+ * A merged parent with no card of its own must head its group with a name, never a raw id.
+ *
+ * @covers KANBAN-02
+ */
 describe('group header names of a merged board', () => {
   test('a parent with only the merged child cards still gets its project name', () => {
     const index = [
