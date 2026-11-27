@@ -2,7 +2,7 @@
 
 ### Requirement: CHAT-COMPACT-06 — Un agente compatta a un tetto in token, non a una frazione di 1M
 
-Sul motore nativo la chat di un agente SHALL compattare, all'inizio di un turno aperto da una persona, oltre il tetto `compactAtTokens` che l'agente dichiara in `agent-engine.json` se è sotto la soglia della finestra, e SHALL tornare al tetto per 0,40/0,85. Altrove (a metà turno, nelle riprese, senza tetto) SHALL valere la finestra. Il tetto SHALL valere anche nel `turn-host` e non SHALL tagliare i risultati recenti dei tool.
+Sul motore nativo la chat di un agente SHALL compattare, all'inizio di un turno che porta una richiesta sua, oltre il tetto `compactAtTokens` che l'agente dichiara in `agent-engine.json` se è sotto la soglia della finestra, e SHALL tornare al tetto per 0,40/0,85. Altrove (a metà turno, nelle riprese e nei nudge, senza tetto) SHALL valere la finestra. Il tetto SHALL valere anche nel `turn-host` e non SHALL tagliare i risultati recenti dei tool.
 
 #### Scenario: una chat da 300k su una finestra da 1M
 
@@ -25,5 +25,10 @@ Sul motore nativo la chat di un agente SHALL compattare, all'inizio di un turno 
 #### Scenario: una ripresa non perde la richiesta che riprende
 
 - **GIVEN** la chat di un agente oltre il tetto, il cui ultimo turno è stato tagliato (giri finiti o riavvio)
-- **WHEN** il turno dopo è la ripresa («Carry on…», la nota dopo il riavvio) e non un messaggio della persona
+- **WHEN** il turno dopo è la ripresa («Carry on…», la nota dopo il riavvio) o un nudge del goal o di un hook
 - **THEN** non si compatta al tetto, e la richiesta che la ripresa continua resta nella storia
+
+#### Scenario: un messaggio di Attilio su Discord prende il tetto
+
+- **GIVEN** il messaggio di una persona che jarvis-channels manda a Topics come `dispatched`, con il suo `sender`
+- **THEN** il turno non è una continuazione e il tetto vale
