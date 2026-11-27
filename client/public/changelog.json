@@ -1,5 +1,173 @@
 [
   {
+    "version": "2.5.18",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Test della scala del bundle: un'identità git sua, il runner della CI non ne ha una globale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test della scala del bundle: main esplicito, senza config globale init crea master e set-head -a non trova la HEAD",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.17",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Nodo senza origin: il bundle del ramo si allarga quando il nodo dice che gli mancano i commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test della scala del bundle: il margine viene prima della storia intera, e «whole» non taglia mai",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.16",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "pack refuses to write when the secrets file exists but did not decrypt",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "read and unpack swallow only the decryption failure",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "native child ignores card reserve; mutation-killing tests for reservedMemGB",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "Node reruns: the system's red/conflict send-back reaches the node brief",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "check-bloat: record the overflow test growth of the CI-red bounce cards",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "check-bloat: exception for the overflow test grown by the CI-red bounce cards",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-27 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Impianto dei test di overflow in un modulo a parte: main torna sotto il tetto di check:bloat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Node brief: scheduled-review send-backs and reviewer answers reach the node like the red bounce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "check-bloat: overflow test ceiling follows main down to 1631",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.15",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "DESIGN.md: approvata la prima riga del telefono sotto il titolo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rimbalzo per CI rossa vale solo finché main è rossa; il testo all'agente dice di verificare il passo rosso",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.14",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "reserve per card net of its own measured tree, no double count in the memory brake",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card rimandata dalla CI rossa su main dopo il land non si chiude come già in main",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.13",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "secret-store: timeout sui comandi e voce nell'elenco degli spawn sincroni",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.12",
     "date": "2026-11-27",
     "sections": {
@@ -11,6 +179,22 @@
           "it": "Revert the detached node-check worktree: CI rows can no longer read a branch",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "secret-store test: salta la suite age se i binari mancano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revert \"secret-store test: salta la suite age se i binari mancano\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "installa age nel job unit per i test del deposito segreti",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -31,10 +215,20 @@
       "perf": [],
       "internal": [
         {
+          "it": "Fix queue order drift and false queue notes in the review sweep",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "split the mac-only isMacOnlyDiff coverage into its own file",
           "en": "",
           "scope": "review-checks",
           "breaking": false
+        },
+        {
+          "it": "Drop the queue note and free a node delivery's local slot early",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -52,6 +246,18 @@
           "breaking": false
         },
         {
+          "it": "age store filters unpack/read by the current allowlist",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "age store keeps the whole file map, filters only its outputs, and never rewrites for refused names",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
           "it": "a branch origin is only ahead on is already there",
           "en": "",
           "scope": "dispatch",
@@ -65,7 +271,42 @@
         }
       ],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "the resting-seat tests fit under the file's bloat ceiling",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "Prioritize human-confirmed lands in the review remeasure sweep",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "rerun the touched-test check after a load-induced relay flake",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "retry tsc file listing once under load before judging the program",
+          "en": "",
+          "scope": "relay",
+          "breaking": false
+        },
+        {
+          "it": "Revert \"test(relay): retry tsc file listing once under load before judging the program\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "rerun the review check",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
     }
   },
   {
@@ -85,6 +326,12 @@
           "en": "",
           "scope": "gates",
           "breaking": false
+        },
+        {
+          "it": "resolve the installed playwright-core entry from its own manifest",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
         }
       ],
       "perf": [],
@@ -98,6 +345,12 @@
           "it": "cover isMacOnlyDiff and the swap-exhausted mac-only branch",
           "en": "",
           "scope": "review-checks",
+          "breaking": false
+        },
+        {
+          "it": "a riposo la prima riga della colonna sta sotto il titolo",
+          "en": "",
+          "scope": null,
           "breaking": false
         }
       ]
@@ -179,6 +432,16 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Il deposito dei segreti ha il suo requisito, MACHINE-06, e il test lo dichiara",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il deposito dei segreti è dichiarato in attesa del suo primo chiamante",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -190,6 +453,12 @@
       "new": [],
       "fixes": [
         {
+          "it": "a card at work with no chip keeps its seat (NULL never matches IN)",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
           "it": "node deliveries with a null checks_state are measured again, and every mute exit of the meter says why",
           "en": "",
           "scope": "land",
@@ -199,6 +468,12 @@
           "it": "give isMacOnlyDiff's git read a deadline and list it",
           "en": "",
           "scope": "review-checks",
+          "breaking": false
+        },
+        {
+          "it": "pin playwright-core to the exact locked version, install with integrity and a deadline",
+          "en": "",
+          "scope": "browser",
           "breaking": false
         },
         {
@@ -257,6 +532,12 @@
           "it": "Board settings: backlog triage row gets its icon like the rows above",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "cover installed-Chromium fallback and frozen lockfile install; silence install output",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
         }
       ]
     }
@@ -266,7 +547,14 @@
     "date": "2026-11-26",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "a remote run resting on a wait or a question gives its machine seat back",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -327,6 +615,12 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "sibling-worktree merge is not live; tests assert landedNotLive/checkoutBranch/dirty-checkout",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
         {
           "it": "la nota vocale si ferma solo dopo il primo secondo di registrazione",
           "en": "",
@@ -453,6 +747,12 @@
           "breaking": false
         },
         {
+          "it": "add a single secret-store interface for Mac and Linux",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
           "it": "a request that repeats an open card is absorbed by it instead of opening a twin",
           "en": "",
           "scope": "board",
@@ -509,6 +809,18 @@
           "breaking": false
         },
         {
+          "it": "stdin secrets, in-memory identity, configurable allowlist",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "keychain write uses -X hex, closing the newline injection in -i stdin",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
           "it": "the sidebar's buttons are tabs, and every tab lights under the pointer",
           "en": "",
           "scope": "ui",
@@ -518,6 +830,12 @@
           "it": "don't let an older comment outrank the newest one when carrying a node's thread",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "keychain stores printable b64 payload, so read never gets hex back",
+          "en": "",
+          "scope": "secrets",
           "breaking": false
         },
         {
@@ -535,6 +853,12 @@
       ],
       "perf": [],
       "internal": [
+        {
+          "it": "trace the playwright loader test to BROWSER-NODE-DEPS-01",
+          "en": "",
+          "scope": "spec",
+          "breaking": false
+        },
         {
           "it": "ci-impact: whole-tree guard tests always ride in a reduced unit plan (replay: any-budget was missed)",
           "en": "",
@@ -609,7 +933,14 @@
     "date": "2026-11-25",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "fall back to an installed Chromium-family browser when no Playwright Chromium is found",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -699,6 +1030,12 @@
         }
       ],
       "fixes": [
+        {
+          "it": "install playwright-core on first use when the server cannot resolve it",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
         {
           "it": "a pop-out window is dressed on the main thread, not on a tokio worker",
           "en": "",
@@ -1209,6 +1546,12 @@
           "it": "Land refuses an unmeasured delivery on every path, not only the automatic one",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "merge main inside a sibling worktree that already has it open",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13",

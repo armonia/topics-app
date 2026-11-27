@@ -443,6 +443,7 @@ export default defineConfig({
         "**/mobile-chrome-bar.spec.ts",
         "**/mobile-no-tab-strip.spec.ts",
         "**/mobile-list-under-chrome.spec.ts",
+        "**/mobile-sidebar-first-row.spec.ts",
         "**/mobile-screens-under-chrome.spec.ts",
         "**/mobile-bottom-bar-geometry.spec.ts",
         "**/board-mobile-phone.spec.ts",
@@ -679,6 +680,7 @@ export default defineConfig({
         "**/inp-shell.spec.ts",
         // The phone list under the header and the button row: WebKit is what ships.
         "**/mobile-list-under-chrome.spec.ts",
+        "**/mobile-sidebar-first-row.spec.ts",
         "**/mobile-screens-under-chrome.spec.ts",
         "**/mobile-bottom-bar-geometry.spec.ts",
         // The board on a phone: the bar that does not scroll, the 44px search,

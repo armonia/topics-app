@@ -3940,3 +3940,23 @@ di 30 minuti, scaduto il quale la card passa a needs_input con la scheda ancora 
 - **WHEN** chiama `request_login` con `detached`
 - **THEN** SHALL comparire una scheda nuova in primo piano in una finestra staccata
 - **AND** lo storico SHALL avere una notifica che porta al topic
+
+### Requirement: BROWSER-NODE-DEPS-01 - Il browser del server funziona su una macchina senza playwright-core accanto al binario
+
+Quando il server gira da binario installato e `playwright-core` non e' risolvibile, SHALL
+installarlo al primo uso nella cartella dati dell'app e caricarlo da li. Il primo uso SCARICA
+`playwright-core` dal registro npm (`bun install`), alla versione ESATTA che risolve `bun.lock`
+(un test verifica che coincidano), con lockfile e hash di integrita' (`--frozen-lockfile`) e
+una scadenza di 120 s oltre la quale il processo viene ucciso. Se non esiste un Chromium di Playwright SHALL usare il Chrome o l'Edge
+installato, con la stessa ricerca del sidecar, prima di fallire.
+
+#### Scenario: pacchetto mancante
+- **GIVEN** un server in cui l'import di `playwright-core` fallisce
+- **WHEN** il browser viene usato per la prima volta
+- **THEN** il pacchetto SHALL essere installato nella cartella dati e caricato da li
+- **AND** l'import diretto, quando funziona, SHALL NOT lanciare alcuna installazione
+
+#### Scenario: nessun Chromium di Playwright
+- **GIVEN** nessun Chromium nella cache di Playwright e nessun `CHROMIUM_PATH`
+- **WHEN** parte il primo lancio del browser
+- **THEN** SHALL essere usato il Chrome o l'Edge installato

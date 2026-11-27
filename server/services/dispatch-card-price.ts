@@ -86,6 +86,12 @@ export function createCardPrices(deps: {
   taskOf(taskId: string): CardPriceTask | null | undefined;
   /** The board's measured card weight in GB, or null while it has too few cards (`measuredGB`). */
   measured?(projectId: string): number | null;
+  /**
+   * What the process tree of THIS card holds right now, in GB, or null while it
+   * has no measured tree. The kernel's available-memory reading already
+   * excludes these pages, so the reserve must not charge them a second time.
+   */
+  observedGB?(taskId: string): number | null;
 }) {
   const safeBoard = (projectId: string | null | undefined): CardPriceBoard | null => {
     if (!projectId) return null;
@@ -114,15 +120,19 @@ export function createCardPrices(deps: {
    * board and for the whole life of the turn (`reservedCost` says why).
    */
   function reservedMemGB(launches: readonly (readonly [taskId: string, at: number])[], now: number): number {
-    const byPrice = new Map<number, number[]>();
+    // Per card: its price minus what ITS OWN tree already shows in the measure,
+    // never below zero and never credited to another card. A card with no
+    // measured tree keeps its full price.
+    let total = 0;
     for (const [taskId, at] of launches) {
       let task: CardPriceTask | null | undefined = null;
       try { task = deps.taskOf(taskId); } catch { /* an unknown card reads standard */ }
       const price = priceFor(task?.projectId, task?.dispatchWeight);
-      byPrice.set(price, [...(byPrice.get(price) ?? []), at]);
+      let observed: number | null = null;
+      try { observed = deps.observedGB?.(taskId) ?? null; } catch { /* unmeasured: full price */ }
+      const seen = observed != null && Number.isFinite(observed) && observed > 0 ? observed : 0;
+      total += reservedCost([at], { coreUnits: 0, memGB: Math.max(0, price - seen) }, now).memGB;
     }
-    let total = 0;
-    for (const [price, instants] of byPrice) total += reservedCost(instants, { coreUnits: 0, memGB: price }, now).memGB;
     return total;
   }
 

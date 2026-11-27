@@ -27,6 +27,7 @@ export function createRunTracking(ctx: DispatcherCtx) {
     languageOf: (...args) => ctx.kickoff.langFor(...args),
     deliveryLanded: deps.deliveryLanded,
     repoPathOfTask: deps.repoPathOfTask,
+    mainIsRed: deps.mainIsRed,
   });
   function drainBlock(): string | null {
     return shared.draining

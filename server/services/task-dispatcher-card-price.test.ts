@@ -559,7 +559,7 @@ describe("la coda di memoria e la capacità parlano col prezzo della board", () 
     const h = await withOneQuietTurn({ held: 20, budget: sample });
     h.svc.setGlobalCap({ auto: false, max: 4, mode: "resources", budgetShare: 0.8 });
     expect(h.dispatcher.childAdmissionPreview?.()).toMatchObject({ admit: true, costMemGB: 0.1 });
-    sample.availableMemGB = 0.2;
+    sample.availableMemGB = 0.05;
     expect(h.dispatcher.childAdmissionPreview?.()).toMatchObject({ admit: false, blockedBy: "memory" });
   });
 
@@ -571,6 +571,24 @@ describe("la coda di memoria e la capacità parlano col prezzo della board", () 
     // Under its own floor the child is held too.
     const low = await withOneQuietTurn({ held: 1.2 });
     expect(low.dispatcher.childAdmissionPreview?.()?.blockedBy).toBe("floor");
+  });
+
+  it("in resources mode two cards in flight and 6 GB available still admit a 0.1 GB child", async () => {
+    const sample: MachineBudgetSample = {
+      cores: 12, totalMemGB: 32, ourCoreUnits: 0.5, otherCoreUnits: 1,
+      ourMemGB: 1, availableMemGB: 6, running: 2,
+    };
+    const h = harness({ held: 20, budget: sample });
+    h.svc.setGlobalCap({ auto: false, max: 4, mode: "resources", budgetShare: 0.8 });
+    h.seed("first", REPO);
+    await h.dispatch(REPO);
+    sample.availableMemGB = 12;
+    pastTheRamp();
+    h.seed("second", REPO);
+    await h.dispatch(REPO);
+    expect(h.turns).toHaveLength(2);
+    sample.availableMemGB = 6;
+    expect(h.dispatcher.childAdmissionPreview?.()).toMatchObject({ admit: true, costMemGB: 0.1 });
   });
 
   it("l'anteprima del figlio non muove l'isteresi del cancello", async () => {

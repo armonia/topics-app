@@ -577,11 +577,14 @@ export interface TaskService {
   /**
    * How many live cards name `machineId` (Todo or in progress, not archived),
    * across every board: what the overflow counts against a machine's slots.
-   * A card waiting for a silent node is in Todo, so it counts.
+   * A card waiting for a silent node is in Todo, so it counts. A run resting
+   * over there (in progress with a `waiting` or `needs_input` chip) does not.
    */
   countOnMachine(machineId: string): number;
-  /** Cards already running on the machine (in progress), not counting `exceptTaskId`. */
+  /** Cards already running on the machine (in progress, not resting), not counting `exceptTaskId`. */
   countRunningOnMachine(machineId: string, exceptTaskId?: string): number;
+  /** Ids of the runs resting on the machine: in progress with a `waiting` or `needs_input` chip, no turn alive. */
+  restingOnMachine(machineId: string): string[];
   /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
    *

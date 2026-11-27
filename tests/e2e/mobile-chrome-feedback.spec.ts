@@ -2,14 +2,16 @@
  * THE PHONE CHROME FEEDBACK LOOP (05/10/2026, msg 3862).
  *
  * Trying Topics on the phone: the top row must reveal itself on scroll with
- * the sessions starting right past the safe area, the Topics menu belongs in
+ * the sessions passing under it (at rest the first one sits one step below
+ * the title, 27/11), the Topics menu belongs in
  * the user menu, the bottom row keeps its sizes, Search lives in the design
  * system, "Waiting" is never muted and the pencil opens a fresh chat at once.
  *
  * Every entry here is a number read from the DOM at 390x844 with a finger:
  *
- *  MOBILE-CHROME-07  at the top the row is compact (44), on scroll it reveals
- *                    itself whole (56), rows start from `--sat`; the sheet has
+ *  MOBILE-CHROME-07  at the top the row is compact (44) past `--sat`, on scroll
+ *                    it reveals itself whole (56); at rest the first row sits
+ *                    one step under it; the sheet has
  *                    two levels and the Topics menu is reached from the root
  *  MOBILE-CHROME-08  first/last key with the low outer radius above 12px,
  *                    STEP between keys, ROOM above, glyphs centred (±1px)
@@ -35,6 +37,7 @@ import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { waitForLayoutSettled } from "./helpers/layout";
 import { hermetic } from "./fixtures/hermetic";
+import { COLUMN_GAP, MOBILE_SIDEBAR_HEADER_H_COMPACT } from "../../client/src/lib/selectionStyles";
 
 hermetic(test);
 
@@ -101,7 +104,7 @@ async function visibleMessages(page: Page): Promise<number> {
     }).length);
 }
 
-test("MOBILE-CHROME-07: compatta in cima, intera appena si scorre, righe dalla safe area", async ({ page }) => {
+test("MOBILE-CHROME-07: compatta in cima, intera appena si scorre, prima riga sotto il titolo", async ({ page }) => {
   test.info().annotations.push({ type: "spec", description: "MOBILE-CHROME-07" });
   await open(page);
   await notch(page, NOTCH);
@@ -123,12 +126,13 @@ test("MOBILE-CHROME-07: compatta in cima, intera appena si scorre, righe dalla s
     };
   });
 
-  // At the top: compact, with rows starting right past the notch.
+  // At the top: compact, past the notch, and the first row one step under it
+  // instead of behind its veil (mobile-sidebar-first-row.spec.ts, 27/11).
   const top = await read();
   expect(top.compact).toBe("true");
-  expect(top.headerH).toBe(44);
-  expect(Math.abs(top.padding - NOTCH)).toBeLessThanOrEqual(1);
-  expect(Math.abs(top.firstTop! - NOTCH)).toBeLessThanOrEqual(1);
+  expect(top.headerH).toBe(MOBILE_SIDEBAR_HEADER_H_COMPACT);
+  expect(Math.abs(top.padding - (NOTCH + MOBILE_SIDEBAR_HEADER_H_COMPACT + COLUMN_GAP))).toBeLessThanOrEqual(1);
+  expect(Math.abs(top.firstTop! - (top.headerBottom + COLUMN_GAP))).toBeLessThanOrEqual(1);
   expect(top.overflow, "the list must overflow, or there is nothing to reveal on scroll").toBeGreaterThan(0);
 
   // On scroll: the row reveals itself whole and the rows travel under it.
