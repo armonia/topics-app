@@ -14,7 +14,8 @@ import { CHILD_BUNDLE_MARGIN_COMMITS } from "../lib/subagent-remote-spawn";
 
 describe("a stale node receives a wider carried branch bundle", () => {
   const git = (cwd: string, ...args: string[]) => {
-    const r = Bun.spawnSync(["git", "-C", cwd, ...args], { env: gitEnv() });
+    // An identity of its own: the CI runner has no global git user (27/11, PR #1763 red on "Please tell me who you are").
+    const r = Bun.spawnSync(["git", "-C", cwd, ...args], { env: gitEnv({ GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" }) });
     if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
     return r.stdout.toString().trim();
   };
