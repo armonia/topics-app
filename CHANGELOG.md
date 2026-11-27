@@ -6,8 +6,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **dispatch** · native child ignores card reserve; mutation-killing tests for reservedMemGB
+- Node reruns: the system's red/conflict send-back reaches the node brief
+- check-bloat: record the overflow test growth of the CI-red bounce cards
+- check-bloat: exception for the overflow test grown by the CI-red bounce cards
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-27 [skip ci]
 - Impianto dei test di overflow in un modulo a parte: main torna sotto il tetto di check:bloat
+- Node brief: scheduled-review send-backs and reviewer answers reach the node like the red bounce
+- check-bloat: overflow test ceiling follows main down to 1631
 
 ## 2.5.15 — 2026-11-27
 
