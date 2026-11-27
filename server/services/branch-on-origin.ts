@@ -12,7 +12,8 @@
  *
  * So the branch is pushed first, plainly (never forced): a branch origin already
  * has at the same tip is a no-op, one this checkout is ahead on is
- * fast-forwarded, one that diverged is refused, and the card stays here.
+ * fast-forwarded, one origin is ahead on is already there (`originContains`),
+ * one that diverged is refused, and the card stays here.
  */
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -75,7 +76,23 @@ export async function ensureBranchOnOrigin(
   }
   const push = await run(repoPath, ["push", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
   if (push.code === 0) return { ok: true };
+  if (await originContains(repoPath, branch, run)) return { ok: true };
   return { ok: false, reason: `push rifiutato: ${pushRefusalReason(push.stderr || push.stdout, push.code)}` };
+}
+
+/**
+ * A refused push whose branch origin is only AHEAD on: every commit here is
+ * already there, and the other machine starts from origin's tip. On 27/11/2026
+ * nine cards were held for hours as "non-fast-forward": the land's merge of main
+ * had reached origin, then this checkout's copy went back to the commit before
+ * it (so a node without origin gets a bundle it can apply). The local branch is
+ * left where it is, for that bundle.
+ */
+async function originContains(repoPath: string, branch: string, run: GitRunner): Promise<boolean> {
+  const tracking = `refs/remotes/origin/${branch}`;
+  const fetched = await run(repoPath, ["fetch", "--quiet", "origin", `+refs/heads/${branch}:${tracking}`]);
+  if (fetched.code !== 0) return false;
+  return (await run(repoPath, ["merge-base", "--is-ancestor", `refs/heads/${branch}`, tracking])).code === 0;
 }
 
 /**
