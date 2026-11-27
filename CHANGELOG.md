@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.8 — 2026-11-27
+
+### Correzioni
+- **board** · close the review's 5 blocking gaps on archive/revoke/dedupe
+
+### Sotto il cofano
+- Revisione del round 3: cancelli statici verdi, colonna che riapre l'isola giusta, semafori dalla sola finestra principale
+- Riga archiviata in due tempi: prima esce, poi le righe sotto risalgono
+- tolto l'aggancio di test che nessun test usa
+- Uscita in due tempi anche per le righe che non sono treeitem, semafori solo dalla finestra principale
+- CI della PR: tetto del bundle sulla misura, test di bump senza la bomba del 2.5.7
+
 ## 2.5.7 — 2026-11-26
 
 ### Correzioni
@@ -10,6 +22,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-26 [skip ci]
+- trace the new archive and blockedByTaskId tests to KANBAN-123/124
+- Tab di lato: un passo sui quattro lati, isole che chiudono la colonna, riga archiviata che esce
 
 ## 2.5.6 — 2026-11-26
 
@@ -40,7 +54,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **node-checks** · give each run its own checkout folder
 
 ### Sotto il cofano
+- close the remaining 26/11 review gaps on archive() and blockedByTaskId
 - Auto-land: a land waiting on the pull request's CI forgets the offer so the sweep asks again at the verdict
+- the refusal to archive names the card, and stops refusing for a blocker that stays
 - il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)
 
 ## 2.5.2 — 2026-11-26
@@ -64,7 +80,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Fix the gh-unavailable pattern word boundary
 - never requeue an empty run or bounce a landed card without checking against this Mac's own main
 - Land via PR: a GitHub refusal falls back to the local merge, running checks release the queue, settle wait cut to 2 min
+- archiving a live blocker no longer silently unblocks its dependents
 - **openspec** · board-avanza-da-sola, the seven rules with their bar
+- close the three gaps left in archive() by the 26/11 review
 - **e2e** · the narrowest column is 248, and the word hides beside the Windows cluster
 - a rimando after a land is not a closed card, and a job-level red is not always a preexisting one
 

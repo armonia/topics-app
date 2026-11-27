@@ -59,6 +59,8 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { loadBaseline, loadBaselineAtRef, type Baseline, type BaselineEntry } from "./bloat-baseline-io";
+import { baseRegressions, exceptionIsLive, newlyExcepted, refusedEntries, type BloatException } from "./bloat-exceptions";
 
 const DEFAULT_ROOT = resolve(import.meta.dir, "..");
 
@@ -102,32 +104,11 @@ interface Options {
   absolute: boolean;
   json: boolean;
   updateBaseline: boolean;
+  /** Ref whose committed baseline the working one may not rise above. */
+  baseRef: string;
   top: number;
 }
 
-interface Baseline {
-  $schema: string;
-  _comment: string[];
-  /** v1 only. v2 reads the date from git, see `recordedOn`. */
-  updated?: string;
-  tolerance_pct: number;
-  max_lines: number;
-  min_clone_lines: number;
-  duplicated_lines: number;
-  clone_groups: number;
-  /** path -> line count, for every file over `max_lines` on the day recorded. */
-  files: Record<string, number>;
-  /**
-   * path -> why its size was recorded. Free text, never read by the gate. On
-   * disk it lives INSIDE the file's entry (`{ "lines": n, "why": [...] }`), not
-   * in a map of its own: two branches writing their first note into an empty
-   * map insert at the same spot, which is a conflict.
-   */
-  notes: Record<string, string[]>;
-}
-
-/** A `files` entry on disk: the bare count, or the count with its reason. */
-type BaselineEntry = number | { lines: number; why: string[] };
 
 /**
  * The baseline is written so that two branches that CHANGE the count of
@@ -171,6 +152,7 @@ function serializeBaseline(b: Baseline): string {
     min_clone_lines: b.min_clone_lines,
     duplicated_lines: b.duplicated_lines,
     clone_groups: b.clone_groups,
+    ...(b.max_over_files === undefined ? {} : { max_over_files: b.max_over_files }),
   };
   const headText = JSON.stringify(head, null, 2).replace(/\n}$/, "");
   const files: Record<string, BaselineEntry> = {};
@@ -178,7 +160,8 @@ function serializeBaseline(b: Baseline): string {
     const why = b.notes[path];
     files[path] = why && why.length > 0 ? { lines, why } : lines;
   }
-  return `${headText},\n${paragraphs("files", files)}\n}\n`;
+  const exceptions = Object.keys(b.exceptions).length > 0 ? `,\n${paragraphs("exceptions", b.exceptions)}` : "";
+  return `${headText},\n${paragraphs("files", files)}${exceptions}\n}\n`;
 }
 
 /** One key per paragraph, keys in code-unit order (not locale: same on every machine). */
@@ -503,6 +486,7 @@ function parseOptions(argv: string[]): { opts: Options; baseline: Baseline | nul
   let minCloneLines: number | null = null;
   let json = false;
   let updateBaseline = false;
+  let baseRef = "origin/main";
   let top = 20;
 
   for (const arg of argv) {
@@ -524,6 +508,8 @@ function parseOptions(argv: string[]): { opts: Options; baseline: Baseline | nul
       minCloneLines = num(arg.slice("--min-clone-lines=".length));
     } else if (arg.startsWith("--top=")) {
       top = num(arg.slice("--top=".length));
+    } else if (arg.startsWith("--base-ref=")) {
+      baseRef = arg.slice("--base-ref=".length);
     } else if (arg === "--json") {
       json = true;
     } else if (arg === "--update-baseline") {
@@ -547,33 +533,11 @@ function parseOptions(argv: string[]): { opts: Options; baseline: Baseline | nul
       absolute: maxLines !== null || minCloneLines !== null,
       json,
       updateBaseline,
+      baseRef,
       top,
     },
     baseline,
   };
-}
-
-function loadBaseline(path: string): Baseline | null {
-  if (!existsSync(path)) return null;
-  try {
-    const raw = JSON.parse(readFileSync(path, "utf8")) as Omit<Baseline, "files" | "notes"> & {
-      files: Record<string, BaselineEntry>;
-    };
-    const files: Record<string, number> = {};
-    const notes: Record<string, string[]> = {};
-    for (const [file, entry] of Object.entries(raw.files ?? {})) {
-      if (typeof entry === "number") {
-        files[file] = entry;
-      } else {
-        files[file] = entry.lines;
-        notes[file] = entry.why;
-      }
-    }
-    return { ...raw, files, notes };
-  } catch (err) {
-    console.error(`[check-bloat] baseline unreadable at ${path} (${String(err)})`);
-    process.exit(2);
-  }
 }
 
 function pad(n: number, width: number): string {
@@ -663,6 +627,13 @@ function main(): void {
   }
 
   if (opts.updateBaseline) {
+    // The baseline only goes down: new or bigger entries need a live exception.
+    const refused = baseline ? refusedEntries(baseline, over, opts.baselinePath) : [];
+    if (refused.length > 0) {
+      console.error(`[check-bloat] REFUSED - ${refused.length} entries without a live exception:`);
+      for (const r of refused) console.error(`  ${r}`);
+      process.exit(1);
+    }
     const next: Baseline = {
       $schema: "bloat-baseline-v2",
       _comment: baseline?._comment ?? [],
@@ -673,9 +644,9 @@ function main(): void {
       clone_groups: clones.length,
       files: Object.fromEntries(over.map((f) => [f.file, f.lines])),
       // A note outlives a size change of its file, not the file leaving the list.
-      notes: Object.fromEntries(
-        Object.entries(baseline?.notes ?? {}).filter(([path]) => over.some((f) => f.file === path)),
-      ),
+      notes: Object.fromEntries(Object.entries(baseline?.notes ?? {}).filter(([path]) => over.some((f) => f.file === path))),
+      max_over_files: Math.min(over.length, baseline?.max_over_files === undefined ? over.length : baseline.max_over_files + newlyExcepted(baseline, over)),
+      exceptions: Object.fromEntries(Object.entries(baseline?.exceptions ?? {}).filter(([path]) => over.some((f) => f.file === path))),
     };
     writeFileSync(opts.baselinePath, serializeBaseline(next));
     console.log(`[check-bloat] baseline rewritten: ${opts.baselinePath}`);
@@ -720,6 +691,26 @@ function main(): void {
       );
     }
   }
+
+  const maxOver = baseline.max_over_files ?? Object.keys(baseline.files).length;
+  const allowedOver = maxOver + newlyExcepted(baseline, over);
+  if (over.length > allowedOver) {
+    problems.push(
+      `TOTAL rose: ${over.length} files over ${opts.maxLines} lines, the baseline allows ${allowedOver}. ` +
+        `Split a file, or write an exception (why + expiry) for the new one.`,
+    );
+  }
+  for (const f of over) {
+    const e = baseline.exceptions[f.file];
+    if (e && !exceptionIsLive(e)) problems.push(`EXPIRED exception  ${f.file} (until ${e.expires}). Split the file or renew it on purpose.`);
+  }
+
+  // The ratchet in check mode: the committed baseline itself may not rise above
+  // the one on the base ref, so a hand-edited entry cannot pass as "recorded".
+  // The per-file ceiling above (GROWTH_FLOOR / tolerance_pct) is the headroom for
+  // honest edits to a recorded file; it never moves the recorded number up.
+  const base = loadBaselineAtRef(opts.root, opts.baselinePath, opts.baseRef);
+  if (base) problems.push(...baseRegressions(baseline, base, opts.baseRef));
 
   const dupCeiling = Math.floor(baseline.duplicated_lines * tol);
   if (duplicatedLines > dupCeiling) {

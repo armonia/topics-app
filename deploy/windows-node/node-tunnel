@@ -1,0 +1,28 @@
+#!/bin/sh
+# Keeps the ssh tunnel between this machine and the PC's Topics node open.
+#   -L 127.0.0.1:$LPORT (here) -> 127.0.0.1:3341 (PC, "tunnel" listener:
+#      counts as remote, so this machine must have paired with it)
+#   -R 127.0.0.1:$RPORT (PC)   -> 127.0.0.1:$PROXY (here, ONLY the model
+#      proxy: never Topics' main port, which from loopback is the owner
+#      with no credentials)
+# An "ssh -N" does not keep the PC awake, so the tunnel can stay up forever:
+# while the PC sleeps port 22 does not answer and it retries after 15 s.
+#
+# TOPICS_NODE_SSH  user@host of the PC (required)
+set -u
+HOST_SSH="${TOPICS_NODE_SSH:?TOPICS_NODE_SSH is not set (user@host of the PC)}"
+LPORT="${TOPICS_NODE_LPORT:-3393}"
+RPORT="${TOPICS_NODE_RPORT:-3394}"
+PROXY="${TOPICS_NODE_PROXY_PORT:-3391}"
+host="${HOST_SSH#*@}"
+while :; do
+  if nc -z -G 2 "$host" 22 >/dev/null 2>&1; then
+    echo "$(date '+%F %T') opening tunnel L$LPORT R$RPORT->$PROXY"
+    ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes \
+      -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ConnectTimeout=8 \
+      -L "127.0.0.1:$LPORT:127.0.0.1:3341" \
+      -R "127.0.0.1:$RPORT:127.0.0.1:$PROXY" "$HOST_SSH"
+    echo "$(date '+%F %T') tunnel closed ($?)"
+  fi
+  sleep 15
+done

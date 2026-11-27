@@ -64,6 +64,13 @@ export interface MergeOutcome {
   movedBlockers: number;
 }
 
+/**
+ * A change made by the system itself on a rule the board switched on, not by a person or an agent.
+ * `reason` signs a hand-over to review (`delivered_by = 'system'`: no summary, no approval row).
+ * `closeProof` is the only way a system closes a card: the verified proof, which must be in the thread.
+ */
+export interface SystemAction { reason: string; closeProof?: string }
+
 export interface TaskService {
   create(input: CreateTaskInput): Task;
   get(taskId: string, opts?: { projectId?: string }): { task: Task; comments: TaskComment[]; children: Task[] } | null;
@@ -106,7 +113,7 @@ export interface TaskService {
    * the route). It may write the question for the person on a card it did not
    * open (the card of a schedule or the board API has no chat to do it).
    */
-  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null; messageId?: string | null; origin?: TaskActionOrigin; asCoordinator?: boolean }): Task;
+  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null; messageId?: string | null; origin?: TaskActionOrigin; asCoordinator?: boolean; systemAction?: SystemAction }): Task;
   /**
    * `questionOptions` turns the comment into a human-decision request: the
    * SERVER composes the canonical ```question``` block (question = content,
@@ -457,7 +464,14 @@ export interface TaskService {
    */
   findOpenTwin(args: { projectId: string; text?: string; idempotencyKey?: string | null; rootsOnly?: boolean }): Task | null;
 
-  archive(args: { taskId: string; projectId?: string }): Task;
+  archive(args: { taskId: string; projectId?: string; excludeDependentIds?: readonly string[] }): Task;
+  /**
+   * Read-only precheck for `archive`: throws the same `blocks_live_dependent`
+   * error, without mutating anything. For a caller that must detach a live
+   * agent or open children BEFORE archiving (the board DELETE route) — run
+   * this FIRST, so a rejected archive leaves no side effect behind.
+   */
+  assertArchivable(args: { taskId: string; projectId?: string; detachingOpenChildren?: boolean }): void;
   /**
    * Unhooks the open children (not archived, not done) of `taskId` so they
    * become root cards again, keeping their status. Called by the board DELETE

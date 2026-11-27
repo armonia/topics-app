@@ -152,39 +152,18 @@ pub(crate) fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
                         // Close at LEFT_INSET, each subsequent button one PITCH to the
                         // right — a fixed tight cluster regardless of AppKit's default.
                         f.origin.x = LEFT_INSET + (i as f64) * PITCH;
-                        // Vertically center the cluster on the APP's own titlebar, not
-                        // the shorter native strip the buttons live in. Measured: the
-                        // AppKit titlebar container is 32px tall and top-flush with the
-                        // window, but the app draws a 40px drag-region header
-                        // (App.tsx `.app-drag-region` = h-10) under it (Overlay style),
-                        // so centering in the 32px strip left the lights ~4px high in
-                        // the visual band. Target the 40px header's center instead; the
-                        // 14px buttons still fit inside the 32px strip (span 13..27px).
-                        const APP_TITLEBAR_H: f64 = 40.0;
-                        let center_from_top = APP_TITLEBAR_H / 2.0;
-                        // Centre the DOT, not the button frame. AppKit draws the 12px
-                        // disc at the top edge of a taller (14x16) frame, so a frame
-                        // centred on the row lands the disc ~2px above it. Measured
-                        // 2026-09-07 on the live window (v2.2.274, 40px row): discs
-                        // at y 12-25 (centre 18.5) against the wordmark's capitals at
-                        // 15-26 (centre 20.5) and the row's buttons at 20. The
-                        // client's `TRAFFIC_LIGHT_DOT_PX` is this same 12.
-                        const DOT: f64 = 12.0;
-                        f.origin.y = if flipped {
-                            center_from_top - DOT / 2.0
-                        } else {
-                            svb.size.height - (center_from_top - DOT / 2.0) - f.size.height
-                        }
-                        .max(0.0);
+                        // Vertically centre the cluster on the APP's own top row, not
+                        // the shorter native strip the buttons live in (see
+                        // `traffic_light_y`). The row's height comes from the client.
+                        let row_px = TRAFFIC_LIGHTS_ROW_PX.load(Ordering::Relaxed) as f64;
+                        f.origin.y = crate::traffic_light_geometry::traffic_light_y(
+                            row_px, svb.size.height, f.size.height, flipped);
                         // Clamp inside the container so a surprising bounds/frame
                         // can never push a button out of view. Worst case the
                         // group crowds an edge — still on screen, still clickable.
                         let max_x = (svb.size.width - f.size.width).max(0.0);
-                        let max_y = (svb.size.height - f.size.height).max(0.0);
                         if f.origin.x < 0.0 { f.origin.x = 0.0; }
                         if f.origin.x > max_x { f.origin.x = max_x; }
-                        if f.origin.y < 0.0 { f.origin.y = 0.0; }
-                        if f.origin.y > max_y { f.origin.y = max_y; }
                         let _: () = msg_send![b, setFrame: f];
                     }
                 } else {
@@ -205,10 +184,15 @@ pub(crate) fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn apply_traffic_lights<W>(_window: &W, _visible: bool) {}
 
-/// Reveal or hide the window's traffic lights. Driven by the client when the
-/// Topics dropdown opens/closes (mirrors Electron's `window:showTrafficLights`).
+/// Reveal or hide the window's traffic lights, and tell the shell how tall the
+/// client's top row is so they centre on it (`row`, px; absent from a client
+/// that predates it, which keeps the stored value). A value outside 24..=64 is
+/// not a row and is ignored.
 #[tauri::command]
-pub(crate) fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
+pub(crate) fn set_traffic_lights(app: tauri::AppHandle, visible: bool, row: Option<u32>) {
+    if let Some(px) = row.filter(|px| (24..=64).contains(px)) {
+        TRAFFIC_LIGHTS_ROW_PX.store(px, Ordering::Relaxed);
+    }
     // Resolve the main window via the AppHandle (label "main") rather than taking a
     // `WebviewWindow` param. CRUCIAL: once native browser PANES (child webviews) are
     // mounted the main window is multi-webview, and `get_webview_window("main")` then
@@ -225,7 +209,7 @@ pub(crate) fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
         let _ = no_abort("set_traffic_lights", || {
             match app.get_window("main") {
                 Some(win) => {
-                    eprintln!("[chrome] set_traffic_lights(visible={visible}) — applying to main window");
+                    eprintln!("[chrome] set_traffic_lights(visible={visible}, row={row:?}) — applying to main window");
                     apply_traffic_lights(&win, visible);
                 }
                 None => eprintln!("[chrome] set_traffic_lights(visible={visible}) — main window NOT found, no-op"),
@@ -234,7 +218,7 @@ pub(crate) fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
         });
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, visible);
+    let _ = (app, visible, row);
 }
 
 /// Set the NSWindow's appearance to match the app's chosen light/dark theme.
