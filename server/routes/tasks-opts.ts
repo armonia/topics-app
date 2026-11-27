@@ -17,6 +17,7 @@ import type { ScheduledCardsService } from "../schedule/cards-service";
 import type { IntegrationMeasure } from "../services/integration-queue";
 import { type NodeDeliveryCheckout } from "../services/node-delivery-meter";
 import { type TaskFile } from "../../shared/task-labels";
+import type { ScheduledReviewDeps } from "../services/scheduled-review";
 import type { StopCause } from "../lib/abort-cause";
 
 export interface TasksRouterOpts {
@@ -131,6 +132,8 @@ export interface TasksRouterOpts {
    * straight to the land queue as before.
    */
   integrationRepo?: (taskId: string) => Promise<string | null>;
+  /** Replaces the scheduled review's own doors (checkout and tests, the reviewer model, git proofs); absent = the real ones. */
+  scheduledReviewDoors?: Partial<Pick<ScheduledReviewDeps, "inspect" | "sense" | "falseMainClaims" | "onMain">>;
   /**
    * main's own CI for a project (`services/main-ci-watch.ts`): the commits of its main, the push CI of
    * each, and whether a commit came in with a sha. `null` = the project has no repository here. Absent = the
@@ -256,6 +259,17 @@ export interface TasksRouterOpts {
    * `unverifiable`. Un verdetto `landed` lo scrive SOLO questa prova.
    */
   confirmLandedOnMain?: (repoPath: string, commit: string) => Promise<boolean | null>;
+  /**
+   * Asked BEFORE the merge, on a card whose delivery no bar ever measured: is
+   * the delivery commit already on the published main anyway, or inside the
+   * merge this card's own land already wrote there (another session's land,
+   * a PR merged by hand, a GC's `merge task <id>`)? A SHA = the proof, and the
+   * card lands and closes without ever asking for the measure; `null` = no
+   * such proof, and the unmeasured-delivery gate stands as before.
+   *
+   * Absent ⇒ no such question, and an unmeasured delivery always stops there.
+   */
+  alreadyLandedProof?: (repoPath: string, taskId: string, commit: string) => Promise<string | null>;
   /**
    * Pushes `main` to origin after a confirmed land, fast-forward only
    * (`main-on-origin.ts`). Absent = no push (tests that do not care).

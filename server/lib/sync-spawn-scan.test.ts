@@ -41,6 +41,7 @@ const ALLOWED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/lib/live-checkout-branch-guard.ts", snippet: "spawnSync(\"git\"", why: "source text of the PreToolUse hook: it runs in the agent's own short-lived `bun -e`, never in the server" },
   { file: "server/services/external-proxy-ca.ts", snippet: "execFileSync(findOpenssl()", why: "building the local CA and the api.anthropic.com leaf for the external-sessions proxy: at boot, only when the files are missing or near expiry (a few openssl runs of milliseconds, once), 15 s timeout. Never on a request path" },
   { file: "server/providers/native/auth.ts", snippet: "spawnSync(cmd, args", why: "the Keychain, macOS only, for the callers synchronous by contract: `hasCredentials` (the `connected` getter, only when no credential file holds a pair), the plan in a providers snapshot, and the write of a renewal. The turn's path (getAccessToken, recoverAfter401) asks it asynchronously (T16)" },
+  { file: "server/services/review-checks.ts", snippet: "Bun.spawnSync([\"git\", \"diff\", \"--name-only\"", why: "isMacOnlyDiff: a short local git diff read once per exhausted delivery, to decide the swap fallback, 5 s timeout. Never on a timer or a per-request path" },
 ];
 
 function walk(dir: string, out: string[]): void {

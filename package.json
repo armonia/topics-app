@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.5.2",
+  "version": "2.5.12",
   "description": "Desktop workspace for coding agents: editor, diff viewer, terminal, browser and a task board, one topic at a time. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
@@ -147,7 +147,7 @@
     "test:evidence": "E2E_EVIDENCE=1 npx playwright test",
     "test:report": "npx playwright show-report test-results/html-report",
     "test:touched": "bun run scripts/slot.ts test:touched -- 'bun run scripts/test-touched.ts'",
-    "test:touched:review": "bun run scripts/slot.ts test:touched -- 'bun run scripts/test-touched.ts --no-full'",
+    "test:touched:review": "TOPICS_UNIT_SHARDS=1 bun run scripts/slot.ts test:touched -- 'bun run scripts/test-touched.ts --no-full'",
     "test:unit": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts'",
     "test:unit:shuffle": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts --shuffle'",
     "test:unit:durations": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts --record'",

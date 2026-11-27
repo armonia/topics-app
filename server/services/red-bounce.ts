@@ -28,6 +28,8 @@ export const MAX_AUTO_BOUNCES = 3;
 
 /** The first words of the note every bounce leaves: it is also how bounces are counted. */
 export const RED_BOUNCE_NOTE = "Rimandata da sola all'agente: i check sono rossi";
+/** The scheduled review's own note: its send-backs are not about a red bar, but they count in the same rounds. */
+export const SCHEDULED_BOUNCE_NOTE = "Rimandata dal ripasso a orario";
 
 export interface RedBounceCard {
   status: string;
@@ -63,7 +65,7 @@ export function bouncesSinceHuman(comments: readonly RedBounceComment[]): number
   for (let i = comments.length - 1; i >= 0; i--) {
     const c = comments[i]!;
     if (c.author === HUMAN_AUTHOR && (c.kind ?? "comment") === "comment") break;
-    if (c.author === "system" && c.content.startsWith(RED_BOUNCE_NOTE)) n += 1;
+    if (c.author === "system" && (c.content.startsWith(RED_BOUNCE_NOTE) || c.content.startsWith(SCHEDULED_BOUNCE_NOTE))) n += 1;
   }
   return n;
 }
@@ -85,6 +87,16 @@ export function redBounceVerdict(
   const done = bouncesSinceHuman(comments);
   if (done >= MAX_AUTO_BOUNCES) return no(`${done} bounces already, a person decides`, true);
   return { bounce: true, round: done + 1 };
+}
+
+/** What the agent reads when the scheduled review sends its card back: the round and the reason, not a red bar. */
+export function scheduledBounceMessage(round: number, why: string): string {
+  return [
+    `${SCHEDULED_BOUNCE_NOTE} (giro ${round} di ${MAX_AUTO_BOUNCES}). Nessuno deve guardarla finché non lo risolvi.`,
+    why,
+    "Correggi nel tuo ramo, committa e rimetti in review con update_task(status=\"review\"). " +
+      "Se per uscirne serve una decisione di una persona, dillo con human_ask: solo allora la card aspetta qualcuno.",
+  ].join("\n\n");
 }
 
 /** What the agent reads when its card comes back: the round and the failing output. */

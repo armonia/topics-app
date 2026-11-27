@@ -15,9 +15,9 @@ import { awaitCiEvidence, closeCiDraft, spawnCapped } from "../services/ci-evide
 import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
 import { measureIntegration } from "../services/integration-measure";
 import { describeMainRed, MAIN_RED_MODEL, mainRedKey, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
-import { personPlace } from "../services/auto-land";
+import { personPlace, scheduledReviewCmd } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
-import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict } from "../services/red-bounce";
+import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict, scheduledBounceMessage } from "../services/red-bounce";
 import { formatChecksComment } from "../services/review-checks";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { Task, TaskService } from "../services/tasks";
@@ -96,14 +96,19 @@ export function createCiPhase(deps: CiPhaseDeps) {
   /**
    * A card in review that cannot land as it stands (its pull request conflicts
    * with main) goes back to its agent with `why`, on the same round count as a
-   * red. `true` = the card left review.
+   * red. `true` = the card left review. `as` picks the words the agent reads: a red bar (default), the scheduled
+   * review's own send-back, or `answer`: the reply to the agent's own question (sent as is, no round used, and the
+   * question is cleared by the review decision only once the send-back happened).
    */
-  function bounceWithReason(projectId: string, taskId: string, why: string): boolean {
+  function bounceWithReason(projectId: string, taskId: string, why: string, how: { as?: "red" | "scheduled" | "answer" } = {}): boolean {
     const got = deps.svc.get(taskId, { projectId });
-    if (!got || got.task.status !== "review" || (got.task.humanAsk ?? "").trim() || deps.cardTurnIsLive(got.task)) return false;
+    const answering = how.as === "answer";
+    if (!got || got.task.status !== "review" || deps.cardTurnIsLive(got.task)) return false;
+    if (!answering && (got.task.humanAsk ?? "").trim()) return false;
     const done = bouncesSinceHuman(got.comments);
-    if (done >= MAX_AUTO_BOUNCES) return false;
-    return sendBackToAgent(projectId, taskId, redBounceMessage(done + 1, why));
+    if (!answering && done >= MAX_AUTO_BOUNCES) return false;
+    const message = answering ? why : how.as === "scheduled" ? scheduledBounceMessage(done + 1, why) : redBounceMessage(done + 1, why);
+    return sendBackToAgent(projectId, taskId, message);
   }
 
   /**
@@ -243,6 +248,10 @@ export function createCiPhase(deps: CiPhaseDeps) {
     });
   }
 
+  const scheduledReviewOn = (projectId: string): boolean => {
+    try { return readWorkflowRules(deps.db, projectId).scheduledReviewMinutes > 0; } catch { return false; }
+  };
+
   const integration = createIntegrationQueue({
     collectMs: deps.integrationCollectMs,
     measure: (projectId, taskIds) => measureCards(projectId, taskIds, { commitOf: (id) => deps.svc.get(id, { projectId })?.task.deliveryCommit ?? null, remember: true }),
@@ -258,6 +267,16 @@ export function createCiPhase(deps: CiPhaseDeps) {
       const since = (deps.db.query("SELECT land_intent_at FROM tasks WHERE id = ?").get(taskId) as { land_intent_at?: string | null } | null)?.land_intent_at;
       const spoke = since && (deps.svc.get(taskId, { projectId })?.comments ?? []).some((c) => c.author === "user" && (c.kind ?? "comment") === "comment" && !!c.createdAt && c.createdAt > since);
       if (spoke) { giveUp(projectId, taskId, "hai scritto sulla card mentre era in fase CI: non la atterro finché non rispondi"); return; }
+      // The automatic land's gate holds here too: with the scheduled review on, an automatic decision lands only
+      // the commit the review cleared. A card that moved to another commit in the phase has no row for it yet.
+      const cur = deps.svc.get(taskId, { projectId })?.task;
+      if (cur?.landIntent === "auto" && scheduledReviewOn(projectId) && !(cur.deliveryCommit && cur.checks?.some((r) => r.ok && r.cmd === scheduledReviewCmd(cur.deliveryCommit!)))) {
+        try {
+          deps.svc.setLandIntent({ taskId, who: null });
+          deps.svc.addComment({ taskId, author: "system", kind: "service", content: "Fase CI verde, ma il ripasso a orario non ha ancora liberato questo commit: non atterra finché la sua riga non c'è. Al prossimo ripasso, se lo libera, atterra da sola." });
+        } catch { /* the card stays in review either way */ }
+        return;
+      }
       deps.landDirect(projectId, taskId);
       await deps.whenLanded(taskId)?.catch(() => undefined);
       const after = deps.svc.get(taskId, { projectId })?.task;
@@ -398,11 +417,73 @@ export function createCiPhase(deps: CiPhaseDeps) {
   }
 
   /**
+   * Was main already red, on the same JOB, before this card's own commit entered it? Each landed card
+   * pushes to main on its own (the comment above `bisectAfterLand` says so), so the commit right before
+   * this one's own push IS the previous card's push — reading its verdict tells whether the red
+   * predates this card instead of guessing from the batch. `null` = cannot tell (no port, no commit, the
+   * push is not among main's recent history, or the one before it answered green/pending): the caller
+   * bounces as it always did.
+   *
+   * A JOB can hold many tests: the same job red before and after proves nothing by itself when a
+   * DIFFERENT test broke it (25/11, second review) — and while main stays red, it would call every card
+   * after it innocent forever. So when both verdicts carry `failedTests` (the unit suite's own JUnit
+   * report, `main-ci-watch.ts`), the comparison is by TEST: preexisting only if every test failing now
+   * was already failing before. Without names on either side (an older run, the artifact gone) the job
+   * overlap is the only signal left, and `byTest: false` says so for the note on the card.
+   */
+  async function wasPreexistingRed(projectId: string, taskId: string): Promise<{ failedBefore: string[]; byTest: boolean } | null> {
+    if (!deps.mainCiPort) return null;
+    const port = await deps.mainCiPort(projectId).catch(() => null);
+    if (!port) return null;
+    const commit = readAfter(taskId)?.commit ?? deps.svc.get(taskId, { projectId })?.task?.deliveryCommit ?? null;
+    if (!commit) return null;
+    const recent = await port.recent().catch(() => null);
+    if (!recent || !recent.length) return null;
+    const oldestFirst = [...recent].reverse();
+    let idx = -1;
+    for (let i = 0; i < oldestFirst.length; i++) {
+      if (await port.entersAt(commit, oldestFirst[i]!.sha).catch(() => false)) { idx = i; break; }
+    }
+    if (idx <= 0) return null; // not found, or nothing landed before it in this window
+    const mine = await port.verdict(oldestFirst[idx]!.sha).catch(() => null);
+    if (!mine || mine.state !== "fail") return null;
+    const before = await port.verdict(oldestFirst[idx - 1]!.sha).catch(() => null);
+    if (!before || before.state !== "fail") return null;
+    if (mine.failedTests && mine.failedTests.length && before.failedTests) {
+      const allOld = mine.failedTests.every((t) => before.failedTests!.includes(t));
+      return allOld ? { failedBefore: before.failedTests, byTest: true } : null;
+    }
+    const overlap = mine.failed.some((j) => before.failed.includes(j));
+    return overlap ? { failedBefore: before.failed, byTest: false } : null;
+  }
+
+  /**
    * A red on main after the land: the card leaves `done` and goes back to its agent with the log, the
    * same round count as a red before the land (`bouncesSinceHuman`, `MAX_AUTO_BOUNCES`). Its work is
    * ALREADY on main and its branch is reaped, so the agent starts from the updated main and fixes forward.
    */
   async function bounceAfterLand(projectId: string, taskId: string, why: string): Promise<void> {
+    // The red already existed, same job, before this card landed: it is not this card's fault, and
+    // reopening it would blame the wrong work (25/11, the same bounce family as the empty-run guard).
+    const pre = await wasPreexistingRed(projectId, taskId).catch(() => null);
+    if (pre) {
+      settleAfter(taskId, "green");
+      const t = deps.svc.get(taskId, { projectId })?.task;
+      if (t) {
+        try {
+          deps.svc.addComment({
+            taskId, author: "system", kind: "service",
+            content: pre.byTest
+              ? `La CI di main è rossa, ma sugli stessi test di prima (${pre.failedBefore.join(", ") || "nessuno nominato"}): ` +
+                "non è il rosso di questa card, resta atterrata."
+              : `La CI di main è rossa, ma lo era già prima di questa card (${pre.failedBefore.join(", ") || "stesso job"}, nomi dei test non disponibili): ` +
+                "non è il rosso di questa card, resta atterrata.",
+          });
+        } catch { /* best-effort */ }
+        deps.broadcast({ type: "task:updated", projectId, task: t });
+      }
+      return;
+    }
     const mark = readAfter(taskId);
     settleAfter(taskId, "bounced");
     const got = deps.svc.get(taskId, { projectId });

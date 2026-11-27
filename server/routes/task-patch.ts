@@ -216,6 +216,12 @@ const AGENT_FIELDS: Record<string, FieldSpec> = {
   stage: { to: "stage", read: asStringOrNull },
   humanAsk: { to: "humanAsk", read: asStringOrNull },
   human_ask: { to: "humanAsk", read: asStringOrNull },
+  // The one exception to the narrower agent surface above: a future step is a
+  // card wired with `blockedByTaskId`, never a promise in a comment
+  // (`buildKickoff`, docs/board-protocol.md). Without this an agent could
+  // create the dependent card but never attach the link after the fact
+  // (review feedback, 26/11, point 4).
+  blockedByTaskId: { to: "blockedByTaskId", read: asRefOrNull },
 };
 
 const PREVIEW_KEYS = ["previewImage", "preview_image"];

@@ -41,7 +41,7 @@
  *      owner's rule of 09/11 turned it: technical cards close themselves, with
  *      the whole bar green on the commit that lands.
  */
-import { agentAskInThread, asksOnlyApproval, type PersonPath } from "../../shared/workflow";
+import { agentAskInThread, askNeedsPerson, type PersonPath } from "../../shared/workflow";
 import { whoCloses } from "../../shared/task-labels";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { isThreadSpeech, type CheckRun } from "../../shared/board";
@@ -53,7 +53,7 @@ export interface AutoLandCard {
   labels: ReadonlyArray<{ label: string }>;
   checksState: "running" | "pass" | "fail" | "unknown" | null;
   checksCommit: string | null;
-  checks: ReadonlyArray<Pick<CheckRun, "ok">> | null;
+  checks: ReadonlyArray<Pick<CheckRun, "ok"> & Partial<Pick<CheckRun, "cmd">>> | null;
   deliveryBranch: string | null;
   deliveryCommit: string | null;
   humanAsk?: string | null;
@@ -71,7 +71,16 @@ export interface AutoLandBoard {
   autoMerge: boolean;
   /** How many commands the board declares in its bar. */
   declaredChecks: number;
+  /**
+   * The board runs the scheduled review (`scheduled-review.ts`): no card lands alone without that
+   * review's own row in the bar, naming the commit, and a technical card needs no `invisibile` label.
+   */
+  scheduledReview?: boolean;
 }
+
+/** The bar row the scheduled review writes for the commit it judged fit to land. */
+export const SCHEDULED_REVIEW_PREFIX = "scheduled-review:";
+export const scheduledReviewCmd = (commit: string): string => `${SCHEDULED_REVIEW_PREFIX}${commit.slice(0, 8).toLowerCase()}`;
 
 export interface AutoLandComment {
   author?: string | null;
@@ -102,16 +111,23 @@ export function autoLandVerdict(
   // A board with no bar has nothing that could be green: `null` is not a pass.
   if (board.declaredChecks < 1) return no("the board declares no bar");
   const labels = card.labels.map((l) => l.label);
-  if (whoCloses(labels, card.checksState) !== "conductor") return no("the card is not invisible with a green bar");
-  // "Whole": every command the board declares has a row, and every row is ok.
-  const runs = card.checks ?? [];
-  if (runs.length < board.declaredChecks || !runs.every((r) => r.ok)) return no("the bar is not green in full");
+  if (board.scheduledReview) {
+    // The review's own judgement stands in for the label: only a card a person must see is excluded.
+    if (labels.includes("visibile") || card.checksState !== "pass") return no("the card is visible or its bar is not green");
+  } else if (whoCloses(labels, card.checksState) !== "conductor") return no("the card is not invisible with a green bar");
+  // "Whole": every command the board declares has a row, and every row is ok. The review's row is not a declared one.
+  const all = card.checks ?? [];
+  const runs = all.filter((r) => !(r.cmd ?? "").startsWith(SCHEDULED_REVIEW_PREFIX));
+  if (runs.length < board.declaredChecks || !all.every((r) => r.ok)) return no("the bar is not green in full");
   if (!card.deliveryBranch || !card.deliveryCommit) return no("the delivery has no branch and commit of its own");
+  if (board.scheduledReview && !all.some((r) => r.cmd === scheduledReviewCmd(card.deliveryCommit!) && r.ok)) {
+    return no("the scheduled review has not cleared this commit");
+  }
   // The bar must describe what is about to land, not an earlier round.
   if (!sameCommit(card.checksCommit, card.deliveryCommit)) return no("the bar measured another commit than the delivered one");
-  // A `human_ask` that only says "ok?" asks what review already offers (`asksOnlyApproval`, shared/workflow.ts).
-  const ask = (card.humanAsk ?? "").trim();
-  if (ask && !asksOnlyApproval(ask)) return no("the card asks the person something");
+  // Only a question that belongs to a person (copy to see, money, public, real people, irreversible)
+  // holds the land. "ok?" and a technical choice do not: the system takes it (`askNeedsPerson`, shared/workflow.ts).
+  if (askNeedsPerson(card.humanAsk ?? "")) return no("the card asks the person something");
   if ((card.dispatchError ?? "").trim()) return no("the run ended on an error: the delivery may be partial");
   if (personSpokeSinceReview(card.reviewAt ?? null, thread)) return no("a person wrote on the card after it entered review");
   if (agentAskInThread(thread)) return no("the agent's last word is a question");
@@ -399,8 +415,8 @@ export function createAutoLander(deps: AutoLanderDeps) {
       try {
         deps.note(
           taskId,
-          `Atterrata da sola: la barra della board è verde per intero sul commit consegnato (\`${commit.slice(0, 8)}\`), la card è invisibile ` +
-            "e non fa domande. Si chiude solo a merge confermato su main; se il ramo si è mosso o è rimasto indietro non lo tocco e resta in review.",
+          `Atterrata da sola: la barra della board è verde per intero sul commit consegnato (\`${commit.slice(0, 8)}\`), niente richiede una persona ` +
+            "e la card non fa domande. Si chiude solo a merge confermato su main; se il ramo si è mosso o è rimasto indietro non lo tocco e resta in review.",
         );
       } catch (err) { log(`[auto-land] nota non scritta per ${taskId}: ${String(err)}`); }
       return null;
@@ -465,5 +481,8 @@ export function createAutoLander(deps: AutoLanderDeps) {
     for (const id of [...attempted.keys()]) if (!inReview.has(id)) attempted.delete(id);
   }
 
-  return { tryLand, forgetExcept, isWaiting: (taskId: string) => waiting.has(taskId) };
+  /** A land that is waiting on GitHub's own verdict is not a refusal: the commit may be offered again. */
+  function forget(taskId: string): void { attempted.delete(taskId); }
+
+  return { tryLand, forgetExcept, forget, isWaiting: (taskId: string) => waiting.has(taskId) };
 }

@@ -20,6 +20,7 @@
  * (`checks-gate.ts`'s `InterruptReason`) already covers every row the same
  * way, CI or local, so nothing extra is needed for it.
  */
+import { existsSync } from "node:fs";
 import type { ReviewCheck } from "../../shared/board";
 import type { ChecksLeg } from "./checks-gate";
 
@@ -51,6 +52,8 @@ interface NodeDeliveryMeterDeps {
   legMs?: number;
   /** Legs before giving up on a round that never settles. */
   maxLegs?: number;
+  /** Seam for the test: whether a path is on disk right now. */
+  existsSync?: (path: string) => boolean;
 }
 
 export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
@@ -58,11 +61,13 @@ export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
   const note = deps.note ?? (() => undefined);
   const legMs = deps.legMs ?? 60_000;
   const maxLegs = deps.maxLegs ?? 80;
+  const exists = deps.existsSync ?? existsSync;
   const measuring = new Set<string>();
 
-  /** Every exit that leaves the card with no round running says why, on the log AND the card. */
+  /** Every exit that leaves the card with checks_state NULL and no round running says why, on the log AND the card. */
   function giveUp(taskId: string, reason: string): void {
-    log(`[node-meter] ${taskId.slice(0, 8)}: ${reason}`);
+    const line = `[node-meter] ${taskId.slice(0, 8)}: ${reason}`;
+    log(line);
     note(taskId, reason);
   }
 
@@ -75,11 +80,23 @@ export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
     if (!deps.checkout) { giveUp(taskId, "nessun checkout disponibile su questo server per misurare una consegna di nodo"); return; }
     measuring.add(taskId);
     try {
-      const lease = await deps.checkout(taskId);
+      let lease = await deps.checkout(taskId);
       if (!lease) { giveUp(taskId, "nessun checkout su cui misurare"); return; }
       try {
-        const at = async () => ({ cwd: lease.cwd, commit: await lease.head() });
+        const at = async () => ({ cwd: lease!.cwd, commit: await lease!.head() });
         for (let leg = 0; leg < maxLegs; leg++) {
+          // The cwd can be gone under the measure (a process before tore the
+          // checkout down before releasing its own lease): launching a command
+          // on a folder that is not there measures nothing, it only writes a
+          // `spawnError`. Redo the checkout on the same delivered commit
+          // instead, with no command ever launched on the void.
+          if (!exists(lease.cwd)) {
+            log(`[node-meter] ${taskId.slice(0, 8)}: checkout sparito, lo rifaccio`);
+            const fresh = await deps.checkout(taskId).catch(() => null);
+            if (!fresh) { giveUp(taskId, "non misurato: checkout sparito"); return; }
+            lease = fresh;
+            continue;
+          }
           const out = await deps.runGate(taskId, task.projectId, legMs, at);
           if (out && "pending" in out) continue;
           break;
