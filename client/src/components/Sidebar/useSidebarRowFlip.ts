@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 
 import { animateEl, EASE, MOTION } from '../../lib/motion';
+import { playLeftRows, ROW_EXIT_MS } from '../../lib/rowExit';
 import { liveTranslate } from './useCellFlip';
 
 /**
@@ -25,7 +26,10 @@ import { liveTranslate } from './useCellFlip';
  *  - a unit that MOVED slides over `MOTION.base` (a row crossing space);
  *  - a unit that is NEW fades in over `MOTION.fast`, where it already is, so
  *    the rows sliding out of its way never cross an opaque copy of it;
- *  - a unit that LEFT is gone at once, and the ones after it slide up.
+ *  - a unit that LEFT is gone at once, and the ones after it slide up;
+ *    an ARCHIVED one leaves as an inert copy that slides out and fades
+ *    first, and the ones after it wait for it (`lib/rowExit`, played
+ *    before the pass).
  *
  * Positions are taken RELATIVE TO THE NEAREST ENCLOSING UNIT (or to the
  * scrolling column, plus its scrollTop). Two consequences, both wanted:
@@ -54,6 +58,15 @@ const PINNED_SECTION = '[data-testid="sidebar-pinned-section"]';
 /** Below this, a difference is a rounding error, not a move. */
 const MIN_MOVE_PX = 1;
 
+/** The part of a move's start delay not yet elapsed, in ms (0 once it moves). */
+function holdLeft(a: Animation): number {
+  const timing = a.effect?.getComputedTiming();
+  const delay = Number(timing?.delay ?? 0);
+  const local = timing?.localTime;
+  if (!delay || local == null) return 0;
+  return Math.max(0, delay - Number(local));
+}
+
 interface Spot {
   top: number;
 }
@@ -68,7 +81,7 @@ interface FlipState {
  * start the moves and fades against the previous pass. Returns the units, so
  * the caller can watch their size.
  */
-function flipPass(column: HTMLElement, state: FlipState, animate: boolean): HTMLElement[] {
+function flipPass(column: HTMLElement, state: FlipState, animate: boolean, delay = 0): HTMLElement[] {
   const origin = column.getBoundingClientRect();
   const scrollTop = column.scrollTop;
   const units = Array.from(column.querySelectorAll<HTMLElement>(UNIT_SELECTOR)).filter((el) => {
@@ -139,12 +152,27 @@ function flipPass(column: HTMLElement, state: FlipState, animate: boolean): HTML
     // Start from where it is SEEN now: previous layout plus the part of an
     // earlier move still being applied.
     const dy = before.top - top + ty;
-    if (Math.abs(dy) < MIN_MOVE_PX) continue;
-    state.running.get(el)?.cancel();
+    if (Math.abs(dy) < MIN_MOVE_PX) {
+      // Already where it is seen. A move still applying an offset (an archive
+      // rolled back inside its hold) would keep pushing the row off the
+      // layout it is back on: drop it, and the row stays where it stands.
+      if (ty !== 0) { state.running.get(el)?.cancel(); state.running.delete(el); }
+      continue;
+    }
+    const previous = state.running.get(el);
+    // `delay` holds the row at its old place (the first keyframe, filled
+    // backwards) while an archived row's copy leaves from above it. A move
+    // restarted while still held keeps the rest of its hold: the commit that
+    // follows an archive (the server's answer) would otherwise start the row
+    // under the copy at once.
+    const hold = Math.max(delay, previous ? holdLeft(previous) : 0);
+    previous?.cancel();
     track(el, animateEl(
       el,
       [{ transform: `translateY(${dy}px)` }, { transform: 'none' }],
-      { duration: MOTION.base, easing: EASE.standard },
+      hold
+        ? { duration: MOTION.base, easing: EASE.standard, delay: hold, fill: 'backwards' }
+        : { duration: MOTION.base, easing: EASE.standard },
     ));
   }
   return units;
@@ -176,9 +204,12 @@ export function useSidebarRowFlip(root: RefObject<HTMLElement | null>): void {
   useLayoutEffect(() => {
     const column = root.current;
     if (!column) return;
+    // An archived row's exit first: while its copy leaves, the rows below
+    // wait for it (see `lib/rowExit`).
+    const exiting = playLeftRows(column);
     // The first pass only records: what is in memory is on screen in the
     // first frame, and nothing flies in.
-    const units = flipPass(column, state.current, measured.current);
+    const units = flipPass(column, state.current, measured.current, exiting ? ROW_EXIT_MS : 0);
     measured.current = true;
     const ro = observer.current;
     if (!ro) return;

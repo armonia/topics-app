@@ -10,11 +10,13 @@
  */
 import { Combine, Maximize2, Minimize2 } from 'lucide-react';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-import { ROW_ACTION_BOX } from '../../lib/selectionStyles';
+import { TAB_BUTTON, TAB_BUTTON_SQUARE, TAB_GAP_CLASS } from '../../lib/selectionStyles';
 import { useT } from '../../hooks/useT';
 import type { ZoomScope } from './zoomScope';
 
-const ICON_BUTTON = `${ROW_ACTION_BOX} flex-shrink-0 flex items-center justify-center rounded-md text-app-text-muted hover:text-app-text hover:bg-app-hover app-no-drag`;
+// A tab button's box: these sit on the title row beside the title tab, so they
+// are as tall as it and one step from the row's edges like it (26/11).
+const ICON_BUTTON = `${TAB_BUTTON} ${TAB_BUTTON_SQUARE} text-app-text-muted hover:text-app-text hover:bg-app-hover app-no-drag`;
 
 export function CellHeaderCommands({
   paneId, canZoom, isZoomed, onToggleZoom, onReattach,
@@ -30,7 +32,7 @@ export function CellHeaderCommands({
   const zoomable = !!onToggleZoom && (!!isZoomed || !!canZoom);
   if (!zoomable && !onReattach) return null;
   return (
-    <div className="flex items-center gap-0.5 app-no-drag" {...NO_DRAG_REGION} data-testid="cell-header-commands">
+    <div className={`flex items-center ${TAB_GAP_CLASS} app-no-drag`} {...NO_DRAG_REGION} data-testid="cell-header-commands">
       {zoomable && (
         <button
           type="button"
@@ -40,7 +42,7 @@ export function CellHeaderCommands({
           data-testid="cell-header-zoom"
           onClick={() => onToggleZoom?.(paneId, 'derived')}
         >
-          {isZoomed ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          {isZoomed ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
         </button>
       )}
       {onReattach && !isZoomed && (
@@ -52,7 +54,7 @@ export function CellHeaderCommands({
           data-testid="cell-header-reattach"
           onClick={() => onReattach(paneId)}
         >
-          <Combine size={14} />
+          <Combine size={16} />
         </button>
       )}
     </div>

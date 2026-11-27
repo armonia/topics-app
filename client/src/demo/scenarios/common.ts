@@ -49,7 +49,7 @@ export function boardSettings(projectId: string): BoardSettings {
     projectId, autoDispatch: false, dispatchEffort: "auto", dispatchUseWorktree: false,
     dispatchAutoMerge: false, deployCommand: "", dispatchTimeoutMin: 0, dispatchIdleMin: 0,
     dispatchMcp: "bridge-only", dispatchModel: "auto", dispatchTopicsRouting: null,
-    dispatchMachineId: null, dispatchOverflow: false, dispatchStayLocal: false, language: "inherit",
+    dispatchMachineId: null, dispatchOverflow: false, dispatchStayLocal: false, backlogTriage: false, language: "inherit",
     dispatchFanOut: 1, dispatchRetryCap: 0, dispatchRetryBackoffS: 0, requireApprovalForDone: false,
     requireReviewBeforeDone: false, reviewChecks: [], dispatchPaused: false, nightMode: false,
     nightModeUntil: "", nightModeStartedAt: null,
