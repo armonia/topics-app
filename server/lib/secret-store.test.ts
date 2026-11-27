@@ -1,4 +1,6 @@
 /**
+ * @covers MACHINE-06
+ *
  * Pack/unpack of TEST values and a TEST allowlist only; no real secret or
  * real name of this fleet is ever used here. The age round trip runs the
  * real `age`/`age-keygen` binaries (critical point: the allowlist guard
