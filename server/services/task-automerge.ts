@@ -1712,7 +1712,18 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     void chain(repoPath, async () => { fn(); });
   }
 
-  return { tryMerge, buildClient, whenIdle, realign };
+  /**
+   * The checkout a land would merge into, resolved the same way `tryMerge`
+   * resolves it, but with no git run at all: a cheap read for a caller that
+   * only needs to ask main a question BEFORE deciding whether a merge should
+   * even happen.
+   */
+  function resolveRepoPath(taskId: string): string | null {
+    const choice = chooseMergeTarget(deps.resolveTaskMerge(taskId), deps.declaredDelivery?.(taskId) ?? null);
+    return choice.target?.repoPath ?? null;
+  }
+
+  return { tryMerge, buildClient, whenIdle, realign, resolveRepoPath };
 }
 
 export type TaskAutoMerge = ReturnType<typeof createTaskAutoMerge>;

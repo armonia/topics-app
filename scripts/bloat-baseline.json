@@ -606,7 +606,12 @@
 
     "server/routes/tasks-board.ts": 1605,
 
-    "server/routes/tasks-land.ts": 917,
+    "server/routes/tasks-land.ts": {
+      "lines": 1077,
+      "why": [
+        "2026-11-26, scheduled review of technical cards (card fe59766e): 917 on main -> 1077, +160. The wiring of the clock-driven pass (due check, one pass at a time, the verdict applied as land or send-back), the CI-phase gate that lands only with the reviewer's line on the commit, and the agent's question kept until the send-back happens. The judgement itself lives in services/scheduled-review*.ts."
+      ]
+    },
 
     "server/routes/tasks.test.ts": 2887,
 
