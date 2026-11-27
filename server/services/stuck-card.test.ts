@@ -64,6 +64,13 @@ describe("diagnoseStuckCard", () => {
     expect(v.skipMachineId).toBe("pc");
     // A card that waits for THIS Mac (no node) keeps the floor as its reason.
     expect(diagnoseStuckCard(card({ queueReason: floor }), ctx())).toBeNull();
+    // A full disk and the spend cap stop the remote lane too: on a pinned card they stay its reason.
+    for (const held of [
+      { kind: "resource_floor", tone: "stalled", key: "board.queue.resourceFloor", params: { reason: "disk full" } },
+      { kind: "spend_cap", tone: "stalled", key: "board.queue.spendCap" },
+    ]) {
+      expect(diagnoseStuckCard(card({ machineId: "pc", updatedAt: ago(stuckSinceMinutes), queueReason: held as Task["queueReason"] }), ctx({ loadOf: () => 2 }))).toBeNull();
+    }
   });
 
   test("a full machine held THIS long gives up its seat: back to the queue, away from it", () => {

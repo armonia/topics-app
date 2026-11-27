@@ -48,12 +48,15 @@ export interface StuckVerdict {
 const LEGIBLE_QUEUE_KINDS = new Set(["slot", "unknown", "no_agent"]);
 
 /**
- * Blocks of THIS machine (its memory floor, its load). Every queued card reads the board's current
- * block as its reason (`shared-task-mapping.ts`), a card pinned to a node too, and the overflow pins
- * cards to nodes exactly while this machine is blocked: counted as legible, the sweep never spoke
- * for them and the full-machine requeue never fired (27/11, card 4876378e).
+ * A wait on THIS machine's memory floor or load. Every queued card reads the board's current block
+ * as its reason (`shared-task-mapping.ts`), a card pinned to a node too, and the overflow pins cards
+ * to nodes exactly while this machine is blocked: counted as legible, the sweep never spoke for them
+ * and the full-machine requeue never fired (27/11, card 4876378e). A full disk or the spend cap stop
+ * the remote lane as well (`task-dispatcher-claim.ts`), so they stay a reason.
  */
-const OWN_MACHINE_BLOCK_KINDS = new Set(["resource_floor", "resource_pressure"]);
+function ownMachineWait(q: NonNullable<Task["queueReason"]>): boolean {
+  return q.kind === "resource_pressure" || (q.kind === "resource_floor" && q.key.startsWith("board.queue.memory"));
+}
 
 function sinceOf(card: Task): number {
   const stamp = card.status === "in_progress" ? (card.inProgressAt ?? card.updatedAt) : card.updatedAt;
@@ -71,7 +74,7 @@ export function hasLegibleReason(card: Task, pinnedElsewhere = false): boolean {
   // it would undo that choice.
   if (card.status === "in_progress" && card.dispatchState) return true;
   const q = card.queueReason;
-  if (pinnedElsewhere && q && OWN_MACHINE_BLOCK_KINDS.has(q.kind)) return false;
+  if (pinnedElsewhere && q && ownMachineWait(q)) return false;
   return !!q && !LEGIBLE_QUEUE_KINDS.has(q.kind);
 }
 
