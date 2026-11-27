@@ -6107,3 +6107,20 @@ A board with the setting on SHALL, once per half-day slot, read each backlog car
 - **GIVEN** three backlog cards: one workable, one needing a human decision, one that looks done but has no verified proof
 - **WHEN** the triage runs
 - **THEN** the first SHALL move to todo, the second SHALL move to review with its question, and the third SHALL stay in backlog
+
+### Requirement: KANBAN-126 — The preview seed opens in a detached window, so its topic is standalone
+
+A detached window (`?topic=<id>`, what the preview deep link opens) hosts exactly
+the topics it was given and SHALL NOT run the validation effect that converts a
+project-bound topic into its project pane. A seeded preview topic therefore SHALL
+be standalone: a project-bound one lands in `openPanels` as a bare id nothing
+renders, the grid stays empty, and the empty-shell gate retires every screenshot
+of that card forever.
+
+#### Scenario: the detached window never promotes a project-bound topic
+- **GIVEN** a detached window hosting one project-bound, non-standalone topic
+- **THEN** `openPanels` SHALL hold that bare topic id and NOT its project pane
+
+#### Scenario: a standalone seeded topic opens as itself
+- **GIVEN** a detached window hosting one standalone topic
+- **THEN** `openPanels` SHALL hold it and it SHALL be the focused panel

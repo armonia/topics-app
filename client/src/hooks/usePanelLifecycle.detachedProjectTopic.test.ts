@@ -7,7 +7,7 @@
  * preview-worktree seed hit (card 79ab687d, 27/11) — the fix moved the seeded
  * topic to standalone, which this test also covers as the working case.
  *
- * @covers card bdc41478-19ab-4d81-b8a9-5d39d1a4d2bd
+ * @covers KANBAN-126
  */
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';
