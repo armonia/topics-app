@@ -47,14 +47,22 @@ export interface StuckVerdict {
 /** Waiting reasons that already explain themselves, so the system adds nothing. */
 const LEGIBLE_QUEUE_KINDS = new Set(["slot", "unknown", "no_agent"]);
 
+/**
+ * Blocks of THIS machine (its memory floor, its load). Every queued card reads the board's current
+ * block as its reason (`shared-task-mapping.ts`), a card pinned to a node too, and the overflow pins
+ * cards to nodes exactly while this machine is blocked: counted as legible, the sweep never spoke
+ * for them and the full-machine requeue never fired (27/11, card 4876378e).
+ */
+const OWN_MACHINE_BLOCK_KINDS = new Set(["resource_floor", "resource_pressure"]);
+
 function sinceOf(card: Task): number {
   const stamp = card.status === "in_progress" ? (card.inProgressAt ?? card.updatedAt) : card.updatedAt;
   const ms = Date.parse(stamp);
   return Number.isFinite(ms) ? ms : Number.NaN;
 }
 
-/** True when the card already carries a reason a reader can see. */
-export function hasLegibleReason(card: Task): boolean {
+/** True when the card already carries a reason a reader can see. `pinnedElsewhere`: its machine is a node, not this one. */
+export function hasLegibleReason(card: Task, pinnedElsewhere = false): boolean {
   if (card.dispatchError && card.dispatchError.trim()) return true;
   if (card.waitReason && card.waitReason.trim()) return true;
   if (card.dispatchState === "waiting" || card.dispatchState === "parked") return true;
@@ -63,6 +71,7 @@ export function hasLegibleReason(card: Task): boolean {
   // it would undo that choice.
   if (card.status === "in_progress" && card.dispatchState) return true;
   const q = card.queueReason;
+  if (pinnedElsewhere && q && OWN_MACHINE_BLOCK_KINDS.has(q.kind)) return false;
   return !!q && !LEGIBLE_QUEUE_KINDS.has(q.kind);
 }
 
@@ -76,10 +85,11 @@ export function diagnoseStuckCard(card: Task, ctx: StuckContext): StuckVerdict |
   if (!Number.isFinite(since)) return null;
   const minutes = Math.floor((ctx.nowMs - since) / 60_000);
   if (ctx.nowMs - since < STUCK_AFTER_MS) return null;
-  if (ctx.busy(card.id) || hasLegibleReason(card)) return null;
+  // `machines` lists the nodes and clouds only: a match means the card is pinned away from this machine.
+  const machine = card.machineId ? ctx.machines.find((m) => m.id === card.machineId) : undefined;
+  if (ctx.busy(card.id) || hasLegibleReason(card, !!machine)) return null;
 
   const head = `${STUCK_NOTE_PREFIX} ${minutes} min`;
-  const machine = card.machineId ? ctx.machines.find((m) => m.id === card.machineId) : undefined;
   if (card.machineId && machine && !machine.online && !machine.wakeable) {
     return {
       note: `${head}: la macchina «${machine.name}» a cui è assegnata non risponde. Rimessa in coda su un'altra.`, // allow-italian: user-facing board comment

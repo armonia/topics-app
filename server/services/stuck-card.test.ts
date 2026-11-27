@@ -55,6 +55,17 @@ describe("diagnoseStuckCard", () => {
     expect(v.requeue).toBe(false);
   });
 
+  test("this Mac's memory floor does not hide a card pinned to a full node: it still goes back to the queue", () => {
+    // The overflow pins cards to nodes exactly while this Mac is under its floor, and every queued card reads that block.
+    const stuckSinceMinutes = Math.ceil(FULL_REQUEUE_AFTER_MS / 60_000) + 1;
+    const floor = { kind: "resource_floor", tone: "waiting", key: "board.queue.memory.measuring" } as Task["queueReason"];
+    const v = diagnoseStuckCard(card({ machineId: "pc", updatedAt: ago(stuckSinceMinutes), queueReason: floor }), ctx({ loadOf: () => 2 }))!;
+    expect(v.requeue).toBe(true);
+    expect(v.skipMachineId).toBe("pc");
+    // A card that waits for THIS Mac (no node) keeps the floor as its reason.
+    expect(diagnoseStuckCard(card({ queueReason: floor }), ctx())).toBeNull();
+  });
+
   test("a full machine held THIS long gives up its seat: back to the queue, away from it", () => {
     const stuckSinceMinutes = Math.ceil(FULL_REQUEUE_AFTER_MS / 60_000) + 1;
     const v = diagnoseStuckCard(

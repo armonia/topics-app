@@ -688,7 +688,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
   };
 }
 
-export { nodeTokenPath, readNodeToken, readDelegatedNodeToken, writeNodeToken, writeDelegatedNodeToken, removeDelegatedNodeToken } from "./node-client-token";
+export { readNodeToken, readDelegatedNodeToken, writeNodeToken, writeDelegatedNodeToken, removeDelegatedNodeToken } from "./node-client-token";
 
 /** The usage block of a run report; anything that is not three finite numbers reads as unknown. */
 function parseRunUsage(raw: unknown): NodeRunReport["usage"] {
