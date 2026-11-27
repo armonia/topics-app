@@ -16,12 +16,13 @@ import {
   applyPendingPrimaryChange, DB_NAME, isRefusedWhenRetired, movedResponse, readRetired, RETIRED_FILE,
   type RetiredState,
 } from "./primary-switch";
-import type { PrimaryRole } from "./primary-role";
+import { fenceInternalWrites, type PrimaryRole } from "./primary-role";
 
 let fence: RetiredState | null = null;
 
 export function setPrimaryFence(next: RetiredState | null): void {
   fence = next;
+  fenceInternalWrites(next !== null);
 }
 
 /** The front door's check: the `primary_moved` answer for a refused request while the fence is up, else null. */
@@ -68,7 +69,7 @@ export function bootPrimaryChange(rootDir: string, paths?: BootPrimaryPaths): vo
   } catch (err) {
     console.error(`[primary] the pending primary change could not be applied: ${err instanceof Error ? err.message : String(err)}`);
   }
-  fence = readRetired(appDataDir);
+  setPrimaryFence(readRetired(appDataDir));
   if (fence) console.warn(`[primary] this server handed the primary over to ${fence.toName ?? fence.toMachineId} at epoch ${fence.epoch} (${fence.phase}): client writes are refused`);
 }
 
@@ -111,7 +112,7 @@ export function reclaimPrimary(deps: {
   const epoch = Math.max(marker.epoch, deps.role.epoch()) + 1;
   deps.role.adopt({ primaryMachineId: deps.localMachineId, epoch });
   rmSync(join(deps.appDataDir, RETIRED_FILE), { force: true });
-  fence = null;
+  setPrimaryFence(null);
   deps.restart();
   return { ok: true, epoch };
 }

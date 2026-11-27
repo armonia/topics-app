@@ -140,7 +140,9 @@ export function createReconcile(ctx: DispatcherCtx) {
     //    the one case the orphan pass below can't see (it skips `inFlight`).
     // 0-bis) THE REMOTE RUNS, polled BEFORE the sweep: a failure counted now is
     //    what the sweep below judges, and a success is what resets the count.
-    await ctx.runs.remote.poll();
+    //    Only on the primary: a server fenced by a switch must not write a node
+    //    run's outcome into the DB it handed over; the new primary reattaches it.
+    if (deps.isActive?.() !== false) await ctx.runs.remote.poll();
     const justBuried = sweepDeadTurns();
     ctx.runs.pollCommandWaits();
     // 1) Recover orphaned in-progress tasks (server restarted mid-turn): they are

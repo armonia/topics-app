@@ -10,7 +10,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrimaryRole } from "./primary-role";
+import { createPrimaryRole, isThisServerPrimary } from "./primary-role";
 import { bootPrimaryChange, gatedRefusal, holdRetiredRole, reclaimPrimary, retiredRefusal, setPrimaryFence } from "./primary-fence";
 import {
   applyPendingPrimaryChange, commitIncoming, countRows, DB_NAME, INCOMING_DIR, isRefusedWhenRetired,
@@ -338,6 +338,29 @@ describe("primary switch", () => {
     await runPrimarySwitch(h.deps);
     expect(asked.length).toBe(5);
     for (const [what, status] of asked) expect([what, status]).toEqual([what, 409]);
+  });
+
+  test("after the snapshot the internal writers stop too: scheduled jobs and the dispatcher ask the role", async () => {
+    const h = harness();
+    // What the schedule engine and the dispatcher reconcile do at every beat: write only on the primary.
+    const internalWriter = () => {
+      if (isThisServerPrimary()) h.old.db.query("INSERT INTO messages (topic_id, body) VALUES ('topic-1', 'internal write during upload')").run();
+    };
+    const seen: boolean[] = [];
+    const upload = h.deps.upload;
+    h.deps.upload = async (name, offset, bytes) => {
+      seen.push(isThisServerPrimary());
+      internalWriter();
+      await upload(name, offset, bytes);
+    };
+    const report = await runPrimarySwitch(h.deps);
+    expect(report.outcome).toBe("switched");
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((primary) => primary === false)).toBe(true);
+    const written = h.old.db.query("SELECT COUNT(*) AS n FROM messages WHERE body = 'internal write during upload'").get() as { n: number };
+    expect(written.n).toBe(0);
+    setPrimaryFence(null);
+    expect(isThisServerPrimary()).toBe(true);
   });
 
   test("the front door asks the access gate first: an unauthenticated caller learns nothing", async () => {

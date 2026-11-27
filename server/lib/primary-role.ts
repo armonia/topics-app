@@ -280,6 +280,18 @@ export function guardNodesCall(req: Request, caller: { deviceId: string | null }
   return stale;
 }
 
+let internalWritesFenced = false;
+
+/**
+ * Set by the switch fence: from the DB snapshot on, this server's own writers
+ * (scheduled jobs, the dispatcher reconcile and its node polls) stop as if it
+ * were a secondary, so nothing lands in a DB that is being handed over.
+ */
+export function fenceInternalWrites(on: boolean): void {
+  internalWritesFenced = on;
+}
+
 export function isThisServerPrimary(): boolean {
+  if (internalWritesFenced) return false;
   return active ? active.isPrimary() : true;
 }
