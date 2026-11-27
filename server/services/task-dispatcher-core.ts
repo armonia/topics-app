@@ -245,6 +245,12 @@ export function createDispatcherCore(deps: DispatcherDeps) {
   // forgotten only when the card really starts again, and in the meantime it is
   // not repeated at every poll.
   const spendHeldNoted = new Set<string>();
+  // Tasks already logged "remote claim declined". Same discipline: ONE line per
+  // episode, not one per tick. The remote claim is a plain `log`, not a thread
+  // comment (it is for an operator reading the server log, not the card), but
+  // the dispatcher ticks every ten seconds and a silent CAS refusal otherwise
+  // repeats forever for a card held by `blocked_by` or a deferral.
+  const remoteClaimDeclinedNoted = new Set<string>();
   // Tasks already told "the machine is under the floor" / "the daily spend cap
   // is reached", and WHICH wait they were told about (`holdKey`). Same
   // discipline as the sets above: one line per EPISODE, not one per 10s poll - a
@@ -495,5 +501,5 @@ export function createDispatcherCore(deps: DispatcherDeps) {
     reconciling: null as Promise<void> | null,
   };
 
-  return { RECONCILE_GRACE_MS, admissionCountingSince, attemptCap, backoffMs, beginDelegated, capHeldNoted, clock, commandWaits, delegatedPolicy, deps, evaluateNight, externallyHeldNoted, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceMs, graceTimers, heavyHeldNoted, heavyHoldSince, heldOffNoted, heldWritten, inFlight, liveTurns, livenessGraceMs, log, memoryHeldCards, noCheckExemptions, overflowBranch, overflowBranchPending, overflowOrigin, overflowOriginPending, overflowRounds, pendingResume, planHeldNoted, providerErrors, recentlyEnded, recordDelegated, retryWaits, shared, slotWaits, spendHeldNoted, usageLedgers, waitingForSlot };
+  return { RECONCILE_GRACE_MS, admissionCountingSince, attemptCap, backoffMs, beginDelegated, capHeldNoted, clock, commandWaits, delegatedPolicy, deps, evaluateNight, externallyHeldNoted, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceMs, graceTimers, heavyHeldNoted, heavyHoldSince, heldOffNoted, heldWritten, inFlight, liveTurns, livenessGraceMs, log, memoryHeldCards, noCheckExemptions, overflowBranch, overflowBranchPending, overflowOrigin, overflowOriginPending, overflowRounds, pendingResume, planHeldNoted, providerErrors, recentlyEnded, recordDelegated, remoteClaimDeclinedNoted, retryWaits, shared, slotWaits, spendHeldNoted, usageLedgers, waitingForSlot };
 }
