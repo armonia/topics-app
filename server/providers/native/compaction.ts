@@ -378,7 +378,11 @@ export function clipToolResult(text: string, head: number, tail: number): string
  */
 export function compact(
   messages: AgentMessage[],
-  opts?: { windowTokens?: number; overheadChars?: number; charsPerToken?: number; compactAt?: number; compactTo?: number },
+  opts?: {
+    windowTokens?: number; overheadChars?: number; charsPerToken?: number; compactAt?: number; compactTo?: number;
+    /** Where clipping the recent results starts, as a fraction of the window; defaults to `compactAt`. */
+    clipAt?: number;
+  },
 ): { messages: AgentMessage[]; before: number; after: number; droppedMessages: number } {
   const overhead = opts?.overheadChars ?? 0;
   const ratio = opts?.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
@@ -387,9 +391,10 @@ export function compact(
   const before = estimateTokens(messages, overhead, ratio);
   // The target the history has to get back under, when the caller says so.
   // Without one, the only signal left is "it freed nothing".
-  // Two numbers, not one: the CEILING is the trigger, the TARGET sits below it
-  // so the next round does not compact again (see `COMPACT_TO`).
-  const ceiling = opts?.windowTokens != null ? opts.windowTokens * compactAt : null;
+  // Two numbers, not one: the CEILING is the trigger (the window's own when
+  // `clipAt` says a lower agent ceiling fired), the TARGET sits below it so
+  // the next round does not compact again (see `COMPACT_TO`).
+  const ceiling = opts?.windowTokens != null ? opts.windowTokens * (opts.clipAt ?? compactAt) : null;
   const target = opts?.windowTokens != null ? opts.windowTokens * compactTo : null;
 
   let next = messages;
@@ -413,7 +418,10 @@ export function compact(
   // loses nothing it had already used, and it can re-read in slices what it
   // needs.
   // Against the CEILING, not the target: clipping results the model has not
-  // read yet is the emergency measure, not the way to buy headroom.
+  // read yet is the emergency measure, not the way to buy headroom. And the
+  // WINDOW's ceiling when an agent's lower one triggered the compaction
+  // (`clipAt`): a preference must not cut what the model fetched; dropping old
+  // turns below does that job.
   const stillOver = ceiling != null ? after > ceiling : after >= before;
   if (stillOver) {
     next = clipTailResults(next);

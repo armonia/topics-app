@@ -139,6 +139,27 @@ describe("tokens per call over an agent's day", () => {
   });
 });
 
+describe("the ceiling drops old turns, it does not clip what the model fetched", () => {
+  test("a fresh 40k-character result in the tail stays whole when the ceiling fires", () => {
+    // 21 old exchanges of 10k tokens: over a 200k ceiling, nowhere near 1M.
+    const history: AgentMessage[] = [];
+    for (let i = 0; i < 21; i++) {
+      history.push({ role: "user", content: `u${i} `.padEnd(40_000, "u") }, { role: "assistant", content: `a${i} `.padEnd(40_000, "a") });
+    }
+    history.push(
+      { role: "user", content: "read the report" },
+      { role: "assistant", content: [{ type: "tool_use", id: "r1", name: "read_file", input: { path: "report.md" } }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "r1", content: "r".repeat(40_000) }] },
+      { role: "assistant", content: "here is what it says" },
+      { role: "user", content: "and now?" },
+    );
+    const handler = { onCompaction: () => {} };
+    expect(compactIfNeeded({ history, windowTokens: MILLION, overheadChars: 0, calibration: { ...CALIBRATED }, capTokens: CAP, handler })).toBe(true);
+    const result = history.flatMap((m) => (typeof m.content === "string" ? [] : m.content)).find((b) => b.type === "tool_result");
+    expect((result?.content as string).length).toBe(40_000);
+  });
+});
+
 describe("a second compaction leaves what the first one lightened as it was", () => {
   test("a lightened argument keeps its notice and its count", () => {
     const history: AgentMessage[] = [{ role: "user", content: "write it" }];

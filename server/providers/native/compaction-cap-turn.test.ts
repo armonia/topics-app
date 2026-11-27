@@ -17,6 +17,7 @@ import { closeMcpFleet } from "./mcp-fleet";
 import type { StreamHandler } from "../types";
 import type { TurnSpec } from "./turn-host";
 import { stopOwnAiBridges } from "../../../scripts/stray-ai-bridges";
+import { __resetAiBridgeClientForTests } from "../../lib/ai-bridge-client";
 
 const CAP = 30_000;
 
@@ -30,7 +31,7 @@ const answer = [
 
 const REAL_HOME = process.env.HOME;
 const realFetch = globalThis.fetch;
-const ENV_KEYS = ["DATA_DIR", "TOPICS_AI_BRIDGE_SOCKET", "TOPICS_MCP_CONFIG_FILE", "TOPICS_NATIVE_MCP", "JARVIS_CHANNELS_HOME", "APP_DATA_DIR", "TOPICS_AI_BRIDGE", "TOPICS_NATIVE_DETACHED"];
+const ENV_KEYS = ["TOPICS_CACHE_KEEPALIVE", "DATA_DIR", "TOPICS_AI_BRIDGE_SOCKET", "TOPICS_MCP_CONFIG_FILE", "TOPICS_NATIVE_MCP", "JARVIS_CHANNELS_HOME", "APP_DATA_DIR", "TOPICS_AI_BRIDGE", "TOPICS_NATIVE_DETACHED"];
 const envBackup: Record<string, string | undefined> = {};
 let home: string;
 let agentWorkspace: string;
@@ -89,6 +90,8 @@ beforeAll(() => {
     JSON.stringify({ claudeAiOauth: { accessToken: "fake-but-fresh", refreshToken: "r", expiresAt: Date.now() + 3_600_000 } }),
   );
   process.env.HOME = home;
+  // No keep-alive ping: its timer outlives the test, and by then HOME and fetch are the real ones again.
+  process.env.TOPICS_CACHE_KEEPALIVE = "off";
   // Its own state dir: the detached path looks for turns left running there.
   process.env.DATA_DIR = join(home, "data");
   mkdirSync(process.env.DATA_DIR, { recursive: true });
@@ -112,6 +115,7 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
+  __resetAiBridgeClientForTests();
   await stopOwnAiBridges();
   closeMcpFleet();
   globalThis.fetch = realFetch;

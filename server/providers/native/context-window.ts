@@ -91,13 +91,14 @@ export function compactIfNeeded(ctx: {
   const { history, windowTokens, overheadChars, calibration } = ctx;
   const { compactAt, compactTo } = compactionThresholds(windowTokens, { calibrated: calibration.calibrated, capTokens: ctx.capTokens });
   if (!needsCompaction(history, windowTokens, overheadChars, calibration.charsPerToken, compactAt)) return false;
-  const c = compact(history, { windowTokens, overheadChars, charsPerToken: calibration.charsPerToken, compactAt, compactTo });
+  const windowAt = calibration.calibrated ? COMPACT_AT : COMPACT_AT_UNMEASURED;
+  const c = compact(history, { windowTokens, overheadChars, charsPerToken: calibration.charsPerToken, compactAt, compactTo, clipAt: windowAt });
   if (c.after >= c.before) return false;
   history.length = 0;
   history.push(...c.messages);
   // `cap=` names the compactions the ceiling caused, which is what its
   // measurement counts; a window compaction prints none.
-  const capped = compactAt < (calibration.calibrated ? COMPACT_AT : COMPACT_AT_UNMEASURED);
+  const capped = compactAt < windowAt;
   console.log(
     `[native] contesto compattato: at=${new Date().toISOString()} session_key=${ctx.sessionId ?? "unknown"} `
     + `pre_tokens=${c.before} post_tokens=${c.after}${capped ? ` cap=${ctx.capTokens}` : ""} (~${c.before} → ~${c.after} token stimati)`,

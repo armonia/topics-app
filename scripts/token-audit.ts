@@ -43,6 +43,8 @@ interface ChatLog {
 /** A day (`2026-11-27`, midnight UTC) or an instant (`2026-11-27T20:30:00Z`). */
 const WHEN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z)?$/;
 const instant = (when: string): number => Date.parse(when.length === 10 ? `${when}T00:00:00Z` : when);
+/** The same instant in the DB's own format (`2026-11-27T20:30:00.000Z`), so string comparison agrees with the log's. */
+const isoOf = (when: string): string => new Date(instant(when)).toISOString();
 const expandHome = (p: string): string => resolve(p.replace(/^~(?=\/|$)/, homedir())).replace(/\/+$/, "");
 
 function parseArgs(argv: string[]): Args {
@@ -157,12 +159,12 @@ function readDatabase(dbPath: string, since: string, until: string | null): {
       FROM messages
       WHERE timestamp >= ? AND timestamp < ?
       GROUP BY session_key
-    `).all(since, until ?? "9999") as UsageRow[];
+    `).all(isoOf(since), until != null ? isoOf(until) : "9999") as UsageRow[];
     const topics = db.prepare("SELECT session_key, name, project_path FROM topics").all() as Array<{ session_key: string; name: string; project_path: string | null }>;
     // The compactions the server already stored: the log only names the chat from this change on.
     const markers = db.prepare(
-      "SELECT session_key, created_at, post_tokens FROM compaction_markers WHERE created_at >= ? AND post_tokens IS NOT NULL",
-    ).all(since) as Array<{ session_key: string; created_at: string; post_tokens: number }>;
+      "SELECT session_key, created_at, post_tokens FROM compaction_markers WHERE created_at >= ? AND created_at < ? AND post_tokens IS NOT NULL",
+    ).all(isoOf(since), until != null ? isoOf(until) : "9999") as Array<{ session_key: string; created_at: string; post_tokens: number }>;
     return {
       usage: new Map(rows.map((row) => [row.session_key, row])),
       names: new Map(topics.map((row) => [row.session_key, row.name])),
