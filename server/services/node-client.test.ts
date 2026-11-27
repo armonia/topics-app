@@ -374,6 +374,31 @@ describe("node-client · corse", () => {
   });
 });
 
+describe("node-client · un nodo che accetta la connessione e non risponde mai", () => {
+  /** A fetch that never settles on its own: only the caller's `signal` ends it. */
+  function hangingFetch(): FetchLike {
+    return (_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "TimeoutError")));
+    });
+  }
+
+  test("una lettura di stato finisce entro il suo timeout, non resta appesa", async () => {
+    const c = client(hangingFetch(), { timeoutMs: 20 });
+    const err = await c.readRun({ baseUrl: BASE, token: TOKEN, runId: "run-1" }).catch((e) => e);
+    expect(err).toBeInstanceOf(NodeError);
+    expect((err as NodeError).reason).toBe("unreachable");
+  });
+
+  test("scaricare una consegna usa un timeout più lungo di una lettura di stato", async () => {
+    const c = client(hangingFetch(), { timeoutMs: 20, deliveryTimeoutMs: 40 });
+    const startedAt = Date.now();
+    const err = await c.fetchBundle({ baseUrl: BASE, token: TOKEN, runId: "run-1" }).catch((e) => e);
+    const elapsedMs = Date.now() - startedAt;
+    expect(err).toBeInstanceOf(NodeError);
+    expect(elapsedMs).toBeGreaterThanOrEqual(40);
+  });
+});
+
 describe("node-client · normalizeNodeBaseUrl", () => {
   test("toglie la barra finale, rifiuta schemi non http(s) e stringhe storte", () => {
     expect(normalizeNodeBaseUrl("https://node.example:8443/")).toBe("https://node.example:8443");

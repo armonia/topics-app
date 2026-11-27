@@ -1713,3 +1713,28 @@ describe("overflow: una card che nomina file di questo Mac non va su un nodo", (
     expect(overflowEligible({ machineId: null, description: "server/services/tasks.ts" }, {}, LOCAL)).toBe(true);
   });
 });
+
+describe("overflow: nodo con posti liberi dietro run in attesa esterna", () => {
+  /** A real `in_progress` run on `machineId`, with a run open on the node but stuck on `waiting`. */
+  function seedWaitingRun(h: ReturnType<typeof harness>, id: string, machineId: string) {
+    const ts = new Date(h.now()).toISOString();
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, description, status, created_at, updated_at, dispatch_attempts,
+                          machine_id, dispatch_state, node_run_open, in_progress_at)
+       VALUES (?, ?, 'in attesa esterna', 'nodo', 'in_progress', ?, ?, 1, ?, 'waiting', 1, ?)`,
+      [id, PID, ts, ts, machineId, ts],
+    );
+  }
+
+  it("4 posti, 3 run in attesa esterna, 9 card in coda: al giro dopo parte almeno una card sul posto libero", async () => {
+    const h = harness({ floor: false, pcSlots: 4 });
+    for (let i = 0; i < 3; i++) seedWaitingRun(h, `run-attesa-${i}`, PC);
+    const queued = Array.from({ length: 9 }, (_, i) => `card-coda-${i}`);
+    for (const id of queued) h.seed(id, { machineId: PC });
+    await settleTwoRounds(h);
+
+    // The 3 waiting runs hold 3 of 4 seats: one is free, and the pinned queue
+    // takes it instead of sitting behind the waiting runs for ever.
+    expect(h.created.length).toBeGreaterThan(0);
+  });
+});

@@ -13,6 +13,15 @@ import { effectiveSlots, MODEL_SKIP_MS, type OverflowMachine } from "./dispatch-
 /** How long a card may sit without a legible reason before the system speaks. */
 export const STUCK_AFTER_MS = 60 * 60_000;
 
+/**
+ * A card pinned to a machine that stays full this long (every seat held by a
+ * run that is itself stuck - `waiting` for an external condition, hours on
+ * end) stops waiting for a seat there and goes back to the general queue
+ * instead: the machine being full is right to refuse NEW work, but it must
+ * not starve a card already assigned to it forever.
+ */
+export const FULL_REQUEUE_AFTER_MS = 4 * 60 * 60_000;
+
 /** Opening of the one note per card: also the marker that keeps the sweep idempotent. */
 export const STUCK_NOTE_PREFIX = "Ferma da"; // allow-italian: user-facing board comment
 
@@ -89,6 +98,13 @@ export function diagnoseStuckCard(card: Task, ctx: StuckContext): StuckVerdict |
     const seats = effectiveSlots(machine);
     const load = ctx.loadOf(machine.id);
     if (load >= seats) {
+      if (ctx.nowMs - since >= FULL_REQUEUE_AFTER_MS) {
+        return {
+          note: `${head}: la macchina «${machine.name}» resta piena da ore (${load} card su ${seats} posti). Rimessa in coda su un'altra.`, // allow-italian: user-facing board comment
+          requeue: true,
+          skipMachineId: machine.id,
+        };
+      }
       return {
         note: `${head}: la macchina «${machine.name}» è piena (${load} card su ${seats} posti). Parte quando si libera un posto.`, // allow-italian: user-facing board comment
         requeue: false,
@@ -138,7 +154,13 @@ export function sweepStuckCards(deps: StuckSweepDeps): Array<{ id: string; reque
     const verdict = diagnoseStuckCard(card, deps);
     if (!verdict) continue;
     const thread = deps.svc.get(card.id);
-    if (!thread || thread.comments.some((c) => c.kind === "service" && c.content.startsWith(STUCK_NOTE_PREFIX))) continue;
+    if (!thread) continue;
+    // The one-note-ever rule only covers the NOTE: a card already told "the
+    // machine is full" must still be free to escalate to a requeue once it
+    // has stayed full past `FULL_REQUEUE_AFTER_MS` - the verdict changes kind,
+    // so a prior note of the same kind is the only thing it skips.
+    const alreadySpoke = thread.comments.some((c) => c.kind === "service" && c.content.startsWith(STUCK_NOTE_PREFIX));
+    if (alreadySpoke && !verdict.requeue) continue;
     if (verdict.requeue) {
       if (!deps.requeue(card.id, verdict.skipMachineId, verdict.note)) continue;
       spoke.push({ id: card.id, requeued: true });

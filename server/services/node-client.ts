@@ -59,6 +59,16 @@ export const NODE_SESSION_COOKIE = "topics_device";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
+/**
+ * A node that accepts the connection and never answers (a hung tunnel, a
+ * frozen process) must not hold a call for ever: every call to a node carries
+ * a deadline. Short for status and poll - the common case, every 10s - and
+ * long only for pulling a finished delivery's branch, the one call that
+ * genuinely moves bytes.
+ */
+export const NODE_CALL_TIMEOUT_MS = 15_000;
+export const NODE_DELIVERY_TIMEOUT_MS = 120_000;
+
 export interface NodeClientDeps {
   fetch: FetchLike;
   now: () => number;
@@ -69,6 +79,10 @@ export interface NodeClientDeps {
   hostname: string;
   /** Between two status polls while the node has not answered yet. */
   pollIntervalMs?: number;
+  /** Overrides `NODE_CALL_TIMEOUT_MS` (tests only: production never has a reason to shorten it). */
+  timeoutMs?: number;
+  /** Overrides `NODE_DELIVERY_TIMEOUT_MS` (tests only). */
+  deliveryTimeoutMs?: number;
 }
 
 export interface PairRequestResult {
@@ -384,11 +398,15 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
   const delegatedHeaders = (delegation: NodeRunBinding | undefined): Record<string, string> =>
     delegation ? { "X-Topics-Delegated-Capability": delegation.capabilityId } : {};
 
+  /** A deadline on `init.signal`, unless the caller already set one of its own. */
+  const withDeadline = (init: RequestInit, timeoutMs: number): RequestInit =>
+    init.signal ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) };
+
   /** One request, with the thrown-vs-answered split applied once for everybody. */
-  const call = async (url: string, init: RequestInit, what: string): Promise<Response> => {
+  const call = async (url: string, init: RequestInit, what: string, timeoutMs = deps.timeoutMs ?? NODE_CALL_TIMEOUT_MS): Promise<Response> => {
     let res: Response;
     try {
-      res = await deps.fetch(url, init);
+      res = await deps.fetch(url, withDeadline(init, timeoutMs));
     } catch (err) {
       throw new NodeError(reasonFromThrown(err), `${what}: ${messageOf(err)}`);
     }
@@ -396,8 +414,8 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     return res;
   };
 
-  const callJson = async <T>(url: string, init: RequestInit, what: string): Promise<T> => {
-    const res = await call(url, init, what);
+  const callJson = async <T>(url: string, init: RequestInit, what: string, timeoutMs = deps.timeoutMs ?? NODE_CALL_TIMEOUT_MS): Promise<T> => {
+    const res = await call(url, init, what, timeoutMs);
     try {
       return (await res.json()) as T;
     } catch (err) {
@@ -582,6 +600,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
           ...delegatedHeaders(delegation),
         }) },
         "fetch bundle",
+        deps.deliveryTimeoutMs ?? NODE_DELIVERY_TIMEOUT_MS,
       );
       // "Nothing to deliver" is a JSON answer, the branch is raw bytes: the
       // content type is what tells them apart, not the length (an empty bundle

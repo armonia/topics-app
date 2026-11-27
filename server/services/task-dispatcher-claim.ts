@@ -431,7 +431,13 @@ export function createClaim(ctx: DispatcherCtx) {
         // con un altro claim nello stesso istante (che si risolve da sé al tick
         // dopo, e commentarla sarebbe rumore). Si distinguono ri-contando gli
         // agenti vivi: se sono già almeno quanti il tetto ne ammette, è il tetto.
-        if (remoteTask) continue;
+        // A remote claim has no cap or race to tell apart (the CAS above skips
+        // the local concurrency count for it): a `null` here means the row's
+        // own guards refused it (blocked_by, attempts, a deferral still ahead).
+        // Silent before this line, so the card sat `queued` for hours with
+        // nothing in the log to say why - the thread note itself comes from
+        // the stuck-card sweep once the wait is old enough to say something.
+        if (remoteTask) { log(`remote claim declined for ${t.id} on machine ${t.machineId ?? "?"}`); continue; }
         const vivi = aliveAgents();
         if (vivi == null || vivi >= claimCap) noteCapFull(t, vivi);
         continue;
