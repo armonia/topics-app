@@ -112,16 +112,16 @@ describe("bun run bump — un gesto per tutti e quattro i posti", () => {
   });
 
   test("patch/minor/major incrementano package.json e trascinano gli altri tre", () => {
-    setVersion(root, PKG, "2.5.7");
-    setVersion(root, TAURI, "2.5.7");
-    setVersion(root, CARGO, "2.5.7");
-    setVersion(root, LOCK, "2.5.7");
+    setVersion(root, PKG, "1.4.7");
+    setVersion(root, TAURI, "1.4.7");
+    setVersion(root, CARGO, "1.4.7");
+    setVersion(root, LOCK, "1.4.7");
 
-    expect(bump(root)).toBe("2.5.8"); // patch è il default
+    expect(bump(root)).toBe("1.4.8"); // patch è il default
     expect(allineati(root)).toBe(true);
-    expect(bump(root, "minor")).toBe("2.6.0");
+    expect(bump(root, "minor")).toBe("1.5.0");
     expect(allineati(root)).toBe(true);
-    expect(bump(root, "major")).toBe("3.0.0");
+    expect(bump(root, "major")).toBe("2.0.0");
     expect(allineati(root)).toBe(true);
   });
 

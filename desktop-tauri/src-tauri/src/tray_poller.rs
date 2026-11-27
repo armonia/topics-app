@@ -168,6 +168,7 @@ where
             let cols = fetch_columns(&base);
             ever_answered |= cols.is_some();
             let extras = fetch_extras(&base);
+            crate::tray_quota::set_light_ink(crate::tray_quota::system_is_light());
             if let Ok(mut g) = LATEST.lock() {
                 *g = Some(Latest { cols, extras, ever_answered });
             }
