@@ -1,13 +1,13 @@
 /**
  * THE LIST RUNS UNDER THE TOP ROW AND UNDER THE BUTTON ROW AT THE BOTTOM.
  *
- * Asked from a phone: the list starts right after the safe area and scrolls
- * UNDER the header and UNDER the button row at the bottom, the way a native
- * list does — and at the end of the run the last row is entirely above the
- * buttons.
+ * Asked from a phone: the list scrolls UNDER the header and UNDER the button
+ * row at the bottom, the way a native list does — at rest its first row sits
+ * under the title, and at the end of the run the last row is entirely above
+ * the buttons.
  *
- * MOBILE-LIST-01  at rest the first row starts right after `--sat` (under the
- *                 compact header, which is compact for exactly that reason)
+ * MOBILE-LIST-01  at rest the first row starts one step under the compact
+ *                 header, never behind it (mobile-sidebar-first-row.spec.ts)
  * MOBILE-LIST-02  the scroller reaches the screen bottom, so rows travel behind
  *                 the button row (the column is not cut where the row begins)
  * MOBILE-LIST-03  scrolled to the end, the last row is entirely above the row
@@ -19,6 +19,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { E2E_BASE } from "./helpers/test-server";
 import { waitForLayoutSettled } from "./helpers/layout";
 import { hermetic } from "./fixtures/hermetic";
+import { COLUMN_GAP } from "../../client/src/lib/selectionStyles";
 
 hermetic(test);
 
@@ -70,7 +71,7 @@ async function measure(page: Page) {
   });
 }
 
-test("MOBILE-LIST — la lista parte dalla safe area e scorre sotto header e footer", async ({ page }) => {
+test("MOBILE-LIST — la lista parte sotto il titolo e scorre sotto header e footer", async ({ page }) => {
   await page.goto(E2E_BASE);
   await expect(page.locator(BAR)).toBeVisible();
   // THE LIST IS A LAZY CHUNK, THE BUTTON ROW IS NOT.
@@ -96,10 +97,10 @@ test("MOBILE-LIST — la lista parte dalla safe area e scorre sotto header e foo
   const atRest = await measure(page);
   console.log("RIPOSO", JSON.stringify(atRest));
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/${process.env.LIST_TAG ?? "x"}-riposo.png` });
-  // 01 — the first row starts right after the safe area, under the compact
-  // header (mobile-chrome-feedback A1): the compact row at rest exists so the
-  // rows can begin there instead of a full row below.
-  expect(Math.abs(atRest.firstTop! - atRest.sat)).toBeLessThanOrEqual(1);
+  // 01 — at rest the first row sits one step under the compact header
+  // (mobile-chrome-feedback A1 keeps it compact so that step is all the room
+  // it costs), not behind it: the veil is for the rows that scroll.
+  expect(Math.abs(atRest.firstTop! - (atRest.headerBottom + COLUMN_GAP))).toBeLessThanOrEqual(1);
   // 02 — the scroller itself runs down to the glass, so rows pass behind the buttons.
   expect(atRest.overflow, "the list must overflow, or there is nothing to scroll under").toBeGreaterThan(0);
   expect(atRest.scrollerBottom).toBeGreaterThanOrEqual(atRest.vh - 1);
