@@ -555,11 +555,13 @@ export interface AIProvider {
       /** The turn's name (the user row it answers): the engine puts it on the end it records (`TurnEndInfo.turnId`). */
       turnId?: string;
       /**
-       * A person typed the message that opens this turn (the route's
-       * `sentByPerson`): not a resume, a wake, a goal or hook nudge, a dispatch.
-       * The native engine applies an agent's compaction ceiling only then.
+       * The message carries no request of its own: it continues work the chat
+       * already started (the resume after a cut turn, the goal loop's or a
+       * `turn-end` hook's nudge), so the request it continues may sit far back
+       * in the history. The native engine skips an agent's compaction ceiling
+       * on such a turn, whose low target would drop that request.
        */
-      openedByPerson?: boolean;
+      continuation?: boolean;
     },
   ): Promise<{ runId?: string; /** Stopped while queued, nothing written: the caller undoes what it marked as sent. */ notSent?: boolean }>;
 

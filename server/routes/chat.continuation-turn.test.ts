@@ -1,14 +1,17 @@
 /**
  * @covers CHAT-COMPACT-06
  *
- * WHO OPENED THE TURN TRAVELS WITH IT TO THE PROVIDER.
+ * A TURN THAT ONLY CONTINUES WORK SAYS SO TO THE PROVIDER.
  *
- * The native engine compacts an agent's chat at its ceiling only on a turn a
- * person opened (`openedByPerson`): their message is then the newest, inside
- * the tail compaction never cuts. A resume ("carry on", the note after a
- * restart) points back at a request that may sit outside it, and the ceiling's
- * low target dropped it (review of PR #1779, reproduced). This drives the real
- * chat route with a provider that only records what `sendChat` was handed.
+ * The native engine leaves an agent's compaction ceiling out of a continuation
+ * (`continuation`): a resume ("carry on", the note after a restart) or a goal
+ * or hook nudge points back at a request that may sit outside the tail
+ * compaction never cuts, and the ceiling's low target dropped it (review of PR
+ * #1779, reproduced). Every other turn gets the ceiling, and that includes the
+ * one jarvis-channels sends for a person's Discord message, which arrives as
+ * `dispatched` (its `chat_body`): reading `!sentByPerson` instead turned the
+ * ceiling off for its only users (second review of PR #1779). This drives the
+ * real chat route with a provider that only records what `sendChat` was handed.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -19,10 +22,10 @@ import { createChatRouter } from "./chat";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { AppContext, Topic } from "../types";
 
-const ROOT = testTmpDir("chat-opened-by-person");
+const ROOT = testTmpDir("chat-continuation-turn");
 const PROJECT = join(ROOT, "project");
 
-type Sent = { message: string; options: { openedByPerson?: boolean } };
+type Sent = { message: string; options: { continuation?: boolean } };
 const sent: Sent[] = [];
 let ctx: AppContext;
 let chat: ReturnType<typeof createChatRouter>;
@@ -64,11 +67,11 @@ function topic(tid: string): string {
 }
 
 /** One turn through the real route, read to its end; returns what the provider was handed. */
-async function turn(sessionKey: string, content: string, extra: Record<string, unknown> = {}): Promise<Sent> {
+async function turn(sessionKey: string, content: string, extra: Record<string, unknown> = {}, headers: Record<string, string> = {}): Promise<Sent> {
   const before = sent.length;
   const url = new URL("http://topics.test/api/chat");
   const body = JSON.stringify({ sessionKey, messages: [{ role: "user", content }], ...extra });
-  const resp = (await chat(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body }), url, url.pathname, "POST"))!;
+  const resp = (await chat(new Request(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body }), url, url.pathname, "POST"))!;
   expect(resp.status).toBe(200);
   const reader = resp.body!.getReader();
   while (!(await reader.read()).done) { /* the turn's frames */ }
@@ -76,15 +79,21 @@ async function turn(sessionKey: string, content: string, extra: Record<string, u
   return sent[before]!;
 }
 
-describe("the provider knows whether a person opened the turn", () => {
-  test("a message a person typed", async () => {
-    expect((await turn(topic("obp-person"), "come va il deploy?")).options.openedByPerson).toBe(true);
+describe("the provider knows whether the turn only continues work", () => {
+  test("a message typed in the composer is no continuation", async () => {
+    expect((await turn(topic("ct-composer"), "come va il deploy?")).options.continuation).toBeUndefined();
   });
 
-  test("the resume after a cut turn, and the goal loop's nudge, are not a person's", async () => {
-    const sk = topic("obp-machine");
+  test("a person's Discord message as jarvis-channels sends it (dispatched, with its sender) is no continuation", async () => {
+    const body = { dispatched: true, clientMessageId: "discord:1", sender: { channel: "discord", id: "42", name: "Attilio", owner: true } };
+    expect((await turn(topic("ct-discord"), "Jarvis, che task ho oggi?", body, { "x-idempotency-key": "discord:1" })).options.continuation).toBeUndefined();
+  });
+
+  test("the resume after a cut turn, and the goal loop's and a hook's nudges, are", async () => {
+    const sk = topic("ct-machine");
     await turn(sk, "controlla i log");
-    expect((await turn(sk, "Carry on from where you were.", { ripresa: 1 })).options.openedByPerson).toBeUndefined();
-    expect((await turn(sk, "Keep going toward the goal.", { goalNudge: 1 })).options.openedByPerson).toBeUndefined();
+    expect((await turn(sk, "Carry on from where you were.", { ripresa: 1 })).options.continuation).toBe(true);
+    expect((await turn(sk, "Keep going toward the goal.", { goalNudge: 1 })).options.continuation).toBe(true);
+    expect((await turn(sk, "The turn-end hook asks for more.", { hookNudge: 1 })).options.continuation).toBe(true);
   });
 });

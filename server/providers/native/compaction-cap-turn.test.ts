@@ -42,7 +42,7 @@ let otherWorkspace: string;
  * did it see? Seven, not five: the last six messages are never cut, so a
  * shorter chat has no turn old enough to drop and nothing to compact.
  */
-async function compactionsOver(workspace: string, openedByPerson = true): Promise<number> {
+async function compactionsOver(workspace: string, continuation = false): Promise<number> {
   globalThis.fetch = (async (url: unknown, init?: unknown) => {
     const target = typeof url === "string" ? url : (url as Request | URL).toString();
     if (!target.endsWith("/v1/messages")) return realFetch(url as never, init as never);
@@ -55,13 +55,13 @@ async function compactionsOver(workspace: string, openedByPerson = true): Promis
   };
   const provider = new NativeProvider({ type: "native", defaultWorkspace: workspace, model: "claude-haiku-4-5-20251001" });
   for (let i = 0; i < 7; i++) {
-    await provider.sendChat(`topic:cap-${workspace}-${openedByPerson}`, `t${i} `.padEnd(40_000, "x"), handler, openedByPerson ? { openedByPerson } : undefined);
+    await provider.sendChat(`topic:cap-${workspace}-${continuation}`, `t${i} `.padEnd(40_000, "x"), handler, continuation ? { continuation } : undefined);
   }
   return compactions;
 }
 
 /** The spec the provider hands to the turn's own process, captured before it starts. */
-async function detachedSpecFor(workspace: string, openedByPerson = true): Promise<TurnSpec> {
+async function detachedSpecFor(workspace: string, continuation = false): Promise<TurnSpec> {
   process.env.TOPICS_AI_BRIDGE = "1";
   delete process.env.TOPICS_NATIVE_DETACHED;
   globalThis.fetch = (async () => new Response(answer, { status: 200 })) as unknown as typeof fetch;
@@ -73,7 +73,7 @@ async function detachedSpecFor(workspace: string, openedByPerson = true): Promis
     return null;
   };
   try {
-    await provider.sendChat(`topic:cap-spec-${workspace}-${openedByPerson}`, "ciao", { onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {}, onDone: () => {}, onError: () => {} }, openedByPerson ? { openedByPerson } : undefined);
+    await provider.sendChat(`topic:cap-spec-${workspace}-${continuation}`, "ciao", { onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {}, onDone: () => {}, onError: () => {} }, continuation ? { continuation } : undefined);
   } finally {
     delete process.env.TOPICS_AI_BRIDGE;
   }
@@ -161,9 +161,9 @@ describe("the agent's ceiling reaches the turn", () => {
   // A resume ("carry on", the note after a restart) points back at a request
   // that may sit outside the tail; the ceiling's low target would drop it
   // (review of PR #1779, reproduced). Those turns keep the window's thresholds.
-  test("a turn nobody typed (a resume, a wake) keeps the window's thresholds, even in the agent's chat", async () => {
-    expect(await compactionsOver(agentWorkspace, false)).toBe(0);
-    expect("compactAtTokens" in (await detachedSpecFor(agentWorkspace, false))).toBe(false);
+  test("a continuation (a resume, a nudge) keeps the window's thresholds, even in the agent's chat", async () => {
+    expect(await compactionsOver(agentWorkspace, true)).toBe(0);
+    expect("compactAtTokens" in (await detachedSpecFor(agentWorkspace, true))).toBe(false);
   });
 });
 
