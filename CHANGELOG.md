@@ -2,17 +2,41 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.5.8 — 2026-11-27
+## 2.5.10 — 2026-11-27
 
 ### Correzioni
+- **land** · block a manual land while the bar is still running
+- **dispatch** · a branch origin is only ahead on is already there
+- **dispatch** · originContains fetches without tags, like fetchRemoteBase
+
+## 2.5.9 — 2026-11-27
+
+### Correzioni
+- **gates** · a template's chunks end at its backtick, not 400 bytes later
+- **gates** · templateChunks back inside ui-language-scan.ts's 800-line budget
+
+### Sotto il cofano
+- DESIGN.md: round 3 di tab e sidebar approvato (27/11)
+
+## 2.5.8 — 2026-11-27
+
+### Novità
+- **deploy** · Windows node scripts move into deploy/windows-node, single node-tools list, no personal paths
+
+### Correzioni
+- **board** · read the clock once per render in the load gauge
 - **board** · close the review's 5 blocking gaps on archive/revoke/dedupe
+- **land** · close a card whose delivery already reached main
 
 ### Sotto il cofano
 - Revisione del round 3: cancelli statici verdi, colonna che riapre l'isola giusta, semafori dalla sola finestra principale
 - Riga archiviata in due tempi: prima esce, poi le righe sotto risalgono
 - tolto l'aggancio di test che nessun test usa
+- **bump** · pin the patch/minor/major case to a 0.x version
 - Uscita in due tempi anche per le righe che non sono treeitem, semafori solo dalla finestra principale
+- Il test del bump non presume che la versione di partenza sia diversa
 - CI della PR: tetto del bundle sulla misura, test di bump senza la bomba del 2.5.7
+- drop the packages.microsoft.com apt source before installing Playwright
 
 ## 2.5.7 — 2026-11-26
 
@@ -21,19 +45,31 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **gates** · ci-impact fixtures no longer read as the file's own @covers
 
 ### Sotto il cofano
+- **board** · bloat baseline raises only tasks-land.ts, the one file the scheduled review pushes over its ceiling
+- Evict idle hidden browser panes beyond the 2 most recent after 10 min, swap or not
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-26 [skip ci]
 - trace the new archive and blockedByTaskId tests to KANBAN-123/124
+- Tetto di spesa: la striscia resta sotto i 768 px; GAUGE-10 con istante relativo
 - Tab di lato: un passo sui quattro lati, isole che chiudono la colonna, riga archiviata che esce
+- Board settings: backlog triage row gets its icon like the rows above
 
 ## 2.5.6 — 2026-11-26
 
 ### Sotto il cofano
+- **board** · scheduled review tests declare the requirement they cover; bloat baseline records the land growth
 - ci-changes test: teach the evaluator needs.prepare-e2e.outputs.shards (PR value and none)
+- G5 conta solo cio' che Topics produce; backup e db-backups tengono le ultime N copie (TOPICS_BACKUP_KEEP)
+- La potatura dei backup tocca solo le copie automatiche di db-backups
+- Disk budget: ogni cartella nel rapporto con tetti di default e crescita al giorno; potatura db-backups per data nel nome, verso il cestino
+- backup-retention test: neutral name for the named-copy fixture
 - Bloat baseline: task-dispatcher-overflow.test.ts at 1715 after two cards land together
+- Backlog triage test: declares KANBAN-123 and runs git with the isolated env
+- **bloat** · give the full-repo baseline check a 120s timeout
 
 ## 2.5.5 — 2026-11-26
 
 ### Sotto il cofano
+- **e2e** · la nota vocale si ferma solo dopo il primo secondo di registrazione
 - **design** · the owner approved the title tab, the row grammar and the column header
 
 ## 2.5.4 — 2026-11-26
@@ -62,13 +98,18 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.5.2 — 2026-11-26
 
 ### Novità
+- **board** · scheduled review reuses the land verdict, judges sense, isolated test env
 - **board** · a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land
 - **board** · a request that repeats an open card is absorbed by it instead of opening a twin
+- **board** · scheduled review reads one nonce-bound verdict, no tools, bounded retries, board-set models
 - **board** · a card stuck for an hour without a reason gets one service note, and leaves a machine that does not answer
 - **board** · a card that spent its attempts with no outcome stays visible in todo with the reason, instead of moving to backlog
 - **board** · the question a delivery carries goes back to the chat that opened the card
 
 ### Correzioni
+- **bloat** · check mode compares the baseline with origin/main; drop duplicate entry, total 153
+- **board** · scheduled review gate in the CI phase, fetch before 'already on main', closes on proof, keeps the agent's question until answered
+- **board** · drop a stray backspace from the merge-tree conflict regex
 - **ui** · the sidebar's buttons are tabs, and every tab lights under the pointer
 - don't let an older comment outrank the newest one when carrying a node's thread
 - **board** · the stuck-card sweep leaves an in-progress card its dispatch chip explains
@@ -76,9 +117,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - ci-impact: whole-tree guard tests always ride in a reduced unit plan (replay: any-budget was missed)
+- Backlog triage: asks with the system signature, keeps subtasks of live parents, no done without a second model
 - Land via PR: auto-merge off on every failed exit, re-read at the deadline, probe failure is a refusal, moved base reported, gh missing falls back to the local merge
 - Fix the gh-unavailable pattern word boundary
 - never requeue an empty run or bounce a landed card without checking against this Mac's own main
+- Backlog triage: system actor for closes, asks and moves through the service, base from origin like the land, subtasks keep their parent
 - Land via PR: a GitHub refusal falls back to the local merge, running checks release the queue, settle wait cut to 2 min
 - archiving a live blocker no longer silently unblocks its dependents
 - **openspec** · board-avanza-da-sola, the seven rules with their bar
@@ -105,8 +148,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **ui** · the new comments quote the report in English
 - ci-impact-measure: an unreadable rerun list no longer aborts the replay
 - **ui** · the browser tab in the title row is a portal in flow, not a floating surface
+- Backlog triage: sorts subtasks (detach, then todo) and cards whose blocker is done
 
 ## 2.4.110 — 2026-11-25
+
+### Novità
+- **board** · scheduled review of technical cards in review (rule off by default)
 
 ### Correzioni
 - **tauri** · a pop-out window is dressed on the main thread, not on a tokio worker
@@ -137,7 +184,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Declare what the wait-keeps-branch test covers
 - Declare the pull request land requirement and the test that covers it
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-25 [skip ci]
+- Backlog triage: a per-board twice-daily sort of the backlog, off by default
 - Write in English the two comments main brought in Italian
+- Regenerate the migrations manifest
 - List the wait path's git read in the sync-spawn scan with its reason
 - Run the quota route test on an empty home, not on this machine's gigabytes of transcripts
 - la cura dei contenitori torna d'accordo con i suoi test e con il piano
@@ -196,6 +245,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - lower ci.slice memory ceiling and reserve memory for system.slice and topics (card 0ecda178)
 - Un figlio che rilancia senza wake il servizio fermato del genitore lo lascia al genitore
+- bloat baseline: record chat-handler as an exception after realign
 - Split server/services/tasks/shared.ts into six factory modules behind the same barrel
 - Split tasks/shared.ts: baselines and unused type exports
 - Land guard: a card's own branches include its spawned children and worktree branch
@@ -233,6 +283,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Replace real names in the client with fictitious ones, content (ORBIT, Alfa Impianti)
 - Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle
+- bloat: the baseline only goes down; new or bigger entries need a written exception with expiry, total of offenders capped
+- bloat ratchet test: declare coverage and isolate git env
+- check-bloat tests: fixtures carry the exceptions the ratchet now requires
+- bloat: fix type guard, declare BLOAT-RATCHET-01 in the spec
 - Claude CLI usage-limit sentence: read as a rate-limit and hold until the declared reset, so the resume sweep resends the turn by itself
 
 ## 2.4.101 — 2026-11-25
@@ -365,6 +419,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - memory stores: read an agent's deposit from its workspace, readable store names, one grouped problem for unreceived project memories
 - Share one keyed listener registry across the client stores
 - Share the CLI binary resolver across claude, codex, kimi and muse
+- Tetto di spesa: lo dice solo il gauge di In progress
 - dup: jscpd ratchet on exact duplicated lines, wired into gates:fast
 - Remove internal duplication in files route, grants query, message thread writes and pending actions
 - Duplicate detection: description as secondary signal, commit hashes as anchors
