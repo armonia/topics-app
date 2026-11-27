@@ -1705,6 +1705,26 @@ describe("overflow: una corsa vuota su un nodo lo salta, non ferma la card sul M
     expect(h.task(CARD).status).toBe("todo");
   });
 
+  it("rimbalzo per CI rossa ma main già riparata altrove: corsa vuota, done come già su main", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'done', delivery_commit = 'deadbeef' WHERE id = ?", [CARD]);
+    h.svc.addComment({ taskId: CARD, author: "system", content: "La CI su main è rossa dopo il land: check:spec-coverage" });
+    h.svc.update({ taskId: CARD, actor: "human", by: "system", patch: { status: "todo" } });
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: () => {},
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+      mainIsRed: async () => false,
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("done");
+  });
+
   it("riaperta dal sistema per altri motivi, già su main, corsa vuota: done come prima", async () => {
     const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
     const h = harness();

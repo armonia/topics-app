@@ -499,8 +499,9 @@ export function createCiPhase(deps: CiPhaseDeps) {
     // the bounce message itself would hide it behind RED_BOUNCE_NOTE and break `bouncesSinceHuman`'s count.
     const mainRedMark = `${MAIN_RED_NOTE}: il lavoro di questa card è già su main, il compito è un commit di correzione sopra, sul passo rosso nominato qui sotto.`;
     const message = redBounceMessage(done + 1, why) + "\n\n" +
-      "Il compito è un commit di correzione SOPRA main che sistemi il passo rosso nominato qui sopra: " +
-      "se il tuo ramo coincide con origin/main non vuol dire «niente da fare», vuol dire che la correzione non c'è ancora. " +
+      "Il compito è un commit di correzione SOPRA main sul passo rosso nominato qui sopra: " +
+      "controlla il passo rosso nominato su origin/main di adesso: se è ancora rosso, correggi in avanti con un commit nuovo; " +
+      "se è verde (riparato altrove), dillo con il link della run e rimetti in review senza commit. " +
       "ATTENZIONE: il tuo lavoro è GIÀ SU MAIN (la riga «Mergiato su main» di questa card dice il commit) e il tuo ramo è stato rimosso. " +
       "Parti dal main aggiornato (`git fetch origin main`, ramo nuovo da `origin/main`), correggi IN AVANTI con un commit nuovo, niente revert. " +
       "Quando rimetti in review atterra da sola, senza passare da una persona.";

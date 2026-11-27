@@ -3724,7 +3724,7 @@ describe("la coda deve dire il vero", () => {
 
 describe("cancello: non si ridispaccia lavoro già su main", () => {
   /** Banco di prova con la sonda del commit di consegna sotto controllo. */
-  function withProbe(risposta: boolean | null | (() => Promise<never>)) {
+  function withProbe(risposta: boolean | null | (() => Promise<never>), mainIsRed?: boolean) {
     const chieste: Array<{ repoPath: string; commit: string }> = [];
     const h = harness({
       deliveryLanded: async (repoPath, commit) => {
@@ -3732,6 +3732,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
         if (typeof risposta === "function") return risposta();
         return risposta;
       },
+      ...(mainIsRed === undefined ? {} : { mainIsRed: async () => mainIsRed }),
     });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     h.svc.setGlobalCap({ auto: false, max: 2 });
@@ -3779,6 +3780,19 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     await flush();
 
     expect(h.task("t1")!.status).not.toBe("done");
+    h.dispatcher.shutdown();
+  });
+
+  it("riaperta dalla CI rossa ma main è tornata verde (riparata altrove): si chiude come già su main", async () => {
+    const { h } = withProbe(true, false);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryBranch: "topics/ardent-grouse", deliveryCommit: "c2d20879ffffffffffffffffffffffffffffffff" });
+    h.db.run("UPDATE tasks SET reopened_actor = 'system', reopened_by = 'system' WHERE id = 't1'");
+    h.svc.addComment({ taskId: "t1", author: "system", content: "La CI su main è rossa dopo il land: check:spec-coverage" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("done");
     h.dispatcher.shutdown();
   });
 

@@ -235,7 +235,11 @@ export function createClaim(ctx: DispatcherCtx) {
       // prosegue fino al claim invece di saltarla.
       const reopenedHumanBy = t.reopenedActor === "human";
       // Sent back by the red on main after its land: the work is on main and a fix on top is still owed.
-      const reopenedByMainRedCi = t.reopenedActor === "system" && reopenedByMainRed(deps.svc.get(t.id)?.comments ?? []);
+      let reopenedByMainRedCi = t.reopenedActor === "system" && reopenedByMainRed(deps.svc.get(t.id)?.comments ?? []);
+      // The mark holds only while main is still red: repaired elsewhere, "already in main" is right again.
+      if (reopenedByMainRedCi && deps.mainIsRed) {
+        try { reopenedByMainRedCi = await deps.mainIsRed(resolved.path); } catch { /* unknown: stays red */ }
+      }
       if (t.deliveryCommit && deps.deliveryLanded && !reopenedHumanBy && !reopenedByMainRedCi) {
         let landed: boolean | null = null;
         try { landed = await deps.deliveryLanded(resolved.path, t.deliveryCommit); }
