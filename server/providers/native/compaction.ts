@@ -98,8 +98,12 @@ export const COMPACT_TO = 0.40;
  * ONLY EVER LOWER. A ceiling above the window's own trigger changes nothing:
  * that trigger is what keeps the request under the API limit, and a
  * configuration must not be able to push it past. The target keeps the ratio
- * the window already uses (`COMPACT_TO / COMPACT_AT`, about 47%), so a capped
- * chat buys the same relative headroom before its next compaction.
+ * the window already uses (`COMPACT_TO / COMPACT_AT`, about 47%).
+ *
+ * The target includes the system prompt and the tool schemas, and the recent
+ * tail is never cut, so a heavy tail can leave the history above it. That is
+ * why the loop applies the ceiling only when a turn starts (`agent-loop.ts`):
+ * once per turn at most, with the person's message safe at the end.
  */
 export function compactionThresholds(
   windowTokens: number,
@@ -595,11 +599,20 @@ const ARG_KEEP_CHARS = 200;
  * boolean, a small object) passes as it is. Returns `null` when there was
  * nothing to lighten, so the caller does not rebuild the block for nothing.
  */
+/**
+ * An argument this function already lightened: its own notice at the end.
+ * Lightening it again kept the same 200 characters but rewrote the notice
+ * with the length of the notice itself ("45 chars dropped" for a value that
+ * had lost thousands), so every compaction changed the request prefix from
+ * the first old call on and the prompt cache could not hold.
+ */
+const LIGHTENED_ARG = /… \[\d+ chars dropped to fit the context window\]$/;
+
 function lightenInput(input: Record<string, unknown>): Record<string, unknown> | null {
   let touched = false;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(input)) {
-    if (typeof v === "string" && v.length > ARG_KEEP_CHARS) {
+    if (typeof v === "string" && v.length > ARG_KEEP_CHARS && !LIGHTENED_ARG.test(v)) {
       touched = true;
       out[k] = `${v.slice(0, ARG_KEEP_CHARS)}… [${v.length - ARG_KEEP_CHARS} chars dropped to fit the context window]`;
       continue;
