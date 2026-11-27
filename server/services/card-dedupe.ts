@@ -20,6 +20,14 @@ export interface RepeatedRequest {
   by: string;
   /** Only first-level cards collide; the steps of a checklist legitimately repeat. */
   rootsOnly?: boolean;
+  /**
+   * A FUTURE STEP IS A CARD WITH A REAL LINK (KANBAN-124). Absorbing a
+   * repeated `create_task` used to drop this on the floor: the twin it
+   * returned had no blocker, and the caller (MCP's `create_task`) still said
+   * "created task" — the same 17-24/11 shape, a dependency that only ever
+   * lived in a comment nobody re-reads (review feedback, 26/11, point 5).
+   */
+  blockedByTaskId?: string | null;
 }
 
 /** Longest slice of the repeated description copied into the comment. */
@@ -47,7 +55,7 @@ export function repeatedRequestNote(req: Pick<RepeatedRequest, "text" | "descrip
  * before: an explicit override stays an explicit override.
  */
 export function absorbRepeatedRequest(
-  svc: Pick<TaskService, "findOpenTwin" | "findDuplicates" | "addComment">,
+  svc: Pick<TaskService, "findOpenTwin" | "findDuplicates" | "addComment" | "update">,
   req: RepeatedRequest,
   opts: { allowDuplicate?: boolean } = {},
 ): DedupeVerdict {
@@ -63,7 +71,18 @@ export function absorbRepeatedRequest(
       taskId: twin.id, author: "system", kind: "service", projectId: req.projectId, once: true,
       content: repeatedRequestNote({ text, description: req.description, by: req.by }),
     });
-    return { kind: "absorbed", task: twin };
+    // The twin absorbed the request, but not the ONE thing that made this
+    // request different from a plain repeat: who it is waiting on. Without
+    // this the twin is dispatchable with no blocker at all, exactly the gap
+    // this whole round of fixes is about (review feedback, 26/11, point 5).
+    let patched = twin;
+    if (req.blockedByTaskId && req.blockedByTaskId !== twin.blockedByTaskId) {
+      patched = svc.update({
+        taskId: twin.id, actor: "agent", by: req.by, projectId: req.projectId,
+        patch: { blockedByTaskId: req.blockedByTaskId },
+      });
+    }
+    return { kind: "absorbed", task: patched };
   }
   if (!text) return { kind: "none" };
   const near = svc

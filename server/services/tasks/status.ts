@@ -20,6 +20,7 @@ export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: Re
     agentAskOnThread,
     annotateDeliveryClaims,
     assertBlockerValid,
+    assertNoLiveDependents,
     checkedStage,
     childLeftFlight,
     getTaskRow,
@@ -81,6 +82,18 @@ export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: Re
        SELECT COUNT(*) AS c FROM anc WHERE topic = ? AND id != ?`,
     ).get(taskId, topicId, taskId) as any;
     return (r?.c ?? 0) > 0;
+  }
+
+  /** `taskId` and every card under it, any depth — what one `archive()` call takes down. */
+  function descendantIds(taskId: string): string[] {
+    return (db.prepare(
+      `WITH RECURSIVE subtree(id) AS (
+         SELECT id FROM tasks WHERE id = ?
+         UNION ALL
+         SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+       )
+       SELECT id FROM subtree`,
+    ).all(taskId) as Array<{ id: string }>).map((r) => r.id);
   }
 
 /**
@@ -1632,6 +1645,26 @@ resolveParkedChildren(this: TaskService, { taskId, decision, by }): { task: Task
       const firma = by || "system";
       const ts = now();
       const children: Task[] = [];
+      // One decision archives the WHOLE batch together: a `blockedByTaskId`
+      // between two parked siblings (step2 waits on step1) must not reject the
+      // batch just because the other half has not archived yet (review
+      // feedback, 26/11 — `archive` was throwing on the first of the two).
+      // The batch is not just the DIRECT parked children: `archive(c)` takes
+      // down c's whole subtree, so a grandchild blocked by a sibling (g2,
+      // child of step2, blockedBy step1) archives together with it too — and
+      // must be excluded from the live-dependent check the same way, or the
+      // precheck rejects a card the very same decision is about to archive
+      // (review feedback, 26/11, point 2).
+      const archiveBatchIds = decision === "archive" ? parked.flatMap((c) => descendantIds(c.id)) : [];
+      // Validate the WHOLE batch before archiving ANY of it. The loop below used to
+      // archive siblings one at a time with no precheck: the first sibling blocking
+      // only an EXTERNAL card (outside this batch) would archive fine, and the next
+      // one blocking an external dependent would throw mid-loop, leaving the batch
+      // half-archived and the parent stuck in `review` forever (review feedback,
+      // 26/11, point 3a).
+      if (decision === "archive") {
+        for (const c of parked) assertNoLiveDependents(c.id, archiveBatchIds);
+      }
       for (const c of parked) {
         if (decision === "requeue") {
           // Budget azzerato: un sottotask parcheggiato può aver bruciato tentativi
@@ -1676,7 +1709,7 @@ resolveParkedChildren(this: TaskService, { taskId, decision, by }): { task: Task
           const t = getTaskRow(c.id);
           if (t) children.push(rowToTask(t));
         } else {
-          children.push(this.archive({ taskId: c.id }));
+          children.push(this.archive({ taskId: c.id, excludeDependentIds: archiveBatchIds }));
         }
       }
       // The copy lives in `shared/board.ts`, next to the predicate that has to

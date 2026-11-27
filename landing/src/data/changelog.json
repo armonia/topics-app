@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.5.8",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "close the review's 5 blocking gaps on archive/revoke/dedupe",
+          "scope": "board"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.7",
     "date": "2026-11-26",
     "sections": {

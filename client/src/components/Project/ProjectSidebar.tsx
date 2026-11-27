@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, TAB_GAP_CLASS, TAB_LABEL, TAB_RESTING_SURFACE, sectionCard, sectionIsland } from '../../lib/selectionStyles';
+import { RAISED_CONTROL, RESTING_SURFACE, ROW_PX, TAB_BUTTON, TAB_BUTTON_SQUARE, TAB_GAP_CLASS, TAB_LABEL, TAB_RESTING_SURFACE, sectionCard, sectionIsland } from '../../lib/selectionStyles';
 import { capSezione, clampSidebarWidth, projectSidebarWidthKey, readProjectSidebarWidth, DEFAULT_SIDEBAR_W } from './projectSidebarHeights';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
@@ -229,15 +229,17 @@ function ProjectCard({
  * il resto (il ramo, il conteggio esteso, il perché) viva nel `title`, che è
  * l'unico posto in cui c'è spazio davvero.
  *
- * IL BOX È QUELLO DELLA RIGA, non quello del dito: sta in fila con le tab,
- * quindi la sua misura è quella della tab accanto ({@link ROW_ACTION_BOX}, 36
- * col dito e 28 col mouse). C'è stata una seconda variante — `w-7 h-7` in una
- * colonna verticale da 40px — finché la barra chiusa era una rail; non c'è più,
- * e con la rail se n'è andato anche il ramo che la disegnava.
+ * The box is the row's, not the finger's: it sits in line with the tabs, so
+ * its size is the tab's beside it (see {@link railBoxClass}).
  */
-/** The box of a closed bar's command, and of its toggle on the title row. */
+/**
+ * The box of a closed bar's command, and of its toggle on the title row. On
+ * the title row (tabs at the side) it is a tab button, 34 with the mouse like
+ * the title tab and the header's buttons, so the row holds one height and one
+ * step on all four sides (26/11). Inside the closed card it is one step down.
+ */
 function railBoxClass(compact: boolean, active: boolean): string {
-  return `relative ${compact ? 'w-6 h-6 md:w-5 md:h-5' : ROW_ACTION_BOX} flex items-center justify-center rounded-md edge-lit transition-colors flex-shrink-0 ${
+  return `relative ${compact ? 'w-6 h-6 md:w-5 md:h-5 rounded-md flex items-center justify-center transition-colors flex-shrink-0' : `${TAB_BUTTON} ${TAB_BUTTON_SQUARE}`} edge-lit ${
     active ? 'text-primary bg-primary/10' : `${RAISED_CONTROL} text-app-text`
   }`;
 }
@@ -617,27 +619,72 @@ export function ProjectSidebar({
    */
   const gitPanelMounted = expandedSections.git;
 
-  const toggleSection = (section: SectionId) => {
-    setExpandedSections(prev => {
-      const opening = !prev[section];
-      // Aprire una sezione deve SEMPRE mostrare qualcosa. Git e Processi hanno
-      // un'altezza in pixel salvata, e il minimo di trascinamento era 32px —
-      // cioè esattamente l'altezza dell'intestazione: una sezione stretta fin
-      // laggiù si «apriva» su zero pixel di contenuto e sembrava rotta (il
-      // chevron ruotava e non compariva niente). Se l'altezza salvata non
-      // lascia spazio, si riapre alla misura di partenza.
-      if (opening && (section === 'git' || section === 'processes')) {
-        setBottomHeights(h => {
-          // `null` = altezza automatica: è già utile per costruzione, non c'è
-          // niente da sbloccare. Il cancello serve solo a chi ha un'altezza
-          // FISSA trascinata così stretta da non contenere più niente.
-          const a = h[section];
-          if (a === null || a >= MIN_USEFUL_H[section]) return h;
-          return { ...h, [section]: DEFAULT_HEIGHTS[section] };
-        });
-      }
-      return { ...prev, [section]: opening };
+  // Aprire una sezione deve SEMPRE mostrare qualcosa. Git e Processi hanno
+  // un'altezza in pixel salvata, e il minimo di trascinamento era 32px —
+  // cioè esattamente l'altezza dell'intestazione: una sezione stretta fin
+  // laggiù si «apriva» su zero pixel di contenuto e sembrava rotta (il
+  // chevron ruotava e non compariva niente). Se l'altezza salvata non
+  // lascia spazio, si riapre alla misura di partenza.
+  const ensureUsefulHeight = (section: SectionId) => {
+    if (section !== 'git' && section !== 'processes') return;
+    setBottomHeights(h => {
+      // `null` = altezza automatica: è già utile per costruzione, non c'è
+      // niente da sbloccare. Il cancello serve solo a chi ha un'altezza
+      // FISSA trascinata così stretta da non contenere più niente.
+      const a = h[section];
+      if (a === null || a >= MIN_USEFUL_H[section]) return h;
+      return { ...h, [section]: DEFAULT_HEIGHTS[section] };
     });
+  };
+
+  // THE COLUMN CLOSES WITH ITS LAST ISLAND (26/11, the owner: "if every
+  // dropdown of the project sidebar is closed, the project sidebar can close
+  // too"). A column of three closed headers holds nothing, so the
+  // close that leaves no island open closes the column too, and reopening it
+  // brings back the island that close took away: the column comes back as it
+  // was before the last click. Over the islands ON SCREEN only: Git has none
+  // while there is nothing to show (`gitVisible`), whatever its saved flag says.
+  // Only a person's close does this, never an effect on the state: a saved
+  // all-closed state, or the frame where the repo status has not arrived yet,
+  // must not shut a column nobody touched.
+  const lastClosedRef = useRef<SectionId>('files');
+  // Whether the column is closed BECAUSE its last island closed. Reopening then
+  // brings that island back even if another one has appeared meanwhile (within
+  // the session: both refs live in memory, and after a reload a closed column
+  // reopens on Files, or on whatever island is open by then): a repo
+  // that turns dirty while the column is closed makes a saved Git flag count
+  // again, and the column would come back on Git with the island just closed
+  // still shut.
+  const autoClosedRef = useRef(false);
+  const anyIslandOpen = (sections: Record<SectionId, boolean>) =>
+    sections.files || sections.processes || (gitVisible && sections.git);
+
+  const toggleSection = (section: SectionId) => {
+    const opening = !expandedSections[section];
+    const closesColumn = !opening && !effectiveCollapsed
+      && !anyIslandOpen({ ...expandedSections, [section]: false });
+    if (opening) ensureUsefulHeight(section);
+    setExpandedSections(prev => ({ ...prev, [section]: opening }));
+    if (closesColumn) {
+      lastClosedRef.current = section;
+      autoClosedRef.current = true;
+      onToggleCollapse();
+    }
+  };
+
+  // The column's own toggle (the card, the title-row command, the scrim).
+  // Opening a column whose islands are all closed brings back the last one
+  // closed, Files if that one has nothing to show any more: an open column
+  // always shows something.
+  const toggleColumn = () => {
+    const autoClosed = autoClosedRef.current;
+    autoClosedRef.current = false;
+    if (effectiveCollapsed && (autoClosed || !anyIslandOpen(expandedSections))) {
+      const back = lastClosedRef.current === 'git' && !gitVisible ? 'files' : lastClosedRef.current;
+      ensureUsefulHeight(back);
+      setExpandedSections(prev => ({ ...prev, [back]: true }));
+    }
+    onToggleCollapse();
   };
 
   // ── Larghezza della barra ────────────────────────────────────────────────
@@ -901,19 +948,11 @@ export function ProjectSidebar({
     // one it opens or closes that section, as the section's own header does.
     const open = (section: SectionId) => () => {
       if (!effectiveCollapsed) { toggleSection(section); return; }
+      autoClosedRef.current = false;
       onToggleCollapse();
       // Stesso cancello del toggle: una sezione stretta a zero deve tornare
       // utile anche quando la si apre dalla rail, non solo dall'intestazione.
-      if (section === 'git' || section === 'processes') {
-        setBottomHeights(h => {
-          // `null` = altezza automatica: è già utile per costruzione, non c'è
-          // niente da sbloccare. Il cancello serve solo a chi ha un'altezza
-          // FISSA trascinata così stretta da non contenere più niente.
-          const a = h[section];
-          if (a === null || a >= MIN_USEFUL_H[section]) return h;
-          return { ...h, [section]: DEFAULT_HEIGHTS[section] };
-        });
-      }
+      ensureUsefulHeight(section);
       setExpandedSections(prev => ({ ...prev, [section]: true }));
     };
     // Tooltip: è QUI che sta l'informazione lunga. Nella rail ci sono 40px, e
@@ -990,8 +1029,9 @@ export function ProjectSidebar({
     const striscia = createPortal(
         <div
           data-testid="project-rail-inline"
-          // In fila con le tab e con la loro grammatica: `gap-0.5` come fra due
-          // tab, `pl-1.5` cioè ROW_INSET dal bordo della riga. NIENTE filo di
+          // In line with the tabs and their grammar: TAB_GAP_CLASS (one step)
+          // between two commands as between two tabs, `pl-1.5` i.e. ROW_INSET
+          // from the row's edge. NIENTE filo di
           // separazione verso le tab — in questa colonna una linea fra card
           // ripete ciò che fondo e distanza dicono già (è la regola di
           // `selectionStyles`), ed era proprio la linea di troppo da togliere.
@@ -999,7 +1039,7 @@ export function ProjectSidebar({
           // cedere dev'essere il NOME (che tronca), non i comandi (che
           // sparirebbero). I bottoni sono `flex-shrink-0` da soli, quindi la
           // pressione arriva tutta sulla card del titolo.
-          className={`flex items-center ${inlineBare ? 'gap-0.5' : `${TAB_GAP_CLASS} pl-1.5`} min-w-0 app-no-drag`}
+          className={`flex items-center ${inlineBare ? TAB_GAP_CLASS : `${TAB_GAP_CLASS} pl-1.5`} min-w-0 app-no-drag`}
           {...NO_DRAG_REGION}
         >
           {/* IL NOME STA DENTRO L'APERTORE, non accanto a lui.
@@ -1016,7 +1056,7 @@ export function ProjectSidebar({
             <>
               <button
                 type="button"
-                onClick={onToggleCollapse}
+                onClick={toggleColumn}
                 title={`${projectName} · ${tr(effectiveCollapsed ? 'project.sidebar.expand' : 'project.sidebar.hide')}`}
                 aria-label={tr(effectiveCollapsed ? 'project.sidebar.expand' : 'project.sidebar.hide')}
                 aria-expanded={!effectiveCollapsed}
@@ -1032,7 +1072,7 @@ export function ProjectSidebar({
               projectPath={projectPath}
               name={projectName}
               collapsed
-              onToggle={onToggleCollapse}
+              onToggle={toggleColumn}
               className="max-w-[280px] flex-shrink"
               trailing={comandi()}
             />
@@ -1041,10 +1081,11 @@ export function ProjectSidebar({
         inlineSlot,
     );
 
-    if (effectiveCollapsed) return striscia;
+    if (effectiveCollapsed && isMobile) return striscia;
     // Open, on the title row of a project with no bar of its own: the commands
-    // stay there (25/11: they should stay with the column open too).
-    if (inlineBare && !isMobile) titleCommands = striscia;
+    // stay there (25/11: they should stay with the column open too). Closed,
+    // they are all that is on screen of it.
+    if (effectiveCollapsed || (inlineBare && !isMobile)) titleCommands = striscia;
   }
 
   // On mobile: render as overlay on top of content.
@@ -1056,7 +1097,7 @@ export function ProjectSidebar({
   if (isMobile) {
     return createPortal(
       <>
-        <div ref={drawerScrimRef} className="fixed inset-0 bg-black/50 z-40 modal-backdrop-enter" onClick={onToggleCollapse} aria-hidden="true" />
+        <div ref={drawerScrimRef} className="fixed inset-0 bg-black/50 z-40 modal-backdrop-enter" onClick={toggleColumn} aria-hidden="true" />
         <div
           ref={drawerRef}
           // Stessa ancora della variante desktop: le due non convivono mai (il
@@ -1082,7 +1123,7 @@ export function ProjectSidebar({
               card, e in questa colonna una linea ripete cio che fondo e
               distanza dicono gia. L'incasso e ROW_INSET come ogni altra card. */}
           <div className="flex items-center h-10 px-1.5 flex-shrink-0">
-            <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
+            <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={toggleColumn} className="flex-1" />
           </div>
           {/* Sections — Files fills top, Git/Processes anchored at bottom (vedi il
               gemello desktop per il mezzo passo in fondo). */}
@@ -1194,6 +1235,14 @@ export function ProjectSidebar({
   return (
     <>
     {titleCommands}
+    {/* THE CLOSED COLUMN STAYS MOUNTED, hidden (`Activity`, as an island's
+        body in KeptSection): what a person left in it (the scroll, a message
+        half written, the file tree's selection, a script starting) comes back
+        with it. It used to unmount, which was tolerable while closing it was
+        a deliberate gesture; now that closing its last island closes it too,
+        it would throw away the island the person just closed. Never opened,
+        it is never mounted (KeptSection). */}
+    <KeptSection open={!effectiveCollapsed}>
     <div
       data-testid="project-sidebar"
       // `bg-app-chrome`, non `bg-elevated`. Misurato in tema chiaro sul web:
@@ -1246,7 +1295,7 @@ export function ProjectSidebar({
           stessa riga. */}
       {/* With its commands on the title row the name and the toggle are there too. */}
       {!inlineBare && <div className="flex items-center h-10 md:h-[34px] md:pb-[6px] px-1.5 flex-shrink-0">
-        <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
+        <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={toggleColumn} className="flex-1" />
       </div>}
 
       {/* Sections — Files fills top (flex-1), Git/Processes anchored at bottom.
@@ -1422,6 +1471,7 @@ export function ProjectSidebar({
         </div>
       </div>
     </div>
+    </KeptSection>
     </>
   );
 }

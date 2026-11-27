@@ -27,6 +27,18 @@ import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
 
+/**
+ * Processes open, so Files is not the last open island: closing that one
+ * closes the whole column (26/11), and these tests close and reopen Files
+ * inside an open column.
+ */
+async function openProcesses(page: import("@playwright/test").Page): Promise<void> {
+  const processes = page.locator('[data-testid="project-sidebar-processes"]');
+  await expect(processes).toBeVisible({ timeout: 10000 });
+  if ((await processes.getAttribute("aria-expanded")) !== "true") await processes.click();
+  await expect(processes).toHaveAttribute("aria-expanded", "true");
+}
+
 test.describe("l'albero dei file sopravvive alla chiusura", () => {
   let project: FileProject | undefined;
   let topicId = "";
@@ -53,6 +65,7 @@ test.describe("l'albero dei file sopravvive alla chiusura", () => {
   const intestazione = (page: import("@playwright/test").Page) =>
     page.locator('[data-testid="project-sidebar-files"]');
 
+
   test("riaprendo la sezione l'albero c'e SUBITO, senza spinner", async ({
     fileExplorerPage,
     page,
@@ -65,6 +78,7 @@ test.describe("l'albero dei file sopravvive alla chiusura", () => {
 
     const header = intestazione(page);
     await expect(header).toBeVisible({ timeout: 5000 });
+    await openProcesses(page);
 
     // Closed, the tree is out of sight. It is no longer unmounted (the section
     // is kept hidden, see project-sidebar-kept-sections.spec.ts), but the store
@@ -99,6 +113,7 @@ test.describe("l'albero dei file sopravvive alla chiusura", () => {
     await expect(albero.getByText("newfile.txt")).toBeVisible({ timeout: 10000 });
 
     const header = intestazione(page);
+    await openProcesses(page);
     for (let i = 0; i < 6; i++) {
       await header.click();
       await header.click();
@@ -126,6 +141,7 @@ test.describe("l'albero dei file sopravvive alla chiusura", () => {
     await page.route("**/api/files?**", route => route.abort());
 
     // Si forza una revalidazione chiudendo e riaprendo.
+    await openProcesses(page);
     const header = intestazione(page);
     await header.click();
     await header.click();
@@ -192,6 +208,7 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
     const header = page.locator('[data-testid="project-sidebar-files"]');
     await expect(header).toBeVisible({ timeout: 15000 });
+    await openProcesses(page);
     if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
 
     // The section is an island (25/11): the card is the box around the header,
