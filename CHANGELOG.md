@@ -46,6 +46,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Correzioni
 - **gates** · a template's chunks end at its backtick, not 400 bytes later
 - **gates** · templateChunks back inside ui-language-scan.ts's 800-line budget
+- **browser** · resolve the installed playwright-core entry from its own manifest
 
 ### Sotto il cofano
 - DESIGN.md: round 3 di tab e sidebar approvato (27/11)
@@ -78,6 +79,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Correzioni
 - **land** · node deliveries with a null checks_state are measured again, and every mute exit of the meter says why
 - **review-checks** · give isMacOnlyDiff's git read a deadline and list it
+- **browser** · pin playwright-core to the exact locked version, install with integrity and a deadline
 - **gates** · ci-impact fixtures no longer read as the file's own @covers
 
 ### Sotto il cofano
@@ -90,6 +92,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Tab di lato: un passo sui quattro lati, isole che chiudono la colonna, riga archiviata che esce
 - Fix the moved-aside-copy test: sweep the leftover, don't rely on path reuse
 - Board settings: backlog triage row gets its icon like the rows above
+- **browser** · cover installed-Chromium fallback and frozen lockfile install; silence install output
 
 ## 2.5.6 — 2026-11-26
 
@@ -161,6 +164,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - protect every comment of a resend's round, not two rows by position, in node run briefs
 
 ### Sotto il cofano
+- **spec** · trace the playwright loader test to BROWSER-NODE-DEPS-01
 - ci-impact: whole-tree guard tests always ride in a reduced unit plan (replay: any-budget was missed)
 - Backlog triage: asks with the system signature, keeps subtasks of live parents, no done without a second model
 - Land via PR: auto-merge off on every failed exit, re-read at the deadline, probe failure is a refusal, moved base reported, gh missing falls back to the local merge
@@ -175,6 +179,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - a rimando after a land is not a closed card, and a job-level red is not always a preexisting one
 
 ## 2.5.1 — 2026-11-25
+
+### Correzioni
+- **browser** · fall back to an installed Chromium-family browser when no Playwright Chromium is found
 
 ### Sotto il cofano
 - Land via PR only on the current origin/main base, switch auto-merge off when the state is unreadable, treat any hook failure as a refusal
@@ -201,6 +208,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **board** · scheduled review of technical cards in review (rule off by default)
 
 ### Correzioni
+- **browser** · install playwright-core on first use when the server cannot resolve it
 - **tauri** · a pop-out window is dressed on the main thread, not on a tokio worker
 - **ui** · a project's browser in front is the title, and its page is an island
 - **tauri** · corner_plan is macOS-only outside tests, like its neighbours
