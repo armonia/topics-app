@@ -1,0 +1,463 @@
+#!/usr/bin/env python3
+"""Prepares the PC before the paired Topics sends it a card.
+
+Topics launches it as the "node-run" hook (hooks.json in the Topics home) with the
+JSON payload on stdin: origin_url, cwd (the repo on this machine), machine_id, task_id.
+Exit 0 = the node is ready, the card starts. Non-zero exit = the card stays
+queued and retries in 5 minutes; the reason (stderr) lands on the card.
+
+Three steps:
+  1. wake the PC (TOPICS_NODE_WAKE_CMD, if set) and wait for the tunnel to answer;
+  2. bring the repo's default branch to the PC with an incremental git bundle:
+     the PC has no GitHub token, origin stays the GitHub URL (the node finds the
+     project by origin);
+  3. register the repo as a project in the PC's Topics if it is not there.
+
+Configuration (environment):
+  TOPICS_NODE_SSH         user@host of the PC (required)
+  TOPICS_NODE_DIR         node folder on the PC (default C:\\topics-node)
+  TOPICS_NODE_WAKE_CMD    shell command that wakes the PC (empty = no wake-up)
+  TOPICS_NODE_LPORT       local end of the tunnel (default 3393)
+  TOPICS_NODE_MACHINE_ID  id of the PC in the paired Topics (busy check on its board)
+  TOPICS_NODE_MAC_DB      path of the paired Topics' database (busy check on its board)
+"""
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+HOME = os.path.expanduser("~")
+LPORT = int(os.environ.get("TOPICS_NODE_LPORT", "3393"))
+PC_ROOT = os.environ.get("TOPICS_NODE_DIR", r"C:\topics-node")
+WAKE_CMD = os.environ.get("TOPICS_NODE_WAKE_CMD", "").strip()
+CACHE_DIR = os.path.join(HOME, ".cache/topics-node")
+
+
+def fail(msg, code=2):
+    print(msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def log(msg):
+    print(f"[node-prep] {msg}", file=sys.stdout, flush=True)
+
+
+def host_ssh():
+    host = os.environ.get("TOPICS_NODE_SSH", "").strip()
+    if not host:
+        fail("node-prep: TOPICS_NODE_SSH is not set (user@host of the PC)")
+    return host
+
+
+def run(cmd, timeout, cwd=None, input_text=None):
+    return subprocess.run(cmd, cwd=cwd, input=input_text, capture_output=True, text=True, timeout=timeout)
+
+
+def ps(script, timeout=180):
+    """PowerShell on the PC. The script goes as -EncodedCommand and not on stdin:
+    with "-Command -" PowerShell reads line by line like a console, and an
+    "else" on a new line after the brace becomes a silent syntax error."""
+    import base64
+    enc = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    r = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host_ssh(),
+         f"powershell -NoProfile -NonInteractive -EncodedCommand {enc}"],
+        capture_output=True, timeout=timeout)
+    out = r.stdout.decode("utf-8", "replace")
+    err = r.stderr.decode("utf-8", "replace")
+    return r.returncode, out, err
+
+
+def ps_quote(s):
+    return "'" + s.replace("'", "''") + "'"
+
+
+def repo_key(origin):
+    """host/owner/repo like normalizeRemoteUrl of topics-app (nodes.ts)."""
+    u = origin.strip()
+    m = re.match(r"^[\w.-]+@([\w.-]+):(.+)$", u) or re.match(r"^[a-z+]+://(?:[^@/]+@)?([^/:]+)(?::\d+)?/(.+)$", u)
+    if not m:
+        return None
+    path = re.sub(r"\.git$", "", m.group(2).strip("/"))
+    return f"{m.group(1).lower()}/{path.lower()}"
+
+
+def wake_and_wait():
+    if WAKE_CMD:
+        try:
+            r = run(shlex.split(WAKE_CMD), timeout=180)
+        except subprocess.TimeoutExpired:
+            fail("node-prep: the PC did not wake up in 180 s (TOPICS_NODE_WAKE_CMD)")
+        if r.returncode != 0:
+            fail(f"node-prep: the PC does not wake up (wake command exit {r.returncode}): {r.stdout.strip()[-200:]}")
+    deadline = time.time() + 90
+    last = ""
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{LPORT}/api/topics", timeout=4)
+            return
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):  # the node answers: without a cookie a 401 is correct
+                return
+            last = f"HTTP {e.code}"
+        except Exception as e:  # tunnel not up yet
+            last = str(e)
+        time.sleep(3)
+    fail(f"node-prep: the PC is awake but the tunnel to the node (127.0.0.1:{LPORT}) does not answer: {last}")
+
+
+def default_branch(repo):
+    r = run(["git", "-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], timeout=10)
+    if r.returncode == 0 and r.stdout.strip().startswith("origin/"):
+        return r.stdout.strip()[len("origin/"):]
+    for b in ("main", "master"):
+        if run(["git", "-C", repo, "rev-parse", "--verify", "-q", f"refs/remotes/origin/{b}"], timeout=10).returncode == 0:
+            return b
+    fail(f"node-prep: in repo {repo} I find neither origin/main nor origin/master")
+
+
+def sync_repo(origin, repo):
+    # With several slots on the PC, more cards start in the same second: without a lock they
+    # all wrote the same dl\<repo>.bundle and fetched together into the same repo, and each
+    # failed ("fetch from bundle failed"). One at a time per repo; whoever arrives later
+    # finds the PC already aligned and skips the bundle.
+    import fcntl
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    lock_path = os.path.join(CACHE_DIR, f"sync-{re.sub(r'[^A-Za-z0-9._-]', '_', origin)}.lock")
+    with open(lock_path, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _sync_repo(origin, repo)
+
+
+def _sync_repo(origin, repo):
+    key = repo_key(origin)
+    if not key:
+        fail(f"node-prep: origin not recognized: {origin}")
+    owner_repo = key.split("/", 1)[1]
+    pc_dir = PC_ROOT + "\\repos\\" + owner_repo.replace("/", "\\")
+    name = owner_repo.split("/")[-1]
+
+    # This machine has GitHub access: refresh its view of origin before copying it.
+    f = run(["git", "-C", repo, "fetch", "--no-tags", "-q", "origin"], timeout=120)
+    if f.returncode != 0:
+        log(f"fetch origin failed here, using what is there: {f.stderr.strip()[-200:]}")
+    branch = default_branch(repo)
+    ref = f"refs/remotes/origin/{branch}"
+    local_sha = run(["git", "-C", repo, "rev-parse", ref], timeout=10).stdout.strip()
+
+    code, out, err = ps(f"git -C {ps_quote(pc_dir)} rev-parse --verify -q {ref} 2>$null", timeout=60)
+    pc_sha = out.strip() if code == 0 else ""
+    if pc_sha == local_sha:
+        log(f"{name}: the PC already has {branch} @ {local_sha[:10]}")
+    else:
+        args = ["git", "-C", repo, "bundle", "create"]
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = os.path.join(tmp, f"{name}.bundle")
+            incr = bool(pc_sha) and run(["git", "-C", repo, "merge-base", "--is-ancestor", pc_sha, local_sha], timeout=20).returncode == 0
+            cmd = args + [bundle, ref] + (["--not", pc_sha] if incr else [])
+            b = run(cmd, timeout=300)
+            if b.returncode != 0:
+                fail(f"node-prep: git bundle failed: {b.stderr.strip()[-300:]}")
+            remote_bundle = PC_ROOT + "\\dl\\" + f"{name}-{os.getpid()}.bundle"
+            s = run(["scp", "-q", "-o", "BatchMode=yes", bundle, f"{host_ssh()}:{remote_bundle.replace(chr(92), '/')}"], timeout=600)
+            if s.returncode != 0:
+                fail(f"node-prep: copying the bundle to the PC failed: {s.stderr.strip()[-300:]}")
+        script = f"""
+$ErrorActionPreference = 'Stop'
+$env:GIT_TERMINAL_PROMPT = '0'
+$d = {ps_quote(pc_dir)}; $b = {ps_quote(remote_bundle)}
+$fresh = -not (Test-Path (Join-Path $d '.git'))
+if ($fresh) {{
+  New-Item -ItemType Directory -Force -Path $d | Out-Null
+  git init -q $d
+  git -C $d remote add origin {ps_quote(origin)}
+  git -C $d config credential.interactive never
+}}
+# checkout identical to the other machine (no conversion on checkout) and commits always in LF: with "false"
+# a file written by a Windows tool entered the commit with CRLF (thousands of changed lines for a few real ones)
+git -C $d config core.autocrlf input
+git -C $d fetch -q $b "+{ref}:{ref}"
+if ($LASTEXITCODE -ne 0) {{ throw "fetch from bundle failed" }}
+git -C $d symbolic-ref refs/remotes/origin/HEAD {ref}
+if ($fresh) {{ git -C $d checkout -q -B {branch} {ref} }}
+else {{
+  $st = git -C $d status --porcelain
+  $cur = git -C $d rev-parse --abbrev-ref HEAD
+  if (-not $st -and $cur -eq {ps_quote(branch)}) {{ git -C $d merge -q --ff-only {ref} }}
+}}
+Remove-Item $b -ErrorAction SilentlyContinue
+git -C $d rev-parse {ref}
+"""
+        code, out, err = ps(script, timeout=600)
+        if code != 0 or local_sha not in out:
+            fail(f"node-prep: updating the repo on the PC failed (exit {code}): {(err + out).strip()[-400:]}")
+        log(f"{name}: PC brought to {branch} @ {local_sha[:10]} ({'incremental' if pc_sha else 'full'})")
+    return pc_dir, name
+
+
+def ensure_project(pc_dir, name):
+    """Registers the repo in the PC's Topics (port 3333, loopback = owner)."""
+    slug = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-") or "project"
+    script = f"""
+$ErrorActionPreference = 'Stop'
+$d = {ps_quote(pc_dir)}
+$ps = Invoke-RestMethod -UseBasicParsing http://127.0.0.1:3333/api/projects
+$list = if ($ps.projects) {{ $ps.projects }} else {{ $ps }}
+$known = $list | Where-Object {{ $_.path -eq $d }} | Select-Object -First 1
+if ($known) {{ "already registered $($known.id)"; exit 0 }}
+$body = @{{ name = {ps_quote(name)}; slug = {ps_quote(slug)}; path = $d }} | ConvertTo-Json
+try {{
+  $p = Invoke-RestMethod -UseBasicParsing -Method Post -ContentType 'application/json' -Body $body http://127.0.0.1:3333/api/projects
+  "registered via API $($p.id)"
+}} catch {{
+  throw "POST /api/projects: $($_.ErrorDetails.Message)"
+}}
+"""
+    code, out, err = ps(script, timeout=120)
+    if code != 0:
+        fail(f"node-prep: registering the project on the PC failed: {(err or out).strip()[-400:]}")
+    log(f"{name}: {out.strip().splitlines()[-1] if out.strip() else 'ok'}")
+
+
+NODE_DIR = os.path.dirname(os.path.abspath(__file__))
+TOOLS_LIST = os.path.join(NODE_DIR, "..", "node-tools.txt")
+STAMP = os.path.join(CACHE_DIR, "tools.stamp")
+RELEASE_REPO = "armonia/topics-app"
+MACHINE_ID = os.environ.get("TOPICS_NODE_MACHINE_ID", "")
+BOARD_DB = os.environ.get("TOPICS_NODE_MAC_DB", "")
+
+
+def copy_scripts():
+    """The list and the scripts live in the repo here: the PC always gets today's copy."""
+    files = [TOOLS_LIST] + [os.path.join(NODE_DIR, f) for f in (
+        "pc-tools.ps1", "install-node.ps1", "update-node.ps1", "card-jail.ps1", "restart-on-boot.ps1", "run-hidden.vbs", "start-node.ps1")]
+    s = run(["scp", "-q", "-o", "BatchMode=yes", *files, f"{host_ssh()}:{PC_ROOT.replace(chr(92), '/')}/"], timeout=120)
+    if s.returncode != 0:
+        raise RuntimeError(f"copying the scripts to the PC failed: {s.stderr.strip()[-200:]}")
+
+
+def tools_stamp():
+    import hashlib
+    # the script too: a new fix (e.g. the agents' git login) runs right away
+    d = hashlib.sha256()
+    for path in (TOOLS_LIST, os.path.join(NODE_DIR, "pc-tools.ps1")):
+        with open(path, "rb") as f:
+            d.update(f.read())
+    h = d.hexdigest()[:16]
+    return f"{time.strftime('%Y-%m-%d')} {h}"
+
+
+def ensure_tools(force=False, verify_only=False):
+    """pc-tools.ps1 on the PC: at most once a day or when the list changes.
+    Returns (exit, text)."""
+    stamp = tools_stamp()
+    if not force and not verify_only and os.path.exists(STAMP) and open(STAMP).read().strip() == stamp:
+        return 0, "tools already checked today"
+    flag = " -VerifyOnly" if verify_only else ""
+    code, out, err = ps(f"& powershell.exe -NoProfile -ExecutionPolicy Bypass -File '{PC_ROOT}\\pc-tools.ps1' -List '{PC_ROOT}\\node-tools.txt'{flag}; exit $LASTEXITCODE", timeout=900)
+    if code == 0 and not verify_only:
+        os.makedirs(os.path.dirname(STAMP), exist_ok=True)
+        with open(STAMP, "w") as f:
+            f.write(stamp)
+    return code, (out + err).strip()
+
+
+def latest_release():
+    """Latest non-draft, non-prerelease release (releases/latest already excludes them)."""
+    r = run(["gh", "api", f"repos/{RELEASE_REPO}/releases/latest", "--jq", ".tag_name"], timeout=30)
+    if r.returncode != 0:
+        raise RuntimeError(f"gh releases/latest failed: {r.stderr.strip()[-200:]}")
+    return r.stdout.strip().replace("tauri-v", "").lstrip("v")
+
+
+def installed_version():
+    code, out, _ = ps("(Get-Item \"$env:LOCALAPPDATA\\Topics\\app.exe\").VersionInfo.FileVersion", timeout=60)
+    return out.strip() if code == 0 else ""
+
+
+def vtuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v)[:3]) or (0,)
+
+
+def node_busy(exclude_task=None):
+    """Is a card really working on the PC? The real sign is a live claude/codex on the PC;
+    the in_progress row on the board alone is not enough (a waiting card has no processes)."""
+    # the claude CLI runs as "<version>.exe" (e.g. 2.1.310) from ...\claude\versions: Get-Process claude does not see it
+    code, out, _ = ps("@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -match '\\\\claude\\\\versions\\\\|codex' -or $_.Name -match '^(claude|codex)' }).Count", timeout=60)
+    if code == 0 and out.strip() not in ("", "0"):
+        return f"{out.strip()} claude/codex processes alive on the PC"
+    if not (MACHINE_ID and BOARD_DB):
+        return ""
+    try:
+        import sqlite3
+        db = sqlite3.connect(f"file:{BOARD_DB}?mode=ro", uri=True, timeout=5)
+        rows = db.execute("select id from tasks where machine_id=? and status='in_progress' and dispatch_state='working'", (MACHINE_ID,)).fetchall()
+        rows = [r[0] for r in rows if not (exclude_task and r[0].startswith(exclude_task))]
+        if rows:
+            return f"cards in progress on the PC: {', '.join(r[:8] for r in rows)}"
+    except Exception as e:
+        log(f"board not readable ({e}): trusting the processes")
+    return ""
+
+
+def ensure_version(exclude_task=None):
+    """Brings the node to the latest release, only while it is idle. Returns the version read afterwards."""
+    want = latest_release()
+    have = installed_version()
+    if have and vtuple(have) >= vtuple(want):
+        return have
+    busy = node_busy(exclude_task)
+    if busy:
+        log(f"node {have} < {want} but not updating: {busy}")
+        return have
+    log(f"updating the node {have} -> {want}")
+    arg = f"-NoProfile -ExecutionPolicy Bypass -File {PC_ROOT}\\update-node.ps1 -Version {want} -Dir {PC_ROOT}"
+    script = f"""
+$ErrorActionPreference = 'Stop'
+# The server and the MCP bridges run in session 0 (S4U task topics-node): from the Interactive
+# update task Stop-Process does not reach them, from ssh it does. So they are stopped HERE,
+# together with the watchdog that would otherwise relaunch them, before the installer starts.
+foreach ($t in 'topics-watchdog', 'topics-node') {{ Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue }}
+# start-node.ps1 and the watchdog are while($true) loops that survive the task stop
+# and relaunch the server: they are closed first, then app and every bundle sidecar.
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object {{ $_.CommandLine -match 'start-node\\.ps1|win-node-watchdog\\.ps1' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}
+$end = (Get-Date).AddSeconds(60)
+do {{
+  $left = @(Get-Process app, topics-server, pty-bridge, webrtc-bridge -ErrorAction SilentlyContinue)
+  if ($left.Count -eq 0) {{ break }}
+  $left | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep 2
+}} while ((Get-Date) -lt $end)
+$left = @(Get-Process app, topics-server, pty-bridge, webrtc-bridge -ErrorAction SilentlyContinue)
+if ($left.Count -gt 0) {{ throw ('processes still alive: ' + (($left | ForEach-Object {{ $_.Id }}) -join ',')) }}
+$u = "$env:COMPUTERNAME\\$env:USERNAME"
+$a = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument {ps_quote('//B //Nologo ' + PC_ROOT + chr(92) + 'run-hidden.vbs powershell.exe ' + arg)}
+$pr = New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Limited
+$st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+Register-ScheduledTask -TaskName 'topics-node-update' -Action $a -Principal $pr -Settings $st -Force | Out-Null
+Start-ScheduledTask -TaskName 'topics-node-update'
+'started'
+"""
+    code, out, err = ps(script, timeout=120)
+    if code != 0:
+        raise RuntimeError(f"update task not started: {(err or out).strip()[-300:]}")
+    deadline = time.time() + 240  # the hook has 300 s
+    while time.time() < deadline:
+        time.sleep(15)
+        have = installed_version()
+        if have and vtuple(have) >= vtuple(want):
+            break
+    _, tail, _ = ps(f"Get-Content '{PC_ROOT}\\install.log' -Tail 3", timeout=60)
+    log(f"after the update: {have or '?'} ({tail.strip().replace(chr(10), ' | ')})")
+    return have
+
+
+REAP_PS = r"""
+# Orphans of finished cards: find/bash/sh/node whose parent is gone, born more than 10 minutes ago.
+# Orphans only: a bash opened by hand by whoever uses the PC still has its terminal as parent.
+$all = @(Get-CimInstance Win32_Process); $pids = @{}; foreach ($p in $all) { $pids[[int]$p.ProcessId] = $p }
+$limit = (Get-Date).AddMinutes(-10)
+foreach ($p in $all) {
+  if ($p.Name -notmatch '^(find|bash|sh|node|xargs|grep)\.exe$') { continue }
+  $parent = $pids[[int]$p.ParentProcessId]
+  if ($parent -and $parent.CreationDate -le $p.CreationDate) { continue }
+  if ($p.CreationDate -gt $limit) { continue }
+  Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+  $r = "$([DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')) closed orphan $($p.Name) pid $($p.ProcessId) handles $($p.HandleCount): $($p.CommandLine)"
+  $r | Add-Content '__ROOT__\logs\orphans.log'; $r
+}
+# the resident jail must be there
+if (-not (Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'card-jail\.ps1' -and $_.CommandLine -notmatch '-Test' })) {
+  Start-ScheduledTask -TaskName 'topics-card-jail' -ErrorAction SilentlyContinue; 'jail restarted'
+}
+"""
+
+
+def reap_orphans():
+    """Closes the processes left behind by finished cards and says what it closed. An
+    orphaned find once held 9.66 million handles and took the paged pool to 30 GB."""
+    code, out, err = ps(REAP_PS.replace("__ROOT__", PC_ROOT), timeout=90)
+    for line in out.splitlines():
+        if line.strip():
+            log(line.strip())
+    if code != 0:
+        log(f"orphan cleanup failed: {(err or out).strip()[-200:]}")
+
+
+def maintain(exclude_task=None):
+    """Tools and version: a failure here must not stop the card, it only says so."""
+    try:
+        reap_orphans()
+    except Exception as e:
+        log(f"orphan cleanup skipped: {e}")
+    try:
+        copy_scripts()
+        code, txt = ensure_tools()
+        if code != 0:
+            log("tools: " + " ".join(l for l in txt.splitlines() if l.startswith("MISSING")))
+        ensure_version(exclude_task)
+    except Exception as e:
+        log(f"maintenance skipped: {e}")
+
+
+def bar():
+    """Exit 0 if the PC has every listed tool and the latest release, 1 with the reason."""
+    copy_scripts()
+    code, txt = ensure_tools(verify_only=True)
+    reasons = [l for l in txt.splitlines() if l.startswith("MISSING")]
+    if code != 0 and not reasons:
+        reasons = [f"pc-tools.ps1 exit {code}: {txt[-200:]}"]
+    code, out, _ = ps("@(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'card-jail\\.ps1' -and $_.CommandLine -notmatch '-Test' }).Count", timeout=60)
+    if out.strip() in ("", "0"):
+        reasons.append("card jail (card-jail.ps1) not running")
+    # the PC must become reachable again by itself after a reboot
+    code, out, _ = ps(f"& '{PC_ROOT}\\restart-on-boot.ps1'; exit $LASTEXITCODE", timeout=90)
+    if code != 0:
+        reasons.append("does not restart by itself: " + ", ".join(l[4:] for l in out.splitlines() if l.startswith("KO")))
+    want, have = latest_release(), installed_version()
+    if not have or vtuple(have) < vtuple(want):
+        reasons.append(f"node Topics {have or 'absent'}, latest release {want}")
+    if reasons:
+        print("KO: " + "; ".join(reasons))
+        sys.exit(1)
+    print(f"OK: tools complete, Topics {have} = latest {want}")
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--bar":
+        return bar()
+    if len(sys.argv) > 1 and sys.argv[1] == "--maintenance":
+        wake_and_wait()
+        return maintain()
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        payload = {}
+    # The node-run hook fires for every paired node, Cloud Claude included
+    # (node_base_url "claude-cloud://"): only the node behind the tunnel is the PC.
+    # For the others no wake-up, no bundle, and above all no veto.
+    base = (payload.get("node_base_url") or "").rstrip("/")
+    if base and base != f"http://127.0.0.1:{LPORT}":
+        log(f"{payload.get('machine_name') or base}: not the PC, nothing to prepare")
+        return
+    origin = payload.get("origin_url") or os.environ.get("TOPICS_NODE_ORIGIN")
+    repo = payload.get("cwd") or os.environ.get("TOPICS_NODE_REPO")
+    if not origin or not repo:
+        fail("node-prep: payload without origin_url or cwd")
+    t0 = time.time()
+    wake_and_wait()
+    maintain(exclude_task=payload.get("task_id"))
+    wake_and_wait()  # an update restarts the node: wait for the tunnel to answer again
+    pc_dir, name = sync_repo(origin, repo)
+    ensure_project(pc_dir, name)
+    log(f"ready in {time.time() - t0:.0f} s")
+
+
+if __name__ == "__main__":
+    main()

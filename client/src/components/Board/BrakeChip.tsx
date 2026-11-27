@@ -15,9 +15,10 @@
  * early stop, Topics' own margin under the five-hour wall, for the current
  * window; a provider's real wall offers no such button.
  *
- * The 24h spend cap is the one stop that is no provider's: it holds every card
- * past the gates, so while it holds one the chip, the strip and the card line
- * name it first, with the spend, the cap and when the cards restart.
+ * The 24h spend cap is no provider's, and this chip does not name it: the
+ * strip at the top of Todo and the line on each held card still do, and the
+ * "In progress" column's own gauge says it is the reason the queue is held
+ * (`loadWordKey` in `dispatchLoad.ts`).
  */
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowUpRight, Check, ChevronDown, CirclePause, Monitor } from 'lucide-react';
@@ -32,6 +33,7 @@ import { currentCapLimit, useGlobalDispatchCap } from '../../state/globalDispatc
 import { capMode } from '../../lib/board';
 import { useHubEverRead, useHubLive } from '../../state/hubLive';
 import { providerHoldLabel, type DispatchBrake } from '../../../../shared/provider-hold';
+import { useLayoutMobile } from '../../hooks/useMobile';
 import { Menu } from '../Shared/Menu';
 import { brakeDetail, columnNoteView, heldCount, holdingBrakes, queueChipView, spendWhy, waitingClause, workingClause } from './brakeText';
 import { TOOLBAR_CONTROL_H } from './constants';
@@ -65,8 +67,8 @@ function Row({ id, held, glyph, name, state, stateTone, detail, pct }: {
   );
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * `band`: the phone's form, a full-width row under the bar, where the bar is a
@@ -84,9 +86,10 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
   const capState = useGlobalDispatchCap();
   const now = Date.now();
   const holding = holdingBrakes(state);
-  const view = queueChipView(state, now, tr, locale);
+  // Below the layout breakpoint the board shows one column, so the "In progress" gauge that names the spend cap is off screen.
+  const spend = useLayoutMobile() ? state.spend : null;
+  const view = queueChipView(state, now, tr, locale, spend !== null);
   if (!view) return null;
-  const spend = state.spend;
   const metered = meteredProviders(live.pace?.data, live.gates?.data, now);
   const share = (p: string): number | null => (p === 'claude' ? state.claudeFiveHour : metered.find((m) => m.provider === p)?.fiveH ?? null);
   const muse = metered.find((m) => m.provider === 'muse') ?? null;

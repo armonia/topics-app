@@ -4591,3 +4591,36 @@ A project row in the column SHALL show the mini map of the splits inside its pro
 #### Scenario: progetto diviso in due
 - **GIVEN** a project window split in two
 - **THEN** the project's row shows a two-cell mini map with the active cell lit
+
+### Requirement: TABROW-01 — Con le tab di lato la riga in alto ha un passo solo sui quattro lati
+
+With the tabs at the side (the default), from 768px up, the top row of the
+window SHALL be a tab button and one `ROW_INSET` (6px) above and below it: 34 +
+2 × 6 = 46. Every command it holds SHALL be a tab button (34): in the sidebar
+header the column toggle, the bell, Search and «+»; on a cell's title row the
+title tab, the project's commands (its column toggle, File, Git, Processi), the
+cell's zoom and reattach, and «+». Between two commands, and from the last one
+to the row's edge, SHALL be the same 6px. The native traffic lights SHALL centre
+on that row: the client sends the row's height to the shell
+(`set_traffic_lights` with `row`), and the shell centres the disc, not its
+frame. With the strip on top the row SHALL stay the strip's 40.
+
+#### Scenario: a project in front, column open
+- **GIVEN** tabs at the side, a git project with changes in front, at 768, 1440 and 3440 px
+- **THEN** every header button and every title-row command SHALL be 34 tall, 6px from the row's top and bottom, 6px from its neighbour and from the row's end
+
+### Requirement: ROWEXIT-01 — Una riga archiviata esce dalla colonna, non sparisce
+
+A row archived from this window (a chat, or a closed terminal, browser, page or
+project) SHALL count down like a close (the fill and the ring, with the rail
+kept on screen) and, when the archive lands, SHALL leave as an inert copy that
+slides towards the column's edge and fades over `MOTION.fast`, and the rows
+below SHALL close the gap only after it, so the two never overprint. The copy
+SHALL have no role, name, test id or focus.
+Under prefers-reduced-motion nothing SHALL move. A row that stays after the
+archive (shown archived, pinned) SHALL NOT play the exit.
+
+#### Scenario: archive a chat from its menu
+- **GIVEN** the column with a chat above other rows, ordinary motion preference
+- **WHEN** the user archives the chat from its context menu
+- **THEN** a copy of the row SHALL fade and slide left where it was, the row below SHALL travel up, and the copy SHALL be gone once played
