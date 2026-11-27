@@ -2,6 +2,27 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.16 — 2026-11-27
+
+### Sotto il cofano
+- **dispatch** · native child ignores card reserve; mutation-killing tests for reservedMemGB
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-27 [skip ci]
+- Impianto dei test di overflow in un modulo a parte: main torna sotto il tetto di check:bloat
+
+## 2.5.15 — 2026-11-27
+
+### Sotto il cofano
+- DESIGN.md: approvata la prima riga del telefono sotto il titolo
+- Il rimbalzo per CI rossa vale solo finché main è rossa; il testo all'agente dice di verificare il passo rosso
+
+## 2.5.14 — 2026-11-27
+
+### Correzioni
+- **dispatch** · reserve per card net of its own measured tree, no double count in the memory brake
+
+### Sotto il cofano
+- Una card rimandata dalla CI rossa su main dopo il land non si chiude come già in main
+
 ## 2.5.13 — 2026-11-27
 
 ### Sotto il cofano
@@ -35,6 +56,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **dispatch** · originContains fetches without tags, like fetchRemoteBase
 
 ### Sotto il cofano
+- **dispatch** · the resting-seat tests fit under the file's bloat ceiling
 - Prioritize human-confirmed lands in the review remeasure sweep
 - rerun the touched-test check after a load-induced relay flake
 - **relay** · retry tsc file listing once under load before judging the program
@@ -51,6 +73,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - DESIGN.md: round 3 di tab e sidebar approvato (27/11)
 - **review-checks** · cover isMacOnlyDiff and the swap-exhausted mac-only branch
+- a riposo la prima riga della colonna sta sotto il titolo
 
 ## 2.5.8 — 2026-11-27
 
@@ -77,6 +100,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.5.7 — 2026-11-26
 
 ### Correzioni
+- **dispatch** · a card at work with no chip keeps its seat (NULL never matches IN)
 - **land** · node deliveries with a null checks_state are measured again, and every mute exit of the meter says why
 - **review-checks** · give isMacOnlyDiff's git read a deadline and list it
 - **browser** · pin playwright-core to the exact locked version, install with integrity and a deadline
@@ -95,6 +119,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **browser** · cover installed-Chromium fallback and frozen lockfile install; silence install output
 
 ## 2.5.6 — 2026-11-26
+
+### Correzioni
+- **dispatch** · a remote run resting on a wait or a question gives its machine seat back
 
 ### Sotto il cofano
 - **board** · scheduled review tests declare the requirement they cover; bloat baseline records the land growth

@@ -1,5 +1,77 @@
 [
   {
+    "version": "2.5.16",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "native child ignores card reserve; mutation-killing tests for reservedMemGB",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-27 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Impianto dei test di overflow in un modulo a parte: main torna sotto il tetto di check:bloat",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.15",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "DESIGN.md: approvata la prima riga del telefono sotto il titolo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rimbalzo per CI rossa vale solo finché main è rossa; il testo all'agente dice di verificare il passo rosso",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.14",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "reserve per card net of its own measured tree, no double count in the memory brake",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card rimandata dalla CI rossa su main dopo il land non si chiude come già in main",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.13",
     "date": "2026-11-27",
     "sections": {
@@ -121,6 +193,12 @@
       "perf": [],
       "internal": [
         {
+          "it": "the resting-seat tests fit under the file's bloat ceiling",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
           "it": "Prioritize human-confirmed lands in the review remeasure sweep",
           "en": "",
           "scope": null
@@ -187,6 +265,12 @@
           "it": "cover isMacOnlyDiff and the swap-exhausted mac-only branch",
           "en": "",
           "scope": "review-checks",
+          "breaking": false
+        },
+        {
+          "it": "a riposo la prima riga della colonna sta sotto il titolo",
+          "en": "",
+          "scope": null,
           "breaking": false
         }
       ]
@@ -289,6 +373,12 @@
       "new": [],
       "fixes": [
         {
+          "it": "a card at work with no chip keeps its seat (NULL never matches IN)",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
           "it": "node deliveries with a null checks_state are measured again, and every mute exit of the meter says why",
           "en": "",
           "scope": "land",
@@ -377,7 +467,14 @@
     "date": "2026-11-26",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "a remote run resting on a wait or a question gives its machine seat back",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
