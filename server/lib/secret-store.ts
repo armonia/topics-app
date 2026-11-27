@@ -273,6 +273,9 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
   /** The decrypted map, kept after the first `unpack`; `pack` replaces it with the fresh truth instead of leaving it stale. */
   let cachedMap: SecretMap | null = null;
 
+  /** The one failure `read`/`unpack` answer empty for; any other error (an insecure identity file, a runner that throws) still surfaces. */
+  class DecryptFailedError extends Error {}
+
   /**
    * Throws when the file exists but did not decrypt (bad exit, timeout, wrong
    * identity): a caller that would otherwise merge on top of this result —
@@ -287,7 +290,7 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
     // thing age sees in its argv, and that path carries no secret.
     const { stdout, exitCode } = await run(["age", "-d", "-i", "-", opts.secretsPath], id);
     if (exitCode !== 0 || !stdout.trim()) {
-      throw new Error(`secrets file exists but did not decrypt (age exited ${exitCode})`);
+      throw new DecryptFailedError(`secrets file exists but did not decrypt (age exited ${exitCode})`);
     }
     // The WHOLE file map: names outside the current allowlist stay in it, so a
     // narrower store never destroys them on rewrite. The outputs filter instead.
@@ -299,8 +302,9 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
   const decrypt = async (): Promise<SecretMap> => {
     try {
       return await decryptOrThrow();
-    } catch {
-      return {};
+    } catch (err) {
+      if (err instanceof DecryptFailedError) return {};
+      throw err;
     }
   };
 
