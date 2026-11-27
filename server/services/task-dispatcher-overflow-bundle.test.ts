@@ -26,7 +26,7 @@ describe("a stale node receives a wider carried branch bundle", () => {
     const mac = join(root, "mac");
     const node = join(root, "node");
     try {
-      git(root, "init", "--bare", "-q", origin);
+      git(root, "init", "--bare", "-q", "-b", "main", origin);
       git(root, "clone", "-q", origin, mac);
       git(mac, "switch", "-q", "-c", "main");
       writeFileSync(join(mac, "base.txt"), "base\n");
@@ -35,7 +35,7 @@ describe("a stale node receives a wider carried branch bundle", () => {
       git(node, "remote", "remove", "origin");
       writeFileSync(join(mac, "main.txt"), "new main\n");
       git(mac, "add", "."); git(mac, "commit", "-q", "-m", "new main"); git(mac, "push", "-q", "origin", "main");
-      git(mac, "fetch", "origin"); git(mac, "remote", "set-head", "origin", "-a");
+      git(mac, "fetch", "origin"); git(mac, "remote", "set-head", "origin", "main");
       git(mac, "switch", "-q", "-c", "topics/endless-calf");
       for (const name of ["one", "two", "three"]) {
         writeFileSync(join(mac, `${name}.txt`), `${name}\n`);
