@@ -24,6 +24,14 @@
           "scope": "land"
         },
         {
+          "text": "age store filters unpack/read by the current allowlist",
+          "scope": "secrets"
+        },
+        {
+          "text": "age store keeps the whole file map, filters only its outputs, and never rewrites for refused names",
+          "scope": "secrets"
+        },
+        {
           "text": "a branch origin is only ahead on is already there",
           "scope": "dispatch"
         },
@@ -48,6 +56,10 @@
         {
           "text": "templateChunks back inside ui-language-scan.ts's 800-line budget",
           "scope": "gates"
+        },
+        {
+          "text": "resolve the installed playwright-core entry from its own manifest",
+          "scope": "browser"
         }
       ],
       "perf": []
@@ -93,6 +105,10 @@
         {
           "text": "give isMacOnlyDiff's git read a deadline and list it",
           "scope": "review-checks"
+        },
+        {
+          "text": "pin playwright-core to the exact locked version, install with integrity and a deadline",
+          "scope": "browser"
         },
         {
           "text": "ci-impact fixtures no longer read as the file's own @covers",
@@ -160,6 +176,10 @@
           "scope": "board"
         },
         {
+          "text": "add a single secret-store interface for Mac and Linux",
+          "scope": "secrets"
+        },
+        {
           "text": "a request that repeats an open card is absorbed by it instead of opening a twin",
           "scope": "board"
         },
@@ -198,6 +218,14 @@
           "scope": "review-checks"
         },
         {
+          "text": "stdin secrets, in-memory identity, configurable allowlist",
+          "scope": "secrets"
+        },
+        {
+          "text": "keychain write uses -X hex, closing the newline injection in -i stdin",
+          "scope": "secrets"
+        },
+        {
           "text": "the sidebar's buttons are tabs, and every tab lights under the pointer",
           "scope": "ui"
         },
@@ -206,12 +234,30 @@
           "scope": null
         },
         {
+          "text": "keychain stores printable b64 payload, so read never gets hex back",
+          "scope": "secrets"
+        },
+        {
           "text": "the stuck-card sweep leaves an in-progress card its dispatch chip explains",
           "scope": "board"
         },
         {
           "text": "protect every comment of a resend's round, not two rows by position, in node run briefs",
           "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.1",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "fall back to an installed Chromium-family browser when no Playwright Chromium is found",
+          "scope": "browser"
         }
       ],
       "perf": []
@@ -246,6 +292,10 @@
         }
       ],
       "fixes": [
+        {
+          "text": "install playwright-core on first use when the server cannot resolve it",
+          "scope": "browser"
+        },
         {
           "text": "a pop-out window is dressed on the main thread, not on a tokio worker",
           "scope": "tauri"
