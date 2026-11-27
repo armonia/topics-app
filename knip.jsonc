@@ -430,7 +430,12 @@
         // the worktree-standard change: production code with no caller in the
         // server, for the same reason as the disk budget above.
         "!server/services/worktree-root-check.ts!",
-        "!server/services/project-worktree-check.ts!"
+        "!server/services/project-worktree-check.ts!",
+        // The secret store of trace T3 (openspec/changes/nodo-principale-a-mano):
+        // the trace lands the store and its tests only, with no real secret on the
+        // server; its first production caller arrives with the later traces of the
+        // same change. Drop this line when that caller lands.
+        "!server/lib/secret-store.ts!"
       ],
       // `ws` e `@types/ws` sono USATE, da `tests/e2e/helpers/node-websocket.ts`,
       // che da' alle spec un WebSocket anche su Node 20 (dove non e' globale: la
