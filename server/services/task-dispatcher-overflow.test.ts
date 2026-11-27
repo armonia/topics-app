@@ -136,8 +136,8 @@ function harness(opts: {
   createRunError?: () => Error | null;
   /** What `readRun` throws instead of answering, while set (a live run's account refused). */
   readRunError?: { current: (() => Error) | null };
-  /** The run report `readRun` answers instead of an idle run. */
-  runReport?: () => Partial<NodeRunReport>;
+  /** The run report `readRun` answers instead of an idle run, given the card the run belongs to. */
+  runReport?: (originTaskId: string) => Partial<NodeRunReport>;
   /** Leave `cloudCredit` to the real provider hold. */
   realCredit?: boolean;
   /** The Mac under its memory floor (default) or free. */
@@ -163,6 +163,7 @@ function harness(opts: {
   const turns: string[] = [];
   let now = Date.UTC(2026, 9, 30, 10, 0, 0);
   let nextRun = 0;
+  const runCard = new Map<string, string>();
   const machines = (): OverflowMachine[] => [
     { id: CLOUD, name: NAME[CLOUD], kind: "cloud", online: opts.cloudOnline ?? true },
     { id: PC, name: NAME[PC], kind: "node", online: opts.pcOnline ?? true, wakeable: opts.pcWakeable ?? false, ...(opts.pcSlots !== undefined ? { slots: opts.pcSlots } : {}) },
@@ -197,15 +198,16 @@ function harness(opts: {
         created.push({ baseUrl, originTaskId: body.originTaskId });
         bodies.push({ originTaskId: body.originTaskId, baseBranch: body.baseBranch });
         nextRun += 1;
+        runCard.set(`run-${nextRun}`, body.originTaskId);
         return { runId: `run-${nextRun}` };
       },
-      readRun: async () => {
+      readRun: async ({ runId }) => {
         const fail = opts.readRunError?.current;
         if (fail) throw fail();
         return {
         status: "in_progress", dispatchState: "working", dispatchError: null, comments: [],
         deliveryBranch: null, deliveryCommit: null, baseSha: null, stat: null,
-        ...opts.runReport?.(),
+        ...opts.runReport?.(runCard.get(runId) ?? ""),
         };
       },
       fetchBundle: async () => ({ empty: true as const }),
@@ -1711,5 +1713,122 @@ describe("overflow: una card che nomina file di questo Mac non va su un nodo", (
     expect(overflowEligible({ machineId: null, description: "tocca ~/.claude/jarvis/tools/usage-hub" }, {}, LOCAL)).toBe(false);
     expect(overflowEligible({ machineId: null, text: "plist in LaunchAgents" }, {}, LOCAL)).toBe(false);
     expect(overflowEligible({ machineId: null, description: "server/services/tasks.ts" }, {}, LOCAL)).toBe(true);
+  });
+});
+
+/**
+ * A REMOTE RUN AT REST GIVES ITS SEAT BACK (card 40903322). A run that declared
+ * a wait (`waiting`) or asks a person (`needs_input`) runs no turn over there, so
+ * it counts in none of the three reads (`countOnMachine`, the live slots of
+ * `machineLoad`, `countRunningOnMachine`) and counts again as soon as its chip
+ * says it is back at work. Each test goes through the real tick and claim.
+ */
+describe("a remote run that rests gives its seat back", () => {
+  function restingHarness(opts: { pcSlots?: number } = {}) {
+    const chips = new Map<string, string>();
+    const h = harness({
+      cloudOnline: false,
+      ...(opts.pcSlots !== undefined ? { pcSlots: opts.pcSlots } : {}),
+      runReport: (taskId) => ({ dispatchState: chips.get(taskId) ?? "working" }),
+    });
+    /** Ticks enough rounds for every free seat to be taken (`OVERFLOW_MAX_PER_ROUND` moves per round). */
+    const settle = async () => { for (let i = 0; i < 4; i++) { await h.tick(); h.advance(60_000); } };
+    /** The node reports `chip` for these cards, and the origin mirrors it. */
+    const report = async (chip: string, ...ids: string[]) => {
+      for (const id of ids) chips.set(id, chip);
+      await h.poll();
+      for (const id of ids) expect(h.task(id).dispatchState).toBe(chip);
+    };
+    const started = (ids: string[]) => ids.filter((id) => h.created.some((c) => c.originTaskId === id));
+    /** Cards on the PC with a turn alive or about to start: in progress, not resting. */
+    const atWork = () => (h.db.query(`SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status = 'in_progress'
+         AND COALESCE(dispatch_state, '') NOT IN ('waiting', 'needs_input')`).get(PC) as { n: number }).n;
+    return { h, settle, report, started, atWork };
+  }
+
+  it("a node with 2 seats and 2 runs at rest takes 2 new cards, and not a third", async () => {
+    const { h, settle, report, started } = restingHarness();
+    h.seed("rest-1"); h.seed("rest-2");
+    await settle();
+    expect(started(["rest-1", "rest-2"])).toHaveLength(2);
+    await report("waiting", "rest-1");
+    await report("needs_input", "rest-2");
+
+    const fresh = ["new-1", "new-2", "new-3"];
+    for (const id of fresh) h.seed(id);
+    await settle();
+    expect(started(fresh)).toHaveLength(OVERFLOW_SLOTS.node);
+    expect(fresh.filter((id) => h.task(id).machineId === PC)).toHaveLength(OVERFLOW_SLOTS.node);
+  });
+
+  it("a card pinned to that node starts too: the pinned read does not count the runs at rest", async () => {
+    // Declared seats: a pinned card is held only on a machine that declares them.
+    const { h, settle, report, started } = restingHarness({ pcSlots: 2 });
+    h.seed("rest-1"); h.seed("rest-2");
+    await settle();
+    await report("waiting", "rest-1", "rest-2");
+
+    for (const id of ["pinned-1", "pinned-2", "pinned-3"]) h.seed(id, { machineId: PC });
+    await settle();
+    expect(started(["pinned-1", "pinned-2", "pinned-3"])).toHaveLength(2);
+    expect(h.task("pinned-3").status).toBe("todo");
+  });
+
+  // Free cards are moved by the overflow, pinned ones go through the claim's
+  // own read: both have to stop at the machine's seats.
+  for (const pinned of [false, true]) {
+    it(`a PC with 4 seats, 3 runs at rest and a launch under way never has more than 4 at work (${pinned ? "pinned" : "free"} cards)`, async () => {
+      const { h, settle, report, started, atWork } = restingHarness({ pcSlots: 4 });
+      const resting = ["rest-1", "rest-2", "rest-3"];
+      for (const id of resting) h.seed(id);
+      await settle();
+      expect(started(resting)).toHaveLength(3);
+      await report("waiting", ...resting);
+      // A launch under way: claimed (in progress, `starting`) and not yet in the
+      // dispatcher's live slots, which it enters only at `beginRun`.
+      h.seed("launching", { machineId: PC });
+      h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'starting', dispatch_attempts = 1 WHERE id = 'launching'");
+
+      const fresh = ["new-1", "new-2", "new-3", "new-4"];
+      for (const id of fresh) h.seed(id, pinned ? { machineId: PC } : {});
+      await settle();
+      expect(started(fresh)).toHaveLength(3);
+      expect(atWork()).toBe(4);
+    });
+  }
+
+  it("a run that comes back from its wait with no seat free waits in the queue, and takes nothing more", async () => {
+    const { h, settle, report, started, atWork } = restingHarness({ pcSlots: 2 });
+    h.seed("rest-1"); h.seed("rest-2");
+    await settle();
+    await report("waiting", "rest-1", "rest-2");
+    h.seed("new-1"); h.seed("new-2");
+    await settle();
+    expect(started(["new-1", "new-2"])).toHaveLength(2);
+
+    // Its wait is over and the node has no seat: it reports itself queued, it
+    // counts again, and the machine is over its seats.
+    await report("queued", "rest-1");
+    expect(h.task("rest-1").status).toBe("in_progress");
+    expect(atWork()).toBe(3);
+    h.seed("new-3"); h.seed("pinned", { machineId: PC });
+    await settle();
+    expect(started(["new-3", "pinned"])).toEqual([]);
+    expect(h.task("new-3").machineId).not.toBe(PC);
+    expect(h.task("pinned").status).toBe("todo");
+  });
+
+  it("a card waiting in Todo for a silent node keeps its seat", () => {
+    const { h } = restingHarness();
+    h.seed("deferred", { machineId: PC });
+    h.db.run("UPDATE tasks SET dispatch_state = 'waiting', wait_source = 'machine' WHERE id = 'deferred'");
+    h.seed("resting", { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'waiting' WHERE id = 'resting'");
+    // No chip at all is a card at work, not one at rest (NULL never matches IN).
+    h.seed("no-chip", { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = NULL, node_run_open = 1 WHERE id = 'no-chip'");
+    expect(h.svc.countOnMachine(PC)).toBe(2);
+    expect(h.svc.countRunningOnMachine(PC)).toBe(1);
+    expect(h.svc.restingOnMachine(PC)).toEqual(["resting"]);
   });
 });
