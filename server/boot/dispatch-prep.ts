@@ -11,6 +11,7 @@ import { readStartTimes } from "../lib/process-snapshot";
 import { existsSync } from "fs";
 import { setTerminalMemPressure, setChildAdmissionPreview, liveTerminalCwds } from "../routes/terminal";
 import { createTaskService, projectIdForPath } from "../services/tasks";
+import { releaseWakingTasks } from "../services/tasks-wake";
 import { configureChannelOriginCards } from "../lib/channel-origin-cards";
 import { createCardAction } from "../schedule/card-action";
 import { createScheduledCardsService } from "../schedule/cards-service";
@@ -154,7 +155,22 @@ export function bootDispatchPrep(scope: AfterRouters1) {
     }
   }
 
+  /**
+   * «Rimanda a»: announces the cards `releaseWakingTasks` moved out of backlog
+   * on its own, the same way a human dragging one into todo is announced.
+   * Runs on the schedule engine's own 15 s beat (below) instead of a timer of
+   * its own: one clock for every "comes back by itself" card, not two. This is
+   * what retires `scripts/riprendi-rimandate` and its external cron.
+   */
+  function releaseWakingCards(): void {
+    for (const task of releaseWakingTasks(ctx.db, dispatcherSvc, scheduleNow)) {
+      ctx.broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+      if (task.status === "todo") late.taskDispatcher.onEnterTodo(task.projectId, task.id);
+    }
+  }
+
   function tickScheduledCards(): TickResult {
+    try { releaseWakingCards(); } catch (error) { console.warn("[wake-card] tick failed:", error); }
     try {
       const result = scheduleEngine.tick();
       announceTick(result);
@@ -565,5 +581,5 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   // Owned here so the quiescence wait can see lands still queued or running.
   const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 
-  return { DISPATCH_AUTONOMY, agentWorktreeDeps, cloudEnabled, cloudNode, deliveryIsOnMain, deliveryOnlyWaitsOnChecks, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, isChecksHold, landingQueue, listKnownDeliveryRepoRoots, memSignal, memoryOwners, memoryPressureSignal, nodeBranchPlanter, nodeClient, projectPathForNode, recordDispatchMemoryHistory, remoteNodeRoad, announceTick, repoRootForCard, scheduleEngine, scheduledCards, scheduledJobs, swapFreezeLedger, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc, worktreeOfTask };
+  return { DISPATCH_AUTONOMY, agentWorktreeDeps, cloudEnabled, cloudNode, deliveryIsOnMain, deliveryOnlyWaitsOnChecks, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, isChecksHold, landingQueue, listKnownDeliveryRepoRoots, memSignal, memoryOwners, memoryPressureSignal, nodeBranchPlanter, nodeClient, projectPathForNode, recordDispatchMemoryHistory, remoteNodeRoad, announceTick, releaseWakingCards, repoRootForCard, scheduleEngine, scheduledCards, scheduledJobs, swapFreezeLedger, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc, worktreeOfTask };
 }

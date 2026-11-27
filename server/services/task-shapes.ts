@@ -77,6 +77,12 @@ export interface Task {
    */
   scheduled?: { by: string; at: string | null };
   /**
+   * «Rimanda a»: a card parked in `backlog` with a future instant (ISO) that
+   * releases it back to `todo` on its own, once the instant passes. ON THE
+   * WIRE only when set — absent means no pending wake.
+   */
+  wakeAt?: string;
+  /**
    * When a server shutdown cut this card's turn in half.
    *
    * ON THE WIRE, not in the fixed body: it travels only when it has a value,
@@ -564,6 +570,12 @@ export interface UpdateTaskPatch {
   dueDate?: string | null;
   /** Who runs this card's work outside Topics and when; null clears. */
   scheduled?: { by: string; at: string | null } | null;
+  /**
+   * «Rimanda a»: sets the card's wake instant (ISO, future). Writing any
+   * `status` without `wakeAt` clears it — leaving `backlog` any other way
+   * cancels the wake. `null`/empty clears it explicitly.
+   */
+  wakeAt?: string | null;
   kanbanOrder?: number;
   /** http(s) URL of the reviewable output; empty string / null clears it. */
   outputUrl?: string | null;
