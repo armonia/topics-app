@@ -2,10 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.13 — 2026-11-27
+
+### Sotto il cofano
+- secret-store: timeout sui comandi e voce nell'elenco degli spawn sincroni
+
 ## 2.5.12 — 2026-11-27
 
 ### Sotto il cofano
 - Revert the detached node-check worktree: CI rows can no longer read a branch
+- secret-store test: salta la suite age se i binari mancano
+- Revert "secret-store test: salta la suite age se i binari mancano"
+- installa age nel job unit per i test del deposito segreti
 
 ## 2.5.11 — 2026-11-27
 
@@ -13,14 +21,25 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **node-meter** · fall back to the planted branch when the delivered commit is not resolvable yet
 
 ### Sotto il cofano
+- Fix queue order drift and false queue notes in the review sweep
 - **review-checks** · split the mac-only isMacOnlyDiff coverage into its own file
+- Drop the queue note and free a node delivery's local slot early
 
 ## 2.5.10 — 2026-11-27
 
 ### Correzioni
 - **land** · block a manual land while the bar is still running
+- **secrets** · age store filters unpack/read by the current allowlist
+- **secrets** · age store keeps the whole file map, filters only its outputs, and never rewrites for refused names
 - **dispatch** · a branch origin is only ahead on is already there
 - **dispatch** · originContains fetches without tags, like fetchRemoteBase
+
+### Sotto il cofano
+- Prioritize human-confirmed lands in the review remeasure sweep
+- rerun the touched-test check after a load-induced relay flake
+- **relay** · retry tsc file listing once under load before judging the program
+- Revert "test(relay): retry tsc file listing once under load before judging the program"
+- rerun the review check
 
 ## 2.5.9 — 2026-11-27
 
@@ -51,6 +70,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il test del bump non presume che la versione di partenza sia diversa
 - CI della PR: tetto del bundle sulla misura, test di bump senza la bomba del 2.5.7
 - drop the packages.microsoft.com apt source before installing Playwright
+- Il deposito dei segreti ha il suo requisito, MACHINE-06, e il test lo dichiara
+- Il deposito dei segreti è dichiarato in attesa del suo primo chiamante
 
 ## 2.5.7 — 2026-11-26
 
@@ -119,6 +140,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Novità
 - **board** · scheduled review reuses the land verdict, judges sense, isolated test env
 - **board** · a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land
+- **secrets** · add a single secret-store interface for Mac and Linux
 - **board** · a request that repeats an open card is absorbed by it instead of opening a twin
 - **board** · scheduled review reads one nonce-bound verdict, no tools, bounded retries, board-set models
 - **board** · a card stuck for an hour without a reason gets one service note, and leaves a machine that does not answer
@@ -130,8 +152,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **board** · scheduled review gate in the CI phase, fetch before 'already on main', closes on proof, keeps the agent's question until answered
 - **board** · drop a stray backspace from the merge-tree conflict regex
 - **review-checks** · run touched tests after CI is green, fall back to its verdict after 2 swap stops
+- **secrets** · stdin secrets, in-memory identity, configurable allowlist
+- **secrets** · keychain write uses -X hex, closing the newline injection in -i stdin
 - **ui** · the sidebar's buttons are tabs, and every tab lights under the pointer
 - don't let an older comment outrank the newest one when carrying a node's thread
+- **secrets** · keychain stores printable b64 payload, so read never gets hex back
 - **board** · the stuck-card sweep leaves an in-progress card its dispatch chip explains
 - protect every comment of a resend's round, not two rows by position, in node run briefs
 

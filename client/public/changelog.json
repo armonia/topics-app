@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.5.13",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "secret-store: timeout sui comandi e voce nell'elenco degli spawn sincroni",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.12",
     "date": "2026-11-27",
     "sections": {
@@ -11,6 +27,22 @@
           "it": "Revert the detached node-check worktree: CI rows can no longer read a branch",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "secret-store test: salta la suite age se i binari mancano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revert \"secret-store test: salta la suite age se i binari mancano\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "installa age nel job unit per i test del deposito segreti",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -31,10 +63,20 @@
       "perf": [],
       "internal": [
         {
+          "it": "Fix queue order drift and false queue notes in the review sweep",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "split the mac-only isMacOnlyDiff coverage into its own file",
           "en": "",
           "scope": "review-checks",
           "breaking": false
+        },
+        {
+          "it": "Drop the queue note and free a node delivery's local slot early",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -52,6 +94,18 @@
           "breaking": false
         },
         {
+          "it": "age store filters unpack/read by the current allowlist",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "age store keeps the whole file map, filters only its outputs, and never rewrites for refused names",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
           "it": "a branch origin is only ahead on is already there",
           "en": "",
           "scope": "dispatch",
@@ -65,7 +119,36 @@
         }
       ],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "Prioritize human-confirmed lands in the review remeasure sweep",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "rerun the touched-test check after a load-induced relay flake",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "retry tsc file listing once under load before judging the program",
+          "en": "",
+          "scope": "relay",
+          "breaking": false
+        },
+        {
+          "it": "Revert \"test(relay): retry tsc file listing once under load before judging the program\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "rerun the review check",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
     }
   },
   {
@@ -179,6 +262,16 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Il deposito dei segreti ha il suo requisito, MACHINE-06, e il test lo dichiara",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il deposito dei segreti è dichiarato in attesa del suo primo chiamante",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -459,6 +552,12 @@
           "breaking": false
         },
         {
+          "it": "add a single secret-store interface for Mac and Linux",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
           "it": "a request that repeats an open card is absorbed by it instead of opening a twin",
           "en": "",
           "scope": "board",
@@ -515,6 +614,18 @@
           "breaking": false
         },
         {
+          "it": "stdin secrets, in-memory identity, configurable allowlist",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "keychain write uses -X hex, closing the newline injection in -i stdin",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
           "it": "the sidebar's buttons are tabs, and every tab lights under the pointer",
           "en": "",
           "scope": "ui",
@@ -524,6 +635,12 @@
           "it": "don't let an older comment outrank the newest one when carrying a node's thread",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "keychain stores printable b64 payload, so read never gets hex back",
+          "en": "",
+          "scope": "secrets",
           "breaking": false
         },
         {
