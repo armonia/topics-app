@@ -121,7 +121,7 @@ describe("bun run bump — un gesto per tutti e quattro i posti", () => {
     expect(allineati(root)).toBe(true);
     expect(bump(root, "minor")).toBe("1.5.0");
     expect(allineati(root)).toBe(true);
-    expect(bump(root, "major")).toBe("3.0.0");
+    expect(bump(root, "major")).toBe("2.0.0");
     expect(allineati(root)).toBe(true);
   });
 
