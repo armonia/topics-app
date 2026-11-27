@@ -497,6 +497,53 @@ describe("secret store regressions", () => {
     expect(await store.read(TEST_NAME)).toBe("old-value");
   });
 
+  test("plaintext that isn't valid JSON makes pack throw and leaves the file byte for byte identical", async () => {
+    const secretsPath = join(dir, "secrets.age");
+    const bad = `FAKEAGE:${fakeRecipient(goodIdentity)}:${Buffer.from("not json").toString("base64")}`;
+    writeFileSync(secretsPath, bad);
+    const before = readFileSync(secretsPath);
+    const store = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identity: goodIdentity, secretsPath, run: fakeAge() });
+    await expect(store.pack({ [TEST_NAME]: "x" })).rejects.toThrow(/not valid JSON/);
+    expect(readFileSync(secretsPath).equals(before)).toBe(true);
+  });
+
+  test("an object with a non-string value makes pack throw and leaves the file byte for byte identical", async () => {
+    const secretsPath = join(dir, "secrets.age");
+    const decryptedJson = JSON.stringify({ [TEST_NAME]: "keep", [OTHER_TEST_NAME]: { nested: true } });
+    const bad = `FAKEAGE:${fakeRecipient(goodIdentity)}:${Buffer.from(decryptedJson).toString("base64")}`;
+    writeFileSync(secretsPath, bad);
+    const before = readFileSync(secretsPath);
+    const store = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identity: goodIdentity, secretsPath, run: fakeAge() });
+    await expect(store.pack({ [TEST_NAME]: "x" })).rejects.toThrow(/non-string value/);
+    expect(readFileSync(secretsPath).equals(before)).toBe(true);
+  });
+
+  test("two concurrent packs through different spellings of the same path both end up in the file", async () => {
+    const secretsPath = join(dir, "secrets.age");
+    const altPath = `${dir}/./secrets.age`;
+    const run = fakeAge(true);
+    const a = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identity: goodIdentity, secretsPath, run });
+    const b = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identity: goodIdentity, secretsPath: altPath, run });
+    await a.pack({ [TEST_NAME]: "seed" });
+    await Promise.all([a.pack({ [TEST_NAME]: "one" }), b.pack({ [OTHER_TEST_NAME]: "two" })]);
+    const reader = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identity: goodIdentity, secretsPath, run });
+    expect(await reader.unpack()).toEqual({ [TEST_NAME]: "one", [OTHER_TEST_NAME]: "two" });
+  });
+
+  test("a Keychain name under the unit limit but over the byte limit throws before security runs", async () => {
+    const bigName = "中".repeat(1000);
+    const allowlist = createAllowlist([bigName]);
+    let securityCalled = false;
+    const runner = (_cmd: string, args: string[]): CommandRunResult => {
+      if (args[0] === "find-generic-password") return { status: 44, stdout: "", stderr: "" };
+      securityCalled = true;
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    const store = createKeychainSecretStore(allowlist, runner);
+    await expect(store.pack({ [bigName]: "x".repeat(1000) })).rejects.toThrow(/too long/);
+    expect(securityCalled).toBe(false);
+  });
+
   test("a spawned child does not see TOPICS_SECRET_AGE_IDENTITY", () => {
     const env = withoutGatewayToken({ ...process.env, TOPICS_SECRET_AGE_IDENTITY: "AGE-SECRET-KEY-FAKE" });
     const r = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.env.TOPICS_SECRET_AGE_IDENTITY))"], { env, encoding: "utf8" });

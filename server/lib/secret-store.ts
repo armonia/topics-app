@@ -32,8 +32,8 @@
  * env var of the server is inherited by every child it spawns. Whichever source answers, the material stays in memory for
  * the life of the store and this module never writes it back to disk.
  */
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { writeFileAtomic } from "./atomic-write";
 import { resolveSecretsDir, resolveStateDir } from "./data-dir";
 import { runBounded, SPAWN_TIMEOUT } from "./bounded-spawn";
@@ -178,8 +178,12 @@ function keychainAdd(runner: CommandRunner, name: string, value: string): Comman
     "-a", quoteForSecurityStdin(name),
     "-w", quoteForSecurityStdin(payload),
   ].join(" ");
-  if (command.length > MAX_COMMAND_LINE) throw new Error(`secret "${name}" is too long for the Keychain backend: nothing was written`);
-  const r = runner("security", ["-i"], `${command}\n`);
+  const line = `${command}\n`;
+  // `security -i` cuts a line at a byte count, not a character count: a
+  // non-ASCII name can be under MAX_COMMAND_LINE in UTF-16 units and still
+  // be over it once encoded.
+  if (Buffer.byteLength(line, "utf8") > MAX_COMMAND_LINE) throw new Error(`secret "${name}" is too long for the Keychain backend: nothing was written`);
+  const r = runner("security", ["-i"], line);
   if (r.status !== 0) return r;
   // Read it back: a write that "succeeded" but stored something else is a failure.
   if (keychainFindRaw(runner, name) !== payload) throw new Error(`keychain write for "${name}" did not read back identically`);
@@ -227,14 +231,25 @@ function recipientFromIdentity(identity: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Parses the whole ciphertext content without filtering: the gate is on the outputs (`read`, `unpack`) and on `pack`. */
-function parseSecretMap(json: string): SecretMap {
+/** The one failure `read`/`unpack` answer empty for; any other error (an insecure identity file, a runner that throws) still surfaces. */
+class DecryptFailedError extends Error {}
+
+/**
+ * The whole ciphertext content, strictly: anything that isn't a plain
+ * object of strings is a decrypt failure, not "no secrets yet" — a caller
+ * that merged on top of a silently-dropped value (`pack`) would otherwise
+ * throw away everything that didn't fit the shape.
+ */
+function parseSecretMapStrict(json: string): SecretMap {
   let parsed: unknown;
-  try { parsed = JSON.parse(json); } catch { return {}; }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  try { parsed = JSON.parse(json); } catch { throw new DecryptFailedError("decrypted plaintext is not valid JSON"); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new DecryptFailedError("decrypted plaintext is not a JSON object");
+  }
   const out: SecretMap = {};
   for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (typeof value === "string") out[name] = value;
+    if (typeof value !== "string") throw new DecryptFailedError(`decrypted plaintext has a non-string value for "${name}"`);
+    out[name] = value;
   }
   return out;
 }
@@ -280,15 +295,29 @@ export interface AgeSecretStoreOptions {
 /** One queue per file path, shared by every store instance in the process. */
 const pathLocks = new Map<string, Promise<unknown>>();
 
+/**
+ * The file's own identity, not the string that named it: `dir/x` and
+ * `dir/./x`, or a path reached through a symlinked folder, must collapse to
+ * the same key or two concurrent `pack`s on "the same" file never serialise.
+ * The file itself may not exist yet, so only its folder is resolved through
+ * the filesystem.
+ */
+function lockKeyFor(path: string): string {
+  const dir = dirname(path);
+  const resolvedDir = existsSync(dir) ? realpathSync(dir) : resolve(dir);
+  return join(resolvedDir, basename(path));
+}
+
 async function withPathLock<T>(path: string, task: () => Promise<T>): Promise<T> {
-  const previous = pathLocks.get(path) ?? Promise.resolve();
+  const key = lockKeyFor(path);
+  const previous = pathLocks.get(key) ?? Promise.resolve();
   const result = previous.then(task, task);
   const tail = result.catch(() => undefined);
-  pathLocks.set(path, tail);
+  pathLocks.set(key, tail);
   try {
     return await result;
   } finally {
-    if (pathLocks.get(path) === tail) pathLocks.delete(path);
+    if (pathLocks.get(key) === tail) pathLocks.delete(key);
   }
 }
 
@@ -306,14 +335,12 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
   /** The decrypted map, kept after the first `unpack`; `pack` replaces it with the fresh truth instead of leaving it stale. */
   let cachedMap: SecretMap | null = null;
 
-  /** The one failure `read`/`unpack` answer empty for; any other error (an insecure identity file, a runner that throws) still surfaces. */
-  class DecryptFailedError extends Error {}
-
   /**
    * Throws when the file exists but did not decrypt (bad exit, timeout, wrong
-   * identity): a caller that would otherwise merge on top of this result —
-   * `pack` — must never treat that failure as "no secrets yet" and overwrite
-   * the file with only what it just packed.
+   * identity, or plaintext that isn't a plain object of strings): a caller
+   * that would otherwise merge on top of this result — `pack` — must never
+   * treat that failure as "no secrets yet" and overwrite the file with only
+   * what it just packed.
    */
   const decryptOrThrow = async (readOpts: { fresh?: boolean } = {}): Promise<SecretMap> => {
     if (cachedMap && !readOpts.fresh) return cachedMap;
@@ -327,7 +354,7 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
     }
     // The WHOLE file map: names outside the current allowlist stay in it, so a
     // narrower store never destroys them on rewrite. The outputs filter instead.
-    cachedMap = parseSecretMap(stdout);
+    cachedMap = parseSecretMapStrict(stdout);
     return cachedMap;
   };
 
