@@ -5,10 +5,20 @@ import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Database } from "bun:sqlite";
 
-interface Args { since: string; dbPath: string; logPath: string }
+/**
+ * `--project` keeps only the chats whose topic lives in that folder (an
+ * always-on agent's chats live in its own: `server/agents/registry.ts`), and
+ * `--calls` prints the size of each call instead of the per-chat table: the
+ * two numbers an agent's compaction ceiling (CHAT-COMPACT-06) is judged by,
+ * before and after, with `--since`/`--until` around the restart.
+ */
+interface Args { since: string; until: string | null; dbPath: string; logPath: string; projects: string[]; calls: boolean }
 interface UsageRow {
   session_key: string;
   user_turns: number;
+  /** Assistant rows with a measured prompt, and their prompt tokens summed over each turn's calls. */
+  measured_turns: number;
+  turn_prompt_tokens: number;
   cache_writes: number;
   measured_cache_write_rows: number;
   first_message_at: string | null;
@@ -30,24 +40,35 @@ interface ChatLog {
   timestamps: number[];
 }
 
+/** A day (`2026-11-27`, midnight UTC) or an instant (`2026-11-27T20:30:00Z`). */
+const WHEN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z)?$/;
+const instant = (when: string): number => Date.parse(when.length === 10 ? `${when}T00:00:00Z` : when);
+const expandHome = (p: string): string => resolve(p.replace(/^~(?=\/|$)/, homedir())).replace(/\/+$/, "");
+
 function parseArgs(argv: string[]): Args {
   let since = "1970-01-01";
+  let until: string | null = null;
   let dbPath = resolve("data/topics.db");
   let logPath = join(homedir(), ".claude", "jarvis", "logs", "topics-server.log");
+  const projects: string[] = [];
+  let calls = false;
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    if (flag === "--calls") { calls = true; continue; }
     const value = argv[i + 1];
     if (!value || value.startsWith("--")) throw new Error(`Missing value for ${flag}`);
     if (flag === "--since") since = value;
+    else if (flag === "--until") until = value;
     else if (flag === "--db") dbPath = resolve(value);
     else if (flag === "--log") logPath = resolve(value);
+    else if (flag === "--project") projects.push(expandHome(value));
     else throw new Error(`Unknown option: ${flag}`);
     i++;
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(since) || Number.isNaN(Date.parse(`${since}T00:00:00Z`))) {
-    throw new Error(`Invalid --since date: ${since}`);
+  for (const [name, when] of [["--since", since], ["--until", until]] as const) {
+    if (when != null && (!WHEN.test(when) || Number.isNaN(instant(when)))) throw new Error(`Invalid ${name}: ${when}`);
   }
-  return { since, dbPath, logPath };
+  return { since, until, dbPath, logPath, projects, calls };
 }
 
 function chatLog(logs: Map<string, ChatLog>, sessionKey: string): ChatLog {
@@ -66,15 +87,16 @@ function logTimestamp(line: string): number | null {
   return Number.isNaN(timestamp) ? null : timestamp;
 }
 
-async function readLogs(path: string, since: string): Promise<Map<string, ChatLog>> {
+async function readLogs(path: string, since: string, until: string | null): Promise<Map<string, ChatLog>> {
   const logs = new Map<string, ChatLog>();
   if (!existsSync(path)) return logs;
 
-  const sinceTime = Date.parse(`${since}T00:00:00Z`);
+  const sinceTime = instant(since);
+  const untilTime = until != null ? instant(until) : Number.POSITIVE_INFINITY;
   const lines = createInterface({ input: createReadStream(path), crlfDelay: Infinity });
   for await (const line of lines) {
     const at = logTimestamp(line);
-    if (at == null || at < sinceTime) continue;
+    if (at == null || at < sinceTime || at >= untilTime) continue;
     const sessionKey = /\bsession_key=([^\s]+)/.exec(line)?.[1];
     if (!sessionKey || sessionKey === "unknown") continue;
 
@@ -114,9 +136,10 @@ async function readLogs(path: string, since: string): Promise<Map<string, ChatLo
   return logs;
 }
 
-function readDatabase(dbPath: string, since: string): {
+function readDatabase(dbPath: string, since: string, until: string | null): {
   usage: Map<string, UsageRow>;
   names: Map<string, string>;
+  projects: Map<string, string>;
   markers: Array<{ session_key: string; created_at: string; post_tokens: number }>;
 } {
   const uri = `${pathToFileURL(dbPath).href}?mode=ro`;
@@ -125,15 +148,17 @@ function readDatabase(dbPath: string, since: string): {
     const rows = db.prepare(`
       SELECT session_key,
         SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) AS user_turns,
+        SUM(CASE WHEN role = 'assistant' AND usage_prompt_tokens > 0 THEN 1 ELSE 0 END) AS measured_turns,
+        COALESCE(SUM(CASE WHEN role = 'assistant' AND usage_prompt_tokens > 0 THEN usage_prompt_tokens END), 0) AS turn_prompt_tokens,
         COALESCE(SUM(cache_creation_tokens), 0) AS cache_writes,
         COUNT(cache_creation_tokens) AS measured_cache_write_rows,
         MIN(timestamp) AS first_message_at,
         MAX(timestamp) AS last_message_at
       FROM messages
-      WHERE timestamp >= ?
+      WHERE timestamp >= ? AND timestamp < ?
       GROUP BY session_key
-    `).all(since) as UsageRow[];
-    const topics = db.prepare("SELECT session_key, name FROM topics").all() as Array<{ session_key: string; name: string }>;
+    `).all(since, until ?? "9999") as UsageRow[];
+    const topics = db.prepare("SELECT session_key, name, project_path FROM topics").all() as Array<{ session_key: string; name: string; project_path: string | null }>;
     // The compactions the server already stored: the log only names the chat from this change on.
     const markers = db.prepare(
       "SELECT session_key, created_at, post_tokens FROM compaction_markers WHERE created_at >= ? AND post_tokens IS NOT NULL",
@@ -141,6 +166,7 @@ function readDatabase(dbPath: string, since: string): {
     return {
       usage: new Map(rows.map((row) => [row.session_key, row])),
       names: new Map(topics.map((row) => [row.session_key, row.name])),
+      projects: new Map(topics.map((row) => [row.session_key, row.project_path ? expandHome(row.project_path) : ""])),
       markers,
     };
   } finally {
@@ -213,10 +239,35 @@ function printTable(
   for (const row of rows) console.log(line(row));
 }
 
+/** Per call: what each request weighed (input + cache read + cache write), from the log; per turn, from the DB rows. */
+function printCalls(logs: Map<string, ChatLog>, usage: Map<string, UsageRow>): void {
+  const sizes = [...logs.values()].flatMap((log) => log.rounds.map((r) => r.input + r.cacheRead + r.cacheWrite)).sort((a, b) => a - b);
+  const chats = [...logs.values()].filter((log) => log.rounds.length > 0).length;
+  const compactions = [...logs.values()].reduce((n, log) => n + log.compactions.length, 0);
+  const turns = [...usage.values()].reduce((n, row) => n + row.measured_turns, 0);
+  const turnTokens = [...usage.values()].reduce((n, row) => n + row.turn_prompt_tokens, 0);
+  const k = (n: number) => `${Math.round(n / 1000)}k`;
+  const at = (q: number) => sizes[Math.min(sizes.length - 1, Math.floor(q * sizes.length))] ?? 0;
+  const over = (n: number) => sizes.length ? `${Math.round(sizes.filter((s) => s > n).length / sizes.length * 100)}%` : "—";
+  console.log(sizes.length === 0 ? "calls=0" : [
+    `calls=${sizes.length}`, `chats=${chats}`,
+    `mean=${k(sizes.reduce((a, b) => a + b, 0) / sizes.length)}`, `p50=${k(at(0.5))}`, `p90=${k(at(0.9))}`, `max=${k(sizes[sizes.length - 1]!)}`,
+    `over_150k=${over(150_000)}`, `over_200k=${over(200_000)}`, `compactions=${compactions}`,
+    `db_turns=${turns}`, `db_prompt_per_turn=${turns ? k(turnTokens / turns) : "—"}`,
+  ].join(" "));
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const { usage, names, markers } = readDatabase(args.dbPath, args.since);
-  const logs = await readLogs(args.logPath, args.since);
+  const { usage, names, projects, markers } = readDatabase(args.dbPath, args.since, args.until);
+  const logs = await readLogs(args.logPath, args.since, args.until);
+  if (args.projects.length > 0) {
+    const kept = new Set(args.projects);
+    for (const map of [logs, usage] as Array<Map<string, unknown>>) {
+      for (const key of [...map.keys()]) if (!kept.has(projects.get(key) ?? "")) map.delete(key);
+    }
+    for (let i = markers.length - 1; i >= 0; i--) if (!kept.has(projects.get(markers[i]!.session_key) ?? "")) markers.splice(i, 1);
+  }
   // A chat with no compaction in the log falls back to the stored markers.
   const fromLog = new Set([...logs].filter(([, stats]) => stats.compactions.length > 0).map(([key]) => key));
   for (const marker of markers) {
@@ -224,7 +275,8 @@ async function main(): Promise<void> {
     const at = Date.parse(marker.created_at);
     if (Number.isFinite(at)) chatLog(logs, marker.session_key).compactions.push({ at, postTokens: marker.post_tokens });
   }
-  printTable(logs, usage, names);
+  if (args.calls) printCalls(logs, usage);
+  else printTable(logs, usage, names);
 }
 
 main().catch((error) => {
