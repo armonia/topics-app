@@ -1,4 +1,5 @@
 /**
+ * @covers MACHINE-06
  * A card running on a NODE while the primary is handed over (track T4).
  *
  * The switch does not wait for it nor park it: the run lives on the node and
