@@ -48,10 +48,12 @@ function SectionLabel({ children, right }: { children: React.ReactNode; right?: 
 const PR = 8, PT = 8, CH = 84, SY = 98, SH = 16, VH_CARDS = 136, VH_PLAIN = 112;
 
 /** Left padding wide enough for the top tick's own digits ("8 GB" vs "128 GB"):
- *  a fixed width clipped the first digit against the chart's own left edge the
+ *  a per-digit estimate too thin against the real rendered font (measured at
+ *  11px, system-ui stack: each extra digit is ~7px, not the 6px first tried)
+ *  still clipped the leading digit against the chart's own left edge the
  *  moment a Mac's free memory passed two digits. */
 function leftPaddingFor(axisTop: number): number {
-  return 22 + String(Math.round(axisTop)).length * 6;
+  return 27 + String(Math.round(axisTop)).length * 7;
 }
 
 export function MemoryChart({ history, startGB, now, width: initialWidth = 372, cpuHolds = false }: {
