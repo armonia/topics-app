@@ -472,8 +472,10 @@ export const ROW_INSET = 6;
  * {@link COLUMN_GAP}: 0 with the tabs at the side (34 buttons in a 46 row,
  * already one step), half of it with the strip (34 in its 40 row).
  *
- * 56 is `h-14`, the height the header row has on a touch screen: two 44px
- * commands plus {@link ROW_INSET} above and below.
+ * On a phone it is the safe area, the compact row
+ * ({@link MOBILE_SIDEBAR_HEADER_H_COMPACT}, the row at rest) and one
+ * {@link COLUMN_GAP}: at rest the first row sits one step under the title, as
+ * under the desktop header, and only the rows that scroll pass behind it.
  */
 export const SIDEBAR_SCROLL_TOP_PROPERTY = '--sidebar-scroll-top';
 /**
@@ -496,11 +498,16 @@ export const SIDEBAR_SCROLL_BOTTOM_PROPERTY = '--sidebar-scroll-bottom';
  * screens that still let the root reserve the band.
  */
 export const BAND_OWN_PROPERTY = '--mobile-band-own-h';
+/**
+ * 56 is `h-14`, the height the phone's header row has while the list scrolls:
+ * two 44px commands plus {@link ROW_INSET} above and below.
+ */
 export const MOBILE_SIDEBAR_HEADER_H = 56;
 /**
  * The header's height at the top of the run (mobile-chrome-feedback A1): the
  * row is compact there (44, exactly its buttons) and reveals the full 56 when
- * the list scrolls, while the rows always start right after `--sat`.
+ * the list scrolls. The list starts one {@link COLUMN_GAP} under the compact
+ * row, so at rest nothing sits behind it.
  */
 export const MOBILE_SIDEBAR_HEADER_H_COMPACT = 44;
 /**
