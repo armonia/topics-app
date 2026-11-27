@@ -15,6 +15,7 @@ export const ERROR_STATUS: Record<string, number> = {
   invalid_transition: 400,
   agent_cannot_complete: 409,
   open_subtasks: 409,
+  blocks_live_dependent: 409,
   review_needs_summary: 409,
   // A card the board ALREADY labelled `visibile` has a surface someone will
   // look at, so it delivers with a preview. 409 like the other review gates:
