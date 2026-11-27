@@ -19,6 +19,7 @@ import { freezableRuns } from "../services/budget-governor";
 import { _resetReviewChecksStop, _resetSwapBrake, createSwapBrake, killCheckTree } from "../services/review-checks-brakes";
 import { getDescendantPids } from "../lib/process-tree";
 import { E2E_CI_CHECK, type CheckRun } from "../../shared/board";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 // Always sleeps, so a THIRD invocation the fallback failed to suppress hangs
 // the test instead of quietly passing: touches one new marker per call, so the
@@ -34,6 +35,27 @@ describe("a delivery exhausted by the swap brake takes the CI's verdict", () => 
   function worktree(): void {
     mkdirSync(join(cwd, "node_modules")); // an installed checkout: no dependency install round
     writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { "test:touched:review": SLEEPER } }));
+  }
+
+  function git(...args: string[]): void {
+    Bun.spawnSync(["git", ...args], { cwd, env: gitEnv() });
+  }
+
+  /** A worktree whose diff against `main` touches only a macOS-only path, so
+   *  `isMacOnlyDiff` reads it as true: the CI never ran these files, so there
+   *  is no CI verdict to borrow once the swap brake has exhausted this delivery. */
+  function macOnlyWorktree(): void {
+    worktree();
+    git("init", "-q", "-b", "main");
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "test");
+    git("add", "-A");
+    git("commit", "-q", "-m", "base");
+    git("checkout", "-q", "-b", "feature");
+    mkdirSync(join(cwd, "desktop-tauri"));
+    writeFileSync(join(cwd, "desktop-tauri", "x.txt"), "mac only change");
+    git("add", "-A");
+    git("commit", "-q", "-m", "mac only change");
   }
 
   async function deliver() {
@@ -89,6 +111,22 @@ describe("a delivery exhausted by the swap brake takes the CI's verdict", () => 
 
     const said = (await d.comments()).map((c) => c.content).join("\n");
     expect(said).toMatch(/swap/i);
+    await d.leg;
+  }, 60_000);
+
+  test("a macOS-only diff: two interruptions and a green CI do not buy a verdict, a third round starts", async () => {
+    macOnlyWorktree();
+    const d = await deliver();
+    const pid1 = await interruptOnce(d.id, 0);
+    const pid2 = await interruptOnce(d.id, pid1);
+
+    // The CI never ran these files, so there is nothing to borrow a verdict
+    // from: the exhausted branch is skipped and a third round is started.
+    await until(() => existsSync(join(cwd, "c3")), "a third round started instead of taking the CI verdict");
+    expect((await d.read()).status).toBe("in_progress");
+
+    const run = freezableRuns().find((r) => r.taskId === d.id && r.pid !== pid1 && r.pid !== pid2);
+    if (run) await killCheckTree(run.pid); // end the test without waiting out the 120 s sleep
     await d.leg;
   }, 60_000);
 });
