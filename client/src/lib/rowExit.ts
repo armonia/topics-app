@@ -153,8 +153,3 @@ function play(m: Mark): boolean {
   a.finished.then(done, done);
   return true;
 }
-
-/** Test seam: forget every pending mark. */
-export function __resetRowExitForTests(): void {
-  marks = [];
-}
