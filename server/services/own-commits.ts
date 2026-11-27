@@ -100,6 +100,26 @@ export async function defaultRunGit(cwd: string, args: string[], opts?: GitRunEn
   return runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.query, ...(opts?.env ? { env: opts.env } : {}) });
 }
 
+/**
+ * The right default for "main" when a caller has no base of its own to declare:
+ * `origin/main` when this checkout has one, the local `main` otherwise.
+ *
+ * A branch planted straight from a node's bundle (`node-branch-plant.ts`) forks
+ * from the node's `origin/main`, not from whatever this checkout's LOCAL `main`
+ * happens to point at — the local branch only moves at land time, so on the
+ * board's own checkout it can sit behind origin for days. Subtracting a stale
+ * local `main` from a freshly planted branch misjudges which commits are the
+ * card's own, and a branch with a real commit of its own (`e6b0218c9` on
+ * `topics/velvet-quasar`, 2026-11-26) read as "no commit": the sheet is drawn
+ * from `own-commits.ts`'s own verdict, so the fix belongs here and not in every
+ * caller. Same fallback `own-branch.ts` already uses for the land's own check.
+ */
+export async function resolveMainRef(repoPath: string, opts: Pick<OwnCommitsOptions, "runGit"> = {}): Promise<string> {
+  const run = opts.runGit ?? defaultRunGit;
+  const r = await run(repoPath, ["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]);
+  return r.code === 0 ? "origin/main" : "main";
+}
+
 function lines(out: string): string[] {
   return out.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
 }
