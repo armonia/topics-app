@@ -82,6 +82,37 @@ export const COMPACT_AT_UNMEASURED = 0.75;
  */
 export const COMPACT_TO = 0.40;
 
+/**
+ * The trigger and the target of one compaction, as fractions of the window,
+ * with an absolute ceiling in tokens applied when the chat has one.
+ *
+ * WHY AN ABSOLUTE CEILING. Both constants above are fractions of the window,
+ * and on a 1M window they mean compacting at 850k and coming back to 400k.
+ * Measured on the chats of the always-on agents (27/11, 10,046 calls in 46
+ * hours): 183k tokens per call on average, p90 349k, max 636k, and not one
+ * compaction. A request that long costs more per call and is answered worse:
+ * what the person said in the last few turns is a thin slice of it, and those
+ * chats were losing exactly that. `capTokens` (per agent, `agent-engine.json`)
+ * makes the compaction fire there instead.
+ *
+ * ONLY EVER LOWER. A ceiling above the window's own trigger changes nothing:
+ * that trigger is what keeps the request under the API limit, and a
+ * configuration must not be able to push it past. The target keeps the ratio
+ * the window already uses (`COMPACT_TO / COMPACT_AT`, about 47%), so a capped
+ * chat buys the same relative headroom before its next compaction.
+ */
+export function compactionThresholds(
+  windowTokens: number,
+  opts: { calibrated: boolean; capTokens?: number | null },
+): { compactAt: number; compactTo: number } {
+  const compactAt = opts.calibrated ? COMPACT_AT : COMPACT_AT_UNMEASURED;
+  const cap = opts.capTokens;
+  if (cap == null || !Number.isFinite(cap) || cap <= 0 || !(windowTokens > 0)) return { compactAt, compactTo: COMPACT_TO };
+  const capAt = cap / windowTokens;
+  if (capAt >= compactAt) return { compactAt, compactTo: COMPACT_TO };
+  return { compactAt: capAt, compactTo: capAt * (COMPACT_TO / COMPACT_AT) };
+}
+
 /** Quanti messaggi in coda restano SEMPRE intatti. */
 const KEEP_RECENT = 6;
 

@@ -34,7 +34,8 @@ import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
 import { ensureMcpFleet, mcpFleetStatus, mcpToolSpecs, closeMcpFleet } from "./mcp-fleet";
 import { homedir } from "node:os";
-import { readAgents, registryHome } from "../../agents/registry";
+import { readAgents, registryHome, resolveAgentIdForWorkspace } from "../../agents/registry";
+import { compactAtTokensFor, readAgentEngineSettings } from "../../lib/agent-engine-settings";
 import { turnToolSpecsFor } from "../../agents/tool-filter";
 import { readAgentToolsSettings } from "../../lib/agent-tools-settings";
 import { hasCredentials, getAccessToken, readCredentials, unsavedCredentialsError } from "./auth";
@@ -912,9 +913,15 @@ export class NativeProvider implements AIProvider {
       // An unbound or global-orchestrator turn skips the registry read
       // entirely and gets the whole fleet (`turnToolSpecsFor(null, ...)`
       // resolves no agent, so no filter narrows it).
-      const turnAgents = fleetAllowed && !globalOrchestrator
+      // The same owner decides the compaction ceiling (`agent-engine.json`),
+      // whatever the fleet policy: the registry is read for it too, but only
+      // when some agent has a profile, so an empty file costs no extra read.
+      const engineProfiles = globalOrchestrator ? { agents: {} } : readAgentEngineSettings();
+      const registryAgents = !globalOrchestrator && (fleetAllowed || Object.keys(engineProfiles.agents).length > 0)
         ? readAgents(registryHome(), (p) => p.replace(/^~(?=\/|$)/, homedir()))
         : [];
+      const turnAgents = fleetAllowed ? registryAgents : [];
+      const turnCompactAtTokens = compactAtTokensFor(resolveAgentIdForWorkspace(workspace, registryAgents), engineProfiles);
       // Composed fresh every round for the same reason as `mcpToolSpecs()`
       // itself: a child the turn just mounted must be filtered the same way
       // as everything mounted before it.
@@ -966,6 +973,7 @@ export class NativeProvider implements AIProvider {
         // Passed by REFERENCE: every turn restarts from what the previous
         // one measured, instead of from the assumed 4 chars per token.
         calibration: session.calibration,
+        ...(turnCompactAtTokens != null ? { compactAtTokens: turnCompactAtTokens } : {}),
         // Only where spawn_agent exists: a nudge toward a tool the chat lacks is noise.
         ...(workspace && topics && !globalOrchestrator && !subagentPolicy?.noDelegation
           ? { delegation: (session.delegation ??= createDelegationTracker()) }
@@ -1037,6 +1045,7 @@ export class NativeProvider implements AIProvider {
           reminder: turnOpts.reminder,
           history: session.history,
           calibration: session.calibration,
+          ...(turnCompactAtTokens != null ? { compactAtTokens: turnCompactAtTokens } : {}),
           ...(turnOpts.delegation ? { delegation: turnOpts.delegation.state() } : {}),
           tools: globalOrchestrator
             ? topicsToolSpecs("global-orchestrator")

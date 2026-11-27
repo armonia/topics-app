@@ -203,6 +203,12 @@ export interface AgentTurnOptions {
   /** Measured chars-per-token, owned by the CALLER like `history`. */
   calibration?: Calibration;
   /**
+   * The prompt size, in tokens, past which this chat compacts even when the
+   * model's window is far larger (`compactionThresholds`). Absent = the
+   * window's own threshold, as before. Set per agent in `agent-engine.json`.
+   */
+  compactAtTokens?: number | null;
+  /**
    * A line appended, as its own text block, to the person's message and to
    * every round of tool results: the last thing the model reads before it
    * writes. The chat passes the language here (`languageReminder`), because
@@ -1078,7 +1084,8 @@ export async function runAgentTurn(
     const budgeted = enforceImageHistoryBudget(opts.history);
     if (budgeted !== opts.history) { opts.history.length = 0; opts.history.push(...budgeted); }
     compactedThisRound = compactIfNeeded({
-      history: opts.history, windowTokens, overheadChars, calibration, sessionId: opts.sessionId, handler,
+      history: opts.history, windowTokens, overheadChars, calibration, capTokens: opts.compactAtTokens,
+      sessionId: opts.sessionId, handler,
     }) || compactedThisRound;
 
     // Taken BEFORE the request: with the count the API reports, they give the
