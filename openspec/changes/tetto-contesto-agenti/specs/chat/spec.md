@@ -2,7 +2,7 @@
 
 ### Requirement: CHAT-COMPACT-06 — Un agente compatta a un tetto in token, non a una frazione di 1M
 
-Sul motore nativo la chat di un agente SHALL compattare, all'inizio di un turno che porta una richiesta sua, oltre il tetto `compactAtTokens` che l'agente dichiara in `agent-engine.json` se è sotto la soglia della finestra, e SHALL tornare al tetto per 0,40/0,85. Altrove (a metà turno, nelle riprese e nei nudge, senza tetto) SHALL valere la finestra. Il tetto SHALL valere anche nel `turn-host` e non SHALL tagliare i risultati recenti dei tool.
+Sul motore nativo la chat di un agente SHALL compattare, all'inizio di un turno che porta una richiesta sua, oltre il tetto `compactAtTokens` che l'agente dichiara in `agent-engine.json` se è sotto la soglia della finestra, e SHALL tornare al tetto per 0,40/0,85. Altrove (a metà turno, nelle riprese, nei nudge e nelle sveglie, senza tetto) SHALL valere la finestra. Il tetto SHALL valere anche nel `turn-host` e non SHALL tagliare i risultati recenti dei tool.
 
 #### Scenario: una chat da 300k su una finestra da 1M
 
@@ -25,7 +25,7 @@ Sul motore nativo la chat di un agente SHALL compattare, all'inizio di un turno 
 #### Scenario: una ripresa non perde la richiesta che riprende
 
 - **GIVEN** la chat di un agente oltre il tetto, il cui ultimo turno è stato tagliato (giri finiti o riavvio)
-- **WHEN** il turno dopo è la ripresa («Carry on…», la nota dopo il riavvio) o un nudge del goal o di un hook
+- **WHEN** il turno dopo è la ripresa («Carry on…», la nota dopo il riavvio) o un nudge del goal o di un hook, o una sveglia (fine di un comando, risultati dei sotto-agenti, esito di una card)
 - **THEN** non si compatta al tetto, e la richiesta che la ripresa continua resta nella storia
 
 #### Scenario: un messaggio di Attilio su Discord prende il tetto

@@ -5,7 +5,7 @@
 | Decisione pura con e senza tetto, simulazione di 200 giri su 1M | `bun test ./server/providers/native/compaction-cap.test.ts` |
 | Filo provider → turno e provider → `TurnSpec`; a metà turno nessun taglio | `bun test ./server/providers/native/compaction-cap-turn.test.ts` |
 | Filo dentro il `turn-host` vero (demone e processo veri, API finta) | `bun test ./server/providers/native/detached-turn.test.ts -t "ceiling"` |
-| La route segna le continuazioni (ripresa, nudge del goal e degli hook), non il composer né il messaggio Discord di jarvis-channels | `bun test ./server/routes/chat.continuation-turn.test.ts` |
+| La route segna le continuazioni (ripresa, nudge del goal e degli hook, sveglie), non il composer né il messaggio Discord di jarvis-channels | `bun test ./server/routes/chat.continuation-turn.test.ts` |
 | Lettura di `agent-engine.json` | `bun test ./server/lib/agent-engine-settings.test.ts` |
 | Misura su chat vere (sola lettura su log e DB) | `bun scripts/token-audit.ts --since <da> --until <a> --project ~/.topics/agents/jarvis --project ~/.topics/agents/gtm --calls` |
 
@@ -22,4 +22,4 @@
 - Due compattazioni di fila lasciano identici gli argomenti già alleggeriti («4800 chars dropped»).
 
 ## Mutazioni (verificate a mano il 27/11)
-Tolto il tetto in `compactionThresholds`, tolto da `turnOpts`, tolto dal `TurnSpec`, non passato da `agent-loop` a `compactIfNeeded`, non letto in `turn-host`, tetto applicato a ogni giro, taglio dei risultati misurato contro il tetto, alleggerimento non idempotente, tetto dato anche alle continuazioni, `continuation` non messo dalla route, continuazione letta come `!sentByPerson`: in tutti e undici i casi il test corrispondente è rosso; ripristinato, verde.
+Tolto il tetto in `compactionThresholds`, tolto da `turnOpts`, tolto dal `TurnSpec`, non passato da `agent-loop` a `compactIfNeeded`, non letto in `turn-host`, tetto applicato a ogni giro, taglio dei risultati misurato contro il tetto, alleggerimento non idempotente, tetto dato anche alle continuazioni, `continuation` non messo dalla route, continuazione letta come `!sentByPerson`, sveglia della fine di un comando tolta dall'elenco: in tutti e dodici i casi il test corrispondente è rosso; ripristinato, verde.
