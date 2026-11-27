@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.5.19",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Card legata a un nodo pieno: il pavimento di memoria del Mac non la nasconde al controllo delle card ferme",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card ferme: per una card legata a un nodo cade solo il pavimento di memoria del Mac, il disco pieno e la spesa restano un motivo (fermano anche la corsia remota)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.18",
     "date": "2026-11-27",
     "sections": {
@@ -25,7 +46,14 @@
     "date": "2026-11-27",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "split node-client.ts under the bloat threshold, name the reason for a declined remote claim",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -210,6 +238,12 @@
           "en": "",
           "scope": "node-meter",
           "breaking": false
+        },
+        {
+          "it": "long timeout for createRun, dedupe the silent remote-claim log line",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
         }
       ],
       "perf": [],
@@ -319,6 +353,12 @@
           "it": "a template's chunks end at its backtick, not 400 bytes later",
           "en": "",
           "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "free a node seat a waiting run holds forever, log the silent remote claim, cap node calls with a deadline",
+          "en": "",
+          "scope": "dispatch",
           "breaking": false
         },
         {

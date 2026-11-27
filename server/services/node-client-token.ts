@@ -1,6 +1,7 @@
 /**
  * The node pairing token file, split out of `node-client.ts` to stay under the
- * bloat threshold (MACHINE-02, KANBAN-76, KANBAN-77).
+ * bloat threshold (MACHINE-02, KANBAN-76, KANBAN-77): path shape, read and
+ * write, with the `0600`/`0700` discipline `relay-secret` also uses.
  */
 import * as nodeFs from "node:fs";
 import { join } from "node:path";
