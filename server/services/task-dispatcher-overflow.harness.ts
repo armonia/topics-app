@@ -129,6 +129,7 @@ export function harness(opts: {
   const pushed: string[] = [];
   const worktrees: Array<{ baseBranch?: string } | undefined> = [];
   const turns: string[] = [];
+  const logs: string[] = [];
   let now = Date.UTC(2026, 9, 30, 10, 0, 0);
   let nextRun = 0;
   const runCard = new Map<string, string>();
@@ -206,7 +207,7 @@ export function harness(opts: {
     now: () => now,
     graceMs: 0,
     retryBackoffMs: 0,
-    log: () => {},
+    log: (msg: string) => logs.push(msg),
   };
   const dispatcher = createTaskDispatcher(deps);
   svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchFanOut: 1 });
@@ -238,7 +239,7 @@ export function harness(opts: {
   const advance = (ms: number) => { now += ms; };
   const poll = async () => { await dispatcher.reconcile({ reason: "poll" }); await flush(); };
   return {
-    db, svc, dispatcher, created, bodies, pushed, worktrees, turns, seed, sendBack, tick, poll, advance, now: () => now,
+    db, svc, dispatcher, created, bodies, pushed, worktrees, turns, logs, seed, sendBack, tick, poll, advance, now: () => now,
     task: (id: string) => svc.get(id)!.task, thread: (id: string) => svc.get(id)!.comments.map((c) => c.content).join("\n"),
   };
 }
