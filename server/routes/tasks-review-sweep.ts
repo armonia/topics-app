@@ -10,11 +10,8 @@ import type { TasksCore, TasksLate } from "./tasks-scope";
 
 type CiPhase = ReturnType<typeof createCiPhase>;
 
-const QUEUED_NOTE = "In fila per la barra.";
-
 export interface ReviewSweepDeps {
   svc: TasksCore["svc"];
-  db: TasksCore["db"];
   broadcastToAll: TasksCore["broadcastToAll"];
   runChecksGate: TasksLate["runChecksGate"];
   capturaConsegna: TasksLate["capturaConsegna"];
@@ -44,11 +41,11 @@ function sameSha(a: string | null | undefined, b: string | null | undefined): bo
 }
 
 /**
- * Arrival order. `svc.list` sorts review rows by `updated_at DESC`, and a note
- * written on a card bumps that column - feeding that order straight into
- * `orderForSweep` reshuffled the queue every sweep (reviewer feedback 27/11).
- * `created_at` never moves once the row exists, so the order of the rest of
- * the queue holds from one sweep to the next.
+ * Arrival order. `svc.list` sorts review rows by `updated_at DESC`, which any
+ * write on the card (a comment, a label) bumps - feeding that order straight
+ * into the land-intent split below reshuffled the queue on every sweep
+ * (reviewer feedback 27/11). `created_at` never moves once the row exists, so
+ * the order of the rest of the queue holds from one sweep to the next.
  */
 export function sortForSweep(rows: Task[]): Task[] {
   return [...rows].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
@@ -57,15 +54,15 @@ export function sortForSweep(rows: Task[]): Task[] {
 /**
  * A person already said "land it" (`landIntent === "human"`): the bar is the
  * only thing left between that decision and the merge. Those cards go first,
- * stable otherwise - a card nobody has looked at yet does not get to sit in
- * front of one a person is already waiting on. "Stable" means stable on the
- * INPUT order, so a caller feeding rows straight from the database runs them
- * through `sortForSweep` first.
+ * stable (by `sortForSweep`) otherwise - a card nobody has looked at yet does
+ * not get to sit in front of one a person is already waiting on. Sorting
+ * lives INSIDE this function, not beside its one call site in `sweepAutoLand`:
+ * two separate calls there once let a later edit drop one of them unnoticed.
  */
 export function orderForSweep(rows: Task[]): Task[] {
   const first: Task[] = [];
   const rest: Task[] = [];
-  for (const t of rows) {
+  for (const t of sortForSweep(rows)) {
     if (t.landIntent === "human" && unmeasuredInReview(t)) first.push(t);
     else rest.push(t);
   }
@@ -73,7 +70,7 @@ export function orderForSweep(rows: Task[]): Task[] {
 }
 
 export function createReviewSweep(deps: ReviewSweepDeps) {
-  const { svc, db, broadcastToAll, runChecksGate, capturaConsegna, nodeMeter, bounceRed, afterDelivery } = deps;
+  const { svc, broadcastToAll, runChecksGate, capturaConsegna, nodeMeter, bounceRed, afterDelivery } = deps;
   const maxConcurrent = Math.max(1, deps.maxConcurrent ?? 1);
 
   /*
@@ -122,7 +119,6 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
     }
     reviewRemeasures.set(t.id, { commit: t.deliveryCommit!, at: now, tries });
     reviewMeasuring.add(t.id);
-    clearQueuedNote(t.id);
     try {
       console.warn(`[review-sweep] ${t.id.slice(0, 8)}: nessun verdetto su ${t.deliveryCommit!.slice(0, 8)}, misuro la barra (${tries}/${REVIEW_REMEASURE_TRIES})`);
       let out: Awaited<ReturnType<typeof runChecksGate>> = null;
@@ -131,8 +127,13 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
         out = await runChecksGate(t.id, t.projectId, 60_000, undefined, leg === 0);
         if (!out || !("pending" in out)) break;
       }
-      // No worktree of its own (a planted branch, a reaped worktree): the throwaway checkout of the node lane.
-      if (out === null) { await nodeMeter.measure(t.id); return; }
+      // No worktree of its own (a planted branch, a reaped worktree): the
+      // throwaway checkout of the node lane, which serialises on its own
+      // (`queueTail`) and can wait far longer than any local leg. Free this
+      // slot BEFORE that wait, or a node delivery stuck behind another one
+      // held a local slot for up to ~80 minutes with nothing running in it
+      // (reviewer feedback 27/11).
+      if (out === null) { reviewMeasuring.delete(t.id); await nodeMeter.measure(t.id); return; }
       if ("interrupted" in out || "pending" in out) return;
       // The realign may have moved the tip: the delivery is the commit just measured.
       await capturaConsegna(t.id);
@@ -167,28 +168,5 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
     return reviewMeasuring.has(taskId);
   }
 
-  /**
-   * Says why a card is still sitting there: no row beats no line (12 cards,
-   * 27/11). Carries no count — a number would change with the sweep's own
-   * order and rewrite itself every round (`updated_at` moving the card in
-   * `svc.list`, reviewer feedback 27/11) — just the fact, written once.
-   */
-  function noteQueued(t: Task): void {
-    try {
-      svc.addComment({
-        taskId: t.id, author: "system", kind: "service",
-        content: QUEUED_NOTE, once: true, replaces: QUEUED_NOTE,
-      });
-    } catch { /* best-effort: a missed note is not a stuck card */ }
-  }
-
-  /** The measure for this card started, or it left the queue: the note no longer describes it. */
-  function clearQueuedNote(taskId: string): void {
-    try {
-      db.prepare("DELETE FROM task_comments WHERE task_id = ? AND author = 'system' AND kind = 'service' AND content = ?")
-        .run(taskId, QUEUED_NOTE);
-    } catch { /* best-effort: a leftover note is not a stuck card */ }
-  }
-
-  return { unmeasuredInReview, remeasureInReview, probeConflict, hasFreeSlot, isMeasuring, noteQueued, clearQueuedNote };
+  return { unmeasuredInReview, remeasureInReview, probeConflict, hasFreeSlot, isMeasuring };
 }
