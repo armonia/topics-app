@@ -605,6 +605,14 @@ export function swapInterruptedDelivery(taskId: string, commit: string | null): 
   return (interruptionsByDelivery.get(deliveryKey(taskId, commit)) ?? 0) > 0;
 }
 
+/** How many times the brake has already interrupted this delivery. The route
+ *  reads it to decide whether a FURTHER local round is worth starting, instead
+ *  of letting the brake's own "it runs to the end" exemption spend a whole
+ *  round under swap for a check the CI has already verified. */
+export function deliveryInterruptionCount(taskId: string, commit: string | null): number {
+  return interruptionsByDelivery.get(deliveryKey(taskId, commit)) ?? 0;
+}
+
 /** A verdict was recorded for the card: its interruptions are over. */
 export function forgetDelivery(taskId: string): void {
   interruptedTasks.delete(taskId);
