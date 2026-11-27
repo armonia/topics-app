@@ -98,6 +98,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   const {
     archiveSubtree,
     assertBlockerValid,
+    assertNoLiveDependents,
     checkedStage,
     childLeftFlight,
     getTaskRow,
@@ -505,11 +506,37 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return !!getTaskRow(taskId)?.archived;
     },
 
-    archive({ taskId, projectId }): Task {
+    // Read-only precheck a caller can run BEFORE any side effect: the board
+    // DELETE route used to cut the live agent and detach open children, then
+    // call `archive()`, which could still reject with `blocks_live_dependent`
+    // — the 409 came back, but the agent was already killed and the children
+    // already unhooked. Same check `archive()` runs, no mutation.
+    assertArchivable({ taskId, projectId, detachingOpenChildren }): void {
       const row = getTaskRow(taskId);
       if (!row || (projectId && row.project_id !== projectId)) {
         throw new TaskServiceError("not_found", `task ${taskId} not found`);
       }
+      // The caller says whether the open direct children are about to be
+      // archived with the card or unhooked and left on the board: a dependent
+      // of a child that SURVIVES is not losing its blocker.
+      assertNoLiveDependents(taskId, [], { detachingOpenChildren });
+    },
+
+    archive({ taskId, projectId, excludeDependentIds }): Task {
+      const row = getTaskRow(taskId);
+      if (!row || (projectId && row.project_id !== projectId)) {
+        throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      }
+      // `isDispatchBlocked` reads `blocker.status = 'done' OR blocker.archived
+      // = 1` as "unblocked": archiving a card that is still the blocker of a
+      // live dependent would silently tell that dependent its prerequisite is
+      // satisfied, when the work was only abandoned, not finished. The
+      // 17-24/11 incident shipped a parent closed `done` with children never
+      // wired as real `blockedByTaskId` dependents in the first place; this
+      // closes the other half, where the link DOES exist. `excludeDependentIds`
+      // is a sibling batch archived together in the same call
+      // (`resolveParkedChildren`), where an internal dependency must not block.
+      assertNoLiveDependents(taskId, excludeDependentIds ?? []);
       const ts = now();
       // `archiveSubtree` fa la stessa discesa ricorsiva che valiant-hill aveva
       // scritta inline: il ramo l'aveva estratta, e tenere due copie della stessa
