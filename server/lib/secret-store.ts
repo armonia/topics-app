@@ -94,11 +94,13 @@ export interface CommandRunResult { status: number; stdout: string; stderr: stri
 export type CommandRunner = (cmd: string, args: string[], stdinData?: string) => CommandRunResult;
 
 const KEYCHAIN_SERVICE = "topics-secrets";
+const COMMAND_TIMEOUT_MS = 15_000;
 
 const defaultCommandRunner: CommandRunner = (cmd, args, stdinData) => {
   const r = Bun.spawnSync([cmd, ...args], {
     stdout: "pipe",
     stderr: "pipe",
+    timeout: COMMAND_TIMEOUT_MS,
     stdin: stdinData === undefined ? undefined : Buffer.from(stdinData, "utf8"),
   });
   return { status: r.exitCode ?? 1, stdout: r.stdout.toString("utf8"), stderr: r.stderr.toString("utf8") };
