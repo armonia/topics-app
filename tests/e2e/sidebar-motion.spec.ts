@@ -1,6 +1,7 @@
 /**
  * @covers LAYOUT-02
  * @covers LAYOUT-28
+ * @covers ROWEXIT-01
  *
  * THE SIDEBAR AND THE PHONE DRAWER MOVE, THEY DO NOT JUMP: the motion contract,
  * measured frame by frame.
@@ -258,6 +259,42 @@ test.describe("Sidebar motion contract", () => {
         archiveTopic(page.request, ids.top));
       await expect(page.locator(row(NAMES.top))).toHaveCount(0);
       expectTravel(track(frames, "below", "y"), "row below an archived one", 10);
+      await unarchiveTopic(page.request, ids.top);
+    });
+
+    // 26/11: "when I archive a tab there is no animation". An
+    // archive from this window leaves as an inert copy of the row that slides
+    // out and fades where the row was, while the rows below close the gap.
+    test("archiving a chat from the column: the row slides out as it fades", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "ROWEXIT-01" });
+      await openProjectBlock(page);
+      const target = page.locator(row(NAMES.top));
+      await target.click({ button: "right" });
+      const menu = page.getByRole("menu");
+      await menu.waitFor({ state: "visible" });
+      await menu.getByRole("menuitem", { name: /Archivia/ }).click();
+      await expect(menu.getByText(/Archiviare il topic/)).toBeVisible({ timeout: 3000 });
+      const confirm = menu.locator("button", { hasText: "Archivia" });
+
+      // `head` is the project header, which is not a treeitem: whichever side
+      // of `top` it sits on, it must not jump under the copy either.
+      const frames = await sampleDuring(page, { ghost: `${SIDEBAR} [data-row-ghost]`, below: row(NAMES.bottom), head: projectRowSelector }, 900, () => confirm.click());
+      await expect(target).toHaveCount(0);
+      const ghostOpacity = track(frames, "ghost", "o");
+      const ghostX = track(frames, "ghost", "x");
+      expect(ghostOpacity.length, "the leaving row is drawn for some frames").toBeGreaterThan(2);
+      expect(Math.min(...ghostOpacity), `it fades (${ghostOpacity.slice(0, 8).join(",")})`).toBeLessThan(0.6);
+      expect(ghostX[ghostX.length - 1], "it slides towards the column's edge").toBeLessThan(ghostX[0]);
+      expectTravel(track(frames, "below", "y"), "row below an archived one", 10);
+      // Two steps: while the copy is still clearly drawn, the rows below have
+      // not moved under it (together, the two names overprinted).
+      const belowStart = track(frames, "below", "y")[0];
+      const headStart = track(frames, "head", "y")[0];
+      const underCopy = frames.filter((f) => f.ghost && f.ghost.o > 0.3 && (
+        (f.below && Math.abs(f.below.y - belowStart) > 1) || (f.head && Math.abs(f.head.y - headStart) > 1)));
+      expect(underCopy.length, "the rows below wait for the copy to leave").toBe(0);
+      // The copy is gone once played, and it was never a row: no role, no name.
+      await expect(page.locator("[data-row-ghost]")).toHaveCount(0);
       await unarchiveTopic(page.request, ids.top);
     });
 

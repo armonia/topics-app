@@ -8,7 +8,7 @@ guardiano fa sì che quel nodo esista quando serve e non costi quando non serve.
   node-pool giro        launchd ogni 60 s: domanda dalla coda della board -> crea; nodo fermo a fine ora -> cancella
   node-pool hook        hook `node-run` di Topics (payload su stdin): per un posto del pool lo accende se è
                         spento, apre il tunnel, porta il repo con un git bundle e lo registra sul nodo; exit 0
-  node-pool snapshot    rifà lo snapshot dalla ricetta unica (user-data.sh.tmpl + winfleet/nodo/strumenti.txt)
+  node-pool snapshot    rifà lo snapshot dalla ricetta unica (user-data.sh.tmpl + deploy/node-tools.txt)
   node-pool stato       posti, server, spesa del mese del pool
   node-pool spegni      cancella subito ogni server del pool
   node-pool permanent-ci    installa o riallinea i runner della CI sul nodo permanente (deploy/permanent-node/ci-runners.sh)
@@ -50,7 +50,7 @@ STATE = os.path.join(ST, "state.json")
 LOG = os.environ.get("NODE_POOL_LOG", os.path.join(HOME, ".claude/jarvis/logs/node-pool.log"))
 KEY = os.path.join(HOME, ".ssh/offload_hetzner")
 TETTO_BIN = os.path.join(HOME, "bin/hetzner-tetto")
-STRUMENTI = os.environ.get("WINFLEET_STRUMENTI", os.path.join(HOME, "Projects/winfleet/nodo/strumenti.txt"))
+STRUMENTI = os.environ.get("TOPICS_NODE_TOOLS", os.path.join(os.path.dirname(HERE), "node-tools.txt"))
 
 HARNESS_SYNC = os.path.join(HERE, "harness-sync")
 # Tetto mensile di tutti i server Hetzner (lo stesso di hetzner-tetto, quello che la tray mostra come «x / 60 €»)
