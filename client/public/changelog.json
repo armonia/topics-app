@@ -328,6 +328,12 @@
       "perf": [],
       "internal": [
         {
+          "it": "sibling-worktree merge is not live; tests assert landedNotLive/checkoutBranch/dirty-checkout",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "la nota vocale si ferma solo dopo il primo secondo di registrazione",
           "en": "",
           "scope": "e2e",
@@ -1209,6 +1215,12 @@
           "it": "Land refuses an unmeasured delivery on every path, not only the automatic one",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "merge main inside a sibling worktree that already has it open",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13",
