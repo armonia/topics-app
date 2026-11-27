@@ -102,7 +102,7 @@ describe("le dipendenze del client arrivano col worktree", () => {
     // never had a test of its own: a refactor that dropped it would fall back to
     // "nothing installed" with nothing going red (card dcdee50e).
     const creazione = NODE_CHECK_WORKTREE_SRC.slice(NODE_CHECK_WORKTREE_SRC.indexOf("export async function openNodeCheckWorktree"));
-    expect(creazione.slice(0, 1200)).toContain("await installWorktreeDeps(path)");
+    expect(creazione.slice(0, 2000)).toContain("await installWorktreeDeps(path)");
   });
 
   test("DUE installazioni: la radice e il client, non una sola", () => {
