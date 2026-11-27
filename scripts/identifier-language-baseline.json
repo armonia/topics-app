@@ -2649,9 +2649,6 @@
     "server/integrations/chrome-cookies.ts": [
       "buf",
       "dec",
-      "decryptChromeCookies",
-      "decryptFailed",
-      "decryptValue",
       "dst",
       "exp",
       "pfx"

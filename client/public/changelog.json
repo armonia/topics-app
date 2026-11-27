@@ -1,5 +1,45 @@
 [
   {
+    "version": "2.5.12",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Revert the detached node-check worktree: CI rows can no longer read a branch",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.11",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "fall back to the planted branch when the delivered commit is not resolvable yet",
+          "en": "",
+          "scope": "node-meter",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "split the mac-only isMacOnlyDiff coverage into its own file",
+          "en": "",
+          "scope": "review-checks",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.10",
     "date": "2026-11-27",
     "sections": {
@@ -53,6 +93,12 @@
           "it": "DESIGN.md: round 3 di tab e sidebar approvato (27/11)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "cover isMacOnlyDiff and the swap-exhausted mac-only branch",
+          "en": "",
+          "scope": "review-checks",
+          "breaking": false
         }
       ]
     }
@@ -150,6 +196,12 @@
           "breaking": false
         },
         {
+          "it": "give isMacOnlyDiff's git read a deadline and list it",
+          "en": "",
+          "scope": "review-checks",
+          "breaking": false
+        },
+        {
           "it": "ci-impact fixtures no longer read as the file's own @covers",
           "en": "",
           "scope": "gates",
@@ -187,7 +239,17 @@
           "scope": null
         },
         {
+          "it": "Remeasure review cards stuck with a null checks verdict, realigned on main",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Tab di lato: un passo sui quattro lati, isole che chiudono la colonna, riga archiviata che esce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix the moved-aside-copy test: sweep the leftover, don't rely on path reuse",
           "en": "",
           "scope": null
         },
@@ -266,6 +328,12 @@
       "perf": [],
       "internal": [
         {
+          "it": "sibling-worktree merge is not live; tests assert landedNotLive/checkoutBranch/dirty-checkout",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "la nota vocale si ferma solo dopo il primo secondo di registrazione",
           "en": "",
           "scope": "e2e",
@@ -324,6 +392,12 @@
           "it": "count a node seat only by a run the primary still believes open",
           "en": "",
           "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "drop the unused afterAll import in the swap-exhausted check test",
+          "en": "",
+          "scope": "lint",
           "breaking": false
         },
         {
@@ -432,6 +506,12 @@
           "it": "drop a stray backspace from the merge-tree conflict regex",
           "en": "",
           "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "run touched tests after CI is green, fall back to its verdict after 2 swap stops",
+          "en": "",
+          "scope": "review-checks",
           "breaking": false
         },
         {
@@ -1135,6 +1215,12 @@
           "it": "Land refuses an unmeasured delivery on every path, not only the automatic one",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "merge main inside a sibling worktree that already has it open",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13",
