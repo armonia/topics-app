@@ -1718,11 +1718,10 @@ describe("overflow: una card che nomina file di questo Mac non va su un nodo", (
 
 /**
  * A REMOTE RUN AT REST GIVES ITS SEAT BACK (card 40903322). A run that declared
- * a wait (`waiting`) or asks a person (`needs_input`) runs no turn over there:
+ * a wait (`waiting`) or asks a person (`needs_input`) runs no turn over there, so
  * it counts in none of the three reads (`countOnMachine`, the live slots of
- * `machineLoad`, `countRunningOnMachine` for a pinned card), and counts again
- * as soon as its chip says it is back in the node's queue or at work. Each test
- * goes through the real tick, the real move and the real claim.
+ * `machineLoad`, `countRunningOnMachine`) and counts again as soon as its chip
+ * says it is back at work. Each test goes through the real tick and claim.
  */
 describe("a remote run that rests gives its seat back", () => {
   function restingHarness(opts: { pcSlots?: number } = {}) {
@@ -1733,9 +1732,7 @@ describe("a remote run that rests gives its seat back", () => {
       runReport: (taskId) => ({ dispatchState: chips.get(taskId) ?? "working" }),
     });
     /** Ticks enough rounds for every free seat to be taken (`OVERFLOW_MAX_PER_ROUND` moves per round). */
-    const settle = async () => {
-      for (let i = 0; i < 4; i++) { await h.tick(); h.advance(60_000); }
-    };
+    const settle = async () => { for (let i = 0; i < 4; i++) { await h.tick(); h.advance(60_000); } };
     /** The node reports `chip` for these cards, and the origin mirrors it. */
     const report = async (chip: string, ...ids: string[]) => {
       for (const id of ids) chips.set(id, chip);
@@ -1744,17 +1741,14 @@ describe("a remote run that rests gives its seat back", () => {
     };
     const started = (ids: string[]) => ids.filter((id) => h.created.some((c) => c.originTaskId === id));
     /** Cards on the PC with a turn alive or about to start: in progress, not resting. */
-    const atWork = () => (h.db.query(
-      `SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status = 'in_progress'
-         AND COALESCE(dispatch_state, '') NOT IN ('waiting', 'needs_input')`,
-    ).get(PC) as { n: number }).n;
+    const atWork = () => (h.db.query(`SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status = 'in_progress'
+         AND COALESCE(dispatch_state, '') NOT IN ('waiting', 'needs_input')`).get(PC) as { n: number }).n;
     return { h, settle, report, started, atWork };
   }
 
   it("a node with 2 seats and 2 runs at rest takes 2 new cards, and not a third", async () => {
     const { h, settle, report, started } = restingHarness();
-    h.seed("rest-1");
-    h.seed("rest-2");
+    h.seed("rest-1"); h.seed("rest-2");
     await settle();
     expect(started(["rest-1", "rest-2"])).toHaveLength(2);
     await report("waiting", "rest-1");
@@ -1770,62 +1764,45 @@ describe("a remote run that rests gives its seat back", () => {
   it("a card pinned to that node starts too: the pinned read does not count the runs at rest", async () => {
     // Declared seats: a pinned card is held only on a machine that declares them.
     const { h, settle, report, started } = restingHarness({ pcSlots: 2 });
-    h.seed("rest-1");
-    h.seed("rest-2");
+    h.seed("rest-1"); h.seed("rest-2");
     await settle();
     await report("waiting", "rest-1", "rest-2");
 
-    h.seed("pinned-1", { machineId: PC });
-    h.seed("pinned-2", { machineId: PC });
-    h.seed("pinned-3", { machineId: PC });
+    for (const id of ["pinned-1", "pinned-2", "pinned-3"]) h.seed(id, { machineId: PC });
     await settle();
     expect(started(["pinned-1", "pinned-2", "pinned-3"])).toHaveLength(2);
     expect(h.task("pinned-3").status).toBe("todo");
   });
 
-  it("a PC with 4 seats, 3 runs at rest and a launch under way never has more than 4 at work", async () => {
-    const { h, settle, report, started, atWork } = restingHarness({ pcSlots: 4 });
-    const resting = ["rest-1", "rest-2", "rest-3"];
-    for (const id of resting) h.seed(id);
-    await settle();
-    expect(started(resting)).toHaveLength(3);
-    await report("waiting", ...resting);
-    // A launch under way: claimed (in progress, `starting`) and not yet in the
-    // dispatcher's live slots, which it enters only at `beginRun`.
-    h.seed("launching", { machineId: PC });
-    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'starting', dispatch_attempts = 1 WHERE id = 'launching'");
+  // Free cards are moved by the overflow, pinned ones go through the claim's
+  // own read: both have to stop at the machine's seats.
+  for (const pinned of [false, true]) {
+    it(`a PC with 4 seats, 3 runs at rest and a launch under way never has more than 4 at work (${pinned ? "pinned" : "free"} cards)`, async () => {
+      const { h, settle, report, started, atWork } = restingHarness({ pcSlots: 4 });
+      const resting = ["rest-1", "rest-2", "rest-3"];
+      for (const id of resting) h.seed(id);
+      await settle();
+      expect(started(resting)).toHaveLength(3);
+      await report("waiting", ...resting);
+      // A launch under way: claimed (in progress, `starting`) and not yet in the
+      // dispatcher's live slots, which it enters only at `beginRun`.
+      h.seed("launching", { machineId: PC });
+      h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'starting', dispatch_attempts = 1 WHERE id = 'launching'");
 
-    const fresh = ["new-1", "new-2", "new-3", "new-4"];
-    for (const id of fresh) h.seed(id);
-    await settle();
-    expect(started(fresh)).toHaveLength(3);
-    expect(atWork()).toBe(4);
-  });
-
-  it("the same PC with pinned cards: still never more than 4 at work", async () => {
-    const { h, settle, report, started, atWork } = restingHarness({ pcSlots: 4 });
-    const resting = ["rest-1", "rest-2", "rest-3"];
-    for (const id of resting) h.seed(id);
-    await settle();
-    await report("waiting", ...resting);
-    h.seed("launching", { machineId: PC });
-    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'starting', dispatch_attempts = 1 WHERE id = 'launching'");
-
-    const fresh = ["pinned-1", "pinned-2", "pinned-3", "pinned-4"];
-    for (const id of fresh) h.seed(id, { machineId: PC });
-    await settle();
-    expect(started(fresh)).toHaveLength(3);
-    expect(atWork()).toBe(4);
-  });
+      const fresh = ["new-1", "new-2", "new-3", "new-4"];
+      for (const id of fresh) h.seed(id, pinned ? { machineId: PC } : {});
+      await settle();
+      expect(started(fresh)).toHaveLength(3);
+      expect(atWork()).toBe(4);
+    });
+  }
 
   it("a run that comes back from its wait with no seat free waits in the queue, and takes nothing more", async () => {
     const { h, settle, report, started, atWork } = restingHarness({ pcSlots: 2 });
-    h.seed("rest-1");
-    h.seed("rest-2");
+    h.seed("rest-1"); h.seed("rest-2");
     await settle();
     await report("waiting", "rest-1", "rest-2");
-    h.seed("new-1");
-    h.seed("new-2");
+    h.seed("new-1"); h.seed("new-2");
     await settle();
     expect(started(["new-1", "new-2"])).toHaveLength(2);
 
@@ -1834,8 +1811,7 @@ describe("a remote run that rests gives its seat back", () => {
     await report("queued", "rest-1");
     expect(h.task("rest-1").status).toBe("in_progress");
     expect(atWork()).toBe(3);
-    h.seed("new-3");
-    h.seed("pinned", { machineId: PC });
+    h.seed("new-3"); h.seed("pinned", { machineId: PC });
     await settle();
     expect(started(["new-3", "pinned"])).toEqual([]);
     expect(h.task("new-3").machineId).not.toBe(PC);
