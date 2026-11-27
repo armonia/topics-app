@@ -371,6 +371,13 @@ export interface BoardSettings {
    */
   dispatchStayLocal: boolean;
   /**
+   * Twice a day a cheap model sorts the backlog of this board: a card an agent
+   * can do goes to todo, one that needs a person gets a question, one already
+   * done closes only with a proof a second model confirmed, the rest stays with
+   * a reason. Off by default.
+   */
+  backlogTriage: boolean;
+  /**
    * Lingua in cui rispondono gli agenti dispatchati su questa board.
    * 'inherit' (il default NULL) → vale la preferenza globale
    * (`app_settings.output_language`), che e' anche quella di chat e terminale:

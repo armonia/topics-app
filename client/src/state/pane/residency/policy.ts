@@ -129,6 +129,12 @@ export const RESIDENCY_BUDGET: Readonly<Record<ResidencyClass, number>> = {
  */
 export const MIN_DWELL_MS = 4000;
 export const NATIVE_IDLE_EVICT_MS = 600_000;
+/**
+ * Hidden native panes kept warm once idle for `NATIVE_IDLE_EVICT_MS`, swap or not.
+ * Each one is a WebContent process of 130-430 MB; the swap rule alone never fires
+ * on a machine with free RAM, so they piled up (card 782b0aa8).
+ */
+export const NATIVE_IDLE_KEEP = 2;
 
 /** Possiede una WKWebView. */
 const NATIVE_TYPES = new Set<string>(['browser']);
@@ -187,6 +193,7 @@ export function computeResident(input: ResidencyInput): ResidencyDecision {
   const memoryEvicted = new Set<string>();
   const contested: { key: string; cls: ResidencyClass; touched: number }[] = [];
   const evictedEarly: string[] = [];
+  const idleNative: { key: string; cls: ResidencyClass; touched: number }[] = [];
 
   for (const [key, cls] of byKey) {
     if (visible.has(key) || held.has(key)) {
@@ -199,9 +206,13 @@ export function computeResident(input: ResidencyInput): ResidencyDecision {
       evictedEarly.push(key);
       continue;
     }
-    if (cls === 'native' && memoryPressure && evictIdleNative && now - touched >= NATIVE_IDLE_EVICT_MS) {
-      evictedEarly.push(key);
-      memoryEvicted.add(key);
+    if (cls === 'native' && evictIdleNative && now - touched >= NATIVE_IDLE_EVICT_MS) {
+      if (memoryPressure) {
+        evictedEarly.push(key);
+        memoryEvicted.add(key);
+      } else {
+        idleNative.push({ key, cls, touched });
+      }
       continue;
     }
     if (now - touched < minDwellMs) {
@@ -210,6 +221,18 @@ export function computeResident(input: ResidencyInput): ResidencyDecision {
     }
     contested.push({ key, cls, touched });
   }
+
+  // Idle native panes without swap pressure: the most recent NATIVE_IDLE_KEEP stay in
+  // the normal contest, the rest go (their process is the cost).
+  idleNative.sort((a, b) => (b.touched - a.touched) || (a.key < b.key ? -1 : 1));
+  idleNative.forEach((c, i) => {
+    if (i < NATIVE_IDLE_KEEP) {
+      contested.push(c);
+    } else {
+      evictedEarly.push(c.key);
+      memoryEvicted.add(c.key);
+    }
+  });
 
   // MRU: il più recentemente visibile sopravvive. `touched` decrescente, e a
   // parità la chiave, così l'esito è deterministico invece di dipendere
