@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.19 — 2026-11-27
+
+### Sotto il cofano
+- Card legata a un nodo pieno: il pavimento di memoria del Mac non la nasconde al controllo delle card ferme
+- Card ferme: per una card legata a un nodo cade solo il pavimento di memoria del Mac, il disco pieno e la spesa restano un motivo (fermano anche la corsia remota)
+
 ## 2.5.18 — 2026-11-27
 
 ### Sotto il cofano
@@ -9,6 +15,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Test della scala del bundle: main esplicito, senza config globale init crea master e set-head -a non trova la HEAD
 
 ## 2.5.17 — 2026-11-27
+
+### Correzioni
+- **dispatch** · split node-client.ts under the bloat threshold, name the reason for a declined remote claim
 
 ### Sotto il cofano
 - Nodo senza origin: il bundle del ramo si allarga quando il nodo dice che gli mancano i commit
@@ -61,6 +70,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Correzioni
 - **node-meter** · fall back to the planted branch when the delivered commit is not resolvable yet
+- **dispatch** · long timeout for createRun, dedupe the silent remote-claim log line
 
 ### Sotto il cofano
 - Fix queue order drift and false queue notes in the review sweep
@@ -88,6 +98,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Correzioni
 - **gates** · a template's chunks end at its backtick, not 400 bytes later
+- **dispatch** · free a node seat a waiting run holds forever, log the silent remote claim, cap node calls with a deadline
 - **gates** · templateChunks back inside ui-language-scan.ts's 800-line budget
 - **browser** · resolve the installed playwright-core entry from its own manifest
 
