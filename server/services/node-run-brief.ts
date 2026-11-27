@@ -19,7 +19,7 @@ import type { TaskComment } from "../../shared/board";
 import type { OutputLanguage } from "../../shared/types";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { isAgentAuthor } from "../../shared/comment-author";
-import { RED_BOUNCE_NOTE } from "./red-bounce";
+import { isSystemSendBack } from "./red-bounce";
 
 /** One comment is cut here: a pasted log must not push the reviewer's words out of the brief. */
 export const MAX_COMMENT_CHARS = 2_000;
@@ -76,7 +76,7 @@ export function nodeRunDescription(description: string | null | undefined, threa
   const own = description ?? "";
   // The system's own send-back (a red, a conflict with main) is the one `system` comment that IS the
   // feedback of the round: without it a rerun on a node never learns why it came back (card b3537bb2).
-  const said = thread.filter((c) => c.content.trim() && (c.kind === "delivery" || (c.kind === "comment" && (c.author !== "system" || c.content.startsWith(RED_BOUNCE_NOTE)))));
+  const said = thread.filter((c) => c.content.trim() && (c.kind === "delivery" || (c.kind === "comment" && (c.author !== "system" || isSystemSendBack(c.content)))));
   if (said.length === 0) return own;
   // Every non-service `comment` written after the card's last `delivery` is the round of this
   // resend: whoever reviewed it could have replied more than once, and any of those rows could be
