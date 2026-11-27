@@ -12,6 +12,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync, readFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { resolveSecretsDir } from "./data-dir";
+import { withoutGatewayToken } from "./child-env";
 import {
   createAllowlist, createAgeSecretStore, createKeychainSecretStore, createSecretStore, hasControlCharacter,
   loadAllowlistFromStateDir, type CommandRunResult, type AgeRunResult,
@@ -42,17 +44,21 @@ describe("loadAllowlistFromStateDir", () => {
     expect(allowlist.has(TEST_NAME)).toBe(false);
   });
 
-  test("reads the names from <stateDir>/secrets/allowed-secret-names.json", () => {
+  test("reads the names from the secrets dir allowed-secret-names.json", () => {
     const stateDir = mkdtempSync(join(tmpdir(), "secret-store-cfg-"));
-    mkdirSync(join(stateDir, "secrets"), { recursive: true });
-    writeFileSync(join(stateDir, "secrets", "allowed-secret-names.json"), JSON.stringify([TEST_NAME]));
+    mkdirSync(resolveSecretsDir(stateDir), { recursive: true });
+    writeFileSync(join(resolveSecretsDir(stateDir), "allowed-secret-names.json"), JSON.stringify([TEST_NAME]));
     const allowlist = loadAllowlistFromStateDir(stateDir);
     expect(allowlist.has(TEST_NAME)).toBe(true);
     expect(allowlist.has(OTHER_TEST_NAME)).toBe(false);
   });
 });
 
-describe("age secret store", () => {
+// The real binaries are not on every CI image; those runs still exercise the
+// Keychain and allowlist suites, and a machine that has age runs this one.
+const hasAge = spawnSync("age-keygen", ["--version"]).status === 0 && spawnSync("age", ["--version"]).status === 0;
+
+describe.skipIf(!hasAge)("age secret store", () => {
   let dir: string;
   let identityPath: string;
   let secretsPath: string;
@@ -415,5 +421,85 @@ describe("createSecretStore", () => {
     expect(stateDir).not.toContain("/Users/");
     writeFileSync(join(stateDir, "marker"), "");
     expect(await store.read(TEST_NAME)).toBeNull();
+  });
+});
+
+// The four defects of the first version, each reproduced without the real
+// `age` binary: a tiny stand-in cipher keeps these runnable on any machine.
+describe("secret store regressions", () => {
+  const fakeRecipient = (identity: string): string => `age1${Buffer.from(identity).toString("hex").slice(0, 20)}`;
+  /** `age-keygen -y`, `age -a -r` and `age -d` over a reversible text format; `slowDecrypt` widens the race window. */
+  const fakeAge = (slowDecrypt = false) => async (argv: string[], stdinData: string): Promise<AgeRunResult> => {
+    if (argv[0] === "age-keygen") return { stdout: `${fakeRecipient(stdinData)}\n`, exitCode: 0 };
+    if (argv[1] === "-a") return { stdout: `FAKEAGE:${argv[3]}:${Buffer.from(stdinData).toString("base64")}`, exitCode: 0 };
+    const text = readFileSync(argv[argv.length - 1]!, "utf8");
+    if (slowDecrypt) await new Promise((r) => setTimeout(r, 25));
+    const m = /^FAKEAGE:(\S+?):(\S+)$/.exec(text);
+    if (!m || m[1] !== fakeRecipient(stdinData)) return { stdout: "", exitCode: 1 };
+    return { stdout: Buffer.from(m[2]!, "base64").toString("utf8"), exitCode: 0 };
+  };
+  const identity = "# public key: age1whatever\nAGE-SECRET-KEY-FAKE";
+  const goodIdentity = `# public key: ${fakeRecipient(identity)}\nAGE-SECRET-KEY-FAKE`;
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "secret-store-reg-")); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  test("a corrupt secrets file makes pack throw and leaves the file byte for byte identical", async () => {
+    const secretsPath = join(dir, "secrets.age");
+    const corrupt = "not an age file \u0000\u0001 at all";
+    writeFileSync(secretsPath, corrupt);
+    const before = readFileSync(secretsPath);
+    const store = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identity: goodIdentity, secretsPath, run: fakeAge() });
+    await expect(store.pack({ [TEST_NAME]: "x" })).rejects.toThrow(/did not decrypt/);
+    expect(readFileSync(secretsPath).equals(before)).toBe(true);
+  });
+
+  test("an identity whose comment names another recipient is refused before anything is written", async () => {
+    const secretsPath = join(dir, "secrets.age");
+    const store = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identity, secretsPath, run: fakeAge() });
+    await expect(store.pack({ [TEST_NAME]: "x" })).rejects.toThrow(/does not match/);
+  });
+
+  test("the first pack creates the missing secrets folder", async () => {
+    const secretsPath = join(dir, "nested", "secrets", "secrets.age");
+    const store = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identity: goodIdentity, secretsPath, run: fakeAge() });
+    await store.pack({ [TEST_NAME]: "x" });
+    expect(readFileSync(secretsPath, "utf8")).toContain("FAKEAGE:");
+  });
+
+  test("two concurrent packs of different names both end up in the file", async () => {
+    const secretsPath = join(dir, "secrets.age");
+    const run = fakeAge(true);
+    const a = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identity: goodIdentity, secretsPath, run });
+    const b = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identity: goodIdentity, secretsPath, run });
+    await a.pack({ [TEST_NAME]: "seed" });
+    await Promise.all([a.pack({ [TEST_NAME]: "one" }), b.pack({ [OTHER_TEST_NAME]: "two" })]);
+    const reader = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identity: goodIdentity, secretsPath, run });
+    expect(await reader.unpack()).toEqual({ [TEST_NAME]: "one", [OTHER_TEST_NAME]: "two" });
+  });
+
+  test("a Keychain value over the line limit throws and the old value stays intact", async () => {
+    const items = new Map<string, string>();
+    const runner = (_cmd: string, args: string[], stdinData?: string): CommandRunResult => {
+      if (args[0] === "find-generic-password") {
+        const v = items.get(TEST_NAME);
+        return v === undefined ? { status: 44, stdout: "", stderr: "" } : { status: 0, stdout: `${v}\n`, stderr: "" };
+      }
+      // Like the real tool: the line is cut at its buffer and the cut copy replaces the item.
+      const line = (stdinData ?? "").split("\n")[0]!.slice(0, 4096);
+      const m = /-w\s+"([^"]*)/.exec(line);
+      items.set(TEST_NAME, m ? m[1]! : "");
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    const store = createKeychainSecretStore(TEST_ALLOWLIST, runner);
+    await store.pack({ [TEST_NAME]: "old-value" });
+    await expect(store.pack({ [TEST_NAME]: "x".repeat(10_000) })).rejects.toThrow(/too long/);
+    expect(await store.read(TEST_NAME)).toBe("old-value");
+  });
+
+  test("a spawned child does not see TOPICS_SECRET_AGE_IDENTITY", () => {
+    const env = withoutGatewayToken({ ...process.env, TOPICS_SECRET_AGE_IDENTITY: "AGE-SECRET-KEY-FAKE" });
+    const r = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.env.TOPICS_SECRET_AGE_IDENTITY))"], { env, encoding: "utf8" });
+    expect(r.stdout).toBe("undefined");
   });
 });
