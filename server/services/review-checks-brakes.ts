@@ -205,17 +205,21 @@ export type WaitReason = "swap" | "load" | "measuring" | "room" | "spacing" | "t
 export const LOAD_CEILING_PER_CORE = 2;
 
 /**
- * The two budgets, and the two clocks that spend them. `calmFloor` is the floor
- * on a Mac that is not swapping - the only state the short valve is for; `other`
- * is every other reason to hold, the swap included. Separate because a wait buys
+ * The three budgets, and the three clocks that spend them. `calmFloor` is the
+ * floor on a Mac that is not swapping - the only state the short valve is for;
+ * `load` is the load ceiling alone; `other` is every remaining reason to hold,
+ * the swap and the spacing included. Separate because a wait buys
  * what it waited FOR: see the last paragraph of the header.
  */
-export type WaitBudget = "calmFloor" | "other";
+export type WaitBudget = "calmFloor" | "load" | "other";
 
 /** Which of the two a reason spends. `room` reaches here only on a calm Mac:
  *  `holdReason` answers "swap" first, so a sustained verdict is never the floor. */
 function budgetOf(reason: WaitReason | null): WaitBudget {
-  return reason === "room" ? "calmFloor" : "other";
+  if (reason === "room") return "calmFloor";
+  // The load has a clock of its own: exhausting it releases the load reason
+  // alone, and the swap and the spacing keep holding on theirs.
+  return reason === "load" ? "load" : "other";
 }
 
 type Release = { round: symbol; name: string; at: number; running: boolean };
@@ -259,9 +263,13 @@ interface DecisionInput {
  * indistinguishable, and the test that holds this one down is the only thing
  * that separates them now.
  */
+function loadOver(i: DecisionInput): boolean {
+  return i.loadPerCore != null && i.loadPerCore > LOAD_CEILING_PER_CORE;
+}
+
 function holdReason(i: DecisionInput): WaitReason | null {
   if (i.swap.sustained) return "swap";
-  if (i.loadPerCore != null && i.loadPerCore > LOAD_CEILING_PER_CORE) return "load";
+  if (loadOver(i) && i.spent.load < i.maxWaitMs) return "load";
   if (i.otherRoundRelease?.running && i.now - i.otherRoundRelease.at < RELEASE_SPACING_MS) return "spacing";
   // FLOOR OFF: neither of the two memory reasons applies, and that includes
   // "measuring". Waiting for a window to fill so it can be compared against a
@@ -302,7 +310,11 @@ export function releaseDecision(i: DecisionInput): {
   // The budget comes before every reason to hold: see the fail-open paragraph
   // above. Nothing here can hold a round longer than its budget.
   if (spentMs >= budgetMs) return { release: true, wait: null, anyway: held != null, heldBy: held, budgetMs, spentMs };
-  if (!held) return { release: true, wait: null, anyway: false, heldBy: null, budgetMs, spentMs };
+  if (!held) {
+    // The load clock ran out and nothing else holds: that release is the load's.
+    if (loadOver(i)) return { release: true, wait: null, anyway: true, heldBy: "load", budgetMs: i.maxWaitMs, spentMs: i.spent.load };
+    return { release: true, wait: null, anyway: false, heldBy: null, budgetMs, spentMs };
+  }
   return { release: false, wait: held, anyway: false, heldBy: held, budgetMs, spentMs };
 }
 
@@ -366,7 +378,7 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
   const now = floor.now ?? Date.now;
   const sleep = floor.sleep ?? ((ms: number) => Bun.sleep(ms));
   const round = Symbol("round");
-  const spent: Record<WaitBudget, number> = { calmFloor: 0, other: 0 };
+  const spent: Record<WaitBudget, number> = { calmFloor: 0, load: 0, other: 0 };
   const read = <T>(f: () => T, fallback: T): T => { try { return f(); } catch { return fallback; } };
   const unmeasured: HeldMemory = { measurable: false, latestGB: null, heldGB: null, coveredMs: 0 };
   const calm: SwapVerdict = { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, swapPct: null, coveredMs: 0 };

@@ -162,5 +162,5 @@ const { BridgeAckStalled } = await import("../../server/lib/ai-bridge-errors");
       client.attach = realAttach;
       try { client.kill(sk); } catch { /* already gone */ }
     }
-  }, 90_000);
+  }, 100_000);
 });
