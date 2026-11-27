@@ -397,6 +397,18 @@ describe("node-client · un nodo che accetta la connessione e non risponde mai",
     expect(err).toBeInstanceOf(NodeError);
     expect(elapsedMs).toBeGreaterThanOrEqual(40);
   });
+
+  test("creare una corsa usa lo stesso timeout lungo: il nodo pianta un ramo prima di rispondere", async () => {
+    const c = client(hangingFetch(), { timeoutMs: 20, deliveryTimeoutMs: 40 });
+    const startedAt = Date.now();
+    const err = await c.createRun({
+      baseUrl: BASE, token: TOKEN,
+      body: { originTaskId: "t", originUrl: "u", text: "x", description: "d", model: null, effort: null },
+    }).catch((e) => e);
+    const elapsedMs = Date.now() - startedAt;
+    expect(err).toBeInstanceOf(NodeError);
+    expect(elapsedMs).toBeGreaterThanOrEqual(40);
+  });
 });
 
 describe("node-client · normalizeNodeBaseUrl", () => {

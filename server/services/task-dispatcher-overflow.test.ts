@@ -161,6 +161,7 @@ function harness(opts: {
   const pushed: string[] = [];
   const worktrees: Array<{ baseBranch?: string } | undefined> = [];
   const turns: string[] = [];
+  const logs: string[] = [];
   let now = Date.UTC(2026, 9, 30, 10, 0, 0);
   let nextRun = 0;
   const machines = (): OverflowMachine[] => [
@@ -228,7 +229,7 @@ function harness(opts: {
     now: () => now,
     graceMs: 0,
     retryBackoffMs: 0,
-    log: () => {},
+    log: (msg: string) => logs.push(msg),
   };
   const dispatcher = createTaskDispatcher(deps);
   svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchFanOut: 1 });
@@ -260,7 +261,7 @@ function harness(opts: {
   const advance = (ms: number) => { now += ms; };
   const poll = async () => { await dispatcher.reconcile({ reason: "poll" }); await flush(); };
   return {
-    db, svc, dispatcher, created, bodies, pushed, worktrees, turns, seed, sendBack, tick, poll, advance, now: () => now,
+    db, svc, dispatcher, created, bodies, pushed, worktrees, turns, logs, seed, sendBack, tick, poll, advance, now: () => now,
     task: (id: string) => svc.get(id)!.task, thread: (id: string) => svc.get(id)!.comments.map((c) => c.content).join("\n"),
   };
 }
@@ -1736,5 +1737,23 @@ describe("overflow: nodo con posti liberi dietro run in attesa esterna", () => {
     // The 3 waiting runs hold 3 of 4 seats: one is free, and the pinned queue
     // takes it instead of sitting behind the waiting runs for ever.
     expect(h.created.length).toBeGreaterThan(0);
+  });
+
+  it("una card remota rifiutata dal CAS logga 'remote claim declined' UNA volta sola per episodio, non a ogni giro", async () => {
+    const h = harness({ floor: false, pcSlots: 4 });
+    h.seed("card-rifiutata", { machineId: PC });
+    // The CAS itself refuses the claim (its own row guards: `blocked_by`, a
+    // deferral still ahead, `scheduled_by`) - which tick's own pre-filters
+    // normally mirror, so this forces the same `null` without needing to
+    // reproduce the exact TOCTOU race that leaves them briefly out of step.
+    const realClaim = h.svc.claim.bind(h.svc);
+    h.svc.claim = (args) => (args.taskId === "card-rifiutata" && args.remote ? null : realClaim(args));
+
+    await h.tick();
+    await h.tick();
+    await h.tick();
+
+    const hits = h.logs.filter((l) => l.includes("remote claim declined") && l.includes("card-rifiutata"));
+    expect(hits.length).toBe(1);
   });
 });

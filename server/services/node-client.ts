@@ -63,8 +63,9 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
  * A node that accepts the connection and never answers (a hung tunnel, a
  * frozen process) must not hold a call for ever: every call to a node carries
  * a deadline. Short for status and poll - the common case, every 10s - and
- * long only for pulling a finished delivery's branch, the one call that
- * genuinely moves bytes.
+ * long for the two calls that move bytes before answering: pulling a
+ * finished delivery's branch, and creating a run, which plants a carried
+ * branch bundle or runs `git fetch` before the node responds.
  */
 export const NODE_CALL_TIMEOUT_MS = 15_000;
 export const NODE_DELIVERY_TIMEOUT_MS = 120_000;
@@ -557,6 +558,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
           body: payload,
         },
         "create run",
+        deps.deliveryTimeoutMs ?? NODE_DELIVERY_TIMEOUT_MS,
       ).catch((err: unknown) => {
         if (isNodeError(err) && err.reason === "payload_too_large") {
           const bytes = new TextEncoder().encode(payload).length;

@@ -17,7 +17,7 @@ import type { TickPlan } from "./task-dispatcher-tick";
 import { isNodeChildRun } from "./node-child-run";
 
 export function createClaim(ctx: DispatcherCtx) {
-  const { capHeldNoted, clock, delegatedPolicy, deps, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceTimers, heavyHeldNoted, heavyHoldSince, inFlight, log, noCheckExemptions, spendHeldNoted, shared } = ctx.core;
+  const { capHeldNoted, clock, delegatedPolicy, deps, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceTimers, heavyHeldNoted, heavyHoldSince, inFlight, log, noCheckExemptions, remoteClaimDeclinedNoted, spendHeldNoted, shared } = ctx.core;
 
   async function claimPass(projectId: string, pass: TickPlan): Promise<void> {
     const { aliveAgents, capScope, caps, daySpendBlock, effectiveCap, fanOut, fanOutBlocked, floorBlock, floorNote, floorNoteKey, floorNow, floorSent, gateRuns, heavyBusy, heavyCall, heldForLoad, heldForMs, intruders, loadGate, memoryFloorHolds, noCheckReservationAtRead, noteCapFull, overflowRound, overflowRoundNo, pressure, rampActive, remoteCard, remoteIds, resolved, resourceFloor, settings, todos, wantFanOut } = pass;
@@ -437,7 +437,16 @@ export function createClaim(ctx: DispatcherCtx) {
         // Silent before this line, so the card sat `queued` for hours with
         // nothing in the log to say why - the thread note itself comes from
         // the stuck-card sweep once the wait is old enough to say something.
-        if (remoteTask) { log(`remote claim declined for ${t.id} on machine ${t.machineId ?? "?"}`); continue; }
+        if (remoteTask) {
+          // ONE line per episode, not one per tick: the dispatcher re-reads
+          // this card every ~10s while it is held, and the CAS refusal is
+          // the same refusal until something about the card changes.
+          if (!remoteClaimDeclinedNoted.has(t.id)) {
+            remoteClaimDeclinedNoted.add(t.id);
+            log(`remote claim declined for ${t.id} on machine ${t.machineId ?? "?"}`);
+          }
+          continue;
+        }
         const vivi = aliveAgents();
         if (vivi == null || vivi >= claimCap) noteCapFull(t, vivi);
         continue;
@@ -454,6 +463,7 @@ export function createClaim(ctx: DispatcherCtx) {
       // Same for the spend brake: this card started, so the episode is closed. If
       // it goes through the cap again tomorrow, it says so again.
       spendHeldNoted.delete(t.id);
+      remoteClaimDeclinedNoted.delete(t.id);
       if (forced) {
         const atteso = Math.round(heldForMs(t) / 60_000);
         heavyHoldSince.delete(t.id);
