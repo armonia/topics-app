@@ -11,7 +11,7 @@ import { dispatcherLogLine } from "../services/task-dispatcher-support";
 import { budgetSample, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { createDispatchResourceBlockFromInputs } from "../services/dispatch-memory-inputs";
 import { fleetLoadSync, fleetSessionCoreUnits } from "../lib/fleet-usage";
-import { cardMemPeakGB, recentCardMemPeaksGB } from "../lib/card-memory-peaks";
+import { cardLiveTreeGB, cardMemPeakGB, recentCardMemPeaksGB } from "../lib/card-memory-peaks";
 import { machineCores } from "../lib/machine-cores";
 import { worktreeRealDirt } from "../services/task-automerge";
 import { branchStatusFromRepo, worktreeDiffStat } from "../services/branch-status";
@@ -154,6 +154,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       try { return recentCardMemPeaksGB(); } catch { return []; }
     },
     cardCheckPeakGB: cardMemPeakGB,
+    cardLiveTreeGB,
     ...dispatchMemoryInputs,
     // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
     // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
