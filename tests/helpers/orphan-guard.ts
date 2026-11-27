@@ -30,11 +30,19 @@
  * polls the registry instead of exporting anything, which keeps the watchdog's
  * code one import-free file next to what it protects.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** Where the registries live: one JSON file per watched test process. */
-export const ORPHAN_GUARD_DIR = "/tmp/topics-test-guards";
+/**
+ * Where the registries live: one JSON file per watched test process. Nested
+ * under the base `testTmpDir` already hands out (not a sibling of it in bare
+ * `/tmp`): the CI check that flags a test writing outside its private TMPDIR
+ * allows exactly that base, named `TEST_TMP_BASE_NAME` in
+ * `scripts/test-unit-shards.ts`, and nothing else at the top of real `/tmp`.
+ * The watchdog removes this directory once it empties the last registry out
+ * of it, so a run that registered nobody leaves no trace there either.
+ */
+export const ORPHAN_GUARD_DIR = "/tmp/topics-test/.guards";
 
 /**
  * Only paths under this prefix are ever removed by the watchdog. `testTmpDir`
@@ -136,6 +144,22 @@ export function guardAgainstOrphans(spawned: { groupLeaderPid: number; root?: st
 }
 
 /**
+ * Registers a scratch root the moment it is made, before anything spawns into
+ * it. A test that only PREPARES a root (a server it may never boot in a run
+ * filtered to one `test.only`/`-t`) still owns a folder a cut run can leave
+ * behind: `bun test -t` runs every `describe` callback during discovery
+ * regardless of which test it later picks, so a root a suite makes at that
+ * level exists on disk long before - or even without - the boot that would
+ * otherwise register it through `guardAgainstOrphans`.
+ */
+export function registerOrphanRoot(root: string): void {
+  ensureWatchdog();
+  const state = localState as Registry;
+  if (!state.roots.includes(root)) state.roots.push(root);
+  flush();
+}
+
+/**
  * Drops a server the test has already stopped itself, so the watchdog does not
  * signal a pid the operating system may have handed to somebody else by then.
  * The root stays registered: it is removed when the run is over either way.
@@ -144,6 +168,24 @@ export function releaseFromOrphanGuard(groupLeaderPid: number): void {
   if (!localState) return;
   localState.groups = localState.groups.filter((pid) => pid !== groupLeaderPid);
   flush();
+}
+
+/**
+ * Tells the watchdog this process is done: call once every server registered
+ * here is already stopped and its root already removed (the file's own
+ * cleanup, not this). Removes the registry itself instead of waiting for the
+ * watchdog to notice the owner is gone - a poll with a 250 ms period that a
+ * check run right after this process exits can otherwise catch mid-flight.
+ */
+export function retireOrphanGuard(): void {
+  if (!localState) return;
+  try {
+    unlinkSync(orphanGuardRegistryPath(localState.owner));
+  } catch { /* never flushed, or already gone */ }
+  try {
+    rmdirSync(ORPHAN_GUARD_DIR);
+  } catch { /* other registries still inside, or already gone */ }
+  localState = null;
 }
 
 // ── The watchdog side: what the spawned process does ─────────────────────────
@@ -183,6 +225,11 @@ export async function runOrphanWatchdog(registryPath: string): Promise<void> {
   try {
     unlinkSync(registryPath);
   } catch { /* removed by the run */ }
+  try {
+    // Only succeeds once this was the LAST registry in the directory: another
+    // watched process still has its own file in there otherwise.
+    rmdirSync(ORPHAN_GUARD_DIR);
+  } catch { /* other registries still inside, or already gone */ }
 }
 
 if (import.meta.main) {

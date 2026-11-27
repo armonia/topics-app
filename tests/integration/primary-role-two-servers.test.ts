@@ -62,8 +62,9 @@ import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSy
 import { join } from "node:path";
 import { freePort, PROJECT_ROOT, spawnedServerHostEnv, testTmpDir } from "./helpers";
 import { slackMs } from "../helpers/time-slack";
-import { guardAgainstOrphans, releaseFromOrphanGuard } from "../helpers/orphan-guard";
+import { guardAgainstOrphans, registerOrphanRoot, releaseFromOrphanGuard, retireOrphanGuard } from "../helpers/orphan-guard";
 import { gitEnv } from "../setup/bun-test-preload";
+import { removeFinishedTestTmpDirs } from "../setup/test-tmp-dirs";
 import { restrictMachineLikeDevices } from "../../server/lib/node-scope";
 import { killProcessTree } from "../../server/lib/process-tree";
 
@@ -98,6 +99,9 @@ const running: ServerUnderTest[] = [];
 
 function makeServer(name: string): ServerUnderTest {
   const root = testTmpDir(`primary-${name}`);
+  // `-t`/`.only` still run every `describe` callback during discovery, so this
+  // root can exist without the boot that would otherwise register it below.
+  registerOrphanRoot(root);
   for (const dir of ["data", "home", "app-data", "topics-home", "public"]) mkdirSync(join(root, dir), { recursive: true });
   return { name, root, port: freePort(), tunnelPort: freePort(), tunnelHttpPort: freePort(), modelProxyPort: freePort(), child: null, boots: 0 };
 }
@@ -323,6 +327,17 @@ let nodeBOnA = "";
 
 afterAll(async () => {
   await Promise.all(running.map((s) => stop(s)));
+  // The preload sweeps roots BEFORE this hook (registered first, at module
+  // load): on a server still running here - B never stops mid-test, D is
+  // rebooted by the last test and left up - that first sweep races a live
+  // server writing into its own root and silently leaves it behind. Now that
+  // every server above is confirmed dead, retrying the same sweep removes
+  // what the first pass could not.
+  removeFinishedTestTmpDirs(null);
+  // Every server stopped and its root gone above: the watchdog has nothing
+  // left to watch, and its own poll (250 ms) would otherwise race the check
+  // that runs right after this process exits.
+  retireOrphanGuard();
 });
 
 // `afterAll` only runs when this file reaches the end of its own suite. A run
