@@ -1,10 +1,107 @@
 [
   {
-    "version": "2.5.20",
+    "version": "2.5.22",
     "date": "2026-11-27",
     "sections": {
       "new": [],
       "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "archive tetto-contesto-agenti; CHAT-COMPACT-06 joins the chat spec",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.21",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "the agent's ceiling is checked when a turn starts; a lightened argument stays as it was",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "an agent's ceiling never clips fresh tool results; token-audit bounds the markers too",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "an agent's ceiling applies only on a turn a person opened; a resume keeps its request",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "the ceiling skips a continuation, not every turn nobody typed in the composer",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "a wake is a continuation too; one list of machine marks for continuation and sentByPerson",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "tetto-contesto-agenti, the ceiling at turn start and its three new scenarios",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "tetto-contesto-agenti, the ceiling skips continuations; a Discord message from Jarvis's channel gets it",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "tetto-contesto-agenti, wakes are continuations",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.20",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [
+        {
+          "it": "an agent's chats compact at an absolute token ceiling",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "move the spawn allowlist entry to where the install call now lives",
+          "en": "",
+          "scope": "node-delivery",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -16,6 +113,24 @@
           "it": "review-checks brakes test: complete the spent clocks literal (card 9fecea98)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "the ceiling reaches the loop inside the turn's own process",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "tetto-contesto-agenti, CHAT-COMPACT-06 and its bar; token-audit measures an agent's calls",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "no machine path in the proposal",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
         }
       ]
     }
@@ -77,6 +192,12 @@
           "it": "split node-client.ts under the bloat threshold, name the reason for a declined remote claim",
           "en": "",
           "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "widen the install-call slice after the checkout revert's extra comments",
+          "en": "",
+          "scope": "node-delivery",
           "breaking": false
         }
       ],
@@ -547,6 +668,12 @@
           "en": "",
           "scope": "gates",
           "breaking": false
+        },
+        {
+          "it": "say why on the card, and lock the install call with a test",
+          "en": "",
+          "scope": "node-delivery",
+          "breaking": false
         }
       ],
       "perf": [],
@@ -799,6 +926,12 @@
           "it": "give each run its own checkout folder",
           "en": "",
           "scope": "node-checks",
+          "breaking": false
+        },
+        {
+          "it": "measure node deliveries whose bar mixes CI and local checks",
+          "en": "",
+          "scope": "node-delivery",
           "breaking": false
         }
       ],
