@@ -22,7 +22,7 @@ import path from "node:path";
 import { closeDatabase, getDatabase } from "../../../server/db";
 import type { AppContext } from "../../../server/types";
 import { trackTestTmpDir } from "../../setup/test-tmp-dirs";
-import { guardAgainstOrphans, releaseFromOrphanGuard } from "../../helpers/orphan-guard";
+import { guardAgainstOrphans, releaseFromOrphanGuard, retireOrphanGuard } from "../../helpers/orphan-guard";
 import { killProcessTree } from "../../../server/lib/process-tree";
 import { topicsHome } from "../../../server/services/daemon-state";
 
@@ -320,6 +320,13 @@ export async function spawnRealServer(root: string): Promise<RealServer> {
   try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
   child.kill("SIGKILL");
   releaseFromOrphanGuard(child.pid);
+  // This helper spawns one server per test file: the release above was the
+  // last one it ever registers, so the watchdog has nothing left to watch.
+  // Retiring now, instead of waiting for its 250 ms poll, is what keeps the
+  // registry directory out of a check that runs right after this file ends
+  // (card b66e32c0, seen on the full suite under CI load: a file using this
+  // shared helper left `.guards` behind for that poll window).
+  retireOrphanGuard();
   const errorOutput = await new Response(child.stderr as ReadableStream).text().catch(() => "");
   throw new Error(`the spawned server never answered on ${port}\n${errorOutput.slice(-2000)}`);
 }
@@ -338,6 +345,10 @@ async function stopSpawnedServer(child: ReturnType<typeof Bun.spawn>): Promise<v
   }
   await child.exited;
   releaseFromOrphanGuard(child.pid);
+  // Same reasoning as the boot-failure path above: this helper's one server
+  // per file is the only thing it ever registers, so retire now rather than
+  // leave the registry for the watchdog's next poll to find.
+  retireOrphanGuard();
 }
 
 /**
