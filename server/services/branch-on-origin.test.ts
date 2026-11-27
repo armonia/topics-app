@@ -9,7 +9,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bundleBranch, bundleBranchForNode, carriedBranch, carriedRef, ensureBranchOnOrigin, isPlainBranchName, plantCarriedBranch, pushRefusalReason } from "./branch-on-origin";
+import { branchGit, bundleBranch, bundleBranchForNode, carriedBranch, carriedRef, ensureBranchOnOrigin, isPlainBranchName, plantCarriedBranch, pushRefusalReason } from "./branch-on-origin";
+import type { GitRunner } from "./own-commits";
 import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { nodeRunBaseBranch } from "../routes/nodes";
 
@@ -154,6 +155,15 @@ describe("il ramo della card verso un nodo che non vede origin", () => {
     const bytes = await bundleBranchForNode(mac, "topics/endless-calf");
     expect(bytes).not.toBeNull();
     expect(sh(["rev-parse", "--verify", "-q", "refs/heads/topics/endless-calf"], mac)).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  test("«whole» porta la storia intera anche quando origin/HEAD c'è", async () => {
+    // The last step of the card ladder (node-bundle-ladder.ts): a node without origin lacks even the margin.
+    try { sh(["rev-parse", "--verify", "-q", "refs/remotes/origin/HEAD"], mac); } catch { sh(["remote", "set-head", "origin", "main"], mac); }
+    const cuts: string[][] = [];
+    const spy: GitRunner = (cwd, args) => { if (args[0] === "bundle") cuts.push(args.slice(4)); return branchGit(cwd, args); };
+    expect(await bundleBranch(mac, "topics/endless-calf", spy, "whole")).not.toBeNull();
+    expect(cuts).toEqual([[]]);
   });
 
   test("un ramo che non c'è da nessuna parte: null, senza ref lasciati", async () => {
