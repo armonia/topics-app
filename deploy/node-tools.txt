@@ -1,0 +1,23 @@
+# Tools of a work machine (a Windows PC node, a Hetzner cloud node, a fresh machine).
+# One list for both: read by deploy/windows-node/pc-tools.ps1 (Windows, via node-prep) and by
+# deploy/cloud-node/node-pool (Linux cloud-init). One line per tool, columns separated by spaces:
+#   name  command-to-look-for  winget-id  apt-package  npm-package
+# "-" = not installed from that source. On Windows winget wins, then npm; on Linux apt, then npm.
+# node and bun on Linux are installed by the provisioning step with the same version as the
+# developer machine (same test results).
+git       git      Git.Git                   git               -
+gh        gh       GitHub.cli                gh                -
+jq        jq       jqlang.jq                 jq                -
+rg        rg       BurntSushi.ripgrep.MSVC   ripgrep           -
+sqlite3   sqlite3  SQLite.SQLite             sqlite3           -
+python    python   Python.Python.3.12        python3           -
+uv        uv       astral-sh.uv              -                 -
+node      node     OpenJS.NodeJS.LTS         -                 -
+bun       bun      Oven-sh.Bun               -                 -
+pnpm      pnpm     pnpm.pnpm                 -                 pnpm
+claude    claude   -                         -                 @anthropic-ai/claude-code
+codex     codex    -                         -                 @openai/codex
+# rsync does not exist on winget: on the PC files arrive with scp and git bundle, it is only needed on Linux.
+rsync     rsync    -                         rsync             -
+unzip     unzip    -                         unzip             -
+make      make     -                         build-essential   -

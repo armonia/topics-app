@@ -1,5 +1,49 @@
 [
   {
+    "version": "2.5.8",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "close the review's 5 blocking gaps on archive/revoke/dedupe",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Revisione del round 3: cancelli statici verdi, colonna che riapre l'isola giusta, semafori dalla sola finestra principale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riga archiviata in due tempi: prima esce, poi le righe sotto risalgono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tolto l'aggancio di test che nessun test usa",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Uscita in due tempi anche per le righe che non sono treeitem, semafori solo dalla finestra principale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CI della PR: tetto del bundle sulla misura, test di bump senza la bomba del 2.5.7",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.7",
     "date": "2026-11-26",
     "sections": {
@@ -25,6 +69,17 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "trace the new archive and blockedByTaskId tests to KANBAN-123/124",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Tab di lato: un passo sui quattro lati, isole che chiudono la colonna, riga archiviata che esce",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -129,9 +184,21 @@
       "perf": [],
       "internal": [
         {
+          "it": "close the remaining 26/11 review gaps on archive() and blockedByTaskId",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Auto-land: a land waiting on the pull request's CI forgets the offer so the sweep asks again at the verdict",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "the refusal to archive names the card, and stops refusing for a blocker that stays",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)",
@@ -233,9 +300,21 @@
           "scope": null
         },
         {
+          "it": "archiving a live blocker no longer silently unblocks its dependents",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "board-avanza-da-sola, the seven rules with their bar",
           "en": "",
           "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "close the three gaps left in archive() by the 26/11 review",
+          "en": "",
+          "scope": null,
           "breaking": false
         },
         {

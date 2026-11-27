@@ -612,6 +612,52 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     // main" button — the fix stays reachable, the closed decision does not
     // get reverted to reach it.
     const closedByHuman = task.status === "done" && task.doneActor === "human";
+    // ALREADY ON MAIN BEATS THE UNMEASURED-DELIVERY GATE. `unmeasuredStop` below
+    // exists for a delivery nobody has run the bar on — but a commit that is
+    // ALREADY an ancestor of the published main (another session's land, a PR
+    // merged by hand, a GC's `merge task <id>`) has nothing left to land, so
+    // there is nothing left to measure either: card 1178675b, 26/11, stuck in
+    // review re-offering a land every 10 minutes for a commit the PR had
+    // already merged hours earlier.
+    if (toMerge && opts?.alreadyLandedProof) {
+      const repoPath = "resolveRepoPath" in autoMerge ? autoMerge.resolveRepoPath(taskId) : null;
+      const proof = repoPath ? await opts.alreadyLandedProof(repoPath, taskId, toMerge).catch(() => null) : null;
+      if (proof) {
+        try { await opts?.stampLanding?.(taskId, "landed"); } catch { /* la spia e' best-effort */ }
+        svc.addComment({
+          taskId, author: "system", kind: "service",
+          content: `Già su main: \`${proof.slice(0, 8)}\` lo prova. Chiusa senza rimisurare la barra.`,
+        });
+        const closed = svc.settleLanded({ taskId, by: "system", reason: `landed: already on main (${proof})` });
+        const fresh = svc.get(taskId, { projectId })?.task;
+        if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
+        if (closed && closed.status !== "done") {
+          const aperti = (svc.get(taskId, { projectId })?.children ?? [])
+            .filter((c) => c.status !== "done")
+            .map((c) => `«${c.text}»`);
+          if (aperti.length) {
+            svc.addComment({
+              taskId, author: "system",
+              content:
+                `Il lavoro è su main, ma la card NON si chiude: restano ${aperti.length} sottotask aperti (${aperti.join(", ")}). ` +
+                "Chiudili o archiviali, poi approva questa card.",
+            });
+          }
+        }
+        if (closed && closed.status === "done") {
+          requestCardProcessStop(opts, taskId);
+          dispatcher?.onBlockerDone(taskId);
+          if (cutLiveTurn(closed, "il lavoro di questa card è atterrato su main: il turno non serve più", "superseded")) {
+            svc.addComment({
+              taskId, author: "system",
+              content: "Fermato l'agente che stava ancora lavorando su questa card: il suo lavoro è appena atterrato su main.",
+            });
+          }
+        }
+        await reapAfterLand(taskId, "landed");
+        return { outcome: "landed", reason: `already on main: ${proof}` };
+      }
+    }
     // Every path stops here, the manual land included: the hook below only runs for the automatic one.
     const unmeasured = unmeasuredStop(projectId, taskId);
     if (unmeasured) {

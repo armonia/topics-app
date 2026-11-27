@@ -113,16 +113,19 @@ describe("bun run bump — un gesto per tutti e quattro i posti", () => {
   });
 
   test("patch/minor/major incrementano package.json e trascinano gli altri tre", () => {
-    setVersion(root, PKG, "2.5.7");
-    setVersion(root, TAURI, "2.5.7");
-    setVersion(root, CARGO, "2.5.7");
-    setVersion(root, LOCK, "2.5.7");
+    // A start BELOW any version the repo will ship: the copied files never hold
+    // it, so every setVersion really changes them. A fixed "2.5.7" broke the day
+    // the repo itself reached 2.5.7 (27/11).
+    setVersion(root, PKG, "0.4.7");
+    setVersion(root, TAURI, "0.4.7");
+    setVersion(root, CARGO, "0.4.7");
+    setVersion(root, LOCK, "0.4.7");
 
-    expect(bump(root)).toBe("2.5.8"); // patch è il default
+    expect(bump(root)).toBe("0.4.8"); // patch è il default
     expect(allineati(root)).toBe(true);
-    expect(bump(root, "minor")).toBe("2.6.0");
+    expect(bump(root, "minor")).toBe("0.5.0");
     expect(allineati(root)).toBe(true);
-    expect(bump(root, "major")).toBe("3.0.0");
+    expect(bump(root, "major")).toBe("1.0.0");
     expect(allineati(root)).toBe(true);
   });
 

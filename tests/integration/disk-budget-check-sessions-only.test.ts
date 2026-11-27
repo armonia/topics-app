@@ -43,4 +43,26 @@ describe("disk-budget-check: transcript compression", () => {
     expect(existsSync(workspace)).toBe(true);
     expect(existsSync(`${workspace}.gz`)).toBe(false);
   });
+
+  test("backup expiry follows TOPICS_HOME, not the OS home, and reports every folder", () => {
+    const fakeOs = join(root, "os-home");
+    const home = join(root, "topics-home");
+    const data = join(root, "data2");
+    mkdirSync(data, { recursive: true });
+    mkdirSync(join(fakeOs, ".topics", "db-backups"), { recursive: true });
+    mkdirSync(join(home, "db-backups"), { recursive: true });
+    writeFileSync(join(data, "topics.db"), "x".repeat(4096));
+    for (const day of ["20261101", "20261102"]) {
+      writeFileSync(join(fakeOs, ".topics", "db-backups", `topics-pre-aaaaaaa-${day}.db`), "x");
+      writeFileSync(join(home, "db-backups", `topics-pre-aaaaaaa-${day}.db`), "x");
+    }
+    const run = Bun.spawnSync([process.execPath, "scripts/disk-budget-check.ts", "--json"], {
+      cwd: REPO,
+      env: { PATH: process.env.PATH ?? "", HOME: fakeOs, USERPROFILE: fakeOs, APP_DATA_DIR: home, TOPICS_HOME: home, DATA_DIR: data, TOPICS_BACKUP_KEEP: "1" },
+    });
+    const report = JSON.parse(run.stdout.toString());
+    expect(report.prunedBackups).toEqual([join(home, "db-backups", "topics-pre-aaaaaaa-20261101.db")]);
+    expect(existsSync(join(fakeOs, ".topics", "db-backups", "topics-pre-aaaaaaa-20261101.db"))).toBe(true);
+    expect(report.folders.map((f: { name: string }) => f.name)).toContain("db-backups");
+  });
 });
