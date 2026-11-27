@@ -10,7 +10,7 @@ Il 27/11 Attilio: Jarvis su Discord «è proprio scemo». Il modello era già Op
 - Configurazione: `main` e `gtm` a 200.000.
 
 ## Barra
-`specs/acceptance.md`. Resta verde ciò che era verde: `~/.claude/jarvis/scripts/topics-gates-ci` e la CI della PR.
+`specs/acceptance.md`. Resta verde ciò che era verde: il cancello locale della CI (`topics-gates-ci`) e la CI della PR.
 
 ## Fuori
 jarvis-channels (il blocco `<chat-recente>` è curato nel ramo `fix/jarvis-discord-qualita` del repo jarvis); la compattazione con riassunto del modello; `/compact` manuale; il ricarico dopo un riavvio (`REHYDRATE_WINDOW_TOKENS`); l'anello del contesto nella UI.
