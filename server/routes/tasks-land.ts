@@ -18,7 +18,7 @@ import { createCiPhase } from "./tasks-ci-phase";
 import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
-import { createReviewSweep, orderForSweep } from "./tasks-review-sweep";
+import { createReviewSweep, orderForSweep, sortForSweep } from "./tasks-review-sweep";
 import { checksLanes } from "./tasks-checks-delivery";
 import { createNothingToLand } from "./tasks-land-nothing";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -267,7 +267,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   const { bounceRed, enterCiPhase, afterDelivery } = ciPhase;
 
   const reviewSweep = createReviewSweep({
-    svc, broadcastToAll, runChecksGate, capturaConsegna, nodeMeter, bounceRed, afterDelivery,
+    svc, db, broadcastToAll, runChecksGate, capturaConsegna, nodeMeter, bounceRed, afterDelivery,
     bounceWithReason: ciPhase.bounceWithReason, reviewPrMergeable: opts?.reviewPrMergeable,
     // Same cap the checks gate itself holds: a second serialization on top of
     // it meant a long-running measure held every other review card still.
@@ -393,10 +393,10 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     await ciPhase.sweepAfterLand(); // the `after` queue lives in memory (marks back in) and main's own CI is looked at
     const rows = svc.list({ scope: "all", status: "review", rootsOnly: true });
     autoLander.forgetExcept(new Set(rows.map((t) => t.id)));
-    // A person who already said "land it" waits only on the bar: that card
-    // goes first, ahead of cards nobody has looked at yet.
-    const ordered = orderForSweep(rows);
-    let aheadUnmeasured = 0;
+    // Arrival order, not `svc.list`'s own `updated_at DESC` (reviewer
+    // feedback 27/11): a person who already said "land it" still goes first
+    // within that stable order, ahead of cards nobody has looked at yet.
+    const ordered = orderForSweep(sortForSweep(rows));
     for (const t of ordered) {
       // A red that arrived after the delivery (a node's bar, a CI row that settled late) goes back to its agent here.
       if (t.checksState === "fail") {
@@ -406,14 +406,17 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       }
       // Several measures at once, up to the checks gate's own cap: a measure lasts as long as its CI.
       if (unmeasuredInReview(t)) {
-        if (reviewSweep.hasFreeSlot() && !nodeMeter.isMeasuring(t.id) && !cardTurnIsLive(t)) {
+        if (reviewSweep.isMeasuring(t.id) || nodeMeter.isMeasuring(t.id)) continue; // already running: not a queue for it
+        if (reviewSweep.hasFreeSlot() && !cardTurnIsLive(t)) {
           void remeasureInReview(t).catch((err) => console.warn(`[review-sweep] ${t.id.slice(0, 8)}: misura fallita:`, err));
         } else {
-          reviewSweep.noteQueued(t, aheadUnmeasured);
+          reviewSweep.noteQueued(t);
         }
-        aheadUnmeasured += 1;
         continue;
       }
+      // Past this point the card has a verdict on its delivered commit: any
+      // "in fila" note left from an earlier round no longer describes it.
+      reviewSweep.clearQueuedNote(t.id);
       if (t.checksState === "pass" && !cardTurnIsLive(t) && await probeConflict(t)) continue;
       // The CI phase lives in memory: a card that carries a person's decision and is in no queue is put
       // back (`returnToCiPhase` checks it again); an automatic decision goes through the automatic land below.

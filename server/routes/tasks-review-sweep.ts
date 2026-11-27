@@ -10,8 +10,11 @@ import type { TasksCore, TasksLate } from "./tasks-scope";
 
 type CiPhase = ReturnType<typeof createCiPhase>;
 
+const QUEUED_NOTE = "In fila per la barra.";
+
 export interface ReviewSweepDeps {
   svc: TasksCore["svc"];
+  db: TasksCore["db"];
   broadcastToAll: TasksCore["broadcastToAll"];
   runChecksGate: TasksLate["runChecksGate"];
   capturaConsegna: TasksLate["capturaConsegna"];
@@ -41,10 +44,23 @@ function sameSha(a: string | null | undefined, b: string | null | undefined): bo
 }
 
 /**
+ * Arrival order. `svc.list` sorts review rows by `updated_at DESC`, and a note
+ * written on a card bumps that column - feeding that order straight into
+ * `orderForSweep` reshuffled the queue every sweep (reviewer feedback 27/11).
+ * `created_at` never moves once the row exists, so the order of the rest of
+ * the queue holds from one sweep to the next.
+ */
+export function sortForSweep(rows: Task[]): Task[] {
+  return [...rows].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+}
+
+/**
  * A person already said "land it" (`landIntent === "human"`): the bar is the
  * only thing left between that decision and the merge. Those cards go first,
  * stable otherwise - a card nobody has looked at yet does not get to sit in
- * front of one a person is already waiting on.
+ * front of one a person is already waiting on. "Stable" means stable on the
+ * INPUT order, so a caller feeding rows straight from the database runs them
+ * through `sortForSweep` first.
  */
 export function orderForSweep(rows: Task[]): Task[] {
   const first: Task[] = [];
@@ -57,7 +73,7 @@ export function orderForSweep(rows: Task[]): Task[] {
 }
 
 export function createReviewSweep(deps: ReviewSweepDeps) {
-  const { svc, broadcastToAll, runChecksGate, capturaConsegna, nodeMeter, bounceRed, afterDelivery } = deps;
+  const { svc, db, broadcastToAll, runChecksGate, capturaConsegna, nodeMeter, bounceRed, afterDelivery } = deps;
   const maxConcurrent = Math.max(1, deps.maxConcurrent ?? 1);
 
   /*
@@ -106,6 +122,7 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
     }
     reviewRemeasures.set(t.id, { commit: t.deliveryCommit!, at: now, tries });
     reviewMeasuring.add(t.id);
+    clearQueuedNote(t.id);
     try {
       console.warn(`[review-sweep] ${t.id.slice(0, 8)}: nessun verdetto su ${t.deliveryCommit!.slice(0, 8)}, misuro la barra (${tries}/${REVIEW_REMEASURE_TRIES})`);
       let out: Awaited<ReturnType<typeof runChecksGate>> = null;
@@ -145,21 +162,33 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
     return reviewMeasuring.size < maxConcurrent;
   }
 
+  /** This card itself already holds one of the slots: a full cap is not a queue for it. */
+  function isMeasuring(taskId: string): boolean {
+    return reviewMeasuring.has(taskId);
+  }
+
   /**
    * Says why a card is still sitting there: no row beats no line (12 cards,
-   * 27/11). `ahead` is how many other unmeasured review cards are in front of
-   * it in the sweep's own order; the slot dedupes so it only rewrites when the
-   * count actually changes.
+   * 27/11). Carries no count — a number would change with the sweep's own
+   * order and rewrite itself every round (`updated_at` moving the card in
+   * `svc.list`, reviewer feedback 27/11) — just the fact, written once.
    */
-  function noteQueued(t: Task, ahead: number): void {
+  function noteQueued(t: Task): void {
     try {
       svc.addComment({
         taskId: t.id, author: "system", kind: "service",
-        content: `In fila per la barra, ${ahead} davanti.`,
-        once: true, replaces: "In fila per la barra,",
+        content: QUEUED_NOTE, once: true, replaces: QUEUED_NOTE,
       });
     } catch { /* best-effort: a missed note is not a stuck card */ }
   }
 
-  return { unmeasuredInReview, remeasureInReview, probeConflict, hasFreeSlot, noteQueued };
+  /** The measure for this card started, or it left the queue: the note no longer describes it. */
+  function clearQueuedNote(taskId: string): void {
+    try {
+      db.prepare("DELETE FROM task_comments WHERE task_id = ? AND author = 'system' AND kind = 'service' AND content = ?")
+        .run(taskId, QUEUED_NOTE);
+    } catch { /* best-effort: a leftover note is not a stuck card */ }
+  }
+
+  return { unmeasuredInReview, remeasureInReview, probeConflict, hasFreeSlot, isMeasuring, noteQueued, clearQueuedNote };
 }
