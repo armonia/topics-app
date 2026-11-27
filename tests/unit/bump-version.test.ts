@@ -112,8 +112,9 @@ describe("bun run bump — un gesto per tutti e quattro i posti", () => {
   });
 
   test("patch/minor/major incrementano package.json e trascinano gli altri tre", () => {
-    // A 0.x version the real repo can never be at again: the auto-bump reached
-    // the old fixed 2.5.7 on 26/11 and setVersion then had nothing to change.
+    // A start BELOW any version the repo will ship: the copied files never hold
+    // it, so every setVersion really changes them. A fixed "2.5.7" broke the day
+    // the repo itself reached 2.5.7 (27/11).
     setVersion(root, PKG, "0.4.7");
     setVersion(root, TAURI, "0.4.7");
     setVersion(root, CARGO, "0.4.7");
