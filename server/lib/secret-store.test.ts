@@ -52,7 +52,11 @@ describe("loadAllowlistFromStateDir", () => {
   });
 });
 
-describe("age secret store", () => {
+// The real binaries are not on every CI image; those runs still exercise the
+// Keychain and allowlist suites, and a machine that has age runs this one.
+const hasAge = spawnSync("age-keygen", ["--version"]).status === 0 && spawnSync("age", ["--version"]).status === 0;
+
+describe.skipIf(!hasAge)("age secret store", () => {
   let dir: string;
   let identityPath: string;
   let secretsPath: string;
