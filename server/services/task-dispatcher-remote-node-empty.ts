@@ -49,6 +49,7 @@
  * nobody has to go dig the thread for what was actually asked.
  */
 import { HUMAN_AUTHOR, isThreadSpeech, pendingQuestionComment } from "../../shared/board";
+import { reopenedByMainRed } from "./red-bounce";
 import { namesMacOnlyPaths } from "./dispatch-overflow";
 import type { Task, TaskService } from "./tasks";
 
@@ -72,6 +73,8 @@ interface EmptyRunDeps {
   deliveryLanded?: (repoPath: string, commit: string) => Promise<boolean | null>;
   /** This machine's own checkout for the card's project, never the node's. Absent = the guard below is skipped. */
   repoPathOfTask?: (taskId: string) => string | null;
+  /** Is this machine's `main` still red? Absent = yes. */
+  mainIsRed?: (repoPath: string) => Promise<boolean>;
 }
 
 /**
@@ -83,6 +86,11 @@ interface EmptyRunDeps {
  */
 export const EMPTY_RUN_PIN_MS = 6 * 60 * 60_000;
 
+/** The post-land mark only holds while main is red: repaired elsewhere, "already in main" is the right verdict again. */
+async function mainStillRed(deps: EmptyRunDeps, repoPath: string): Promise<boolean> {
+  try { return deps.mainIsRed ? await deps.mainIsRed(repoPath) : true; } catch { return true; }
+}
+
 /** `true` = the card is back in the queue (or closed) and the caller has nothing more to do. */
 export async function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeName: string): Promise<boolean> {
   // The card's last recorded delivery, already inside OUR main: nothing to redo, whatever the node thought.
@@ -93,7 +101,11 @@ export async function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, n
       let landed: boolean | null = null;
       try { landed = await deps.deliveryLanded(repoPath, priorCommit); }
       catch (err) { deps.log(`nodo: sonda già-su-main fallita per ${task.id}`, err); }
-      if (landed === true && task.reopenedActor !== "human") {
+      // A card sent back by the post-land red on main has its work ON main and still owes a fix on top of it.
+      const mainRed = landed === true && reopenedByMainRed(deps.svc.get(task.id)?.comments ?? []) && await mainStillRed(deps, repoPath);
+      if (landed === true && mainRed) {
+        // Never closed as "already in main": falls through to the requeue below, the card stays in todo.
+      } else if (landed === true && task.reopenedActor !== "human") {
         try {
           const closed = deps.svc.settleLanded({
             taskId: task.id,

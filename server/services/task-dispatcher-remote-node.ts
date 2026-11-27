@@ -281,6 +281,7 @@ export interface RemoteNodeHost {
   deliveryLanded?: (repoPath: string, commit: string) => Promise<boolean | null>;
   /** This machine's own checkout for the card's project, never the node's. */
   repoPathOfTask?: (taskId: string) => string | null;
+  mainIsRed?: (repoPath: string) => Promise<boolean>;
 }
 
 export interface RemoteNodeLane {
@@ -1142,7 +1143,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       ? !!fresh && planted.commitCount === 0
       : !branch && !report.reason && !report.dispatchError;
     if (fresh && producedNothing && await returnEmptyNodeRunToTodo(
-      { svc, releaseAndEmit, emit, log, nameOf: nodeName, deliveryLanded: host.deliveryLanded, repoPathOfTask: host.repoPathOfTask },
+      { svc, releaseAndEmit, emit, log, nameOf: nodeName, deliveryLanded: host.deliveryLanded, repoPathOfTask: host.repoPathOfTask, mainIsRed: host.mainIsRed },
       fresh, name,
     )) return;
     const reason = planted.planted

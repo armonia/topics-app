@@ -386,6 +386,12 @@ export interface DispatcherDeps {
    */
   repoPathOfTask?: (taskId: string) => string | null;
   /**
+   * Is the CI of THIS machine's `main` still red? A card sent back by the post-land red keeps its "fix on top"
+   * verdict only while that is true: once somebody repaired main elsewhere, "already in main" is right again.
+   * Absent = treated as still red (the card stays in todo, never closed on a guess).
+   */
+  mainIsRed?: (repoPath: string) => Promise<boolean>;
+  /**
    * Claude sessions running OUTSIDE Topics right now at/under a directory
    * (see services/external-sessions.ts). The dispatcher can only see its OWN
    * agents, so without this a task lands in a repo the human is editing by

@@ -5,6 +5,7 @@ import { basename, join } from "path";
 import { existsSync, mkdirSync } from "fs";
 import { countAttachedTerminalSessions } from "../routes/terminal";
 import { createAgentWorktree, worktreeReadyMs } from "../services/worktree-for-agent";
+import { mainRedStop, realMainCiPort } from "../services/main-ci-watch";
 import { createTaskDispatcher } from "../services/task-dispatcher";
 import { dispatcherLogLine } from "../services/task-dispatcher-support";
 import { budgetSample, computeDispatchCapacity } from "../services/dispatch-capacity";
@@ -94,6 +95,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     deliveryLanded: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
     // The empty-node-run guard reads THIS machine's checkout, same resolver the cloud node lane
     // already uses for its own repo lookup (`dispatch-prep.ts`, `cloudNode`).
+    mainIsRed: async (repoPath) => (await mainRedStop(realMainCiPort(repoPath))) !== null,
     repoPathOfTask: (taskId) => {
       const projectId = dispatcherSvc.get(taskId)?.task.projectId;
       return projectId ? projectPathForNode(projectId) ?? null : null;
