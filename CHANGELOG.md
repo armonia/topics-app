@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.12 — 2026-11-27
+
+### Sotto il cofano
+- Revert the detached node-check worktree: CI rows can no longer read a branch
+
 ## 2.5.11 — 2026-11-27
 
 ### Correzioni
