@@ -140,10 +140,10 @@ describe("the CI phase", () => {
 
   test("a board whose workflow turns the CI phase off lands as before, and the switch reads back", async () => {
     const s = await setup();
-    db.run("CREATE TABLE IF NOT EXISTS board_workflow_rules (scope TEXT PRIMARY KEY, ci_phase INTEGER, person_paths TEXT, updated_at TEXT NOT NULL)");
+    db.run("CREATE TABLE IF NOT EXISTS board_workflow_rules (scope TEXT PRIMARY KEY, ci_phase INTEGER, person_paths TEXT, scheduled_review_minutes INTEGER, reviewer_models TEXT, updated_at TEXT NOT NULL)");
     const put = (await call(s.router, "PUT", `/api/boards/${s.projectId}/workflow`, { ciPhase: false, personPaths: [{ pattern: "server/lib/**", why: "this board" }] }))!;
     expect(put.status).toBe(200);
-    expect((await put.json()).rules).toEqual({ ciPhase: "off", personPaths: [{ pattern: "server/lib/**", why: "this board" }] });
+    expect((await put.json()).rules).toEqual({ ciPhase: "off", personPaths: [{ pattern: "server/lib/**", why: "this board" }], scheduledReviewMinutes: 0, reviewerModels: {} });
     expect((await call(s.router, "PUT", `/api/boards/${s.projectId}/workflow`, { personPaths: "server/**" }))!.status).toBe(400);
     await s.deliver();
     const r = (await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve" }))!;
