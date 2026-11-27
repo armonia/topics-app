@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.20 — 2026-11-27
+
+### Sotto il cofano
+- review-checks brakes: load gets its own budget clock, only the load reason is released by it (card 9fecea98)
+- review-checks brakes test: complete the spent clocks literal (card 9fecea98)
+
 ## 2.5.19 — 2026-11-27
 
 ### Sotto il cofano
@@ -13,6 +19,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Test della scala del bundle: un'identità git sua, il runner della CI non ne ha una globale
 - Test della scala del bundle: main esplicito, senza config globale init crea master e set-head -a non trova la HEAD
+- primary-role test: drop duplicated worktree opt-out after merge (card 9fecea98)
 
 ## 2.5.17 — 2026-11-27
 
@@ -170,7 +177,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - sibling-worktree merge is not live; tests assert landedNotLive/checkoutBranch/dirty-checkout
+- pty-bridge test: attach the probe's error handler before connecting, so an older Bun does not surface the refusal as uncaught (card 9fecea98)
+- primary-role test: let the child server open its tunnel port from a worktree (card 9fecea98)
+- late-scan test: give the row 90 s to close, the run takes ~60 s on a loaded Mac (card 9fecea98)
+- late-scan test: wider waits for a shard-loaded Mac (card 9fecea98)
+- late-scan test: short socket root and a 90 s row wait, so the unit runner's long scratch dir no longer kills the bridge (card 9fecea98)
+- Re-measure: the two reds of the last run pass alone under the unit runner (card 9fecea98)
 - **e2e** · la nota vocale si ferma solo dopo il primo secondo di registrazione
+- late-scan test: take the short root from the tracked helper so the leak check sees it cleaned (card 9fecea98)
 - **design** · the owner approved the title tab, the row grammar and the column header
 
 ## 2.5.4 — 2026-11-26
@@ -195,6 +209,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - close the remaining 26/11 review gaps on archive() and blockedByTaskId
 - Auto-land: a land waiting on the pull request's CI forgets the offer so the sweep asks again at the verdict
 - the refusal to archive names the card, and stops refusing for a blocker that stays
+- no new command starts while the Mac load is over 2 per core (card 9fecea98)
 - il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)
 
 ## 2.5.2 — 2026-11-26
