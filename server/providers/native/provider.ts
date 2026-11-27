@@ -682,6 +682,8 @@ export class NativeProvider implements AIProvider {
       slashContext?: string;
       /** The turn's name: it rides on every end recorded here, so a late end is never taken for the next turn's. */
       turnId?: string;
+      /** A person typed the message that opens this turn: only then does an agent's compaction ceiling apply. */
+      openedByPerson?: boolean;
     },
   ): Promise<{ runId?: string; notSent?: boolean }> {
     if (this.hasGlobalCoordinatorRole(sessionKey)) {
@@ -864,7 +866,7 @@ export class NativeProvider implements AIProvider {
     sessionKey: string,
     session: NativeSession,
     handler: StreamHandler,
-    options: { model?: string; history?: ChatMessage[]; systemPrompt?: string; turnId?: string } | undefined,
+    options: { model?: string; history?: ChatMessage[]; systemPrompt?: string; turnId?: string; openedByPerson?: boolean } | undefined,
     abort: AbortController,
   ): Promise<{ runId?: string }> {
     // From here to the end of the turn a message written in this chat joins
@@ -917,11 +919,18 @@ export class NativeProvider implements AIProvider {
       // whatever the fleet policy: the registry is read for it too, but only
       // when some agent has a profile, so an empty file costs no extra read.
       const engineProfiles = globalOrchestrator ? { agents: {} } : readAgentEngineSettings();
-      const registryAgents = !globalOrchestrator && (fleetAllowed || Object.keys(engineProfiles.agents).length > 0)
+      const registryAgents = !globalOrchestrator && (fleetAllowed || (options?.openedByPerson === true && Object.keys(engineProfiles.agents).length > 0))
         ? readAgents(registryHome(), (p) => p.replace(/^~(?=\/|$)/, homedir()))
         : [];
       const turnAgents = fleetAllowed ? registryAgents : [];
-      const turnCompactAtTokens = compactAtTokensFor(resolveAgentIdForWorkspace(workspace, registryAgents), engineProfiles);
+      // Only a turn a person opened: their message is then the newest, inside
+      // the tail compaction never cuts. A resume ("carry on", the note after a
+      // restart) points back at a request that may sit outside the tail, and
+      // the ceiling's low target would drop it (review of PR #1779); those
+      // turns keep the window's thresholds, and the next person's turn compacts.
+      const turnCompactAtTokens = options?.openedByPerson
+        ? compactAtTokensFor(resolveAgentIdForWorkspace(workspace, registryAgents), engineProfiles)
+        : null;
       // Composed fresh every round for the same reason as `mcpToolSpecs()`
       // itself: a child the turn just mounted must be filtered the same way
       // as everything mounted before it.

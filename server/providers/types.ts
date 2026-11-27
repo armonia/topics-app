@@ -554,6 +554,12 @@ export interface AIProvider {
       rowId?: string;
       /** The turn's name (the user row it answers): the engine puts it on the end it records (`TurnEndInfo.turnId`). */
       turnId?: string;
+      /**
+       * A person typed the message that opens this turn (the route's
+       * `sentByPerson`): not a resume, a wake, a goal or hook nudge, a dispatch.
+       * The native engine applies an agent's compaction ceiling only then.
+       */
+      openedByPerson?: boolean;
     },
   ): Promise<{ runId?: string; /** Stopped while queued, nothing written: the caller undoes what it marked as sent. */ notSent?: boolean }>;
 

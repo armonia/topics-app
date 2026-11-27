@@ -92,13 +92,15 @@ export function compactIfNeeded(ctx: {
   const { compactAt, compactTo } = compactionThresholds(windowTokens, { calibrated: calibration.calibrated, capTokens: ctx.capTokens });
   if (!needsCompaction(history, windowTokens, overheadChars, calibration.charsPerToken, compactAt)) return false;
   const windowAt = calibration.calibrated ? COMPACT_AT : COMPACT_AT_UNMEASURED;
+  // `cap=` names the compactions the ceiling caused, which is what its
+  // measurement counts; a window compaction prints none, and neither does one
+  // the window would have made anyway (a chat already past its own trigger).
+  // Read before the history is replaced: afterwards it is under both.
+  const capped = compactAt < windowAt && !needsCompaction(history, windowTokens, overheadChars, calibration.charsPerToken, windowAt);
   const c = compact(history, { windowTokens, overheadChars, charsPerToken: calibration.charsPerToken, compactAt, compactTo, clipAt: windowAt });
   if (c.after >= c.before) return false;
   history.length = 0;
   history.push(...c.messages);
-  // `cap=` names the compactions the ceiling caused, which is what its
-  // measurement counts; a window compaction prints none.
-  const capped = compactAt < windowAt;
   console.log(
     `[native] contesto compattato: at=${new Date().toISOString()} session_key=${ctx.sessionId ?? "unknown"} `
     + `pre_tokens=${c.before} post_tokens=${c.after}${capped ? ` cap=${ctx.capTokens}` : ""} (~${c.before} → ~${c.after} token stimati)`,

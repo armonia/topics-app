@@ -88,7 +88,7 @@ describe("deciding when to compact on a 1M window, with and without the ceiling"
     expect(seen).toHaveLength(1);
     expect(seen[0]!.preTokens).toBeGreaterThan(290_000);
     expect(seen[0]!.postTokens).toBeLessThanOrEqual(CAP * (COMPACT_TO / COMPACT_AT));
-    expect(estimateTokens(history)).toBe(seen[0]!.postTokens);
+    expect(seen[0]!.postTokens).toBe(estimateTokens(history));
     expect((history[0]!.content as string).startsWith(opening!.content as string)).toBe(true);
   });
 
