@@ -482,6 +482,28 @@ describe("le due risposte, e cosa fanno davvero", () => {
     void external;
   });
 
+  /**
+   * Review feedback 26/11, point 2: the batch exclusion only covered the
+   * DIRECT parked children, not their own subtrees. step2 has a child g2
+   * blockedBy step1 (step2's sibling): g2 archives together with step2, so a
+   * blocker that is also leaving the board in this same call is not a reason
+   * to refuse. Red without expanding the batch to the whole subtree of each
+   * parked child, with `blocks_live_dependent` on g2.
+   */
+  test("«archivia»: un nipote di un parcheggiato, bloccato da un altro parcheggiato, non rifiuta il lotto", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" }).id;
+    const step1 = s.create({ projectId: PID, text: "step1", parentTaskId: padre }).id;
+    const step2 = s.create({ projectId: PID, text: "step2", parentTaskId: padre }).id;
+    const g2 = s.create({ projectId: PID, text: "g2", parentTaskId: step2, blockedByTaskId: step1 }).id;
+    s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+
+    const esito = s.resolveParkedChildren({ taskId: padre, decision: "archive", by: "attilio" })!;
+    expect(esito.children).toHaveLength(2);
+    expect(archiviato(db, step1)).toBe(1);
+    expect(archiviato(db, step2)).toBe(1);
+    expect(archiviato(db, g2)).toBe(1);
+  });
+
   test("rispondere due volte non inventa un secondo esito", () => {
     const { padre } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });

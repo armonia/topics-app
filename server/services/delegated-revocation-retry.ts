@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { NodeClient } from "./node-client";
+import { recordNotificationRow } from "../notification-registry";
+import type { NotificationRecordInput } from "../../shared/notification-log";
 
 export interface DelegatedRevocationRetry {
   tick(options?: { requestId?: string; force?: boolean }): Promise<{ attempted: number; pending: number }>;
@@ -23,6 +25,14 @@ interface PendingRevocationRow {
 // of busy-looping on a condition that will not clear itself tick after tick.
 const BLOCKED_ERROR_PREFIX = "blocked:";
 
+// A `blocks_live_dependent` 409 is not just slow to clear, it is DEFINITIVE:
+// nothing this retry does will ever change it, only a human (or another
+// agent) finishing or archiving the dependent will. Review feedback 26/11,
+// point 3: the generic "blocked:" backoff above kept retrying it forever,
+// tick after tick and boot after boot, with nobody told. This specific tag
+// stops the retry (`revoke_pending=0`) and raises one notification instead.
+const BLOCKS_LIVE_DEPENDENT_TAG = `${BLOCKED_ERROR_PREFIX}blocks_live_dependent`;
+
 // Distinguishes a `blocks_live_dependent` 409 (the board refusing a cancel on
 // a card that still blocks a live dependent) from any other failure, so the
 // caller can give it the much longer backoff above instead of hammering it.
@@ -42,8 +52,10 @@ export function createDelegatedRevocationRetry(input: {
   now?: () => number;
   backoffMs?: number;
   log?: (message: string, error?: unknown) => void;
+  notify?: (input: NotificationRecordInput) => void;
 }): DelegatedRevocationRetry {
   const now = input.now ?? Date.now;
+  const notify = input.notify ?? recordNotificationRow;
   const backoffMs = input.backoffMs ?? 10_000;
   // A blocked cancel waits a lot longer than a plain transient failure: there is
   // no point hammering a 409 that only a dependent finishing or archiving can clear.
@@ -93,6 +105,7 @@ export function createDelegatedRevocationRetry(input: {
         .all(row.authorization_id) as Array<{ run_id: string; project_id: string | null }>;
       let confirmed = true;
       let blockedMessage: string | null = null;
+      let liveDependentRunId: string | null = null;
       for (const run of runs) {
         if (!run.project_id) {
           input.db.query("UPDATE delegated_node_runs SET cancel_confirmed_at=?,cancel_error=NULL WHERE run_id=?")
@@ -104,6 +117,7 @@ export function createDelegatedRevocationRetry(input: {
           if (!response?.ok) {
             const message = await blockedErrorMessage(response);
             if (message.startsWith(BLOCKED_ERROR_PREFIX)) blockedMessage = message;
+            if (message === BLOCKS_LIVE_DEPENDENT_TAG) liveDependentRunId = run.run_id;
             throw new Error(message);
           }
           input.db.query("UPDATE delegated_node_runs SET cancel_confirmed_at=?,cancel_error=NULL WHERE run_id=?")
@@ -118,6 +132,21 @@ export function createDelegatedRevocationRetry(input: {
       if (confirmed) {
         input.db.query("UPDATE delegated_node_requests SET state='revoked',revoke_pending=0,last_error=NULL,updated_at=? WHERE id=? AND revoke_pending=1")
           .run(now(), row.id);
+      } else if (liveDependentRunId) {
+        // Terminal: stop retrying (`revoke_pending=0`) and tell a person once.
+        // The state stays whatever it was (not "revoked" — the cancel never
+        // happened), `last_error` keeps saying why for whoever opens the row.
+        input.db.query("UPDATE delegated_node_requests SET revoke_pending=0,last_error=?,updated_at=? WHERE id=? AND revoke_pending=1")
+          .run(BLOCKS_LIVE_DEPENDENT_TAG, now(), row.id);
+        notify({
+          kind: "task-parked",
+          title: "Una revoca delegata e' bloccata da un dipendente vivo",
+          body: `La card ${liveDependentRunId} blocca ancora un dipendente: la revoca non riprovera' da sola, serve finire o archiviare quel dipendente.`,
+          targetKind: "task",
+          targetId: liveDependentRunId,
+          dedupeKey: `delegated-revocation-blocked:${row.id}`,
+          source: "push",
+        });
       } else {
         input.db.query("UPDATE delegated_node_requests SET last_error=?,updated_at=? WHERE id=? AND revoke_pending=1")
           .run(blockedMessage ?? "delegated_cancel_unconfirmed", now(), row.id);

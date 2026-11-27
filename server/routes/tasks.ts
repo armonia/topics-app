@@ -1219,6 +1219,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
           by: "agent:session",
           rootsOnly: true,
+          blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId
+            : typeof body?.blocked_by_task_id === "string" ? body.blocked_by_task_id
+            : null,
         }, { allowDuplicate: body?.allow_duplicate === true });
         // The identical title of an OPEN card is absorbed: the repeated request
         // lands on that card as a service comment, nothing new is created.
@@ -1269,8 +1272,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // A future step is a card with a real `blockedByTaskId` link, never a
             // promise in a comment (`buildKickoff`, docs/board-protocol.md). The
             // MCP `create_task` tool already sends this field; it was silently
-            // dropped here (review feedback, 26/11, point 4).
-            blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId : null,
+            // dropped here (review feedback, 26/11, point 4). Every OTHER field
+            // on this REST body is snake_case (`parent_task_id`,
+            // `idempotency_key`, `allow_duplicate`...): `blocked_by_task_id`
+            // read here too, camelCase kept for whoever already sends that
+            // (review feedback, 26/11, point 5).
+            blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId
+              : typeof body?.blocked_by_task_id === "string" ? body.blocked_by_task_id
+              : null,
           });
           const wait = scheduledWait(body);
           if (wait) svc.deferForWait({ taskId: task.id, reason: wait.reason, minutes: wait.minutes, by: "agent:session" });

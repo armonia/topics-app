@@ -216,6 +216,10 @@ export async function callCreateTask(
   const nested = typeof toolArgs.parent_task_id === "string" && toolArgs.parent_task_id
     ? ` (subtask of ${toolArgs.parent_task_id})`
     : "";
+  // A repeated request is ABSORBED into the open twin, not created new — say
+  // so, or the caller believes a fresh card exists when none was made
+  // (review feedback, 26/11, point 5).
+  if (res?.deduped) return `deduplicated into existing task ${res?.id ?? "?"} [${res?.status ?? "backlog"}]${nested}: ${toolArgs.text}`;
   return `created task ${res?.id ?? "?"} [${res?.status ?? "backlog"}]${nested}: ${toolArgs.text}`;
 }
 
