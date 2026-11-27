@@ -23,7 +23,6 @@ import { getPrimaryRole } from "../lib/primary-role";
 import type { WorktreePlanEntryPayload } from "../../shared/worktree-plan";
 import type { WorktreePolicy, WorktreeSummary } from "../../shared/worktree-summary";
 export {
-  nodeTokenPath,
   readNodeToken,
   readDelegatedNodeToken,
   writeNodeToken,

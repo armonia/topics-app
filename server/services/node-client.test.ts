@@ -18,9 +18,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createNodeClient, NodeError, readDelegatedNodeToken, readNodeToken, writeDelegatedNodeToken,
-  writeNodeToken, nodeTokenPath, tokenFromSetCookie,
+  writeNodeToken, tokenFromSetCookie,
   normalizeNodeBaseUrl, type FetchLike, type NodeFailureReason,
 } from "./node-client";
+import { nodeTokenPath } from "./node-client-token";
 
 const BASE = "https://node.example:8443";
 const TOKEN = "dGhpcy1pcy1hLXRva2VuLXZhbHVl0123456789";
