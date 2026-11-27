@@ -269,7 +269,8 @@ barra dei menu.
 - 26/11 «quando sto archiviando una tab non c'è nessuna animazione ancora» → archiviare una riga
   si vede come chiuderla: lo stesso conto alla rovescia (anche per terminali, browser, pagine e
   progetti chiusi, col cerchio che resta acceso), poi la riga esce scivolando verso il bordo e
-  sfumando mentre quelle sotto risalgono; ferma con il movimento ridotto.
+  sfumando, e solo dopo quelle sotto risalgono (in due tempi, come una lista nativa: insieme, i
+  due nomi si sovrapponevano per qualche fotogramma); ferma con il movimento ridotto.
 - 26/11 «se si chiudono tutti i menu a tendina della sidebar progetto, si può chiudere anche la
   sidebar progetto» → chiusa l'ultima isola aperta (File, Git, Processi; Git conta solo quando ha
   qualcosa da mostrare) si chiude anche la colonna del progetto; riaprendola torna l'isola chiusa

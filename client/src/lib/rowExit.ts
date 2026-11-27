@@ -14,9 +14,12 @@
  * could find stripped) and its place in the column. After the commit, the
  * FLIP pass of the column calls `playLeftRows`: a marked row whose node is gone
  * from the column, and has not come back elsewhere in it, gets its copy laid
- * where it was, out of flow, sliding left and fading over `MOTION.base` while
- * the rows below close the gap over the same time. A row that does not leave
- * (shown archived, pinned) is never played: its mark expires.
+ * where it was, out of flow, sliding left and fading over `ROW_EXIT_MS`; the
+ * rows below hold still for that time and then close the gap. TWO STEPS, as a
+ * native list deletes a row: closing the gap DURING the fade slid the next row
+ * under the fading copy, and for a few frames the two names overprinted each
+ * other (filmed 27/11). A row that does not leave (shown archived, pinned) is
+ * never played: its mark expires.
  *
  * Only an archive marks a row. A row leaving for any other reason (a group
  * collapsing, a filter, another device) keeps the column's usual behaviour.
@@ -37,6 +40,8 @@ export const ROW_GHOST_ATTR = 'data-row-ghost';
 const MARK_TTL_MS = 3000;
 /** How far left the copy travels as it fades. */
 const EXIT_SHIFT_PX = 16;
+/** How long the copy takes to leave; the rows below start moving after it. */
+export const ROW_EXIT_MS = MOTION.fast;
 
 interface Mark {
   key: string;
@@ -93,12 +98,14 @@ export function markRowLeaving(key: string): void {
 
 /**
  * Plays the exit of every marked row of `column` that has left it. Called
- * after each commit of the column, once its new layout is measured.
+ * after each commit of the column, before its rows move: true when an exit
+ * started, so the moves wait `ROW_EXIT_MS` for it.
  */
-export function playLeftRows(column: HTMLElement): void {
-  if (marks.length === 0) return;
+export function playLeftRows(column: HTMLElement): boolean {
+  if (marks.length === 0) return false;
   const now = performance.now();
   const keep: Mark[] = [];
+  let played = false;
   for (const m of marks) {
     if (m.column !== column) { if (now - m.at < MARK_TTL_MS) keep.push(m); continue; }
     if (m.node.isConnected && column.contains(m.node)) {
@@ -109,12 +116,13 @@ export function playLeftRows(column: HTMLElement): void {
     // Gone, but back elsewhere in the column (it moved to another group):
     // that is a move, which the column's FLIP shows as an appearance.
     if (column.querySelector(`[${ROW_EXIT_ATTR}="${CSS.escape(m.key)}"]`)) continue;
-    play(m);
+    played = play(m) || played;
   }
   marks = keep;
+  return played;
 }
 
-function play(m: Mark): void {
+function play(m: Mark): boolean {
   const { copy, column, rect } = m;
   copy.style.position = 'absolute';
   copy.style.margin = '0';
@@ -138,11 +146,12 @@ function play(m: Mark): void {
       { opacity: 1, transform: 'none' },
       { opacity: 0, transform: `translateX(-${EXIT_SHIFT_PX}px)` },
     ],
-    { duration: MOTION.base, easing: EASE.exit, fill: 'forwards' },
+    { duration: ROW_EXIT_MS, easing: EASE.exit, fill: 'forwards' },
   );
-  if (!a) { copy.remove(); return; }
+  if (!a) { copy.remove(); return false; }
   const done = () => copy.remove();
   a.finished.then(done, done);
+  return true;
 }
 
 /** Test seam: forget every pending mark. */

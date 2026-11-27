@@ -284,6 +284,11 @@ test.describe("Sidebar motion contract", () => {
       expect(Math.min(...ghostOpacity), `it fades (${ghostOpacity.slice(0, 8).join(",")})`).toBeLessThan(0.6);
       expect(ghostX[ghostX.length - 1], "it slides towards the column's edge").toBeLessThan(ghostX[0]);
       expectTravel(track(frames, "below", "y"), "row below an archived one", 10);
+      // Two steps: while the copy is still clearly drawn, the rows below have
+      // not moved under it (together, the two names overprinted).
+      const belowStart = track(frames, "below", "y")[0];
+      const underCopy = frames.filter((f) => f.ghost && f.ghost.o > 0.3 && f.below && Math.abs(f.below.y - belowStart) > 1);
+      expect(underCopy.length, "the rows below wait for the copy to leave").toBe(0);
       // The copy is gone once played, and it was never a row: no role, no name.
       await expect(page.locator("[data-row-ghost]")).toHaveCount(0);
       await unarchiveTopic(page.request, ids.top);

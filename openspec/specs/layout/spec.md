@@ -4614,8 +4614,9 @@ frame. With the strip on top the row SHALL stay the strip's 40.
 A row archived from this window (a chat, or a closed terminal, browser, page or
 project) SHALL count down like a close (the fill and the ring, with the rail
 kept on screen) and, when the archive lands, SHALL leave as an inert copy that
-slides towards the column's edge and fades over `MOTION.base` while the rows
-below close the gap. The copy SHALL have no role, name, test id or focus.
+slides towards the column's edge and fades over `MOTION.fast`, and the rows
+below SHALL close the gap only after it, so the two never overprint. The copy
+SHALL have no role, name, test id or focus.
 Under prefers-reduced-motion nothing SHALL move. A row that stays after the
 archive (shown archived, pinned) SHALL NOT play the exit.
 
