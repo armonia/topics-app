@@ -90,6 +90,23 @@ describe("il ramo della card su origin", () => {
     expect(pushRefusalReason("", 128)).toBe("exit 128");
   });
 
+  test("a branch origin is only ahead on: already there, and the local copy stays put", async () => {
+    // 27/11/2026: the land's merge of main reached origin, then this checkout went back one commit.
+    sh(["switch", "-q", "-c", "topics/quiet-heron"], mac);
+    const here = commit(mac, "h.txt", "qui");
+    sh(["push", "-q", "origin", "topics/quiet-heron"], mac);
+    sh(["switch", "-q", "main"], mac);
+    sh(["fetch", "-q", "origin"], pc);
+    sh(["switch", "-q", "-c", "topics/quiet-heron", "origin/topics/quiet-heron"], pc);
+    const ahead = commit(pc, "i.txt", "avanti");
+    sh(["push", "-q", "origin", "topics/quiet-heron"], pc);
+    sh(["switch", "-q", "main"], pc);
+
+    expect(await ensureBranchOnOrigin(mac, "topics/quiet-heron")).toEqual({ ok: true });
+    expect(sh(["rev-parse", "refs/heads/topics/quiet-heron"], mac)).toBe(here);
+    expect(sh(["rev-parse", "refs/heads/topics/quiet-heron"], origin)).toBe(ahead);
+  });
+
   test("un ramo che non c'è né qui né su origin", async () => {
     const r = await ensureBranchOnOrigin(mac, "topics/mai-esistito");
     expect(r).toEqual({ ok: false, reason: "il ramo non c'è né qui né su origin" });

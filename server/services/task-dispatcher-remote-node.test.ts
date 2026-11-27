@@ -42,6 +42,7 @@ import type { TaskFile } from "../../shared/task-labels";
 import { NodeError, type NodeRunReport } from "./node-client";
 
 import { wakeBreaker } from "./wake-breaker";
+import { RED_BOUNCE_NOTE, SCHEDULED_BOUNCE_NOTE, REVIEWER_ANSWER_NOTE } from "./red-bounce";
 import { hangBreaker } from "./task-dispatcher-remote-node";
 import { PID, TASK, MACHINE, BASE_URL, report, delegatedPolicy, harness, flush, poll, dispatch } from "./task-dispatcher-remote-node-test-support";
 
@@ -230,6 +231,33 @@ describe("la card parte sul nodo, non qui", () => {
     // The dispatcher's own bookkeeping is not the reviewer's voice.
     expect(sent).not.toContain("Task in coda per una nuova sessione");
     expect(sent).not.toContain("Consegnato dal nodo");
+  });
+
+  it("la card rimandata dal rosso porta al nodo il testo del rimando scritto dal sistema", async () => {
+    // b3537bb2, 26/11: the send-back is a `system` comment; the brief dropped it and the node redelivered the same commit.
+    const h = harness();
+    h.seed();
+    h.svc.addComment({ taskId: TASK, author: "agent", kind: "delivery", content: "consegna uno" });
+    h.svc.addComment({ taskId: TASK, author: "system", content: `${RED_BOUNCE_NOTE} (giro 2 di 3).\n\nconflitto su server/x.ts: fai git fetch origin && git merge origin/main` });
+
+    await dispatch(h);
+
+    const sent = (h.created[0].body as { description: string }).description;
+    expect(sent).toContain("conflitto su server/x.ts: fai git fetch origin && git merge origin/main");
+  });
+
+  it("il rimando del ripasso a orario e la risposta del revisore arrivano al nodo come quello del rosso", async () => {
+    const h = harness();
+    h.seed();
+    h.svc.addComment({ taskId: TASK, author: "agent", kind: "delivery", content: "consegna uno" });
+    h.svc.addComment({ taskId: TASK, author: "system", content: `${SCHEDULED_BOUNCE_NOTE} (giro 1 di 3). motivo-ripasso-xyz` });
+    h.svc.addComment({ taskId: TASK, author: "system", content: `${REVIEWER_ANSWER_NOTE}: risposta-xyz` });
+
+    await dispatch(h);
+
+    const sent = (h.created[0].body as { description: string }).description;
+    expect(sent).toContain("motivo-ripasso-xyz");
+    expect(sent).toContain("risposta-xyz");
   });
 
   it("dopo un riavvio del server la corsa vecchia si cancella prima di crearne una nuova", async () => {

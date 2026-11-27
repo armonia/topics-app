@@ -174,3 +174,33 @@ MISURA: `bun test server/lib/machine-security.test.ts server/lib/machine-health.
 #### Scenario: il PC dorme
 - **GIVEN** un nodo che non risponde al giro
 - **THEN** la sua sicurezza SHALL restare l'ultimo esito con il suo `checked_at`, e i suoi campioni SHALL essere `null`
+
+### Requirement: MACHINE-06 — Un solo modo di leggere i segreti, uguale sul Mac e sul server, con un elenco chiuso
+
+I servizi SHALL leggere un segreto per nome attraverso un deposito con due
+implementazioni dietro la stessa interfaccia: il Portachiavi su macOS, un file
+cifrato con `age` su Linux, decifrato solo dopo che l'identità è stata sbloccata.
+Il deposito SHALL rifiutare un nome fuori dall'elenco consentito (letto da
+`<cartella di stato>/secrets/allowed-secret-names.json`; senza file l'elenco è
+vuoto e rifiuta tutto), e un nome con un carattere di controllo qualunque cosa
+dica l'elenco. Il valore di un segreto SHALL passare solo dallo stdin dei comandi,
+mai dagli argomenti, dai log o dalla console; il percorso dell'identità `age` mai
+dagli argomenti di `age`. Un file di identità leggibile dal gruppo o da altri
+SHALL essere rifiutato. I percorsi di default fuori dal Mac SHALL essere generici e
+configurabili, mai il percorso di una persona.
+
+MISURA: `bun test server/lib/secret-store.test.ts` verde.
+
+#### Scenario: nome fuori elenco
+- **GIVEN** un elenco consentito che non contiene `X`
+- **WHEN** si fa `pack` di `X` o lo si legge
+- **THEN** `pack` SHALL saltarlo e la lettura SHALL rispondere null, senza chiamare `security` per quel nome
+
+#### Scenario: andata e ritorno con age
+- **GIVEN** un valore di prova e un'identità sbloccata
+- **WHEN** si fa `pack` e poi `unpack` con il vero binario `age`
+- **THEN** il valore SHALL tornare uguale e il file cifrato SHALL non contenerne traccia
+
+#### Scenario: identità non sbloccata
+- **GIVEN** un deposito age senza identità sbloccata
+- **THEN** `unpack` SHALL rispondere vuoto e `pack` SHALL rifiutare

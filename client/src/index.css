@@ -1183,9 +1183,9 @@ html {
  * Il ritmo della colonna è «ognuno porta metà passo»: mezzo dal contenitore che
  * scorre, mezzo dal margine dell'elemento, e la somma fa sempre COLUMN_GAP.
  * Regge fra due elementi. NON regge in cima, perché sopra la lista non c'è un
- * bordo: c'è l'header, che è alto 40 (`h-10`, il contratto della riga di chrome)
- * attorno a un contenuto da 28 — quindi porta già SEI pixel suoi sotto il
- * proprio inchiostro. Sommati ai sei della lista fanno dodici fra due cose
+ * bordo: c'è l'header, che porta già aria sua sotto il proprio inchiostro (46
+ * attorno a tasti da 34 con le tab di lato, 40 con la striscia: sei o tre
+ * pixel). Sommati al mezzo passo della lista facevano più di sei fra due cose
  * DIPINTE, dove fra due card ce ne sono sei.
  *
  * È la «doppia spaziatura sotto la topbar della sidebar» (l'utente, 08 e 09/08,
@@ -2610,14 +2610,14 @@ html.native-frost.dark .edge-lit::before {
    ricetta della banda in basso: tinta del chrome all'86% + blur. `.mobile-top-veil`
    e' per la riga «Topics» della colonna, che non e' una `.pane-chrome-bar`; la riga
    delle pane la prende dalla media query piu' sotto, dopo la sua regola base.
-   Il velo e' il `::before` e non la riga: sale di `env(safe-area-inset-top)` perche'
+   Il velo e' il `::before` e non la riga: sale di `--sat` (la safe area) perche'
    la lista scorre anche sotto la fascia di sicurezza e il velo deve coprirla fino al
    bordo dello schermo, e un `backdrop-filter` sulla riga renderebbe nullo quello
    del figlio (la riga diventa «backdrop root»). */
 .mobile-top-veil::before {
   content: '';
   position: absolute;
-  inset: calc(-1 * env(safe-area-inset-top, 0px)) 0 0 0;
+  inset: calc(-1 * var(--sat, 0px)) 0 0 0;
   z-index: -1;
   background-color: color-mix(in srgb, var(--chrome-bg) 86%, transparent);
   @apply backdrop-blur-md;

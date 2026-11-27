@@ -294,6 +294,26 @@ async function runShards(tests: string[], listOnly: boolean): Promise<number> {
   return await proc.exited;
 }
 
+/**
+ * A CAP ON THE REVIEW RUN, not on `test:touched` itself: `--list` and the
+ * plain selector are unaffected, only `main()`'s `--no-full` branch reads it.
+ *
+ * MEASURED 2026-11-26: a diff touching one widely-imported service file
+ * (`server/services/review-checks.ts`) reverse-walks to 600+ test files, run
+ * one `bun test` process per file (see `test-unit-shards.ts`'s `runFile`).
+ * That is minutes of sustained CPU and memory on the machine doing the
+ * pre-review, for a selection the CI already runs in full. Past this many
+ * files the review run is no cheaper than the whole suite, so it is treated
+ * the same way: left to the CI, like `selection.kind === "full"` above.
+ */
+export const MAX_REVIEW_TEST_FILES = 40;
+
+/** True when the review run (`--no-full`) should leave `selection` to the CI
+ *  instead of running it, because it picked more files than the cap allows. */
+export function exceedsReviewCap(selection: Selection, noFull: boolean): boolean {
+  return noFull && selection.kind === "tests" && selection.tests.length > MAX_REVIEW_TEST_FILES;
+}
+
 async function main(): Promise<number> {
   const argv = process.argv.slice(2);
   const refExists = (ref: string) => Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", ref], { cwd: REPO_ROOT }).exitCode === 0;
@@ -317,6 +337,10 @@ async function main(): Promise<number> {
   if (selection.kind === "full") {
     console.error(`test-touched: WHOLE SUITE, ${selection.reason}`);
     return runShards([], listOnly);
+  }
+  if (exceedsReviewCap(selection, noFull)) {
+    console.error(`test-touched: whole suite needed (${selection.tests.length} test files selected, past the review cap of ${MAX_REVIEW_TEST_FILES}); left to the CI`);
+    return 0;
   }
   if (selection.tests.length === 0) {
     console.error(`test-touched: ${selection.changed.length} changed file(s) against ${base}, no unit test reaches them; nothing to run`);

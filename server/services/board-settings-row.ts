@@ -26,6 +26,7 @@ export interface BoardSettingsRow {
   require_review_before_done: number | null;
   review_checks: string | null;
   dispatch_paused: number | null;
+  backlog_triage: number | null;
   night_mode: number | null;
   night_mode_until: string | null;
   night_mode_started_at: string | null;

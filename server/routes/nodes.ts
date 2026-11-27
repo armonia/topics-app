@@ -644,7 +644,17 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
         const idle = prior.dispatch_state !== "working" && prior.dispatch_state !== "starting";
         if (!(idle && (prior.status === "review" || prior.status === "done"))) return json({ runId: prior.id, projectId: prior.project_id });
         const resp = await opts.deleteBoardTask(prior.project_id, prior.id);
-        if (!resp || !resp.ok) return resp ?? json({ error: "board delete unavailable", code: "internal" }, 500);
+        if (!resp) return json({ error: "board delete unavailable", code: "internal" }, 500);
+        if (!resp.ok) {
+          // The prior card not archiving because it still blocks a live
+          // dependent (KANBAN-124's self-linked follow-up, almost always)
+          // is not a reason to fail the resend: `prior` is already idle, so
+          // nothing is running under it either way. It just stays on the
+          // board, unarchived, correctly still blocking that dependent —
+          // review feedback, 26/11, point 4.
+          const code = await resp.clone().json().then((b: { code?: unknown }) => b?.code, () => null);
+          if (code !== "blocks_live_dependent") return resp;
+        }
       }
       if (prior) db.run("UPDATE tasks SET claude_task_id = NULL WHERE id = ?", [prior.id]);
 

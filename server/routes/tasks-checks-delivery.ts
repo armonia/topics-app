@@ -2,20 +2,20 @@
  * The pre-review checks gate and the delivery rounds that outlive their request.
  */
 import { cpus } from "node:os";
-import { isCiEvidenceCheck } from "../../shared/board";
+import { isCiEvidenceCheck, NOT_MEASURED_EXIT } from "../../shared/board";
 import { mintSessionToken, SESSION_TOKEN_HEADER } from "../lib/session-token";
 import { topicsHome } from "../services/daemon-state";
 import { type Task } from "../services/tasks";
 import { type RealignOutcome } from "../services/task-automerge";
-import { FAST_GATES_CHECK, TOUCHED_TESTS_CHECK, hasTouchedTests, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, hasFastGates, runReviewChecks, type CheckRun, type ReviewCheck } from "../services/review-checks";
+import { FAST_GATES_CHECK, TOUCHED_TESTS_CHECK, hasTouchedTests, isMacOnlyDiff, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, hasFastGates, runReviewChecks, type CheckRun, type ReviewCheck } from "../services/review-checks";
 import { ChecksInterruptedError, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
-import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping } from "../services/review-checks-brakes";
+import { deliveryInterruptionCount, forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, SWAP_INTERRUPTS_PER_DELIVERY } from "../services/review-checks-brakes";
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
 import { ciNotMeasured, ciRemeasurable, ciRowOfThisHead } from "../services/ci-evidence";
 import type { TasksCore, TasksLate } from "./tasks-scope";
 
 /** How many pre-review check runs may execute at once (see `createChecksGate`). */
-function checksLanes(): number {
+export function checksLanes(): number {
   const forced = Number(process.env.TOPICS_CHECKS_LANES);
   if (Number.isFinite(forced) && forced >= 1) return Math.floor(forced);
   let cores = 0;
@@ -505,13 +505,16 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
     // (any repo but this one) is measured exactly as before.
     // The tests of the touched files come right after, on this machine: a red
     // one bounces the delivery like any other check, with its output.
-    const own = [
-      ...(hasFastGates(ref.cwd) ? [FAST_GATES_CHECK] : []),
-      ...(hasTouchedTests(ref.cwd) ? [TOUCHED_TESTS_CHECK] : []),
-    ];
+    // The touched-tests check is NOT one of the fast static guards: it is the
+    // one heavy enough to thrash swap on its own, so it waits its turn behind
+    // whatever CI evidence this board declares (see `touchedCheck` below)
+    // instead of running up front with the cheap ones.
+    const own = [...(hasFastGates(ref.cwd) ? [FAST_GATES_CHECK] : [])];
+    const touchedCheck = hasTouchedTests(ref.cwd) ? TOUCHED_TESTS_CHECK : null;
     if (own.length) checks = [...own, ...checks.filter((c) => !own.some((o) => o.cmd === c.cmd))];
+    if (touchedCheck && !checks.some((c) => c.cmd === touchedCheck.cmd)) checks = [...checks, touchedCheck];
     // The CI evidence rows never reach a shell: they are read after the local commands.
-    const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
+    const localChecks = checks.filter((c) => !isCiEvidenceCheck(c) && c.cmd !== touchedCheck?.cmd);
     const ciChecks = checks.filter(isCiEvidenceCheck);
 
     const measure = async (lane: ChecksLane) => {
@@ -633,6 +636,65 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
         // One row per declared CI check, whatever the reader answered.
         runs.push(...ciChecks.map((c) => ciRuns.find((r) => r.cmd === c.cmd) ?? ciNotMeasured(c, "the CI evidence reader returned no row for it")));
         throwIfStopping();
+      }
+      // THE HEAVY LOCAL CHECK WAITS ITS TURN BEHIND THE CI VERDICT. Pushed
+      // last and on its own, never inside `localChecks`: starting it before
+      // the (cheap) CI evidence is known used to spend swap on a diff the CI
+      // was about to fail anyway. With no CI declared for this board
+      // (`ciChecks.length === 0`) nothing changes: it still runs right here,
+      // same as the touched-tests check always has.
+      if (touchedCheck) {
+        const priorOk = runs.length >= localChecks.length && runs.slice(0, localChecks.length).every((r) => r.ok);
+        const ciRows = ciChecks.length ? runs.filter((r) => ciChecks.some((c) => c.cmd === r.cmd)) : [];
+        const ciOk = !ciChecks.length || (ciRows.length === ciChecks.length && ciRows.every((r) => r.ok));
+        if (!priorOk || !ciOk) {
+          // Nothing it is for: an earlier check (local or CI) is already not
+          // green, and the command would only cost memory for a card that is
+          // not landing anyway. A NOT MEASURED placeholder, not a missing row:
+          // `runs.length` has to keep matching `checks.length`, or the round
+          // reads as cut short instead of as what it is, a check that never ran.
+          runs.push({
+            name: touchedCheck.name, cmd: touchedCheck.cmd, ok: false, code: NOT_MEASURED_EXIT, ms: 0, timedOut: false,
+            notMeasured: true, tail: `skipped: ${priorOk ? "CI has no green verdict" : "an earlier local check is not green"}`,
+          });
+        } else {
+          const exhausted = ciChecks.length > 0 && deliveryInterruptionCount(taskId, ref.commit) >= SWAP_INTERRUPTS_PER_DELIVERY;
+          if (exhausted && !isMacOnlyDiff(ref.cwd)) {
+            /**
+             * TWO SWAP INTERRUPTIONS ALREADY SPENT ON THIS COMMIT, and the CI
+             * evidence just read is green: a third local round would only grow
+             * the swap this delivery is already stuck in, to run a check the CI
+             * already ran (on Linux, not on this OS — the whole reason the
+             * check exists here too). The delivery takes the CI's verdict
+             * instead of its own, with a note on the thread. The one exception
+             * is a macOS-only diff (`isMacOnlyDiff`): the CI never touches
+             * those files, so there is no verdict to borrow and the round keeps
+             * waiting for a quiet Mac instead.
+             */
+            runs.push({
+              name: touchedCheck.name, cmd: touchedCheck.cmd, ok: true, code: 0, ms: 0, timedOut: false,
+              tail: `macOS: non misurato, swap. Interrotto ${SWAP_INTERRUPTS_PER_DELIVERY} volte dallo swap su questo commit: verdetto preso dalla CI.`, // allow-italian: board notes are written in Italian like every other service comment
+            });
+            try {
+              svc.addComment({
+                taskId, author: "system", kind: "comment",
+                content: `**macOS: non misurato, swap.** \`${touchedCheck.name}\` interrotto ${SWAP_INTERRUPTS_PER_DELIVERY} volte dallo swap su questo commit: il verdetto arriva dalla CI, non da questa macchina.`, // allow-italian: board notes are written in Italian like every other service comment
+              });
+            } catch { /* a note missed does not stop the verdict */ }
+          } else {
+            const [touchedRun] = await runReviewChecks([touchedCheck], {
+              cwd: ref.cwd, taskId, commit: ref.commit, memoryFloor: opts?.checksMemoryFloor,
+              onProgress: () => {
+                try {
+                  const t = svc.recordChecks({ taskId, state: "running", commit: ref.commit, runs: null, progress: { done: checks.length - 1, total: checks.length } });
+                  broadcastToAll({ type: "task:updated", projectId, task: t });
+                } catch { /* a progress lamp is not the gate */ }
+              },
+            });
+            if (touchedRun) runs.push(touchedRun);
+            throwIfStopping();
+          }
+        }
       }
       const ok = runs.length === checks.length && runs.every((r) => r.ok);
       const comment = formatChecksComment(runs, { commit: ref.commit });

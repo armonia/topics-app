@@ -120,7 +120,7 @@ function decide() {
     if (t === undefined) continue;
     const expiry = t + MIN_DWELL_MS;
     if (expiry > now && expiry < nextDwellExpiry) nextDwellExpiry = expiry;
-    if (c.cls === 'native' && getNativePaneMemoryPressure() && isNativePaneMemoryEvictionEnabled()) {
+    if (c.cls === 'native' && isNativePaneMemoryEvictionEnabled()) {
       const idleExpiry = t + NATIVE_IDLE_EVICT_MS;
       if (idleExpiry > now && idleExpiry < nextDwellExpiry) nextDwellExpiry = idleExpiry;
     }

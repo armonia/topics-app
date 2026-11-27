@@ -222,6 +222,10 @@ jobs:
 
       # The pull request needs the merge base to know what it touched, so it brings the
       # history of both parents (the same fetch `e2e (0)` does); it also leaves `origin/main` as a ref.
+      # The secret store tests drive the real age and age-keygen binaries.
+      - name: Install age
+        run: sudo apt-get install -y -qq age
+
       - name: Fetch the base with its history (pull request)
         if: ${{ github.event_name == 'pull_request' }}
         run: git fetch --no-tags --unshallow origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" "${{ github.sha }}" +main:refs/remotes/origin/main
@@ -1600,6 +1604,10 @@ jobs:
           if compgen -G "$HOME/apt-playwright/*.deb" > /dev/null; then
             sudo cp "$HOME"/apt-playwright/*.deb /var/cache/apt/archives/
           fi
+          # Same as .github/actions/playwright-browsers: the packages.microsoft.com
+          # source answered 403 on 27/11 and failed apt-get update; Playwright's deps
+          # come from Ubuntu's archive only.
+          sudo grep -rlZ 'packages.microsoft.com' /etc/apt/sources.list.d/ 2>/dev/null | xargs -0 -r sudo rm -f
           for attempt in 1 2 3; do npx playwright install --with-deps chromium webkit && break; [ "$attempt" = 3 ] && exit 1; sleep $((attempt * 30)); done
           # Quello che apt ha appena installato torna nella cache, che si salva a
           # fine job. autoclean toglie le versioni superate, così la cache presa
