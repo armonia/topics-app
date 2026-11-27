@@ -136,6 +136,8 @@ export interface DispatcherDeps {
   agentMemSamples?: () => number[];
   /** One card's pre-review check peak in GB, folded into its measured weight (`dispatch-card-weight.ts`). */
   cardCheckPeakGB?: (taskId: string) => number | null;
+  /** What the card's own process tree holds now in GB (null: not measured). */
+  cardLiveTreeGB?: (taskId: string) => number | null;
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
   /**

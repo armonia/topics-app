@@ -178,3 +178,27 @@ describe("reservedMemGB: ogni turno in volo a prezzo della sua board", () => {
     expect(prices().reservedMemGB([], NOW)).toBe(0);
   });
 });
+
+describe("reservedMemGB: la riserva scende per card, con la memoria del suo albero", () => {
+  const NOW = 1_000_000;
+  const AT = NOW - 60_000;
+  const withTrees = (trees: Record<string, number>) => createCardPrices({
+    peaks: () => [], isCliRuntime: () => false,
+    board: () => ({ dispatchUseWorktree: true, reviewChecks: [] }),
+    taskOf: () => ({ projectId: "repo" }),
+    observedGB: (id) => trees[id] ?? null,
+  });
+
+  it("una card che ha già allocato parte del prezzo riserva solo il resto", () => {
+    expect(withTrees({ a: 1.5 }).reservedMemGB([["a", AT]], NOW)).toBeCloseTo(2.5, 6);
+  });
+
+  it("l'eccesso di una card non cancella la riserva di quelle appena partite", () => {
+    // a holds 14 GB over a 4 GB price; b and c have not allocated anything yet.
+    expect(withTrees({ a: 14 }).reservedMemGB([["a", AT], ["b", AT], ["c", AT]], NOW)).toBeCloseTo(8, 6);
+  });
+
+  it("senza albero misurato la riserva resta piena", () => {
+    expect(withTrees({}).reservedMemGB([["a", AT], ["b", AT]], NOW)).toBeCloseTo(8, 6);
+  });
+});

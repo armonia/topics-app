@@ -77,6 +77,7 @@ export function createAdmission(ctx: DispatcherCtx) {
     isCliRuntime: () => deps.isCliRuntime?.() ?? false,
     board: (projectId) => deps.svc.getBoardSettings(projectId),
     taskOf: (taskId) => deps.svc.get(taskId)?.task,
+    observedGB: (taskId) => deps.cardLiveTreeGB?.(taskId) ?? null,
   });
   function agentMemPrice(projectId?: string | null): number {
     return cardPrices.priceFor(projectId);

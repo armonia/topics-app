@@ -32,7 +32,7 @@ import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time
 import { cpus, loadavg } from "node:os";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { recordCardMemPeak, treeFootprintKB } from "../lib/card-memory-peaks";
+import { recordCardLiveTree, recordCardMemPeak, treeFootprintKB } from "../lib/card-memory-peaks";
 import { lowPriorityArgv } from "../lib/low-priority";
 import { GATES_STEPS } from "./ci-evidence";
 
@@ -483,8 +483,12 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
   // card at (`server/lib/card-memory-peaks.ts`). The commands run one after the
   // other, so the highest reading of any of them is the card's peak.
   let peakKB = 0;
-  const onTreeKB = (kb: number) => { if (kb > peakKB) peakKB = kb; };
+  const onTreeKB = (kb: number) => {
+    if (kb > peakKB) peakKB = kb;
+    if (opts.taskId) recordCardLiveTree(opts.taskId, (kb * 1024) / 1e9);
+  };
   const roundStartedAt = Date.now();
+  try {
   for (const [i, check] of checks.entries()) {
     const released = await waitForMemory(check.name);
     let run: CheckRun;
@@ -506,6 +510,10 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
     runs.push(run);
     opts.onProgress?.(run, i, checks.length);
     if (!run.ok) break;
+  }
+  } finally {
+    // The round is over: its tree no longer holds anything the reserve could discount.
+    if (opts.taskId) recordCardLiveTree(opts.taskId, null);
   }
   // An aborted round measured a card cut in half: its peak would price the
   // next agent low, so it is not recorded. KB to the gate's gigabytes (1e9).
