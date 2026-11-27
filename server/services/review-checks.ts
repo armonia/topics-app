@@ -32,7 +32,7 @@ import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time
 import { cpus, loadavg } from "node:os";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { recordCardMemPeak, treeFootprintKB } from "../lib/card-memory-peaks";
+import { recordCardLiveTree, recordCardMemPeak, treeFootprintKB } from "../lib/card-memory-peaks";
 import { lowPriorityArgv } from "../lib/low-priority";
 import { GATES_STEPS } from "./ci-evidence";
 
@@ -483,8 +483,12 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
   // card at (`server/lib/card-memory-peaks.ts`). The commands run one after the
   // other, so the highest reading of any of them is the card's peak.
   let peakKB = 0;
-  const onTreeKB = (kb: number) => { if (kb > peakKB) peakKB = kb; };
+  const onTreeKB = (kb: number) => {
+    if (kb > peakKB) peakKB = kb;
+    if (opts.taskId) recordCardLiveTree(opts.taskId, (kb * 1024) / 1e9);
+  };
   const roundStartedAt = Date.now();
+  try {
   for (const [i, check] of checks.entries()) {
     const released = await waitForMemory(check.name);
     let run: CheckRun;
@@ -506,6 +510,10 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
     runs.push(run);
     opts.onProgress?.(run, i, checks.length);
     if (!run.ok) break;
+  }
+  } finally {
+    // The round is over: its tree no longer holds anything the reserve could discount.
+    if (opts.taskId) recordCardLiveTree(opts.taskId, null);
   }
   // An aborted round measured a card cut in half: its peak would price the
   // next agent low, so it is not recorded. KB to the gate's gigabytes (1e9).
@@ -1051,4 +1059,23 @@ export const TOUCHED_TESTS_CHECK: ReviewCheck = { name: "test:touched:review", c
 /** Does this checkout declare the touched-tests script? */
 export function hasTouchedTests(cwd: string): boolean {
   return hasScript(cwd, TOUCHED_TESTS_CHECK.name);
+}
+
+/** Changed paths that only a macOS-specific build or launcher reads: the CI
+ *  reader runs on Linux and never exercises them, so a swap fallback to its
+ *  verdict would be a false green for exactly these files. */
+const MAC_ONLY_DIFF_PATTERNS: readonly RegExp[] = [/^desktop-tauri\//, /(^|\/)launchd(\/|[._-])/, /(^|\/)darwin(\/|[._-])/];
+
+/** True when every changed path (against `base`) matches a macOS-only pattern.
+ *  An empty or unreadable diff is NOT mac-only: with nothing to go on, the
+ *  safer read is "ordinary diff, the swap fallback may apply". */
+export function isMacOnlyDiff(cwd: string, base: readonly string[] = ["origin/main", "main"]): boolean {
+  let files: readonly string[] = [];
+  for (const ref of base) {
+    try {
+      const diff = Bun.spawnSync(["git", "diff", "--name-only", `${ref}...HEAD`], { cwd, timeout: 5000 });
+      if (diff.exitCode === 0) { files = diff.stdout.toString().split("\n").map((l) => l.trim()).filter(Boolean); break; }
+    } catch { /* try the next base */ }
+  }
+  return files.length > 0 && files.every((f) => MAC_ONLY_DIFF_PATTERNS.some((p) => p.test(f)));
 }

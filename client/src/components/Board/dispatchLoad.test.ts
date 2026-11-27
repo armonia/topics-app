@@ -99,6 +99,13 @@ describe('dispatchLoadReading', () => {
     expect(loadWordKey(r)).toBe('board.gauge.byResources');
   });
 
+  test('a spend stop names itself, not the cap mode: "a budget" answers nothing while every card is actually held for spend', () => {
+    const r = dispatchLoadReading(stateWith(3, { cap: { auto: false, max: 5, mode: 'resources', budgetShare: 0.8 } }));
+    expect(loadWordKey(r, true)).toBe('board.gauge.wait.spend');
+    expect(loadWordKey(r, false)).toBe('board.gauge.byResources');
+    expect(loadWordKey(r)).toBe('board.gauge.byResources');
+  });
+
   test('at and over the budget the tone says so: the ring cannot overflow', () => {
     const at = dispatchLoadReading(stateWith(3, {
       cap: { auto: false, max: 5, mode: 'resources', budgetShare: 0.8 },

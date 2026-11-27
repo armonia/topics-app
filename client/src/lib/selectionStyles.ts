@@ -468,11 +468,14 @@ export const ROW_INSET = 6;
  * Two names, one number, and the number is only ever written here: the sidebar
  * declares the property, the scrolling column reads it. On a desktop the row is
  * back in the flow, where it has a ground and nothing passes behind it, and the
- * property is half of {@link COLUMN_GAP}: the other half of the step between
- * the header's buttons (a row tall in a 40px row) and the first card.
+ * property is what the header's own air under its buttons leaves of
+ * {@link COLUMN_GAP}: 0 with the tabs at the side (34 buttons in a 46 row,
+ * already one step), half of it with the strip (34 in its 40 row).
  *
- * 56 is `h-14`, the height the header row has on a touch screen: two 44px
- * commands plus {@link ROW_INSET} above and below.
+ * On a phone it is the safe area, the compact row
+ * ({@link MOBILE_SIDEBAR_HEADER_H_COMPACT}, the row at rest) and one
+ * {@link COLUMN_GAP}: at rest the first row sits one step under the title, as
+ * under the desktop header, and only the rows that scroll pass behind it.
  */
 export const SIDEBAR_SCROLL_TOP_PROPERTY = '--sidebar-scroll-top';
 /**
@@ -495,11 +498,16 @@ export const SIDEBAR_SCROLL_BOTTOM_PROPERTY = '--sidebar-scroll-bottom';
  * screens that still let the root reserve the band.
  */
 export const BAND_OWN_PROPERTY = '--mobile-band-own-h';
+/**
+ * 56 is `h-14`, the height the phone's header row has while the list scrolls:
+ * two 44px commands plus {@link ROW_INSET} above and below.
+ */
 export const MOBILE_SIDEBAR_HEADER_H = 56;
 /**
  * The header's height at the top of the run (mobile-chrome-feedback A1): the
  * row is compact there (44, exactly its buttons) and reveals the full 56 when
- * the list scrolls, while the rows always start right after `--sat`.
+ * the list scrolls. The list starts one {@link COLUMN_GAP} under the compact
+ * row, so at rest nothing sits behind it.
  */
 export const MOBILE_SIDEBAR_HEADER_H_COMPACT = 44;
 /**
@@ -625,6 +633,25 @@ export const TAB_BUTTON_H = 'h-11 md:h-[34px]';
 export const TAB_BUTTON =
   `${TAB_BUTTON_H} min-w-11 md:min-w-[34px] rounded-lg flex items-center justify-center flex-shrink-0 transition-colors duration-instant`;
 export const TAB_BUTTON_SQUARE = 'w-11 md:w-[34px]';
+/** {@link TAB_BUTTON_H} from 768px up, as a number for the row arithmetic. */
+export const TAB_BUTTON_PX = 34;
+
+/**
+ * THE CHROME ROW WITH THE TABS AT THE SIDE: a tab, and one step above and
+ * below it (26/11, the owner: the header's icons and the open project's tab
+ * "do not have spacing between them and at the sides consistent on all 4
+ * sides"). Everything that row holds is a tab or a tab button, 34: the
+ * sidebar header's four, the title tab, the project's commands. The row was
+ * the strip's 40, so they kept 3 above and below against 6 at the sides and
+ * between them. 34 + 2 x ROW_INSET = 46, and the step is one number on all
+ * four sides.
+ *
+ * With the strip on top the row stays {@link CHROME_BAR_H}: it holds the
+ * strip's 28px tabs, which are already one step from every edge of it. The
+ * native lights follow whichever row is under them (`setTrafficLightsRow` in
+ * `lib/shell/window.ts`, `TRAFFIC_LIGHTS_ROW_PX` in the shell's `lib.rs`).
+ */
+export const CHROME_ROW_SIDE_PX = TAB_BUTTON_PX + 2 * ROW_INSET;
 
 /**
  * The tab button's ink and ground. At rest, a closed tab: no ground, the
@@ -954,6 +981,13 @@ export const CHROME_ROW_ACTION_RESERVE = 'pr-[48px] md:pr-[40px]';
  * box e dall'incasso, così non possono più separarsi in silenzio.
  */
 export const CHROME_ROW_ACTION_RESERVE_LEFT = 'pl-[48px] md:pl-[40px]';
+/**
+ * The same room on the title row, where the command that reopens the column
+ * is a tab button ({@link TAB_BUTTON}: 44 with the finger, 34 with the mouse)
+ * like the title tab beside it: ROW_INSET + box + ROW_INSET, 56 and 46.
+ * `selectionStyles.test.ts` recomputes both from the box.
+ */
+export const CHROME_ROW_TAB_RESERVE_LEFT = 'pl-[56px] md:pl-[46px]';
 
 /**
  * LA RIGA DELLE TAB, UNA VOLTA SOLA — e ora che è un vetro conta il doppio.
@@ -980,6 +1014,27 @@ export const CHROME_BAR = 'pane-chrome-bar chrome-glass flex items-center h-10 f
  *  dell'incasso — l'uguaglianza la controlla `selectionStyles.test.ts`. */
 export const CHROME_BAR_H = 40;
 export const CHROME_BAR_H_VAR = { '--chrome-bar-h': `${CHROME_BAR_H}px` } as CSSProperties;
+/**
+ * The same row with the tabs at the side ({@link CHROME_ROW_SIDE_PX}): 46. Only
+ * the title row of a desktop cell wears it, a branch that never renders below
+ * the layout's 768 (`useLayoutMobile`, a width and not a finger: a touch tablet
+ * at 900 gets the desktop layout, and this row with it), so its variable can be
+ * written inline like the strip's. The `md:` restates that 768 in CSS for the
+ * frame between a resize and the flag catching up.
+ */
+export const CHROME_BAR_SIDE =
+  'pane-chrome-bar chrome-glass flex items-center h-10 md:h-[46px] flex-shrink-0 overflow-hidden min-w-0';
+export const CHROME_BAR_SIDE_STYLE = { '--chrome-bar-h': `${CHROME_ROW_SIDE_PX}px` } as CSSProperties;
+/** The desktop chrome row for where the tabs are: the strip's, or the side's. */
+export function chromeRowPx(strip: boolean): number {
+  return strip ? CHROME_BAR_H : CHROME_ROW_SIDE_PX;
+}
+/** The row the native traffic lights centre on, the height the client sends
+ *  the shell: the phone layout's 40 (a narrow window), otherwise the desktop
+ *  row of the tabs' placement. */
+export function trafficLightsRowPx(phone: boolean, strip: boolean): number {
+  return phone ? CHROME_BAR_H : chromeRowPx(strip);
+}
 export const CHROME_BAR_SUB =
   'pane-chrome-bar chrome-glass flex items-center h-10 md:h-[34px] flex-shrink-0 overflow-hidden min-w-0';
 /** La variabile, per la card che possiede una barra subordinata. Va al POSTO di

@@ -15,6 +15,7 @@ import { WAITING_MEMORY, HEAVY_HOLD_MAX_MS, HELD_RESUME_REFRESH_MS, RESUME_WAIT_
 import type { DispatcherCtx } from "./task-dispatcher-context";
 import type { TickPlan } from "./task-dispatcher-tick";
 import { isNodeChildRun } from "./node-child-run";
+import { reopenedByMainRed } from "./red-bounce";
 
 export function createClaim(ctx: DispatcherCtx) {
   const { capHeldNoted, clock, delegatedPolicy, deps, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceTimers, heavyHeldNoted, heavyHoldSince, inFlight, log, noCheckExemptions, spendHeldNoted, shared } = ctx.core;
@@ -233,7 +234,13 @@ export function createClaim(ctx: DispatcherCtx) {
       // (torna una card che non è `done`) questa card non è finita, e il ciclo
       // prosegue fino al claim invece di saltarla.
       const reopenedHumanBy = t.reopenedActor === "human";
-      if (t.deliveryCommit && deps.deliveryLanded && !reopenedHumanBy) {
+      // Sent back by the red on main after its land: the work is on main and a fix on top is still owed.
+      let reopenedByMainRedCi = t.reopenedActor === "system" && reopenedByMainRed(deps.svc.get(t.id)?.comments ?? []);
+      // The mark holds only while main is still red: repaired elsewhere, "already in main" is right again.
+      if (reopenedByMainRedCi && deps.mainIsRed) {
+        try { reopenedByMainRedCi = await deps.mainIsRed(resolved.path); } catch { /* unknown: stays red */ }
+      }
+      if (t.deliveryCommit && deps.deliveryLanded && !reopenedHumanBy && !reopenedByMainRedCi) {
         let landed: boolean | null = null;
         try { landed = await deps.deliveryLanded(resolved.path, t.deliveryCommit); }
         catch (err) { log(`sonda del commit di consegna fallita per ${t.id}`, err); }
