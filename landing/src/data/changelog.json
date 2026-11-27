@@ -24,6 +24,14 @@
           "scope": "land"
         },
         {
+          "text": "age store filters unpack/read by the current allowlist",
+          "scope": "secrets"
+        },
+        {
+          "text": "age store keeps the whole file map, filters only its outputs, and never rewrites for refused names",
+          "scope": "secrets"
+        },
+        {
           "text": "a branch origin is only ahead on is already there",
           "scope": "dispatch"
         },
@@ -160,6 +168,10 @@
           "scope": "board"
         },
         {
+          "text": "add a single secret-store interface for Mac and Linux",
+          "scope": "secrets"
+        },
+        {
           "text": "a request that repeats an open card is absorbed by it instead of opening a twin",
           "scope": "board"
         },
@@ -198,12 +210,24 @@
           "scope": "review-checks"
         },
         {
+          "text": "stdin secrets, in-memory identity, configurable allowlist",
+          "scope": "secrets"
+        },
+        {
+          "text": "keychain write uses -X hex, closing the newline injection in -i stdin",
+          "scope": "secrets"
+        },
+        {
           "text": "the sidebar's buttons are tabs, and every tab lights under the pointer",
           "scope": "ui"
         },
         {
           "text": "don't let an older comment outrank the newest one when carrying a node's thread",
           "scope": null
+        },
+        {
+          "text": "keychain stores printable b64 payload, so read never gets hex back",
+          "scope": "secrets"
         },
         {
           "text": "the stuck-card sweep leaves an in-progress card its dispatch chip explains",
