@@ -122,7 +122,7 @@ export function createAdmission(ctx: DispatcherCtx) {
   function localTurns(): number {
     return [...inFlight.values()].filter((slot) => !isNodeSessionKey(slot.sessionKey)).length;
   }
-  function floorVerdict(cleanupReservations = true, projectId?: string | null, priceGB?: number, floorGB?: number): ResourceFloorVerdict {
+  function floorVerdict(cleanupReservations = true, projectId?: string | null, priceGB?: number, floorGB?: number, nativeChild = false): ResourceFloorVerdict {
     const price = priceGB ?? agentMemPrice(projectId);
     const launchEntries = regularLocalLaunchEntries(cleanupReservations);
     const launches = launchEntries.map(([, at]) => at);
@@ -131,7 +131,9 @@ export function createAdmission(ctx: DispatcherCtx) {
     const exemptTaskIds = noCheckExemptions.taskIds();
     const exemptReservedGB = noCheckExemptions.reservationGB();
     const exemptReservedCards = exemptTaskIds.length;
-    const reserved = resources ? 0 : cardPrices.reservedMemGB(launchEntries, Date.now()) + exemptReservedGB;
+    // A native child is judged on the real memory alone: the cards' reserve is a forecast and
+    // the kernel's reading already holds what they really use.
+    const reserved = resources ? 0 : (nativeChild ? 0 : cardPrices.reservedMemGB(launchEntries, Date.now())) + exemptReservedGB;
     // TWO QUESTIONS, AND EACH GETS ITS OWN CENSUS WHOLE.
     //
     // `ourWorkRunning` is the SAME "zero" the budget axis counts for
@@ -246,6 +248,7 @@ export function createAdmission(ctx: DispatcherCtx) {
     noCheckCandidateReservationGB?: number,
     sampleOverride?: MachineBudgetSample | null,
     projectId?: string | null,
+    nativeChild = false,
   ): {
     verdict: AdmissionVerdict;
     sample: MachineBudgetSample;
@@ -271,7 +274,7 @@ export function createAdmission(ctx: DispatcherCtx) {
     // launch instant, so the ledger is the in-flight map itself.
     const now = Date.now();
     const reservedCpu = reservedCost(localLaunches(), fullCost, now).coreUnits;
-    const reservedMemory = cardPrices.reservedMemGB(regularLocalLaunchEntries(), now)
+    const reservedMemory = (nativeChild ? 0 : cardPrices.reservedMemGB(regularLocalLaunchEntries(), now))
       + noCheckExemptions.reservationGB();
     // The exemption is for a machine with none of OUR work on it, and a
     // pre-review check run is our work: a queue behind an 11 GB shard run is not
@@ -335,9 +338,9 @@ export function createAdmission(ctx: DispatcherCtx) {
     return buildDispatchAdmissionPreview({
       frozenCount: activeFrozenCount,
       drainBlock: ctx.runs.drainBlock,
-      floorVerdict: () => floorVerdict(false, undefined, price, floorGB),
+      floorVerdict: () => floorVerdict(false, undefined, price, floorGB, !cli),
       globalCap: () => deps.svc.getGlobalCap(),
-      budgetVerdict: (cap) => budgetVerdict(cap, price),
+      budgetVerdict: (cap) => budgetVerdict(cap, price, undefined, undefined, !cli),
       memoryClause,
     });
   }

@@ -201,4 +201,53 @@ describe("reservedMemGB: la riserva scende per card, con la memoria del suo albe
   it("senza albero misurato la riserva resta piena", () => {
     expect(withTrees({}).reservedMemGB([["a", AT], ["b", AT]], NOW)).toBeCloseTo(8, 6);
   });
+
+  it("a reading that is not a usable number counts as no reading: full price", () => {
+    for (const bad of [Number.NaN, -3, 0, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(withTrees({ a: bad }).reservedMemGB([["a", AT]], NOW)).toBeCloseTo(4, 6);
+    }
+  });
+
+  it("a reader that throws leaves the card at full price and does not break the others", () => {
+    const p = createCardPrices({
+      peaks: () => [], isCliRuntime: () => false,
+      board: () => ({ dispatchUseWorktree: true, reviewChecks: [] }),
+      taskOf: () => ({ projectId: "repo" }),
+      observedGB: (id) => { if (id === "a") throw new Error("boom"); return 1; },
+    });
+    expect(p.reservedMemGB([["a", AT], ["b", AT]], NOW)).toBeCloseTo(4 + 3, 6);
+  });
+
+  it("a card holding exactly its price, or more, reserves zero and never a negative amount", () => {
+    expect(withTrees({ a: 4 }).reservedMemGB([["a", AT]], NOW)).toBe(0);
+    expect(withTrees({ a: 9 }).reservedMemGB([["a", AT]], NOW)).toBe(0);
+    expect(withTrees({ a: 9, b: 1 }).reservedMemGB([["a", AT], ["b", AT]], NOW)).toBeCloseTo(3, 6);
+  });
+
+  it("a tiny reading still subtracts its own amount", () => {
+    expect(withTrees({ a: 0.25 }).reservedMemGB([["a", AT]], NOW)).toBeCloseTo(3.75, 6);
+  });
+
+  it("an unknown card is reserved at the full standard price", () => {
+    const p = createCardPrices({
+      peaks: () => [], isCliRuntime: () => false,
+      board: () => null,
+      taskOf: () => { throw new Error("gone"); },
+      observedGB: () => null,
+    });
+    expect(p.reservedMemGB([["ghost", AT]], NOW)).toBeCloseTo(4, 6);
+  });
+
+  it("without any reader every card keeps its full price", () => {
+    const p = createCardPrices({
+      peaks: () => [], isCliRuntime: () => false,
+      board: () => ({ dispatchUseWorktree: true, reviewChecks: [] }),
+      taskOf: () => ({ projectId: "repo" }),
+    });
+    expect(p.reservedMemGB([["a", AT]], NOW)).toBeCloseTo(4, 6);
+  });
+
+  it("the reading of one card is never credited to a card that has none", () => {
+    expect(withTrees({ a: 3 }).reservedMemGB([["a", AT], ["b", AT]], NOW)).toBeCloseTo(1 + 4, 6);
+  });
 });
