@@ -25,9 +25,10 @@
  * own, so nothing here touches them. Only the watchdog can.
  *
  * THE MUTATION THAT MUST TURN IT RED: drop `detached: true` from the server
- * spawn in `bootOnce`. The server then shares the runner's group, leads no
- * group of its own, the watchdog's `kill(-pid)` fails, and the server survives
- * the ten seconds.
+ * spawn in `bootOnce`. The server then shares the runner's group and leads no
+ * group of its own, so the watchdog's `kill(-pid)` could never reach it and the
+ * server would outlive a cut run. Measured: the test goes red right where the
+ * registration contract breaks, on `kill(-pid, 0)` for the registered server.
  */
 import { afterAll, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";

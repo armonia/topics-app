@@ -687,8 +687,8 @@ MISURA: `tests/integration/orphan-guard-cut-run.test.ts`.
 #### Scenario: togliere `detached` fa tornare il test rosso
 
 - **GIVEN** lo spawn del server senza la sessione di processo propria
-- **WHEN** il runner viene ucciso a metà test
-- **THEN** il server sopravvive ai 10 s perché il guardiano non ne controlla più il gruppo
+- **WHEN** gira il test del run tagliato
+- **THEN** il test è rosso perché il pid registrato non guida nessun gruppo, e il guardiano non potrebbe mai raggiungere quel server
 ### Requirement: BLOAT-RATCHET-01 — La baseline delle dimensioni può solo scendere
 
 Il cancello `check:bloat` SHALL rifiutare `--update-baseline` per un file nuovo
