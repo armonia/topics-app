@@ -2,7 +2,7 @@
 
 ### Requirement: CHAT-COMPACT-06 — Un agente compatta a un tetto in token, non a una frazione di 1M
 
-Sul motore nativo una chat il cui workspace è la cartella di un agente SHALL compattare oltre il tetto `compactAtTokens` che l'agente dichiara in `agent-engine.json`, quando il tetto è sotto la soglia della finestra, e SHALL tornare al tetto per 0,40/0,85. Altrimenti SHALL valere la finestra. Il tetto SHALL valere anche nel `turn-host`.
+Sul motore nativo una chat il cui workspace è la cartella di un agente SHALL compattare all'inizio di un turno oltre il tetto `compactAtTokens` che l'agente dichiara in `agent-engine.json`, quando il tetto è sotto la soglia della finestra, e SHALL tornare al tetto per 0,40/0,85. A metà turno, e senza tetto, SHALL valere la finestra. Il tetto SHALL valere anche nel `turn-host` e non SHALL tagliare i risultati recenti dei tool.
 
 #### Scenario: una chat da 300k su una finestra da 1M
 
@@ -11,6 +11,11 @@ Sul motore nativo una chat il cui workspace è la cartella di un agente SHALL co
 - **THEN** non si compatta
 - **WHEN** l'agente ha un tetto di 200k
 - **THEN** si compatta e la storia scende sotto 94k, con la richiesta iniziale ancora in testa
+
+#### Scenario: un turno pieno di tool non perde la richiesta
+
+- **GIVEN** una chat oltre il tetto e un turno di cinque giri che leggono 40k caratteri ciascuno
+- **THEN** si compatta una volta sola, all'inizio, e ogni richiesta del turno contiene il messaggio della persona
 
 #### Scenario: il tetto non alza mai la soglia
 

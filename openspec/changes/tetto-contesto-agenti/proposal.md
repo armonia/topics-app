@@ -6,6 +6,9 @@ Il 27/11 Attilio: Jarvis su Discord «è proprio scemo». Il modello era già Op
 ## Cosa cambia
 - `compactionThresholds()` in `compaction.ts` (puro): con un tetto in token sotto la soglia della finestra, la soglia diventa il tetto e l'obiettivo ne tiene il rapporto di oggi (0,40/0,85 ≈ 47%). Solo verso il basso: un tetto sopra la soglia della finestra non cambia niente, perché quella soglia tiene la richiesta sotto il limite dell'API.
 - Il tetto si dichiara per agente in `agent-engine.json` (cartella dati dell'app): `{ "agents": { "<id>": { "compactAtTokens": N } } }`. Senza file, o senza voce, il comportamento è quello di oggi. Letto a ogni turno; la chat appartiene all'agente la cui cartella è il workspace della topic (`resolveAgentIdForWorkspace`, la stessa regola del filtro MCP).
+- Il tetto si controlla all'inizio del turno, quando il messaggio della persona è l'ultimo e quindi intoccabile; a metà turno vale la finestra. La revisione l'ha riprodotto: controllato a ogni giro, un turno con tanti tool restava sopra l'obiettivo (che include ~44k di prompt fisso), compattava a ogni giro riscrivendo la cache e al quarto giro tagliava la richiesta stessa.
+- Quando scatta il tetto, il taglio d'emergenza dei risultati recenti resta legato alla soglia della finestra: il tetto toglie turni vecchi, non ciò che il modello ha appena letto.
+- Un argomento già alleggerito non si rialleggerisce più (prima la nota diventava «45 chars dropped» a ogni compattazione e il prefisso in cache cambiava).
 - Il tetto viaggia nel `TurnSpec` fino al `turn-host`, dove in produzione girano tutti i turni nativi. La riga «contesto compattato» porta `cap=N` quando la compattazione la causa il tetto.
 - Configurazione: `main` e `gtm` a 200.000.
 
