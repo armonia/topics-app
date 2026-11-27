@@ -14,6 +14,7 @@ import { resolveSecretsDir } from "../lib/data-dir";
 import type { RowCounts, SwitchManifest } from "../lib/primary-switch";
 import { NODE_PRIMARY_COMMIT_PATH, NODE_PRIMARY_INCOMING_PATH } from "./nodes-primary";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
+import { isNodeSessionKey } from "../services/task-dispatcher-remote-node";
 import { runPrimarySwitch, type CommitAnswer, type SwitchTarget, type WorkInFlight } from "../services/primary-switch-run";
 import type { StopCause } from "../lib/abort-cause";
 import { SERVER_VERSION } from "../ws-capabilities";
@@ -24,6 +25,9 @@ export interface PrimarySwitchTriggerDeps {
     drain: (reason: string) => void;
     undrain: (reason: string) => void;
     busyTurns: () => Array<{ taskId: string; sessionKey: string }>;
+    /** The card runs on one node: the target's own, which its restart would kill. */
+    nodeRunsOn: (machineId: string) => Array<{ taskId: string; sessionKey: string }>;
+    parkNodeRun: (taskId: string, note: string) => Promise<boolean | null>;
   };
   release: (args: { taskId: string; requeue: boolean; reason?: string; by?: string }) => unknown;
   /** The scheduled jobs engine: paused with the drain, its runs waited for or parked like the cards. */
@@ -148,7 +152,9 @@ export async function handlePrimarySwitch(req: Request, deps: PrimarySwitchTrigg
       drain: (reason) => { deps.dispatcher.drain(reason); deps.schedule.pauseStarts(); },
       undrain: (reason) => { deps.schedule.resumeStarts(); deps.dispatcher.undrain(reason); },
       stillWorking: (): WorkInFlight[] => {
-        const cards = deps.dispatcher.busyTurns();
+        // Runs on the TARGET die with its restart and its DB is set aside at boot, so they are
+        // waited for like local turns. Runs on a third node keep running and are reattached by the new primary.
+        const cards = [...deps.dispatcher.busyTurns(), ...deps.dispatcher.nodeRunsOn(resolved.target.id)];
         const covered = new Set(cards.map((c) => c.sessionKey));
         const chats = [...ctx.activeStreams.keys()].filter((sk) => !covered.has(sk)).map((sessionKey) => ({ sessionKey }));
         const jobs = deps.schedule.inFlightRuns().map((r) => ({ scheduledJobId: r.jobId, sessionKey: `scheduled-run:${r.runId}` }));
@@ -157,6 +163,8 @@ export async function handlePrimarySwitch(req: Request, deps: PrimarySwitchTrigg
       park: async (work, note) => {
         // A run closed `cancelled` here, before the fence, travels closed: the new primary never starts it again.
         if (work.scheduledJobId) { deps.schedule.cancelOpenRuns(work.scheduledJobId, note); return; }
+        // A run on the target is cancelled there and its card requeued with `node_run_id` cleared.
+        if (work.taskId && isNodeSessionKey(work.sessionKey)) { await deps.dispatcher.parkNodeRun(work.taskId, note); return; }
         await deps.abortTurn(work.sessionKey, "superseded").catch(() => {});
         if (work.taskId) deps.release({ taskId: work.taskId, requeue: true, reason: note, by: "primary-switch" });
       },

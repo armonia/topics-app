@@ -76,7 +76,7 @@ describe("primary switch trigger: the scheduled jobs engine", () => {
           list: () => [{ id: "m-local", name: "local", hostname: "local-host" }, NODE],
         },
       } as unknown as PrimarySwitchTriggerDeps["ctx"],
-      dispatcher: { drain: () => calls.push("dispatcher.drain"), undrain: () => calls.push("dispatcher.undrain"), busyTurns: () => [] },
+      dispatcher: { drain: () => calls.push("dispatcher.drain"), undrain: () => calls.push("dispatcher.undrain"), busyTurns: () => [], nodeRunsOn: () => [], parkNodeRun: async () => null },
       release: () => undefined,
       schedule: {
         pauseStarts: () => { calls.push("schedule.pause"); engine.pauseStarts(); },
@@ -108,5 +108,70 @@ describe("primary switch trigger: the scheduled jobs engine", () => {
     expect(engine.inFlightRuns()).toEqual([]);
     expect(launched).toHaveLength(1);
     engine.stop();
+  });
+});
+
+describe("primary switch trigger: card runs on the destination", () => {
+  /** A trigger whose dispatcher reports `onTarget` as the runs riding on the target node, and records the parks. */
+  function triggerWith(onTarget: () => Array<{ taskId: string; sessionKey: string }>) {
+    initPrimaryRole({ db, stateFile: join(root, "primary-state.json"), localMachineId: () => "m-local", log: () => {} });
+    const asked: string[] = [];
+    const parkedRuns: Array<[string, string]> = [];
+    const releases: string[] = [];
+    const deps: PrimarySwitchTriggerDeps = {
+      ctx: {
+        db,
+        STATE_DIR: join(root, "state"),
+        APP_DATA_DIR: join(root, "data"),
+        activeStreams: new Map(),
+        machineStore: {
+          upsertLocal: () => ({ id: "m-local", name: "local", hostname: "local-host" }),
+          list: () => [{ id: "m-local", name: "local", hostname: "local-host" }, NODE],
+        },
+      } as unknown as PrimarySwitchTriggerDeps["ctx"],
+      dispatcher: {
+        drain: () => undefined,
+        undrain: () => undefined,
+        busyTurns: () => [],
+        nodeRunsOn: (machineId) => { asked.push(machineId); return onTarget(); },
+        parkNodeRun: async (taskId, note) => { parkedRuns.push([taskId, note]); return true; },
+      },
+      release: (args) => { releases.push(args.taskId); },
+      schedule: { pauseStarts: () => undefined, resumeStarts: () => undefined, inFlightRuns: () => [], cancelOpenRuns: () => 0 },
+      abortTurn: async () => undefined,
+      fetch: (async (_url: unknown, init?: RequestInit) => init?.method === "PUT"
+        ? new Response("{}", { status: 200 })
+        : new Response(JSON.stringify({ code: "not_ready", error: "no" }), { status: 409 })) as unknown as typeof fetch,
+    };
+    const run = async (drainTimeoutMs: number) => {
+      const res = await handlePrimarySwitch(
+        new Request("http://localhost/__daemon/primary-switch", { method: "POST", body: JSON.stringify({ machine: NODE.id, drainTimeoutMs }) }),
+        deps,
+      );
+      return await res.json() as { outcome: string; parked: string[] };
+    };
+    return { run, asked, parkedRuns, releases };
+  }
+
+  test("a run still riding on the target at the end of the wait is cancelled there and its card requeued, never released as a local turn", async () => {
+    const run = { taskId: "card-on-target", sessionKey: `node:${NODE.id}:run-1` };
+    const t = triggerWith(() => [run]);
+    const report = await t.run(0);
+    // The question is asked about the TARGET, and the run it names is parked through the node path.
+    expect(t.asked.every((id) => id === NODE.id)).toBe(true);
+    expect(t.asked.length).toBeGreaterThan(0);
+    expect(report.parked).toEqual([run.taskId]);
+    expect(t.parkedRuns).toEqual([["card-on-target", expect.stringContaining("Passaggio")]]);
+    expect(t.releases, "the local release path would leave node_run_id behind").toEqual([]);
+  });
+
+  test("a run on the target that ends during the wait is waited for, not parked", async () => {
+    let calls = 0;
+    const run = { taskId: "card-on-target", sessionKey: `node:${NODE.id}:run-1` };
+    // Present on the first look (the drain loop), gone on the second (after one poll).
+    const t = triggerWith(() => (++calls <= 1 ? [run] : []));
+    const report = await t.run(10_000);
+    expect(report.parked).toEqual([]);
+    expect(t.parkedRuns).toEqual([]);
   });
 });

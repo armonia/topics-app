@@ -17,7 +17,7 @@ import {
   type RetiredState,
 } from "./primary-switch";
 import { fenceInternalWrites, type PrimaryRole } from "./primary-role";
-import { setDatabaseReadOnly } from "../db";
+import { setDatabaseReadOnly, selectRetiredDatabaseFile } from "../db";
 
 let fence: RetiredState | null = null;
 
@@ -25,8 +25,11 @@ export function setPrimaryFence(next: RetiredState | null): void {
   fence = next;
   fenceInternalWrites(next !== null);
   // The DB still is the one handed over in every phase but `set-aside`: then the
-  // old file was moved away and the server runs on a fresh one nobody reads.
+  // old file was moved away and the server runs on a service DB of its own.
   setDatabaseReadOnly(next !== null && next.phase !== "set-aside");
+  // And that server opens its service DB under another name, so the live path
+  // stays empty for whatever replicates it (a backup, Litestream).
+  selectRetiredDatabaseFile(next?.phase === "set-aside");
 }
 
 /** The front door's check: the `primary_moved` answer for a refused request while the fence is up, else null. */

@@ -9,12 +9,12 @@
  * `setPrimaryFence`: no lambda that only asks the role.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDatabase, initDatabase, isFencedWriteError } from "../db";
 import { setPrimaryFence } from "./primary-fence";
-import { fenceInternalWrites } from "./primary-role";
+import { createPrimaryRole, fenceInternalWrites } from "./primary-role";
 import type { RetiredState } from "./primary-switch";
 import { createScheduleEngine, type ActionExecutor } from "../schedule/engine";
 import { createTaskService } from "../services/tasks";
@@ -112,9 +112,30 @@ describe("primary switch fence: the live DB is read-only", () => {
     expect(dump()).not.toBe(before);
   });
 
+  test("the handing-over server adopts the new primary under the fence: the file records it, the read-only DB is skipped", () => {
+    const stateFile = join(root, "primary-state.json");
+    const role = createPrimaryRole({ db, stateFile, localMachineId: () => "m-old", log: () => {} });
+    role.adopt({ primaryMachineId: "m-old", epoch: 1 });
+    setPrimaryFence({ ...FENCE, phase: "sent" });
+    expect(role.adopt({ primaryMachineId: "m-new", epoch: 2 })).toMatchObject({ primaryMachineId: "m-new", epoch: 2 });
+    expect(role.isPrimary()).toBe(false);
+    expect(JSON.parse(readFileSync(stateFile, "utf-8"))).toMatchObject({ primaryMachineId: "m-new", epoch: 2 });
+    setPrimaryFence(null);
+    expect((db.query("SELECT epoch FROM primary_state WHERE id = 1").get() as { epoch: number }).epoch).toBe(1);
+  });
+
   test("a set-aside server runs on a fresh DB: the handle stays writable there", () => {
     setPrimaryFence({ ...FENCE, phase: "set-aside" });
     expect(attempt(() => insertProject("p2"))).toBeNull();
+  });
+
+  test("a set-aside server opens its service DB under another name: the live path stays empty", () => {
+    closeDatabase();
+    rmSync(join(root, "data"), { recursive: true, force: true });
+    setPrimaryFence({ ...FENCE, phase: "set-aside" });
+    initDatabase(join(import.meta.dir, "..", ".."), root);
+    expect(existsSync(join(root, "data", "topics.db"))).toBe(false);
+    expect(existsSync(join(root, "data", "topics.retired.db"))).toBe(true);
   });
 
   test("a scheduled run in flight at the drain is parked once and never starts again", () => {

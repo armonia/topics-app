@@ -19,11 +19,12 @@
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
-  chmodSync, closeSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync,
-  renameSync, rmSync, statSync, writeSync,
+  chmodSync, closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync,
+  readSync, realpathSync, renameSync, rmSync, statSync, writeSync,
 } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { writeFileAtomic } from "./atomic-write";
+import { LIVE_DB_NAME, RETIRED_DB_NAME } from "./data-dir";
 import { findCliTranscript } from "./subagent-migration";
 
 /** The tables whose row counts must be identical before and after the move. */
@@ -39,7 +40,7 @@ export const MANIFEST_FILE = "manifest.json";
 export const RETIRED_FILE = "primary-retired.json";
 export const PRIMARY_STATE_FILE = "primary-state.json";
 export const MOVED_CODE = "primary_moved";
-export const DB_NAME = "topics.db";
+export const DB_NAME = LIVE_DB_NAME;
 
 /**
  * The state folder entries that follow the primary, relative to the state dir.
@@ -76,7 +77,8 @@ function copyPrivate(from: string, to: string, root: string, tightenFolders: boo
   chmodSync(to, SECRET_FILE_MODE);
 }
 
-export interface ManifestFile { name: string; size: number; sha256: string }
+/** `mtimeMs` is the modification time on the sender: what decides between two transcripts that diverged. */
+export interface ManifestFile { name: string; size: number; sha256: string; mtimeMs?: number }
 
 export interface SwitchManifest {
   version: 1;
@@ -101,8 +103,10 @@ export interface SwitchManifest {
  *    the other computer (`bun run primary reclaim` if it did not take over);
  *  - `pending-set-aside`: the other computer took over; the next boot renames
  *    this DB and state aside;
- *  - `set-aside`: done. This server runs on an empty DB as a secondary, so the
- *    node and pairing routes open again (how it becomes a node of the new one).
+ *  - `set-aside`: done. This server runs as a secondary on a service DB of its
+ *    own (`topics.retired.db`, never `topics.db`: a replica of that path must
+ *    find nothing to publish), so the node and pairing routes open again (how
+ *    it becomes a node of the new one).
  */
 export type RetiredPhase = "fencing" | "sent" | "uncertain" | "pending-set-aside" | "set-aside";
 const RETIRED_PHASES: readonly RetiredPhase[] = ["fencing", "sent", "uncertain", "pending-set-aside", "set-aside"];
@@ -221,10 +225,51 @@ export function collectTranscripts(db: Pick<Database, "query">, projectsDir: str
   return out.filter((f) => bundleTarget(f.name) !== null);
 }
 
+/** The folders of the sender that hold what chats and views point at, besides the DB. */
+export interface AttachmentDirs {
+  stateDir: string;
+  appDataDir: string;
+  /** The data folder inside the state root (`resolveDataDir`): where `views/` and `claude-transcripts/` live. */
+  dataDir: string;
+}
+
+/** Bundle prefix of each attachment kind, and the folder it lands in on the receiver. */
+const ATTACHMENT_ROOTS: Record<AttachmentKind, { prefix: string; dir: (d: AttachmentDirs) => string }> = {
+  media: { prefix: "media", dir: (d) => join(d.appDataDir, "media") },
+  uploads: { prefix: "uploads", dir: (d) => join(d.stateDir, "uploads") },
+  views: { prefix: "views", dir: (d) => join(d.dataDir, "views") },
+  "kept-transcripts": { prefix: "claude-transcripts", dir: (d) => join(d.dataDir, "claude-transcripts") },
+};
+
+/**
+ * What a chat or a view points at and the DB does not hold: the files of the
+ * media folder (attachments, task previews), the uploads, the stored views, and
+ * the keeper's copies of the CLI transcripts (`lib/transcript-keeper.ts`: the
+ * only copy of a session whose CLI file the CLI's own cleanup removed). A
+ * keeper copy of a transcript already shipped by `collectTranscripts` is the
+ * same file under a second name, so it stays out of the bundle. Symbolic links
+ * are never followed (`walkFiles` lists regular files only), and a name the
+ * receiver's closed list refuses stays behind, like for the other kinds.
+ */
+export function collectAttachmentFiles(dirs: AttachmentDirs, shipped: readonly BundleSource[] = []): BundleSource[] {
+  const shippedTranscriptIds = new Set(shipped.filter((f) => f.name.startsWith("transcripts/")).map((f) => f.name.split("/").pop()));
+  const out: BundleSource[] = [];
+  for (const { prefix, dir } of Object.values(ATTACHMENT_ROOTS)) {
+    const root = dir(dirs);
+    for (const source of walkFiles(root)) {
+      if (prefix === "claude-transcripts" && shippedTranscriptIds.has(relative(root, source))) continue;
+      out.push({ name: `${prefix}/${toBundlePath(relative(root, source))}`, source });
+    }
+  }
+  return out.filter((f) => bundleTarget(f.name) !== null);
+}
+
+type AttachmentKind = "media" | "uploads" | "views" | "kept-transcripts";
+
 /** Where a bundle file lands on the receiver. */
 export type BundleTarget =
   | { kind: "db" }
-  | { kind: "state" | "secrets" | "transcripts"; path: string[] };
+  | { kind: "state" | "secrets" | "transcripts" | AttachmentKind; path: string[] };
 
 const ID = "[A-Za-z0-9_-]{1,128}";
 /** One path segment of a transcript folder: no leading dot, so never `.`, `..` or a hidden file. */
@@ -237,6 +282,13 @@ const SEGMENT = "[A-Za-z0-9_@+-][A-Za-z0-9._@+-]{0,200}";
  * else (code, `.git/hooks`, provider keys, a settings file) has no name here,
  * so it cannot be overwritten by a bundle.
  */
+/**
+ * One path segment of an attachment: any name a person gave a file (spaces,
+ * accents) except a separator, a control character or a leading dot, so never
+ * `.`, `..` or a hidden file.
+ */
+// eslint-disable-next-line no-control-regex -- the control characters are what the class refuses
+const FILE_SEGMENT = /[^/\\\x00-\x1f.][^/\\\x00-\x1f]{0,254}/.source;
 const BUNDLE_SHAPES: ReadonlyArray<[BundleTarget["kind"], RegExp]> = [
   ["state", new RegExp(`^state/(nodes/${ID}\\.token)$`)],
   ["state", new RegExp(`^state/(nodes/${ID}\\.model-token\\.sha256)$`)],
@@ -245,6 +297,10 @@ const BUNDLE_SHAPES: ReadonlyArray<[BundleTarget["kind"], RegExp]> = [
   ["secrets", /^secrets\/(installation-id)$/],
   ["transcripts", new RegExp(`^transcripts/(${SEGMENT}/${ID}\\.jsonl)$`)],
   ["transcripts", new RegExp(`^transcripts/(${SEGMENT}/${ID}(?:/${SEGMENT})+)$`)],
+  ["media", new RegExp(`^media/(${FILE_SEGMENT}(?:/${FILE_SEGMENT})*)$`)],
+  ["uploads", new RegExp(`^uploads/(${FILE_SEGMENT}(?:/${FILE_SEGMENT})*)$`)],
+  ["views", new RegExp(`^views/(${ID}\\.json)$`)],
+  ["kept-transcripts", new RegExp(`^claude-transcripts/(${ID}\\.jsonl)$`)],
 ];
 
 export function bundleTarget(name: string): BundleTarget | null {
@@ -391,12 +447,92 @@ export function movedResponse(retired: Pick<RetiredState, "epoch" | "toMachineId
 
 const DB_SIDE_FILES = ["", "-wal", "-shm"];
 
-/** `topics.db` (and its WAL and shared memory) renamed to `topics.db.prima-<epoch>`. */
+/** A DB file (and its WAL and shared memory) renamed to `<name>.prima-<epoch>`. */
 function setDatabaseAside(dbPath: string, epoch: number): string {
   // The WAL and shared memory follow the DB name, so the copy set aside still opens with its last writes.
   const aside = `${dbPath}.prima-${epoch}`;
   for (const suffix of DB_SIDE_FILES) setAsideIfPresent(dbPath + suffix, epoch);
   return aside;
+}
+
+/** How the shipped file and the one already on this computer relate, byte by byte. */
+type Overlap = "same" | "incoming-is-prefix" | "existing-is-prefix" | "diverged";
+
+/** Compares two files from the start in chunks: transcripts can be hundreds of MB, never read whole. */
+function compareFiles(incoming: string, existing: string): Overlap {
+  const sizeIn = statSync(incoming).size;
+  const sizeEx = statSync(existing).size;
+  const common = Math.min(sizeIn, sizeEx);
+  const a = Buffer.allocUnsafe(1 << 20);
+  const b = Buffer.allocUnsafe(1 << 20);
+  const fdIn = openSync(incoming, "r");
+  const fdEx = openSync(existing, "r");
+  try {
+    for (let offset = 0; offset < common; offset += a.length) {
+      const length = Math.min(a.length, common - offset);
+      readSync(fdIn, a, 0, length, offset);
+      readSync(fdEx, b, 0, length, offset);
+      if (!a.subarray(0, length).equals(b.subarray(0, length))) return "diverged";
+    }
+  } finally {
+    closeSync(fdIn);
+    closeSync(fdEx);
+  }
+  if (sizeIn === sizeEx) return "same";
+  return sizeIn < sizeEx ? "incoming-is-prefix" : "existing-is-prefix";
+}
+
+/**
+ * True when `to` (or the folders above it) would write outside `root` through a
+ * symbolic link: the receiver never follows one out of the folder it restores into.
+ */
+function escapesRoot(to: string, root: string): boolean {
+  try {
+    if (existsSync(to) && lstatSync(to).isSymbolicLink()) return true;
+    let nearest = dirname(to);
+    while (!existsSync(nearest)) nearest = dirname(nearest);
+    // The root itself does not exist yet: nothing below it can be a link.
+    if (!existsSync(root)) return false;
+    return !(realpathSync(nearest) + sep).startsWith(realpathSync(root) + sep);
+  } catch {
+    return true;
+  }
+}
+
+/** The JSONL of the CLI only ever grows: that is what lets two copies of one session be compared. */
+const APPEND_ONLY_KINDS: ReadonlySet<BundleTarget["kind"]> = new Set(["transcripts", "kept-transcripts"]);
+
+type Placed = "placed" | "kept" | "unchanged" | "refused";
+
+/**
+ * Puts one shipped file where it belongs without losing what is already there.
+ *
+ *  - nothing there, or the very same bytes: copied, or left alone;
+ *  - a transcript (append-only): the longer one wins when one is the start of
+ *    the other, so the session never goes back in time; two that diverged
+ *    (the session was resumed on both computers) go to the more recent one by
+ *    modification time, and the other is kept next to it as `.prima-<epoch>`;
+ *  - any other file: the shipped one takes the name, the one that was there is
+ *    renamed aside.
+ */
+function placeShipped(from: string, to: string, root: string, opts: { kind: BundleTarget["kind"]; epoch: number; shippedMtimeMs: number; tightenFolders: boolean }): Placed {
+  if (!existsSync(to)) {
+    copyPrivate(from, to, root, opts.tightenFolders);
+    return "placed";
+  }
+  const overlap = compareFiles(from, to);
+  if (overlap === "same") return "unchanged";
+  if (APPEND_ONLY_KINDS.has(opts.kind)) {
+    if (overlap === "incoming-is-prefix") return "kept";
+    if (overlap === "diverged" && statSync(to).mtimeMs >= opts.shippedMtimeMs) {
+      const aside = `${to}.prima-${opts.epoch}`;
+      if (!existsSync(aside)) copyPrivate(from, aside, root, opts.tightenFolders);
+      return "kept";
+    }
+  }
+  setAsideIfPresent(to, opts.epoch);
+  copyPrivate(from, to, root, opts.tightenFolders);
+  return "placed";
 }
 
 /** Renames a path aside once: a boot that runs again after a crash never overwrites the first copy set aside. */
@@ -423,8 +559,11 @@ export interface PendingChangeInputs {
  *    and transcripts land where they belong, and `primary-state.json` names
  *    this computer at the new epoch (the file wins over the DB at boot).
  *  - "set-aside": this server handed the primary over. Its DB and the state
- *    entries that moved are renamed aside, so it starts on an empty DB as a
- *    secondary and never writes into the data it gave away.
+ *    entries that moved are renamed aside, so it starts on a service DB under
+ *    another name as a secondary and never writes into the data it gave away.
+ *    No file exists at the old DB path from then on: Litestream or any other
+ *    replica of that path has nothing new to publish, and a restore "from the
+ *    latest" still returns the data that was handed over.
  */
 export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restored" | "set-aside" | null {
   const now = inputs.now ?? (() => new Date().toISOString());
@@ -444,28 +583,43 @@ export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restore
     const aside = `${inputs.dbPath}.prima-${epoch}`;
     if (existsSync(stagedDb)) {
       setDatabaseAside(inputs.dbPath, epoch);
+      // The service DB of an earlier hand-over goes with it: this server is the primary again.
+      setDatabaseAside(join(dirname(inputs.dbPath), RETIRED_DB_NAME), epoch);
       renameSync(stagedDb, inputs.dbPath);
     }
     chmodSync(inputs.dbPath, SECRET_FILE_MODE);
     let transcripts = 0;
-    const roots = { state: inputs.stateDir, secrets: inputs.secretsDir, transcripts: inputs.projectsDir };
+    let attachments = 0;
+    const dataDir = dirname(inputs.dbPath);
+    const attachmentDirs = { stateDir: inputs.stateDir, appDataDir: inputs.appDataDir, dataDir };
+    const roots: Record<Exclude<BundleTarget["kind"], "db">, string> = {
+      state: inputs.stateDir, secrets: inputs.secretsDir, transcripts: inputs.projectsDir,
+      media: ATTACHMENT_ROOTS.media.dir(attachmentDirs), uploads: ATTACHMENT_ROOTS.uploads.dir(attachmentDirs),
+      views: ATTACHMENT_ROOTS.views.dir(attachmentDirs), "kept-transcripts": ATTACHMENT_ROOTS["kept-transcripts"].dir(attachmentDirs),
+    };
     for (const f of manifest.files) {
       const target = bundleTarget(f.name)!;
       if (target.kind === "db") continue;
       const from = stagedPath(inputs.stateDir, f.name);
       const to = join(roots[target.kind], ...target.path);
       if (target.kind === "transcripts") transcripts++;
-      // A transcript this computer already had is kept too, next to the one that replaces it.
-      setAsideIfPresent(to, epoch);
+      const isAttachment = target.kind in ATTACHMENT_ROOTS;
+      if (isAttachment) {
+        // A link inside the folder that points out of it: the file stays staged and is dropped with the rest.
+        if (escapesRoot(to, roots[target.kind])) { log(`[primary] ${f.name} not restored: it would be written through a symbolic link`); continue; }
+        attachments++;
+      }
       if (target.kind === "secrets") ensurePrivateDir(inputs.secretsDir);
-      copyPrivate(from, to, roots[target.kind], target.kind === "state");
+      placeShipped(from, to, roots[target.kind], {
+        kind: target.kind, epoch, shippedMtimeMs: f.mtimeMs ?? statSync(from).mtimeMs, tightenFolders: target.kind === "state",
+      });
     }
     writeFileAtomic(join(inputs.appDataDir, PRIMARY_STATE_FILE), JSON.stringify({
       primaryMachineId: manifest.toMachineId, epoch, since: now(),
     }));
     rmSync(join(inputs.appDataDir, RETIRED_FILE), { force: true });
     rmSync(incoming, { recursive: true, force: true });
-    log(`[primary] restored the primary from ${manifest.fromMachineId} at epoch ${epoch}: ${JSON.stringify(manifest.counts)}, ${transcripts} transcript files; the previous DB is ${aside}`);
+    log(`[primary] restored the primary from ${manifest.fromMachineId} at epoch ${epoch}: ${JSON.stringify(manifest.counts)}, ${transcripts} transcript files, ${attachments} attachment and view files; the previous DB is ${aside}`);
     return "restored";
   }
 

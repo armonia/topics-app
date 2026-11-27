@@ -660,6 +660,10 @@ export interface TaskDispatcher {
    * turn streams through /api/chat, so its session is also a stream key).
    */
   busyTurns(): Array<{ taskId: string; sessionKey: string }>;
+  /** The card runs riding on one node (`busyTurns` leaves them out): what a switch to that node waits for. */
+  nodeRunsOn(machineId: string): Array<{ taskId: string; sessionKey: string }>;
+  /** Cancel that node run and put its card back in the queue with the note; `node_run_id` is cleared. */
+  parkNodeRun(taskId: string, note: string): Promise<boolean | null>;
   /**
    * A planned restart is on its way: from now until the process is replaced,
    * start NO new turn. Queue picks, slot wake-ups and resumes all park where

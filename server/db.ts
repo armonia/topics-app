@@ -3,10 +3,22 @@ import { readFileSync, readdirSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import type { EmbeddedMigration } from "./db/migrations-embedded";
 import { MIGRATION_STEPS } from "./db/migration-steps";
-import { resolveDataDir } from "./lib/data-dir";
+import { LIVE_DB_NAME, resolveDataDir, RETIRED_DB_NAME } from "./lib/data-dir";
 import { instrumentSlowStatements } from "./lib/db-slow-log";
 
 let _db: Database | null = null;
+
+let retiredDatabaseFile = false;
+
+/** Before `initDatabase` (the retired marker is read at boot): which file this server opens. */
+export function selectRetiredDatabaseFile(on: boolean): void {
+  retiredDatabaseFile = on;
+}
+
+/** The DB file this process opens, or would open, under a data folder. */
+export function databaseFilePath(dataDir: string): string {
+  return join(dataDir, retiredDatabaseFile ? RETIRED_DB_NAME : LIVE_DB_NAME);
+}
 
 /**
  * Initialize SQLite database with WAL mode and run pending migrations.
@@ -20,7 +32,7 @@ export function initDatabase(baseDir: string, dataRoot: string = baseDir): Datab
   const dataDir = resolveDataDir(dataRoot);
   mkdirSync(dataDir, { recursive: true });
 
-  const dbPath = join(dataDir, "topics.db");
+  const dbPath = databaseFilePath(dataDir);
   const isNew = !existsSync(dbPath);
 
   const db = new Database(dbPath);
@@ -105,6 +117,22 @@ export function applyFencedReadOnly(): void {
 /** A write refused by the fence: what the process-level handlers absorb instead of crashing on it. */
 export function isFencedWriteError(err: unknown): boolean {
   return fencedReadOnly && (err as { code?: unknown } | null)?.code === "SQLITE_READONLY";
+}
+
+/**
+ * A write that is only bookkeeping around a request (a device's `last_seen_at`,
+ * a credential learned as a node's): under the fence it is skipped, never
+ * raised. The fence refuses the real writes itself, with `primary_moved`; a
+ * bookkeeping write that threw before the front door answered turned that
+ * answer into a 500 for every request of the fenced server. Any other error
+ * still propagates.
+ */
+export function bestEffortWrite(write: () => void): void {
+  try {
+    write();
+  } catch (err) {
+    if (!isFencedWriteError(err)) throw err;
+  }
 }
 
 /**

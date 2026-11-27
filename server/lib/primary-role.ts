@@ -25,10 +25,18 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Database } from "bun:sqlite";
 import { writeFileAtomic } from "./atomic-write";
+import { bestEffortWrite } from "../db";
 
 export const PRIMARY_EPOCH_HEADER = "x-topics-primary-epoch";
 /** Sent with a pairing request: the machine id of the server asking to coordinate this one. */
 export const PAIRING_MACHINE_HEADER = "x-topics-machine-id";
+/**
+ * Sent with the epoch: the machine id of the primary that declares it. After a
+ * switch the new primary talks to the nodes with the tokens its predecessor
+ * paired, so the channel names the OLD machine; the id has to travel with the
+ * epoch or every node adopts the new epoch under the wrong primary.
+ */
+export const PRIMARY_MACHINE_HEADER = "x-topics-primary-machine";
 export const STALE_EPOCH_CODE = "stale_primary_epoch";
 
 export interface PrimaryState {
@@ -68,7 +76,8 @@ export interface PrimaryRole {
   /**
    * Adopt the higher epoch a request declares. `caller` is the identity the
    * access gate resolved: only the channel's device moves the epoch, and the
-   * primary it names is the channel's machine. Loopback, other devices and
+   * primary it names is the machine the request declares next to the epoch
+   * (the channel's machine when it declares none). Loopback, other devices and
    * anonymous callers change nothing. Every adoption writes a `[primary]` log
    * line. Returns true when adopted.
    */
@@ -77,7 +86,7 @@ export interface PrimaryRole {
   channel(): PrimaryChannel | null;
   /** Record the primary that just paired this server (called by the pairing approval). */
   recordChannel(next: PairingClaim): void;
-  /** Headers an outgoing call carries: the epoch, only while this server is the chosen primary. */
+  /** Headers an outgoing call carries: the epoch and this machine id, only while this server is the chosen primary. */
   outgoingHeaders(): Record<string, string>;
   /**
    * Headers a pairing request carries, only while this server is the chosen
@@ -130,6 +139,12 @@ function writeDb(db: Database, s: PrimaryState): void {
   ).run(s.primaryMachineId, s.epoch, s.since);
 }
 
+/** The primary machine id a request declares next to its epoch, or null when absent or implausible. */
+function declaredMachine(req: Request): string | null {
+  const raw = req.headers.get(PRIMARY_MACHINE_HEADER)?.trim();
+  return raw && raw.length <= 128 ? raw : null;
+}
+
 /** The epoch a request declares, or null when the header is absent, empty or not a whole number. */
 function declaredEpoch(req: Request): number | null {
   const raw = req.headers.get(PRIMARY_EPOCH_HEADER)?.trim();
@@ -152,7 +167,9 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
     mkdirSync(dirname(deps.stateFile), { recursive: true });
     // File first: if the DB write fails the file already holds the newer epoch and boot repairs the DB.
     writeFileAtomic(deps.stateFile, JSON.stringify(s));
-    writeDb(deps.db, s);
+    // Under the primary switch fence the DB is read-only on purpose, and the handing-over server adopts the
+    // new primary after the fence is up: the file above is the record, the DB copy is skipped, not an error.
+    bestEffortWrite(() => writeDb(deps.db, s));
   };
 
   const log = deps.log ?? ((line: string) => console.warn(line));
@@ -201,7 +218,8 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
       if (presented === null || presented <= current.epoch) return false;
       const ch = readChannel(deps.db);
       if (!ch || !caller?.deviceId || caller.deviceId !== ch.deviceId) return false;
-      const id = ch.machineId;
+      // The id travels with the epoch: after a switch the channel still names the machine that paired the token.
+      const id = declaredMachine(req) ?? ch.machineId;
       try {
         const from = current.epoch;
         role.adopt({ primaryMachineId: id, epoch: presented });
@@ -239,7 +257,7 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
     },
     // A server that is not the chosen primary sends nothing: its node would record the wrong machine.
     outgoingHeaders: (): Record<string, string> => (current.epoch > 0 && current.primaryMachineId === localMachineId()
-      ? { [PRIMARY_EPOCH_HEADER]: String(current.epoch) }
+      ? { [PRIMARY_EPOCH_HEADER]: String(current.epoch), [PRIMARY_MACHINE_HEADER]: localMachineId() }
       : {}),
     // Same criterion as `outgoingHeaders`, minus the epoch>0 guard: a virgin
     // installation (no primary chosen yet) is its own primary and must still be

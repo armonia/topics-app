@@ -313,6 +313,15 @@ export interface RemoteNodeLane {
   /** Cancel one confined remote run without touching another slot. */
   /** null = not remote, false = remote cancellation still unconfirmed, true = stopped. */
   cancelTask(taskId: string): Promise<boolean | null>;
+  /** The runs in flight on one node: what a primary switch to that node has to wait for. */
+  runsOn(machineId: string): Array<{ taskId: string; sessionKey: string }>;
+  /**
+   * Stop one remote run for good and put its card back in the queue with the note:
+   * the run is cancelled on the node (best effort, the node is about to restart
+   * anyway) and `node_run_id` is cleared, so no card stays tied to a run that is gone.
+   * null = not a remote slot.
+   */
+  parkRun(taskId: string, note: string): Promise<boolean | null>;
 }
 
 export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
@@ -1717,5 +1726,33 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     return true;
   }
 
-  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask };
+  function runsOn(machineId: string): Array<{ taskId: string; sessionKey: string }> {
+    return [...inFlight.entries()]
+      .filter(([, slot]) => slot.node?.machineId === machineId)
+      .map(([taskId, slot]) => ({ taskId, sessionKey: slot.sessionKey }));
+  }
+
+  async function parkRun(taskId: string, note: string): Promise<boolean | null> {
+    const node = inFlight.get(taskId)?.node;
+    if (!node) return null;
+    const client = host.client;
+    if (client) {
+      try {
+        await client.cancelRun({ baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation });
+      } catch (err) { log(`node: run ${node.runId} of card ${taskId} was not cancelled while parking it`, err); }
+    }
+    inFlight.delete(taskId);
+    // The id goes with the run: the card must never point at a run that no longer exists.
+    lastNodeRun.delete(taskId);
+    try {
+      svc.claimInterruption({ taskId, note });
+      releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true });
+      return true;
+    } catch (err) {
+      log(`node: card ${taskId} was not put back in the queue`, err);
+      return false;
+    }
+  }
+
+  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask, runsOn, parkRun };
 }

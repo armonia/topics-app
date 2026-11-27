@@ -3,6 +3,7 @@
  * delegated node may reach, and the refusal that is sent back. Returns a Response to refuse, undefined to let the request on.
  */
 import { readState } from "../services/daemon-state";
+import { bestEffortWrite } from "../db";
 import { evaluateIdentity, isIdentityExemptPath, readSessionCookie } from "../lib/device-auth";
 import { isDelegatedNodeAllowedRequest, isGuestAllowedPath, isGuestAllowedMethod } from "../lib/grants";
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "../lib/grants-query";
@@ -77,7 +78,9 @@ export function createAccessGate(scope: Pick<AfterHttp, "corsAllowOrigin" | "ctx
             // sorgente di I/O. Un'ora di granularita' basta a dire «visto
             // l'ultima volta…».
             if (r.ok && r.as === "device" && device && (Date.now() - (device.lastSeenAt ?? 0)) > 3_600_000) {
-              ctx.db.query("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(Date.now(), device.id);
+              // Skipped under the primary switch fence (`bestEffortWrite`): the DB is read-only there and the
+              // front door must still answer `primary_moved`.
+              bestEffortWrite(() => { ctx.db.query("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(Date.now(), device.id); });
             }
             if (r.ok) {
               // I PRINCIPALI di questo dispositivo: sé stesso, la sua persona,
@@ -109,7 +112,7 @@ export function createAccessGate(scope: Pick<AfterHttp, "corsAllowOrigin" | "ctx
               // A machine credential paired before the node scope existed is marked the first
               // time it calls the run routes as a Topics server (`shouldLearnNodeDevice`).
               if (io && !io.node && device && shouldLearnNodeDevice(pathname, req.headers.get("user-agent"))) {
-                markNodeDevice(ctx.db, device.id, null, "learned");
+                bestEffortWrite(() => markNodeDevice(ctx.db, device.id, null, "learned"));
                 io.node = true;
                 console.log(`[auth] device ${device.id} called the node routes as a Topics server: it is a node credential from now on`);
               }

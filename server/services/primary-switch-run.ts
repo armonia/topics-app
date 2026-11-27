@@ -26,10 +26,11 @@ import { rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   type BundleSource, type RetiredState, type RowCounts, type SwitchManifest,
-  collectStateFiles, collectTranscripts, countRows, DB_NAME, OUTGOING_DIR, sameCounts, sha256File,
+  collectAttachmentFiles, collectStateFiles, collectTranscripts, countRows, DB_NAME, OUTGOING_DIR, sameCounts, sha256File,
   RETIRED_FILE, snapshotDatabase, writeRetired,
 } from "../lib/primary-switch";
 import type { PrimaryRole } from "../lib/primary-role";
+import { resolveDataDir } from "../lib/data-dir";
 
 /** The target, as the machines table knows it. */
 export interface SwitchTarget { id: string; hostname: string; name: string }
@@ -50,6 +51,8 @@ export interface PrimarySwitchDeps {
   secretsDir: string;
   appDataDir: string;
   projectsDir: string;
+  /** The data folder inside the state root (views, kept transcripts). Defaults to `resolveDataDir(stateDir)`. */
+  dataDir?: string;
   role: Pick<PrimaryRole, "isPrimary" | "epoch" | "adopt">;
   localMachineId: string;
   target: SwitchTarget;
@@ -178,13 +181,17 @@ export async function runPrimarySwitch(deps: PrimarySwitchDeps): Promise<SwitchR
 
     step = "bundle";
     const transcripts = collectTranscripts(deps.db, deps.projectsDir);
-    const sources: BundleSource[] = [{ name: DB_NAME, source: dbCopy }, ...collectStateFiles(deps.stateDir, deps.secretsDir), ...transcripts];
+    const attachments = collectAttachmentFiles(
+      { stateDir: deps.stateDir, appDataDir: deps.appDataDir, dataDir: deps.dataDir ?? resolveDataDir(deps.stateDir) },
+      transcripts,
+    );
+    const sources: BundleSource[] = [{ name: DB_NAME, source: dbCopy }, ...collectStateFiles(deps.stateDir, deps.secretsDir), ...transcripts, ...attachments];
     const files: SwitchManifest["files"] = [];
     let bytes = 0;
     for (const s of sources) {
-      const size = statSync(s.source).size;
+      const { size, mtimeMs } = statSync(s.source);
       bytes += size;
-      files.push({ name: s.name, size, sha256: await sha256File(s.source) });
+      files.push({ name: s.name, size, sha256: await sha256File(s.source), mtimeMs });
     }
     const manifest: SwitchManifest = {
       version: 1, epoch, toMachineId: target.id, toHostname: target.hostname,
