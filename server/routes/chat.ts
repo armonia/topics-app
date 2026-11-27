@@ -834,8 +834,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       turn.isWoken = isWoken;
       const adottaTurnoVivo = isReattach || isWoken;
       turn.adottaTurnoVivo = adottaTurnoVivo;
-      // Typed by a person, not produced by the machine (goal nudge, turn-end hook, dispatch, wake, resume).
-      const sentByPerson = !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.hookNudge && !body.processExit && !body.subagentResults && !body.cardOutcome && !resumeAttempt;
+      // The machine continuing work the chat already started: a goal or
+      // turn-end hook nudge, a wake (a command's end, sub-agent results, a
+      // card's outcome), a resume. Such a message brings no request of its
+      // own, so the native engine keeps an agent's compaction ceiling out of
+      // it (CHAT-COMPACT-06). A dispatch is not one: jarvis-channels sends a
+      // person's Discord message as `dispatched`.
+      const continuation = !!(body.goalNudge || body.hookNudge || body.processExit || body.subagentResults || body.cardOutcome || resumeAttempt);
+      turn.continuation = continuation;
+      // Typed by a person, not produced by the machine (the continuations above, a dispatch, a wake).
+      const sentByPerson = !isWoken && !isReattach && !dispatched && !continuation;
       turn.sentByPerson = sentByPerson;
 
       if (!messages || !Array.isArray(messages) || (messages.length === 0 && !adottaTurnoVivo)) {

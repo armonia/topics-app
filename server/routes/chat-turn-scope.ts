@@ -149,6 +149,8 @@ export interface ChatTurnScope {
   SAVE_INTERVAL: number;
   saveSingleTopic: (topic: Topic) => void;
   sentByPerson: boolean;
+  /** The turn only continues work already started (a nudge, a wake, a resume): see `chat.ts`. */
+  continuation: boolean;
   sentEpoch: number | undefined;
   sessionKey: Awaited<ReturnType<AppContext["readJSON"]>>;
   settleTrackedTool: (toolCallId: string) => void;
