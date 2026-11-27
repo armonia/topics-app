@@ -1,14 +1,91 @@
 [
   {
-    "version": "2.5.8",
+    "version": "2.5.10",
     "date": "2026-11-27",
     "sections": {
       "new": [],
       "fixes": [
         {
+          "it": "block a manual land while the bar is still running",
+          "en": "",
+          "scope": "land",
+          "breaking": false
+        },
+        {
+          "it": "a branch origin is only ahead on is already there",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "originContains fetches without tags, like fetchRemoteBase",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.5.9",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a template's chunks end at its backtick, not 400 bytes later",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "templateChunks back inside ui-language-scan.ts's 800-line budget",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "DESIGN.md: round 3 di tab e sidebar approvato (27/11)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.8",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [
+        {
+          "it": "Windows node scripts move into deploy/windows-node, single node-tools list, no personal paths",
+          "en": "",
+          "scope": "deploy",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "read the clock once per render in the load gauge",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
           "it": "close the review's 5 blocking gaps on archive/revoke/dedupe",
           "en": "",
           "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "close a card whose delivery already reached main",
+          "en": "",
+          "scope": "land",
           "breaking": false
         }
       ],
@@ -31,7 +108,18 @@
           "breaking": false
         },
         {
+          "it": "pin the patch/minor/major case to a 0.x version",
+          "en": "",
+          "scope": "bump",
+          "breaking": false
+        },
+        {
           "it": "Uscita in due tempi anche per le righe che non sono treeitem, semafori solo dalla finestra principale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del bump non presume che la versione di partenza sia diversa",
           "en": "",
           "scope": null
         },
@@ -39,6 +127,12 @@
           "it": "CI della PR: tetto del bundle sulla misura, test di bump senza la bomba del 2.5.7",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "drop the packages.microsoft.com apt source before installing Playwright",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -65,6 +159,17 @@
       "perf": [],
       "internal": [
         {
+          "it": "bloat baseline raises only tasks-land.ts, the one file the scheduled review pushes over its ceiling",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "Evict idle hidden browser panes beyond the 2 most recent after 10 min, swap or not",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "aggiorna durate shard dal nightly del 2026-11-26 [skip ci]",
           "en": "",
           "scope": "e2e",
@@ -77,7 +182,17 @@
           "breaking": false
         },
         {
+          "it": "Tetto di spesa: la striscia resta sotto i 768 px; GAUGE-10 con istante relativo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Tab di lato: un passo sui quattro lati, isole che chiudono la colonna, riga archiviata che esce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board settings: backlog triage row gets its icon like the rows above",
           "en": "",
           "scope": null
         }
@@ -93,7 +208,33 @@
       "perf": [],
       "internal": [
         {
+          "it": "scheduled review tests declare the requirement they cover; bloat baseline records the land growth",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
           "it": "ci-changes test: teach the evaluator needs.prepare-e2e.outputs.shards (PR value and none)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "G5 conta solo cio' che Topics produce; backup e db-backups tengono le ultime N copie (TOPICS_BACKUP_KEEP)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La potatura dei backup tocca solo le copie automatiche di db-backups",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Disk budget: ogni cartella nel rapporto con tetti di default e crescita al giorno; potatura db-backups per data nel nome, verso il cestino",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "backup-retention test: neutral name for the named-copy fixture",
           "en": "",
           "scope": null
         },
@@ -101,6 +242,17 @@
           "it": "Bloat baseline: task-dispatcher-overflow.test.ts at 1715 after two cards land together",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Backlog triage test: declares KANBAN-123 and runs git with the isolated env",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "give the full-repo baseline check a 120s timeout",
+          "en": "",
+          "scope": "bloat",
+          "breaking": false
         }
       ]
     }
@@ -113,6 +265,12 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "la nota vocale si ferma solo dopo il primo secondo di registrazione",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
         {
           "it": "the owner approved the title tab, the row grammar and the column header",
           "en": "",
@@ -215,6 +373,12 @@
     "sections": {
       "new": [
         {
+          "it": "scheduled review reuses the land verdict, judges sense, isolated test env",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
           "it": "a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land",
           "en": "",
           "scope": "board",
@@ -222,6 +386,12 @@
         },
         {
           "it": "a request that repeats an open card is absorbed by it instead of opening a twin",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "scheduled review reads one nonce-bound verdict, no tools, bounded retries, board-set models",
           "en": "",
           "scope": "board",
           "breaking": false
@@ -246,6 +416,24 @@
         }
       ],
       "fixes": [
+        {
+          "it": "check mode compares the baseline with origin/main; drop duplicate entry, total 153",
+          "en": "",
+          "scope": "bloat",
+          "breaking": false
+        },
+        {
+          "it": "scheduled review gate in the CI phase, fetch before 'already on main', closes on proof, keeps the agent's question until answered",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "drop a stray backspace from the merge-tree conflict regex",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
         {
           "it": "the sidebar's buttons are tabs, and every tab lights under the pointer",
           "en": "",
@@ -279,6 +467,11 @@
           "scope": null
         },
         {
+          "it": "Backlog triage: asks with the system signature, keeps subtasks of live parents, no done without a second model",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Land via PR: auto-merge off on every failed exit, re-read at the deadline, probe failure is a refusal, moved base reported, gh missing falls back to the local merge",
           "en": "",
           "scope": null
@@ -293,6 +486,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Backlog triage: system actor for closes, asks and moves through the service, base from origin like the land, subtasks keep their parent",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Land via PR: a GitHub refusal falls back to the local merge, running checks release the queue, settle wait cut to 2 min",
@@ -405,6 +603,11 @@
           "en": "",
           "scope": "ui",
           "breaking": false
+        },
+        {
+          "it": "Backlog triage: sorts subtasks (detach, then todo) and cards whose blocker is done",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -413,7 +616,14 @@
     "version": "2.4.110",
     "date": "2026-11-25",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "it": "scheduled review of technical cards in review (rule off by default)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        }
+      ],
       "fixes": [
         {
           "it": "a pop-out window is dressed on the main thread, not on a tokio worker",
@@ -546,7 +756,17 @@
           "breaking": false
         },
         {
+          "it": "Backlog triage: a per-board twice-daily sort of the backlog, off by default",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Write in English the two comments main brought in Italian",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Regenerate the migrations manifest",
           "en": "",
           "scope": null
         },
@@ -786,6 +1006,11 @@
           "scope": null
         },
         {
+          "it": "bloat baseline: record chat-handler as an exception after realign",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Split server/services/tasks/shared.ts into six factory modules behind the same barrel",
           "en": "",
           "scope": null
@@ -962,6 +1187,29 @@
           "it": "Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "bloat: the baseline only goes down; new or bigger entries need a written exception with expiry, total of offenders capped",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "bloat ratchet test: declare coverage and isolate git env",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "check-bloat tests: fixtures carry the exceptions the ratchet now requires",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "bloat: fix type guard, declare BLOAT-RATCHET-01 in the spec",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Claude CLI usage-limit sentence: read as a rate-limit and hold until the declared reset, so the resume sweep resends the turn by itself",
@@ -1494,6 +1742,11 @@
         },
         {
           "it": "Share the CLI binary resolver across claude, codex, kimi and muse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tetto di spesa: lo dice solo il gauge di In progress",
           "en": "",
           "scope": null
         },
