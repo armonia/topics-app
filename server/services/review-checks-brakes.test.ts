@@ -24,6 +24,7 @@ import {
   killCheckTree,
   memoryWaiter,
   releaseDecision,
+  LOAD_CEILING_PER_CORE,
   stopReviewChecks,
   swapInterruptedDelivery,
   type MemoryFloor,
@@ -45,7 +46,7 @@ const SUSTAINED: SwapVerdict = { sustained: true, pagesReadBackPerS: 33.6, debtG
 const AT_CEILING: SwapVerdict = { sustained: true, pagesReadBackPerS: 167.7, debtGBPerMin: -1.9, swapPct: 0.9277, coveredMs: 60_000 };
 const fullWindow = (gb: number): HeldMemory => ({ measurable: true, latestGB: gb, heldGB: gb, coveredMs: 120_000 });
 /** The round's two clocks, one per budget: a fresh round has spent neither. */
-const NOTHING_SPENT: Record<WaitBudget, number> = { calmFloor: 0, other: 0 };
+const NOTHING_SPENT: Record<WaitBudget, number> = { calmFloor: 0, load: 0, other: 0 };
 const spent = (some: Partial<Record<WaitBudget, number>>): Record<WaitBudget, number> => ({ ...NOTHING_SPENT, ...some });
 
 /** Both sides of a timing case stretched by the same factor: the ratio is the claim. */
@@ -227,7 +228,7 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     // number written here instead of a call would be read ONCE at boot, so
     // moving the field in the panel would change nothing until the next restart
     // and nothing would say so.
-    expect(server).toMatch(/checksMemoryFloor:\s*\{\s*held:\s*\(\)\s*=>\s*memSignal\.held\(\),\s*swap:\s*\(\)\s*=>\s*memSignal\.swap\(\),\s*floorGB:\s*\(\)\s*=>\s*dispatcherSvc\.getChecksMemFloorGB\(\)\s*\}/);
+    expect(server).toMatch(/checksMemoryFloor:\s*\{\s*held:\s*\(\)\s*=>\s*memSignal\.held\(\),\s*swap:\s*\(\)\s*=>\s*memSignal\.swap\(\),\s*floorGB:\s*\(\)\s*=>\s*dispatcherSvc\.getChecksMemFloorGB\(\),\s*loadPerCore:\s*\(\)\s*=>[^}]*loadavg\(\)[^}]*\}/);
     // And it does not go back to a constant by another name.
     expect(server).not.toMatch(/floorGB:\s*DISPATCH_MEM_FLOOR/);
     // The brake reads the verdict of the sample just taken on the same beat.
@@ -289,6 +290,27 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     return (clock.now() - from) / 1000;
   }
 
+  test("a load over the ceiling holds a new command, ahead of the floor; under it, or unmeasured, nothing changes", () => {
+    const base = { floorGB: 6, otherRoundRelease: null, now: 0, spent: NOTHING_SPENT, maxWaitMs: 30 * 60_000, swap: CALM, held: fullWindow(11) };
+    expect(releaseDecision({ ...base, loadPerCore: LOAD_CEILING_PER_CORE + 0.1 }).wait).toBe("load");
+    expect(releaseDecision({ ...base, loadPerCore: LOAD_CEILING_PER_CORE }).release).toBe(true);
+    expect(releaseDecision({ ...base }).release).toBe(true);
+    // The long budget applies: a load nobody here causes does not hold a round for ever.
+    const spentLoad = spent({ load: 30 * 60_000 });
+    expect(releaseDecision({ ...base, spent: spentLoad, loadPerCore: 8 }))
+      .toEqual({ release: true, wait: null, anyway: true, heldBy: "load", budgetMs: 30 * 60_000, spentMs: 30 * 60_000 });
+    // The wait spent on something else is not the load's clock.
+    expect(releaseDecision({ ...base, spent: spent({ other: 30 * 60_000 }), loadPerCore: 8 }).wait).toBe("load");
+  });
+
+  test("an exhausted load clock releases only the load: sustained swap and the spacing keep holding", () => {
+    const base = { floorGB: 6, now: 1000, spent: spent({ load: 30 * 60_000 }), maxWaitMs: 30 * 60_000, held: fullWindow(11), loadPerCore: 2.5, otherRoundRelease: null };
+    expect(releaseDecision({ ...base, swap: SUSTAINED }))
+      .toMatchObject({ release: false, wait: "swap" });
+    expect(releaseDecision({ ...base, swap: CALM, otherRoundRelease: { at: 0, running: true } }))
+      .toMatchObject({ release: false, wait: "spacing" });
+  });
+
   test("the floor holds calm AND swapping, and it is the BUDGET that changes: 5.9 waits on room either way, 11 sustained waits on swap, an empty window waits, off macOS nothing waits", () => {
     const base = { floorGB: 6, otherRoundRelease: null, now: 0, spent: NOTHING_SPENT, maxWaitMs: 30 * 60_000 };
     // The reading that held every round of 16-17/09 and never came back: 42 of
@@ -332,7 +354,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     expect(turnedCalm.release).toBe(false);
     expect(turnedCalm).toEqual({ release: false, wait: "room", anyway: false, heldBy: "room", budgetMs: 3 * 60_000, spentMs: 0 });
     // Three of those minutes under the floor, and it goes.
-    expect(releaseDecision({ ...under, swap: CALM, spent: { calmFloor: 3 * 60_000, other: 10 * 60_000 } }).release).toBe(true);
+    expect(releaseDecision({ ...under, swap: CALM, spent: spent({ calmFloor: 3 * 60_000, other: 10 * 60_000 }) }).release).toBe(true);
     // The other way round too: a round that spent the calm valve does not carry
     // it over to the swap, which keeps its own thirty minutes.
     const thenSwapping = releaseDecision({ ...under, swap: SUSTAINED, spent: spent({ calmFloor: 3 * 60_000 }) });

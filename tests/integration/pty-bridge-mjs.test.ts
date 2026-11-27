@@ -39,9 +39,12 @@ interface Frame { type: string; id?: string; [k: string]: unknown }
 /** Whether a connect to the socket goes through. The probe is closed at once. */
 function accepts(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const s = net.connect(socketPath);
+    // Handlers first, connect after: an older Bun surfaces the refusal of a
+    // not-yet-bound socket as an uncaught error when it is raised inside connect().
+    const s = new net.Socket();
     s.once("connect", () => { s.destroy(); resolve(true); });
     s.once("error", () => resolve(false));
+    s.connect(socketPath);
   });
 }
 
