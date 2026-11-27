@@ -755,6 +755,17 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     sl.pop("behind_since", None)
 
 
+# Files copied to the permanent node before ci-runners.sh runs: the runners script and the CI governor.
+PERMANENT_FILES = ("ci-runners.sh", "ci-governor.py", "ci-governor.service")
+
+
+def push_permanent_files(ip, known):
+    pdir = os.path.join(HERE, "..", "permanent-node")
+    for f in PERMANENT_FILES:
+        subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+                        "-o", f"UserKnownHostsFile={known}", os.path.join(pdir, f), f"root@{ip}:/root/{f}"], check=True, timeout=120)
+
+
 def permanent_ci():
     """Runner della CI sul nodo permanente: token di registrazione e di rimozione da gh (valgono
     un'ora, mai su disco); quello di rimozione serve a un runner registrato con un altro nome."""
@@ -772,9 +783,7 @@ def permanent_ci():
         raise SystemExit("node-pool: gh non dà i token di registrazione e rimozione dei runner")
     known = known_file(ip)
     os.makedirs(os.path.dirname(known), exist_ok=True)
-    subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
-                    "-o", f"UserKnownHostsFile={known}", os.path.join(HERE, "..", "permanent-node", "ci-runners.sh"),
-                    f"root@{ip}:/root/ci-runners.sh"], check=True, timeout=120)
+    push_permanent_files(ip, known)
     r = ssh(ip, f"read -r REG_TOKEN; read -r REMOVE_TOKEN; export REG_TOKEN REMOVE_TOKEN; N={CI_RUNNERS} bash /root/ci-runners.sh",
             timeout=1800, inp=f"{tok}\n{rm_tok}\n")
     print(r.stdout.strip()[-500:], r.stderr.strip()[-1500:], sep="\n")

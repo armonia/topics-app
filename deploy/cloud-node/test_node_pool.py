@@ -123,6 +123,21 @@ class DrainIgnoresCardsWithoutATurn(unittest.TestCase):
     def test_running_card_counts(self): self.assertEqual(self.count("running"), 1)
 
 
+class PermanentNodeGetsTheGovernor(unittest.TestCase):
+    def test_all_three_files_are_copied(self):
+        calls = []
+        real = np.subprocess.run
+        np.subprocess.run = lambda cmd, **kw: calls.append(cmd)
+        try:
+            np.push_permanent_files("1.2.3.4", "/dev/null")
+        finally:
+            np.subprocess.run = real
+        dests = [c[-1] for c in calls]
+        for f in ("ci-runners.sh", "ci-governor.py", "ci-governor.service"):
+            self.assertIn(f"root@1.2.3.4:/root/{f}", dests)
+            self.assertTrue(os.path.exists(os.path.join(HERE, "..", "permanent-node", f)))
+
+
 class DeleteForgetsMachine(unittest.TestCase):
     """A deleted hourly server leaves no «Nodo cloud N» row behind; the permanent node keeps its own."""
     def setUp(self):
