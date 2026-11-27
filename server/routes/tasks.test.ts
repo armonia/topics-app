@@ -874,6 +874,29 @@ describe("board router (human, project-scoped)", () => {
     expect(pids).toContain("pY");
   });
 
+  test("POST move of a card that is only queued drops the queue entry and re-enters todo on the new board", async () => {
+    const calls: string[] = [];
+    const fake = { onEnterTodo: (p: string, id: string) => calls.push(`enter:${p}:${id}`), onLeaveTodo: (id: string) => calls.push(`leave:${id}`), resume: async () => {} } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake, {});
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "queued mover", status: "backlog" }))!.json();
+    db.prepare("UPDATE tasks SET status = 'todo', dispatch_state = 'queued' WHERE id = ?").run(t.id);
+    calls.length = 0;
+    const resp = (await call(r, "POST", `/api/boards/pX/tasks/${t.id}/move`, { toProjectId: "pY" }))!;
+    expect(resp.status).toBe(200);
+    const moved = await resp.json();
+    expect(moved.projectId).toBe("pY");
+    expect(moved.dispatchState).toBeNull();
+    expect(calls).toEqual([`leave:${t.id}`, `enter:pY:${t.id}`]);
+  });
+
+  test("POST move is refused while an attempt is live (starting/working)", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "busy mover", status: "backlog" }))!.json();
+    db.prepare("UPDATE tasks SET status = 'in_progress', dispatch_state = 'starting' WHERE id = ?").run(t.id);
+    const resp = (await call(router, "POST", `/api/boards/pX/tasks/${t.id}/move`, { toProjectId: "pY" }))!;
+    expect(resp.status).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(await resp.json())).toContain("live agent");
+  });
+
   test("POST stop parks the task (backlog, unbound) and aborts the turn — no auto-requeue", async () => {
     db.run("INSERT INTO topics (id) VALUES ('top-z')");
     const aborted: string[] = [];

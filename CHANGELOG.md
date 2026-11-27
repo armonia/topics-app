@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.22 — 2026-11-27
+
+### Sotto il cofano
+- **openspec** · archive tetto-contesto-agenti; CHAT-COMPACT-06 joins the chat spec
+
 ## 2.5.21 — 2026-11-27
 
 ### Correzioni
