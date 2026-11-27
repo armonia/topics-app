@@ -90,7 +90,7 @@ export async function ensureBranchOnOrigin(
  */
 async function originContains(repoPath: string, branch: string, run: GitRunner): Promise<boolean> {
   const tracking = `refs/remotes/origin/${branch}`;
-  const fetched = await run(repoPath, ["fetch", "--quiet", "origin", `+refs/heads/${branch}:${tracking}`]);
+  const fetched = await run(repoPath, ["fetch", "--quiet", "--no-tags", "origin", `+refs/heads/${branch}:${tracking}`]);
   if (fetched.code !== 0) return false;
   return (await run(repoPath, ["merge-base", "--is-ancestor", `refs/heads/${branch}`, tracking])).code === 0;
 }
