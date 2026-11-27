@@ -30,6 +30,13 @@ export const MAX_AUTO_BOUNCES = 3;
 export const RED_BOUNCE_NOTE = "Rimandata da sola all'agente: i check sono rossi";
 /** The scheduled review's own note: its send-backs are not about a red bar, but they count in the same rounds. */
 export const SCHEDULED_BOUNCE_NOTE = "Rimandata dal ripasso a orario";
+/** First words of the reply the scheduled review gives to an agent's own question (sent as is, no round used). */
+export const REVIEWER_ANSWER_NOTE = "Risposta del revisore alla tua domanda"; // allow-italian: the agent-facing wording is the data
+
+/** Is this `system` comment a send-back the agent must read (red bar, scheduled review, reviewer's answer)? */
+export function isSystemSendBack(content: string): boolean {
+  return content.startsWith(RED_BOUNCE_NOTE) || content.startsWith(SCHEDULED_BOUNCE_NOTE) || content.startsWith(REVIEWER_ANSWER_NOTE);
+}
 
 /**
  * First words of the note a card gets when main goes red AFTER its land (`tasks-ci-phase.ts`). The work is

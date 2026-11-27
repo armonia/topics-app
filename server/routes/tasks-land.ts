@@ -1,6 +1,7 @@
 /**
  * Landing a task on main: the queue, the auto lander, the land itself, deploy and publish.
  */
+import { REVIEWER_ANSWER_NOTE } from "../services/red-bounce";
 import { isAgentWorking } from "../../shared/board";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { landFallout } from "../services/task-automerge";
@@ -360,7 +361,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       turnIsLive: () => cardTurnIsLive(t),
       bounce: (c, why) => ciPhase.bounceWithReason(c.projectId, c.id, why, { as: "scheduled" }),
       // The question stays on the card until the send-back happened: the review decision clears it, a refusal leaves it with the person.
-      answer: (c, text) => ciPhase.bounceWithReason(c.projectId, c.id, `Risposta del revisore alla tua domanda: ${text}`, { as: "answer" }),
+      answer: (c, text) => ciPhase.bounceWithReason(c.projectId, c.id, `${REVIEWER_ANSWER_NOTE}: ${text}`, { as: "answer" }),
       close: (c, proof) => {
         const got = svc.get(c.id, { projectId: c.projectId });
         if (!got) return false;
