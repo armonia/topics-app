@@ -68,10 +68,19 @@ const TOPIC_COUNT = 16;
  *  just loaded, etc.) - the comparison that matters is lap 3 against lap 2,
  *  not the first against the last. */
 const LAPS = 3;
-/** Same grace window as `pane-residency-cap.spec.ts`: MIN_DWELL_MS (4000) +
- *  EVICT_DELAY_MS (1500) plus margin, so the eviction applies before the
- *  sample is taken. */
-const SETTLE_MS = 4000 + 1500 + 1500;
+/**
+ * The residency budget for light panes, the same number
+ * `pane-residency-cap.spec.ts` reads: the visible one plus the class budget.
+ * A lap mounts every topic it visits, so right after a lap the mounted shells
+ * are MORE than the cap and the eviction trims them once the dwell window
+ * (MIN_DWELL_MS 4000 + EVICT_DELAY_MS 1500) elapses. Waiting for the count to
+ * come back down is therefore the real condition this spec needs - the sample
+ * is only comparable between laps once the cap holds again - and it replaces
+ * the fixed sleep the convention forbids.
+ */
+const LIGHT_BUDGET = 12;
+/** How long the eviction may take to land before the wait is a failure. */
+const EVICTION_TIMEOUT_MS = 25000;
 
 /**
  * Tolerance per node/DELTA between two laps once the cap is reached. Not an
@@ -146,6 +155,19 @@ function shells(page: Page) {
   return page.locator("[data-pane-shell]");
 }
 
+/**
+ * Waits for the churn of a lap to be over: the mounted shells back within the
+ * cap, which is the state the two samples must share to be comparable.
+ */
+async function waitForEvictionToSettle(page: Page): Promise<void> {
+  await expect
+    .poll(() => shells(page).count(), {
+      timeout: EVICTION_TIMEOUT_MS,
+      message: `mounted shells must come back down to ${LIGHT_BUDGET + 1}`,
+    })
+    .toBeLessThanOrEqual(LIGHT_BUDGET + 1);
+}
+
 test.describe("Renderer growth bar", () => {
   test.describe.configure({ timeout: 180_000 });
 
@@ -204,12 +226,12 @@ test.describe("Renderer growth bar", () => {
     // First lap: brings residency to its steady state (cap reached, chat
     // history fetched). Its cost is not what is under test.
     await visitEveryTopic(page);
-    await page.waitForTimeout(SETTLE_MS);
+    await waitForEvictionToSettle(page);
 
     const samples: Sample[] = [await sample(page)];
     for (let lap = 1; lap < LAPS; lap++) {
       await visitEveryTopic(page);
-      await page.waitForTimeout(SETTLE_MS);
+      await waitForEvictionToSettle(page);
       samples.push(await sample(page));
     }
 

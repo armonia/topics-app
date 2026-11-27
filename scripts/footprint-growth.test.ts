@@ -1,3 +1,13 @@
+/**
+ * The verdict of the renderer footprint bar, on recorded series.
+ *
+ * @covers LEAK-02
+ *
+ * The bar itself (`bun run check:renderer-growth`) only runs on macOS, with the
+ * app open, over several minutes: these tests exist because the JUDGEMENT was
+ * split out as pure functions precisely so it could be red on demand. One case
+ * is the slope actually measured on the card (about 4 MB/min).
+ */
 import { describe, expect, it } from "bun:test";
 import {
   judgeGrowth,
