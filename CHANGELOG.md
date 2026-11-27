@@ -86,6 +86,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.5.5 — 2026-11-26
 
 ### Sotto il cofano
+- sibling-worktree merge is not live; tests assert landedNotLive/checkoutBranch/dirty-checkout
 - **e2e** · la nota vocale si ferma solo dopo il primo secondo di registrazione
 - **design** · the owner approved the title tab, the row grammar and the column header
 
@@ -290,6 +291,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Una corsa vecchia che il nodo non ha più non si scrive come errore
 - Un transcript troppo grande per cercarci un fork si dice una volta, non a ogni giro
 - Land refuses an unmeasured delivery on every path, not only the automatic one
+- merge main inside a sibling worktree that already has it open
 - Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13
 - declare BROWSER-LOGIN-01, move the login branch out of browser-bridge (card 2d18548c)
 - Drop unused imports from tasks/shared-constants.ts (lint red on main)
