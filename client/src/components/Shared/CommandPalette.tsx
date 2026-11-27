@@ -10,7 +10,7 @@ import { ClaudeIcon } from './ClaudeIcon';
 import { CodexIcon } from './CodexIcon';
 import { ProjectFavicon } from './ProjectFavicon';
 import { basename } from '../../lib/path-utils';
-import { getProjectLabel } from '../../lib/buildSidebarItems';
+import { familyLabelForPath } from '../../lib/boardProjectsStore';
 import type { Topic, SearchResult } from '../../types';
 import type { ClosedTabRecord } from '../../state/pane/adapters';
 import { searchApi } from '../../lib/api';
@@ -306,7 +306,7 @@ export function CommandPalette({
     ];
     return ordered.map(pp => ({
       id: `project-${pp}`,
-      label: getProjectLabel(pp),
+      label: familyLabelForPath(pp),
       description: getProjectDescription(pp),
       // Real project icon when the folder ships a favicon / web-manifest /
       // index.html <link rel=icon> (resolved by /api/projects/icon); folders
@@ -401,7 +401,7 @@ export function CommandPalette({
         // and pins them silently at the top of the list.
         const raw = new Date(topic.updatedAt || topic.createdAt).getTime();
         const ts = Number.isFinite(raw) ? raw : 0;
-        const projLabel = topic.projectPath ? getProjectLabel(topic.projectPath) : undefined;
+        const projLabel = topic.projectPath ? familyLabelForPath(topic.projectPath) : undefined;
         const descBits = [topic.archived ? 'chiuso' : undefined, projLabel].filter(Boolean);
         const description = descBits.length ? descBits.join(' · ') : undefined;
         return {

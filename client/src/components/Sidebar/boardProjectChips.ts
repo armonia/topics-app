@@ -33,6 +33,9 @@ import type { BoardProjectRef } from '../../lib/board';
 import type { BoardTask, TaskStatus } from '../../lib/board';
 import { resolveProjectRefs } from '../../lib/boardProjectsStore';
 import { STATUS_GLYPH_PX } from '../../lib/board';
+import { formatProjectFamilyLabel, projectFamilyLabel } from '../../../../shared/project-family';
+
+const EMPTY_PARENT: ReadonlyMap<string, string> = new Map();
 
 export interface BoardProjectChip {
   projectId: string;
@@ -57,6 +60,10 @@ export interface BoardProjectChip {
 export function boardProjectChips(
   byStatus: Record<TaskStatus, BoardTask[]> | undefined,
   index: BoardProjectRef[] | null,
+  // Merged (accorpa) child board id → parent board id: the chip's NAME (its
+  // tooltip, since the pill itself draws only the icon) says «Sito Armonia ·
+  // Nuvola» instead of just the child's own name.
+  parentOf: ReadonlyMap<string, string> = EMPTY_PARENT,
 ): BoardProjectChip[] {
   if (!byStatus) return [];
   const counts = new Map<string, number>();
@@ -66,8 +73,9 @@ export function boardProjectChips(
   }
   if (counts.size === 0) return [];
   const refs = resolveProjectRefs([...counts.keys()], index);
+  const nameOf = (id: string) => refs.find((r) => r.projectId === id)?.name ?? id;
   return refs
-    .map((r) => ({ projectId: r.projectId, name: r.name, path: r.path, n: counts.get(r.projectId) ?? 0 }))
+    .map((r) => ({ projectId: r.projectId, name: formatProjectFamilyLabel(projectFamilyLabel(r.projectId, parentOf, nameOf)), path: r.path, n: counts.get(r.projectId) ?? 0 }))
     .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
 }
 

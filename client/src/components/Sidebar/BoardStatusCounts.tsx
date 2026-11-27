@@ -6,7 +6,8 @@ import { STATUS_GLYPH_PX, STATUS_LABEL, type BoardTask, type TaskStatus } from '
 import { boardRowCounts } from '../../lib/boardTabCounts';
 import { useAttentionRows } from '../../state/attention';
 import { boardAttention } from '../../state/attentionRollups';
-import { useBoardProjects } from '../../lib/boardProjectsStore';
+import { useBoardFamilies, useBoardProjects } from '../../lib/boardProjectsStore';
+import { mergedParentMap } from '../../../../shared/project-family';
 import { useT } from '../../hooks/useT';
 import { estimatesByProject, summarizeRunning } from '../../../../shared/task-countdown';
 import { runningLine } from '../../lib/workLine';
@@ -179,7 +180,9 @@ function ProjectChip({ chip }: { chip: BoardProjectChip }) {
 export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, BoardTask[]> | undefined }) {
   const tr = useT();
   const index = useBoardProjects();
-  const tutti = useMemo(() => boardProjectChips(byStatus, index), [byStatus, index]);
+  const families = useBoardFamilies();
+  const parentOf = useMemo(() => mergedParentMap(families), [families]);
+  const tutti = useMemo(() => boardProjectChips(byStatus, index, parentOf), [byStatus, index, parentOf]);
   /**
    * SOLO CHI HA UN'ICONA arriva sulla riga.
    *

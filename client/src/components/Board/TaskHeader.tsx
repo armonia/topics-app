@@ -21,6 +21,8 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { showsStoppedChip } from './stoppedChip';
 import { DISPATCH_CHIP } from './constants';
 import { ProjectPickerBody } from './ProjectPicker';
+import { formatProjectFamilyLabel, type ProjectFamilyLabel } from '../../../../shared/project-family';
+import { ProjectFamilyLabelText } from './ProjectFamilyLabel';
 import type { RefObject, Dispatch, SetStateAction } from 'react';
 
 export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates, blockerChipRef, blockerMenuOpen, boardTasks, cancelKey, currentProject, doCreateProject, doMove, doOpenProject, editingTitle, initialTitle, moveBlocked, onOpenTask, openBlockerMenu, openProjMenu, pickBlocker, projBusy, projChipRef, projMenuOpen, projectLabel, projects, reopened, saveTitle, setBlockerMenuOpen, setEditingTitle, setProjMenuOpen, setTitleDraft, task, titleDraft, tr }: {
@@ -45,7 +47,7 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
   projBusy: boolean;
   projChipRef: RefObject<HTMLButtonElement | null>;
   projMenuOpen: boolean;
-  projectLabel: string;
+  projectLabel: ProjectFamilyLabel;
   projects: BoardProjectRef[] | null;
   reopened: { label: string; title: string; detail: string; } | null;
   saveTitle: () => Promise<void>;
@@ -81,7 +83,7 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
               onClick={openProjMenu}
               disabled={!task}
               data-testid="task-project-chip"
-              title={tr('board.task.projectChipTitle', { label: projectLabel })}
+              title={tr('board.task.projectChipTitle', { label: formatProjectFamilyLabel(projectLabel) })}
               // 24 tall with the mouse (`tap-expand-y`, 3.5px over a 4px gap),
               // a REAL 44 box under a finger: projected, the 44 covered the top
               // 10px of the title below, and a tap there opened «Move to»
@@ -89,7 +91,7 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
               className="tap-expand-y flex min-w-0 flex-1 items-center gap-1 text-mini text-app-text-secondary hover:text-app-text coarse:min-h-11"
             >
               <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
-              <span className="min-w-0 truncate font-medium">{projectLabel}</span>
+              <ProjectFamilyLabelText label={projectLabel} className="min-w-0 truncate font-medium" />
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
             </button>
             {reopened && (

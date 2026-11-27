@@ -44,7 +44,7 @@ import { Tooltip } from '../Shared/Tooltip';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { homeTilde } from '../../lib/homeTilde';
 import { isProjectlessId, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type BoardTask } from '../../lib/board';
-import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
+import { familyLabelForId, resolveProjectRefs, useBoardFamilies, useBoardProjects } from '../../lib/boardProjectsStore';
 import { countsSummary, projectTaskCounts } from '../../lib/projectTaskCounts';
 import { ProjectPickerBody } from './ProjectPicker';
 import { ProjectTaskCounts } from './atoms';
@@ -128,12 +128,22 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
     () => projectTaskCounts(tasks, (t) => (isProjectlessId(t.projectId) ? UNASSIGNED_PROJECT_ID : t.projectId)),
     [tasks],
   );
+  // Reactive only so this re-renders once the families answer lands; the
+  // label itself comes from `familyLabelForId`, which reads the same module
+  // state this hook subscribes to (the dependency below only re-triggers the
+  // memo, it is not read inside it).
+  const families = useBoardFamilies();
   const projectOptions = useMemo(() => {
-    const refs = resolveProjectRefs(taskProjectIds.filter((id) => !isProjectlessId(id)), projectIndex);
+    const refs = resolveProjectRefs(taskProjectIds.filter((id) => !isProjectlessId(id)), projectIndex)
+      // A project merged (accorpa) under another says both whose it is and
+      // which one it is here too: «Sito Armonia · Nuvola», not «Nuvola» alone
+      // as if it were a project of its own.
+      .map((r) => ({ ...r, name: familyLabelForId(r.projectId) }));
     return unassignedIds.length
       ? [{ projectId: UNASSIGNED_PROJECT_ID, name: tr('board.filter.noProject'), path: '' }, ...refs]
       : refs;
-  }, [taskProjectIds, unassignedIds, projectIndex, tr]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `families` is read via the module (familyLabelForId), not closed over; it still has to retrigger this memo.
+  }, [taskProjectIds, unassignedIds, projectIndex, tr, families]);
   const showProjects = mode === 'all' && projectOptions.length > 0;
 
   // The ids the «No project» row really stands for.

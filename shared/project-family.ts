@@ -111,6 +111,37 @@ export function mergedParentMap(links: readonly Pick<BoardFamilyLink, "projectId
   return map;
 }
 
+/**
+ * THE SINGLE LABEL for a project, in one place. A child merged (`accorpa`)
+ * into a live parent reads as the parent AND the child («Sito Armonia ·
+ * Nuvola»): the parent says which product it belongs to, the child still says
+ * where the agent actually works. Everyone else — a separated project, a
+ * top-level one, an unknown id — reads as just its own name.
+ *
+ * Pure: `nameOf` is the caller's own name resolver (the client reads its
+ * project index, the server reads `buildProjectNames`), so this holds no
+ * network state and works on both sides.
+ */
+export interface ProjectFamilyLabel {
+  /** The parent's name, only when the project is merged into one. */
+  parent: string | null;
+  child: string;
+}
+
+export function projectFamilyLabel(
+  projectId: string,
+  parentOf: ReadonlyMap<string, string>,
+  nameOf: (id: string) => string,
+): ProjectFamilyLabel {
+  const parentId = parentOf.get(projectId);
+  return parentId ? { parent: nameOf(parentId), child: nameOf(projectId) } : { parent: null, child: nameOf(projectId) };
+}
+
+/** `projectFamilyLabel`, flattened to the one-line text every non-visual surface needs. */
+export function formatProjectFamilyLabel(label: ProjectFamilyLabel): string {
+  return label.parent ? `${label.parent} · ${label.child}` : label.child;
+}
+
 export type ParentRefusal =
   | "unknown_project"
   | "unknown_parent"

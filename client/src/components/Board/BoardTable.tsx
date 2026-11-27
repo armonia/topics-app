@@ -9,6 +9,7 @@ import { ArrowDown, ArrowUp, GitBranch, GitPullRequest, MessageSquare, SquareKan
 import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { WorkflowColumn } from '../../../../shared/workflow';
 import { columnOfTask } from '../../../../shared/workflow';
+import { formatProjectFamilyLabel, projectFamilyLabel } from '../../../../shared/project-family';
 import { useT } from '../../hooks/useT';
 import { STATUS_LABEL, type BoardTask } from '../../lib/board';
 import { StatusIcon } from './atoms';
@@ -41,6 +42,8 @@ export interface BoardTableProps {
   onToggle: (path: string) => void;
   nameById: ReadonlyMap<string, string>;
   pathById: ReadonlyMap<string, string>;
+  /** Child board id → parent board id, merged (accorpa) links only — the row's own project cell says «Sito Armonia · Nuvola», the group header (already the parent) is untouched. */
+  parentOf: ReadonlyMap<string, string>;
   labelOf: (level: GroupKey, key: string) => string;
   draftAbove?: DraftPreview;
   /** The global board shows the project of each card. */
@@ -54,7 +57,7 @@ function columnLabel(column: WorkflowColumn): string {
   return column.id === column.base ? STATUS_LABEL[column.base] : column.label;
 }
 
-export function BoardTable({ tasks, columns, groups, levels, collapsed, onToggle, nameById, pathById, labelOf, draftAbove, showProject, personName, onOpen }: BoardTableProps) {
+export function BoardTable({ tasks, columns, groups, levels, collapsed, onToggle, nameById, pathById, parentOf, labelOf, draftAbove, showProject, personName, onOpen }: BoardTableProps) {
   const tr = useT();
   const [sort, setSort] = useState<TableSort>(DEFAULT_TABLE_SORT);
   const layout = tableLayout(showProject);
@@ -90,7 +93,7 @@ export function BoardTable({ tasks, columns, groups, levels, collapsed, onToggle
     const ownerName = chip.label || tr(`board.owner.${chip.kind}`);
     const waits = taskWaitsOnPerson(task);
     const prUrl = task.checksCi?.prUrl;
-    const projectName = nameById.get(task.projectId) ?? task.projectId;
+    const projectName = formatProjectFamilyLabel(projectFamilyLabel(task.projectId, parentOf, (id) => nameById.get(id) ?? id));
     // A div, not a button: a button's children are presentational, so its cells would vanish for a screen reader, and `row` is no role a button may take.
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(task.id); } };
     return (

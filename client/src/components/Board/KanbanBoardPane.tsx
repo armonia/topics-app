@@ -1410,7 +1410,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             <BoardTable
               tasks={groupSource} columns={shownColumns} groups={groups} levels={groupLevels}
               collapsed={collapsedProjects} onToggle={toggleProjectCollapsed}
-              nameById={projectNameById} pathById={projectPathById} labelOf={groupLabel}
+              nameById={projectNameById} pathById={projectPathById} parentOf={projectParent} labelOf={groupLabel}
               draftAbove={draftAbove} showProject={mode === 'all' && !groupLevels.includes('project')}
               personName={personName} onOpen={openTask}
             />

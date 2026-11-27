@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, BarChart3, BookOpen, ChevronRight, Workflow, Cpu, Globe, Kanban, LayoutGrid, MessageSquare, TerminalSquare, UserRound, Wrench, type LucideIcon, Gauge, Blocks } from 'lucide-react';
-import { getProjectLabel, sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
+import { sidebarItemPaneId, type SidebarItem } from '../../lib/buildSidebarItems';
+import { familyLabelForPath } from '../../lib/boardProjectsStore';
 import type { AttentionTier } from '../../types';
 import { attentionSurface, RESTING_SURFACE, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CHEVRON_SLOT_BARE, ROW_GAP, ROW_PX, SELECTED_SURFACE, TAB_LABEL } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
@@ -385,7 +386,7 @@ export function PinnedTile({
           // progetti chiamati uguale.
           subtitle: item.type === 'project'
             ? item.projectPath
-            : item.projectPath ? getProjectLabel(item.projectPath) : undefined,
+            : item.projectPath ? familyLabelForPath(item.projectPath) : undefined,
           badges: item.notificationCount > 0 ? [String(item.notificationCount)] : [],
           // A pinned chat's chosen colour, in the ink of the theme on screen:
           // the same accent the row's preview carries (`TopicItem`).

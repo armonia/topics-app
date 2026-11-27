@@ -3,9 +3,12 @@
  */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { freshDb } from "../routes/tasks-test-support";
 import { PLAN_HIERARCHY_DDL } from "../db/test-schema";
 import { UNKNOWN_PROJECT_NAME } from "../../shared/project-name";
+import { projectIdForPath } from "../../shared/board";
 import { activityOf, buildPlan, cardSignals, countCards, createArea, createMilestone, linkTask, deleteArea, addSource, PlanError } from "./plan";
 
 let db: Database;
@@ -99,6 +102,18 @@ describe("plan tree", () => {
     task("a1", { project_id: "x1" }); task("b1", { project_id: "x2" });
     const names = buildPlan(db, { now: T0 }).projects.map((p) => p.name).sort();
     expect(names).toEqual(["attilio (x1)", "attilio (x2)"]);
+  });
+
+  test("a sub-project merged (accorpa) under another keeps its own tile, headed «mother · child»", () => {
+    db.run(`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT, path TEXT, archived INTEGER NOT NULL DEFAULT 0)`);
+    db.run(readFileSync(join(import.meta.dir, "../db/migrations/20261124110000-projects-parent-merge.sql"), "utf8"));
+    const childBoard = projectIdForPath("/w/nuvola");
+    db.query(`INSERT INTO projects (id, name, path) VALUES ('mother', 'Sito Armonia', '/w/sito')`).run();
+    db.query(`INSERT INTO projects (id, name, path) VALUES ('child', 'Nuvola', '/w/nuvola')`).run();
+    db.run("UPDATE projects SET parent_id = 'mother', merge_mode = 'accorpa' WHERE id = 'child'");
+    task("c1", { project_id: childBoard });
+    const projects = buildPlan(db, { now: T0 }).projects;
+    expect(projects.find((p) => p.projectId === childBoard)?.name).toBe("Sito Armonia · Nuvola");
   });
 
   test("done cards are hidden from lists by default but still count", () => {
