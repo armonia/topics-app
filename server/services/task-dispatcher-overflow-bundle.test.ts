@@ -9,6 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { CARD, harness, PC } from "./task-dispatcher-overflow.harness";
+import type { BundleReach } from "./branch-on-origin";
+import { CHILD_BUNDLE_MARGIN_COMMITS } from "../lib/subagent-remote-spawn";
 
 describe("a stale node receives a wider carried branch bundle", () => {
   const git = (cwd: string, ...args: string[]) => {
@@ -41,11 +43,14 @@ describe("a stale node receives a wider carried branch bundle", () => {
       const tip = git(mac, "rev-parse", "HEAD");
       const attempts: ("refused" | "planted")[] = [];
       const startedFrom: string[] = [];
-      const h = harness({ floor: false, noOrigin: { mac, node, startedFrom, attempts } });
+      const reaches: BundleReach[] = [];
+      const h = harness({ floor: false, noOrigin: { mac, node, startedFrom, attempts, reaches } });
       h.sendBack(CARD, "topics/endless-calf", { machineId: PC });
       await h.tick();
       for (let i = 0; i < 100 && startedFrom.length === 0; i++) await new Promise((res) => setTimeout(res, 50));
       expect(attempts).toEqual(["refused", "planted"]);
+      // The margin comes before the whole history: 4.8 MB against 148 MB for this repo.
+      expect(reaches).toEqual([0, CHILD_BUNDLE_MARGIN_COMMITS]);
       expect(startedFrom).toEqual([tip]);
       expect(h.bodies).toHaveLength(1);
     } finally {
