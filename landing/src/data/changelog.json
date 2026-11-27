@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.5.17",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "split node-client.ts under the bloat threshold, name the reason for a declined remote claim",
+          "scope": "dispatch"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.16",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "pack refuses to write when the secrets file exists but did not decrypt",
+          "scope": "secrets"
+        },
+        {
+          "text": "read and unpack swallow only the decryption failure",
+          "scope": "secrets"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.14",
     "date": "2026-11-27",
     "sections": {
@@ -22,6 +54,10 @@
         {
           "text": "fall back to the planted branch when the delivered commit is not resolvable yet",
           "scope": "node-meter"
+        },
+        {
+          "text": "long timeout for createRun, dedupe the silent remote-claim log line",
+          "scope": "dispatch"
         }
       ],
       "perf": []
@@ -66,6 +102,10 @@
         {
           "text": "a template's chunks end at its backtick, not 400 bytes later",
           "scope": "gates"
+        },
+        {
+          "text": "free a node seat a waiting run holds forever, log the silent remote claim, cap node calls with a deadline",
+          "scope": "dispatch"
         },
         {
           "text": "templateChunks back inside ui-language-scan.ts's 800-line budget",

@@ -18,9 +18,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createNodeClient, NodeError, readDelegatedNodeToken, readNodeToken, writeDelegatedNodeToken,
-  writeNodeToken, nodeTokenPath, tokenFromSetCookie,
+  writeNodeToken, tokenFromSetCookie,
   normalizeNodeBaseUrl, type FetchLike, type NodeFailureReason,
 } from "./node-client";
+import { nodeTokenPath } from "./node-client-token";
 
 const BASE = "https://node.example:8443";
 const TOKEN = "dGhpcy1pcy1hLXRva2VuLXZhbHVl0123456789";
@@ -371,6 +372,43 @@ describe("node-client · corse", () => {
     if (!full.empty) expect(Array.from(full.bytes)).toEqual(Array.from(bytes));
     expect(calls[0].url).toBe(`${BASE}/api/nodes/runs/run-9/bundle`);
     expect(headerOf(calls[1], "cookie")).toBe(`topics_device=${TOKEN}`);
+  });
+});
+
+describe("node-client · un nodo che accetta la connessione e non risponde mai", () => {
+  /** A fetch that never settles on its own: only the caller's `signal` ends it. */
+  function hangingFetch(): FetchLike {
+    return (_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "TimeoutError")));
+    });
+  }
+
+  test("una lettura di stato finisce entro il suo timeout, non resta appesa", async () => {
+    const c = client(hangingFetch(), { timeoutMs: 20 });
+    const err = await c.readRun({ baseUrl: BASE, token: TOKEN, runId: "run-1" }).catch((e) => e);
+    expect(err).toBeInstanceOf(NodeError);
+    expect((err as NodeError).reason).toBe("unreachable");
+  });
+
+  test("scaricare una consegna usa un timeout più lungo di una lettura di stato", async () => {
+    const c = client(hangingFetch(), { timeoutMs: 20, deliveryTimeoutMs: 40 });
+    const startedAt = Date.now();
+    const err = await c.fetchBundle({ baseUrl: BASE, token: TOKEN, runId: "run-1" }).catch((e) => e);
+    const elapsedMs = Date.now() - startedAt;
+    expect(err).toBeInstanceOf(NodeError);
+    expect(elapsedMs).toBeGreaterThanOrEqual(40);
+  });
+
+  test("creare una corsa usa lo stesso timeout lungo: il nodo pianta un ramo prima di rispondere", async () => {
+    const c = client(hangingFetch(), { timeoutMs: 20, deliveryTimeoutMs: 40 });
+    const startedAt = Date.now();
+    const err = await c.createRun({
+      baseUrl: BASE, token: TOKEN,
+      body: { originTaskId: "t", originUrl: "u", text: "x", description: "d", model: null, effort: null },
+    }).catch((e) => e);
+    const elapsedMs = Date.now() - startedAt;
+    expect(err).toBeInstanceOf(NodeError);
+    expect(elapsedMs).toBeGreaterThanOrEqual(40);
   });
 });
 

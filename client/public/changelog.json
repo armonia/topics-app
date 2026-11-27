@@ -1,10 +1,93 @@
 [
   {
-    "version": "2.5.16",
+    "version": "2.5.19",
     "date": "2026-11-27",
     "sections": {
       "new": [],
       "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Card legata a un nodo pieno: il pavimento di memoria del Mac non la nasconde al controllo delle card ferme",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card ferme: per una card legata a un nodo cade solo il pavimento di memoria del Mac, il disco pieno e la spesa restano un motivo (fermano anche la corsia remota)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.18",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Test della scala del bundle: un'identità git sua, il runner della CI non ne ha una globale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test della scala del bundle: main esplicito, senza config globale init crea master e set-head -a non trova la HEAD",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.17",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "split node-client.ts under the bloat threshold, name the reason for a declined remote claim",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Nodo senza origin: il bundle del ramo si allarga quando il nodo dice che gli mancano i commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test della scala del bundle: il margine viene prima della storia intera, e «whole» non taglia mai",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.16",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "pack refuses to write when the secrets file exists but did not decrypt",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "read and unpack swallow only the decryption failure",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -155,6 +238,12 @@
           "en": "",
           "scope": "node-meter",
           "breaking": false
+        },
+        {
+          "it": "long timeout for createRun, dedupe the silent remote-claim log line",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
         }
       ],
       "perf": [],
@@ -264,6 +353,12 @@
           "it": "a template's chunks end at its backtick, not 400 bytes later",
           "en": "",
           "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "free a node seat a waiting run holds forever, log the silent remote claim, cap node calls with a deadline",
+          "en": "",
+          "scope": "dispatch",
           "breaking": false
         },
         {
