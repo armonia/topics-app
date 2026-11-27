@@ -23,6 +23,7 @@ const SERVER = join(ROOT, "server");
 const SYNC_CALL = /(?<![\w])(Bun\.spawnSync|spawnSync|execSync|execFileSync)\(/;
 
 const ALLOWED: Array<{ file: string; snippet: string; why: string }> = [
+  { file: "server/lib/secret-store.ts", snippet: "Bun.spawnSync([cmd, ...args]", why: "the secret store: `security` and `age` on a short local read or write, 15 s timeout, called by the boot of a service and by the pack/unpack command, never on a timer or in a request path" },
   { file: "server/lib/live-checkout-branch-guard.ts", snippet: "spawnSync(\"git\"", why: "the live checkout branch guard: a short local git read that must answer before the agent's command is allowed to run" },
   { file: "server/routes/processes-persist.ts", snippet: `Bun.spawnSync(["ps", "-o", "lstart="`, why: "pidStartTime: the identity stamp of a re-adopted row at boot, and of a row at its launch, which must be on disk before the launch answers (a server that exits right after a launch must still re-adopt it: CMDRUN-03). Never on a timer." },
   { file: "server/utils/path-env.ts", snippet: "execFileSync(shell", why: "the login shell's PATH, read once at boot" },
@@ -41,6 +42,7 @@ const ALLOWED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/lib/live-checkout-branch-guard.ts", snippet: "spawnSync(\"git\"", why: "source text of the PreToolUse hook: it runs in the agent's own short-lived `bun -e`, never in the server" },
   { file: "server/services/external-proxy-ca.ts", snippet: "execFileSync(findOpenssl()", why: "building the local CA and the api.anthropic.com leaf for the external-sessions proxy: at boot, only when the files are missing or near expiry (a few openssl runs of milliseconds, once), 15 s timeout. Never on a request path" },
   { file: "server/providers/native/auth.ts", snippet: "spawnSync(cmd, args", why: "the Keychain, macOS only, for the callers synchronous by contract: `hasCredentials` (the `connected` getter, only when no credential file holds a pair), the plan in a providers snapshot, and the write of a renewal. The turn's path (getAccessToken, recoverAfter401) asks it asynchronously (T16)" },
+  { file: "server/services/review-checks.ts", snippet: "Bun.spawnSync([\"git\", \"diff\", \"--name-only\"", why: "isMacOnlyDiff: a short local git diff read once per exhausted delivery, to decide the swap fallback, 5 s timeout. Never on a timer or a per-request path" },
 ];
 
 function walk(dir: string, out: string[]): void {

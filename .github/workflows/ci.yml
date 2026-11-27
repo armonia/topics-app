@@ -222,6 +222,10 @@ jobs:
 
       # The pull request needs the merge base to know what it touched, so it brings the
       # history of both parents (the same fetch `e2e (0)` does); it also leaves `origin/main` as a ref.
+      # The secret store tests drive the real age and age-keygen binaries.
+      - name: Install age
+        run: sudo apt-get install -y -qq age
+
       - name: Fetch the base with its history (pull request)
         if: ${{ github.event_name == 'pull_request' }}
         run: git fetch --no-tags --unshallow origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" "${{ github.sha }}" +main:refs/remotes/origin/main

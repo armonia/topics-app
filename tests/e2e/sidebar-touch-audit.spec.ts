@@ -18,6 +18,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { PAGE_LAYER_SELECTOR, SIDEBAR_SELECTOR, surfaceBg } from "./helpers/surfaces";
+import { COLUMN_GAP, MOBILE_SIDEBAR_HEADER_H_COMPACT } from "../../client/src/lib/selectionStyles";
 
 hermetic(test);
 
@@ -786,17 +787,16 @@ test.describe("Sidebar col dito — audit misurato", () => {
     // the top row became transparent and left the flow (card 1e015ad6) the
     // scroller starts at zero and the tabs pass UNDER the row, which is what
     // was asked for: no ground of its own, the list scrolling behind it. So the
-    // tree begins where the column begins, and since mobile-chrome-feedback A1
-    // the rows are born right after the safe area — under the compact row, the
-    // way a native list is born under its bar.
+    // tree begins where the column begins, and at rest its rows are born one
+    // step under the compact row, the way a native list is born under its bar.
     expect(Math.round(albero.y - colonna.y), "l'albero parte da sotto la fila, non da dentro il flusso").toBeLessThanOrEqual(1);
     // The inset is read on the scrolling column, which is where
-    // `--sidebar-scroll-top` lands (see App.tsx and TopicTree.tsx): the safe
-    // area alone, not the height of the row floating above it.
+    // `--sidebar-scroll-top` lands (see AppSidebar and TopicTree): the safe
+    // area, the compact row floating above it and one step of the column.
     const scrollerInset = await page.locator(`${SIDEBAR} .sidebar-column`).first()
       .evaluate((el) => parseFloat(getComputedStyle(el).paddingTop));
     const sat = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sat")) || 0);
-    expect(Math.abs(scrollerInset - sat), "lo scroller parte dalla safe area, la fila compatta ci galleggia sopra").toBeLessThanOrEqual(1);
+    expect(Math.abs(scrollerInset - (sat + MOBILE_SIDEBAR_HEADER_H_COMPACT + COLUMN_GAP)), "at rest the first row sits one step under the compact row").toBeLessThanOrEqual(1);
     expect(Math.round(titolo.x - colonna.x), "il titolo non parte dal rientro della colonna").toBe(6);
     expect(Math.round(titolo.height), `il titolo è alto ${titolo.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
 

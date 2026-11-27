@@ -136,6 +136,8 @@ export interface DispatcherDeps {
   agentMemSamples?: () => number[];
   /** One card's pre-review check peak in GB, folded into its measured weight (`dispatch-card-weight.ts`). */
   cardCheckPeakGB?: (taskId: string) => number | null;
+  /** What the card's own process tree holds now in GB (null: not measured). */
+  cardLiveTreeGB?: (taskId: string) => number | null;
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
   /**
@@ -385,6 +387,12 @@ export interface DispatcherDeps {
    * empty-node-run guard that reads it is skipped.
    */
   repoPathOfTask?: (taskId: string) => string | null;
+  /**
+   * Is the CI of THIS machine's `main` still red? A card sent back by the post-land red keeps its "fix on top"
+   * verdict only while that is true: once somebody repaired main elsewhere, "already in main" is right again.
+   * Absent = treated as still red (the card stays in todo, never closed on a guess).
+   */
+  mainIsRed?: (repoPath: string) => Promise<boolean>;
   /**
    * Claude sessions running OUTSIDE Topics right now at/under a directory
    * (see services/external-sessions.ts). The dispatcher can only see its OWN
