@@ -1,4 +1,6 @@
 /**
+ * @covers LAND-02
+ *
  * `resolveDeliveryReference` is the exact call site `boot/preview-delivery.ts`
  * uses to feed the delivery sheet (`services/delivery-sheet.ts`): resolve
  * `mainRef` FIRST, then ask for the own commit and the own diffstat against

@@ -366,10 +366,9 @@ describe("own-commits — il cablaggio della consegna in server.ts", () => {
   // lasciarlo puntato a un blocco ormai vuoto, dove sarebbe passato verde a
   // vuoto per sempre.
   const backfillSrc = readFileSync(join(import.meta.dir, "delivery-backfill.ts"), "utf8");
-  // IL CABLAGGIO HA TRASLOCATO ANCHE QUI il 26/11 (`task-delivery-reference.ts`),
-  // quando il test sulla wiring del `mainRef` al punto di chiamata ha chiesto un
-  // posto testabile: stesso spirito del trasloco del backfill sopra, il
-  // cancello segue il codice.
+  // THE WIRING MOVED HERE TOO on 26/11 (`task-delivery-reference.ts`), when the
+  // test on the `mainRef` wiring at the call site asked for a testable home:
+  // same spirit as the backfill move above, the gate follows the code.
   const deliveryRefSrc = readFileSync(join(import.meta.dir, "task-delivery-reference.ts"), "utf8");
 
   function blockIn(testo: string, from: string, to: string): string {
