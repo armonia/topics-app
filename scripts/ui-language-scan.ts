@@ -575,7 +575,7 @@ function scanKeyedValues(
     const scoped = literalsIn(lexed.literals, at + 1, at + 2);
     const first = scoped[0];
     if (!first) continue;
-    const chunks = code[at] === "`" ? templateChunks(lexed.literals, first) : scoped;
+    const chunks = code[at] === "`" ? templateChunks(code, lexed.literals, first) : scoped;
     for (const lit of chunks) {
       const text = src.slice(lit.start, lit.end);
       const words = italianWords(text);
@@ -731,20 +731,30 @@ function m0End(m: RegExpExecArray): number {
 }
 
 /**
- * Every raw chunk of the template that starts at `first`. The lexer emits them
- * consecutively, and a chunk that follows a hole starts one byte after the `}`
- * that closed it, so contiguity in the literal list is the reliable link.
+ * Every raw chunk of the template that starts at `first`.
+ *
+ * A chunk continues the template only when it is followed by `${`, and the next
+ * chunk starts one byte after the `}` that closes that hole. `code` has string
+ * contents blanked, so only real braces are counted, and a template nested in a
+ * hole does not end the outer one. The old link was "any literal within 400
+ * bytes": after `reason: \`landed (${proof})\`` it chained the Italian card
+ * comments and the log line that followed, and called them a payload
+ * (server/routes/tasks-land.ts, main red on 27/11/2026).
  */
-function templateChunks(literals: Literal[], first: Literal): Literal[] {
-  const out: Literal[] = [];
-  let idx = literals.indexOf(first);
-  if (idx === -1) return [first];
-  out.push(first);
-  for (let k = idx + 1; k < literals.length; k++) {
-    const prevEnd = literals[k - 1]!.end;
-    // The hole between two chunks is `${...}`: at least four bytes.
-    if (literals[k]!.start <= prevEnd || literals[k]!.start - prevEnd > 400) break;
-    out.push(literals[k]!);
+function templateChunks(code: string, literals: Literal[], first: Literal): Literal[] {
+  const out = [first];
+  let cur = first;
+  while (code.startsWith("${", cur.end)) {
+    let depth = 0;
+    let close = cur.end + 1;
+    for (; close < code.length; close++) {
+      if (code[close] === "{") depth++;
+      else if (code[close] === "}" && --depth === 0) break;
+    }
+    const next = literals.find((l) => l.start === close + 1);
+    if (!next) break;
+    out.push(next);
+    cur = next;
   }
   return out;
 }
