@@ -30,6 +30,9 @@ import { tmpdir } from "os";
 import { basename, join } from "path";
 import { createNodeCheckWorktrees, nodeCheckRoot, openNodeCheckWorktree } from "./node-check-worktree";
 import { createTaskAutoMerge } from "./task-automerge";
+import { awaitCiEvidence, githubPort } from "./ci-evidence";
+import { fakeClock, fakePort, run } from "./ci-evidence.testkit";
+import { E2E_CI_CHECK } from "../../shared/board";
 import type { DiscardGit } from "../lib/worktree-discard";
 import { slackMs } from "../../tests/helpers/time-slack";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
@@ -226,6 +229,31 @@ describe("a planted branch already checked out elsewhere does not stop the node 
 
     expect(lease).not.toBeNull();
     expect(git(lease!.cwd, "rev-parse", "HEAD").trim()).toBe(commit);
+    await lease!.release();
+  }, WITH_REAL_GIT);
+});
+
+describe("a detached node check checkout still reaches a measured CI row", () => {
+  test("awaitCiEvidence falls back to the planted branch instead of NOT MEASURED", async () => {
+    const { repo, checks } = repoWithNodeBranch();
+    const commit = git(repo, "rev-parse", BRANCH).trim();
+
+    const lease = await openNodeCheckWorktree({
+      git: realGit, repoPath: repo, commit, root: checks, taskId: "awaitci-test",
+      resolveHead: async (cwd) => git(cwd, "rev-parse", "HEAD").trim(),
+    });
+    expect(lease).not.toBeNull();
+    // The checkout is really detached: the symbolic-ref githubPort().branch
+    // uses finds nothing on its own, same as the production reader.
+    expect(await githubPort().branch(lease!.cwd)).toEqual({ ok: false, error: expect.any(String) });
+
+    const { port } = fakePort({ runs: async () => ({ ok: true, value: [run({ head_sha: commit })] }) });
+    const row = (await awaitCiEvidence(
+      { cwd: lease!.cwd, sha: commit, taskId: "awaitci-test", checks: [E2E_CI_CHECK], branch: BRANCH },
+      { port, ...fakeClock(), stopping: () => false },
+    ))[0]!;
+
+    expect(row.notMeasured).toBeFalsy();
     await lease!.release();
   }, WITH_REAL_GIT);
 });

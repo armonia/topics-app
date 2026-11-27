@@ -356,6 +356,23 @@ describe("awaitCiEvidence with the e2e row", () => {
   });
 });
 
+describe("a detached checkout falls back to the caller's branch", () => {
+  test("no branch in the checkout, but `input.branch` given, still measures the CI rows", async () => {
+    const { port, calls } = fakePort({ branch: async () => ({ ok: false, error: "not a symbolic ref" }) });
+    const row = await e2eRow({ ...input, branch: "topics/planted" }, { port, ...fakeClock(), stopping: () => false });
+    expect(row.ok).toBe(true);
+    expect(row.notMeasured).toBeFalsy();
+    expect(calls.push).toEqual([{ sha: SHA, branch: "topics/planted", lease: undefined }]);
+  });
+
+  test("no branch in the checkout and none given is still NOT MEASURED, as before", async () => {
+    const { port } = fakePort({ branch: async () => ({ ok: false, error: "not a symbolic ref" }) });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
+    expect(row.notMeasured).toBe(true);
+    expect(row.tail).toContain("the worktree is not on a branch");
+  });
+});
+
 describe("awaitCiEvidence with the e2e and the unit rows", () => {
   const both = { ...input, checks: [E2E_CI_CHECK, UNIT_CI_CHECK] };
 

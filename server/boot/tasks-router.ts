@@ -279,7 +279,13 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
       late.resumeHeldDelivery = (taskId) => hooks.settleDelivery(taskId);
     },
     // The e2e row of a delivery is read from the pull request CI, never run here.
-    ciEvidence: ({ onCiWait, ...input }) => awaitCiEvidence(input, { onCiWait }),
+    // The planted delivery branch is handed in as a fallback: a node-check
+    // checkout is detached on the delivered commit (`openNodeCheckWorktree`),
+    // so `git symbolic-ref` inside it finds nothing on its own.
+    ciEvidence: async ({ onCiWait, ...input }) => {
+      const ref = await resolveDeliveryBranch(deliveryBranchDeps(), input.taskId).catch(() => null);
+      return awaitCiEvidence({ ...input, branch: ref?.branch ?? null }, { onCiWait });
+    },
     // A round on a new branch ends the pull requests of the card's earlier rounds.
     supersedeEarlierRounds: ({ cwd, taskId }) => supersedeEarlierRounds(githubPort(), { cwd, taskId, baseBranch: CI_BASE_BRANCH }),
     // The review sweep asks whether a green card's pull request still merges into main.
