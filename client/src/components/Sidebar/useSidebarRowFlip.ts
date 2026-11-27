@@ -28,7 +28,8 @@ import { liveTranslate } from './useCellFlip';
  *    the rows sliding out of its way never cross an opaque copy of it;
  *  - a unit that LEFT is gone at once, and the ones after it slide up;
  *    an ARCHIVED one leaves as an inert copy that slides out and fades
- *    over the same time (`lib/rowExit`, played after the pass).
+ *    first, and the ones after it wait for it (`lib/rowExit`, played
+ *    before the pass).
  *
  * Positions are taken RELATIVE TO THE NEAREST ENCLOSING UNIT (or to the
  * scrolling column, plus its scrollTop). Two consequences, both wanted:
@@ -151,7 +152,13 @@ function flipPass(column: HTMLElement, state: FlipState, animate: boolean, delay
     // Start from where it is SEEN now: previous layout plus the part of an
     // earlier move still being applied.
     const dy = before.top - top + ty;
-    if (Math.abs(dy) < MIN_MOVE_PX) continue;
+    if (Math.abs(dy) < MIN_MOVE_PX) {
+      // Already where it is seen. A move still applying an offset (an archive
+      // rolled back inside its hold) would keep pushing the row off the
+      // layout it is back on: drop it, and the row stays where it stands.
+      if (ty !== 0) { state.running.get(el)?.cancel(); state.running.delete(el); }
+      continue;
+    }
     const previous = state.running.get(el);
     // `delay` holds the row at its old place (the first keyframe, filled
     // backwards) while an archived row's copy leaves from above it. A move

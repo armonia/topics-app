@@ -56,6 +56,7 @@ import { lazyWarm } from './lib/lazyWarm';
 import { loadPanelGrid } from './state/pane/panePreload';
 import { ROW_INSET, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, STRIP_TOGGLE_SURFACE, trafficLightsRowPx } from './lib/selectionStyles';
 import { setTrafficLightsRow } from './lib/shell/window';
+import { isMainWindow } from './lib/windowRole';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
@@ -470,13 +471,13 @@ function App() {
 
   const placement = tabsPlacement(appSettings.tabsPosition, { phone: isMobile });
   // The native lights centre on the row under them. Only the main window
-  // sends it: the shell keeps ONE row, the main window's, and a narrow
-  // detached window drawing the phone's 40 would move the main window's lights
+  // sends it: the shell keeps ONE row, the main window's, and a narrow pop-out
+  // or group window drawing the phone's 40 would move the main window's lights
   // off its 46.
   const lightsRowPx = trafficLightsRowPx(isMobile, placement.strip);
   useEffect(() => {
-    if (isDesktop && !isDetached) setTrafficLightsRow(lightsRowPx);
-  }, [lightsRowPx, isDetached]);
+    if (isDesktop && isMainWindow()) setTrafficLightsRow(lightsRowPx);
+  }, [lightsRowPx]);
   const stripPaneIds = useMemo(
     () => (placement.columnSkipsStrip ? new Set(visiblePanels) : undefined),
     [placement.columnSkipsStrip, visiblePanels],

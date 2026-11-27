@@ -1451,8 +1451,11 @@ export function TopicTree({
 
     return (
       <div key={item.id} {...{ [ROW_EXIT_ATTR]: projectPaneId }}>
-        {/* Project header */}
+        {/* Project header: not a treeitem, so it says it is a row that
+            moves (`data-sidebar-flip`), or it would jump under an archived
+            row's leaving copy while the treeitems around it wait. */}
         <LongPressRow
+          data-sidebar-flip=""
           // Col dito il menu del progetto non esisteva: il tasto destro ne apre
           // quattro voci — «Segna tutto come letto», «Fissa», «Muta notifiche»,
           // «Archivia» — e da telefono se ne raggiungeva UNA. Tenere premuto apre
@@ -2710,6 +2713,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       isTouch={isTouch && hasMenu}
       data-tab-state={tab}
       {...{ [ROW_EXIT_ATTR]: `terminal:${s.id}` }}
+      data-sidebar-flip=""
       // Same three-state model as chat (TopicItem) so selection means the SAME
       // thing on every sidebar row: the focused item gets the shared neutral
       // SELECTED_SURFACE (= the focused tab), merely-open is subtle, else quiet.
@@ -3170,6 +3174,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
   const press = useLongPress(openContextMenuAt, { enabled: isTouch && hasMenu });
   return (
     <div
+      data-sidebar-flip=""
       className={[
         // `select-none`: chi monta un long-press lo vuole, o iOS ci mette sopra
         // il proprio callout di selezione mentre tieni premuto.

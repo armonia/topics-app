@@ -649,7 +649,9 @@ export function ProjectSidebar({
   // must not shut a column nobody touched.
   const lastClosedRef = useRef<SectionId>('files');
   // Whether the column is closed BECAUSE its last island closed. Reopening then
-  // brings that island back even if another one has appeared meanwhile: a repo
+  // brings that island back even if another one has appeared meanwhile (within
+  // the session: both refs live in memory, and after a reload a closed column
+  // reopens on Files, or on whatever island is open by then): a repo
   // that turns dirty while the column is closed makes a saved Git flag count
   // again, and the column would come back on Git with the island just closed
   // still shut.
