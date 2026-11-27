@@ -100,6 +100,29 @@ class Drain(unittest.TestCase):
         self.assertEqual(self.restarts(), [])
 
 
+class DrainIgnoresCardsWithoutATurn(unittest.TestCase):
+    """A card waiting on a human answer or a condition has no turn in flight: it must not hold the drain."""
+    def count(self, state):
+        import sqlite3
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "t.db")
+        db = sqlite3.connect(path)
+        db.execute("create table tasks (machine_id text, status text, dispatch_state text)")
+        db.execute("insert into tasks values ('m1', 'in_progress', ?)", (state,))
+        db.commit(); db.close()
+        mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("node_pool_db", importlib.machinery.SourceFileLoader("node_pool_db", os.path.join(HERE, "node-pool"))))
+        mod.__spec__.loader.exec_module(mod)
+        mod.MAC_DB = path
+        return mod.slot_busy("m1", running_only=True)
+
+    def test_needs_input_card_does_not_count(self): self.assertEqual(self.count("needs_input"), 0)
+
+    def test_waiting_card_does_not_count(self): self.assertEqual(self.count("waiting"), 0)
+
+    def test_running_card_counts(self): self.assertEqual(self.count("running"), 1)
+
+
 class DeleteForgetsMachine(unittest.TestCase):
     """A deleted hourly server leaves no «Nodo cloud N» row behind; the permanent node keeps its own."""
     def setUp(self):

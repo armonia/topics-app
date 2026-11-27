@@ -339,14 +339,18 @@ def machine_row(slot):
 
 def slot_busy(machine_id, running_only=False):
     """Card vive del posto sul Mac: in coda o al lavoro con questa macchina. While draining only
-    the running ones count: queued cards cannot start with slots 0, they wait for the realign."""
+    the running ones count: queued cards cannot start with slots 0, they wait for the realign.
+    A card waiting for a human answer (needs_input) has no turn in flight: counting it kept the
+    node drained 3 h out of 4 for two days (21/11, one card unanswered since 19/11). A deferred card
+    (`waiting`, it waits for a condition) has no turn either: on 26/11 one held the drain past midnight."""
     if not machine_id:
         return 0
     import sqlite3
     db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
     try:
         states = "('in_progress')" if running_only else "('todo','in_progress')"
-        return db.execute(f"select count(*) from tasks where machine_id=? and status in {states}",
+        return db.execute(f"select count(*) from tasks where machine_id=? and status in {states}"
+                          " and coalesce(dispatch_state, '') not in ('needs_input', 'waiting')",
                           (machine_id,)).fetchone()[0]
     finally:
         db.close()
