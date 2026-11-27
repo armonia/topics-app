@@ -8,16 +8,25 @@ import type { LandingState } from "../services/landing-audit";
 import { mainRedStop } from "../services/main-ci-watch";
 import { createLandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { type TaskAttempt } from "../services/task-attempts";
-import { createAutoLander } from "../services/auto-land";
+import { autoLandVerdict, createAutoLander, SCHEDULED_REVIEW_PREFIX, sameCommit, scheduledReviewCmd, type AutoLandBoard } from "../services/auto-land";
+import { readWorkflowRules } from "../services/board-workflow";
+import type { Task } from "../services/tasks";
+import type { CheckRun } from "../../shared/board";
 import { createNodeDeliveryMeter } from "../services/node-delivery-meter";
 import type { StopCause } from "../lib/abort-cause";
-import { readWorkflowRules } from "../services/board-workflow";
 import { createCiPhase } from "./tasks-ci-phase";
 import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
 import { createReviewSweep } from "./tasks-review-sweep";
 import { createNothingToLand } from "./tasks-land-nothing";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { commentAuthorLabel } from "../../shared/comment-author";
+import { inspectDelivery } from "../services/scheduled-review-inspect";
+import { buildSensePrompt, deliveryDiff, diffIsClipped, newSenseNonce, falseMainClaims, isOnMain, runSense, senseModelFor } from "../services/scheduled-review-sense";
+import { reviewScheduled, scheduledReviewDue, type ScheduledReviewCard, type ScheduledReviewOutcome } from "../services/scheduled-review";
 
 /** What a queued land is asked besides landing. */
 export interface LandRunOpts {
@@ -180,6 +189,10 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
    * node lane once its bar is measured. The land it queues is told not to
    * realign the branch: the bar measured the delivered commit.
    */
+  const autoLandBoard = (projectId: string): AutoLandBoard => {
+    const settings = svc.getBoardSettings(projectId);
+    return { autoMerge: settings.dispatchAutoMerge, declaredChecks: settings.reviewChecks.length, scheduledReview: scheduledMinutes(projectId) > 0 };
+  };
   const autoLander = createAutoLander({
     read: (taskId, projectId) => {
       const got = svc.get(taskId, { projectId });
@@ -189,10 +202,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       const row = db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
       return { ...got, task: { ...got.task, archived: !!row?.archived } } as ReturnType<Parameters<typeof createAutoLander>[0]["read"]>;
     },
-    board: (projectId) => {
-      const settings = svc.getBoardSettings(projectId);
-      return { autoMerge: settings.dispatchAutoMerge, declaredChecks: settings.reviewChecks.length };
-    },
+    board: (projectId) => autoLandBoard(projectId),
     land: (projectId, taskId, recheck) => enqueueLand(projectId, taskId, { noRealign: true, recheck }),
     note: (taskId, text) => {
       svc.addComment({ taskId, author: "system", kind: "service", content: text });
@@ -261,6 +271,118 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   });
   const { unmeasuredInReview, remeasureInReview, probeConflict } = reviewSweep;
 
+  /**
+   * THE SCHEDULED REVIEW (`services/scheduled-review.ts`): a card with a green bar is looked at by the clock when
+   * its board turned the rule on. The pass runs in the background, one card at a time (it runs tests for
+   * minutes), and it never lands by itself: a clearing verdict becomes a row of the bar and the land is asked of
+   * `autoLander`, whose verdict holds everything else (the bar on the commit, a person who spoke, open steps).
+   */
+  let scheduledRunning: string | null = null;
+  const MAX_UNMEASURED_PASSES = 3;
+  const unmeasuredPasses = new Map<string, { commit: string; count: number }>();
+  const scheduledMinutes = (projectId: string): number => {
+    try { return readWorkflowRules(db, projectId).scheduledReviewMinutes; } catch { return 0; }
+  };
+  const NOT_A_WRITER = new Set(["user", "guest", "system", "dispatcher", "verifier"]);
+
+  function startScheduledPass(t: Task): void {
+    const minutes = scheduledMinutes(t.projectId);
+    if (minutes <= 0 || scheduledRunning) return;
+    const stamp = db.query("SELECT ai_review_reminded_at AS at, archived, prior_commit AS prior FROM tasks WHERE id = ?").get(t.id) as { at?: string | null; archived?: number; prior?: string | null } | null;
+    if (stamp?.archived) return;
+    const card: ScheduledReviewCard = {
+      id: t.id, projectId: t.projectId, status: t.status, humanAsk: t.humanAsk ?? null,
+      deliveryBranch: t.deliveryBranch ?? null, deliveryCommit: t.deliveryCommit ?? null,
+      checksState: t.checksState ?? null, checksCommit: t.checksCommit ?? null,
+      lastPassAt: stamp?.at ?? null, reviewAt: t.reviewAt ?? t.updatedAt ?? null,
+      // A send-back clears the delivery and keeps its commit as `prior_commit`: the same commit delivered again asks for more.
+      sentBackOnCommit: sameCommit(stamp?.prior ?? null, t.deliveryCommit ?? null),
+    };
+    if (!scheduledReviewDue(card, Date.now(), minutes)) return;
+    // A commit that could not be measured MAX_UNMEASURED_PASSES times in a row is left alone until it changes.
+    const tries = unmeasuredPasses.get(t.id);
+    if (tries && tries.commit === card.deliveryCommit && tries.count >= MAX_UNMEASURED_PASSES) return;
+    scheduledRunning = t.id;
+    void runScheduledPass(t, card)
+      .then((outcome) => {
+        if (outcome !== "unmeasured") { unmeasuredPasses.delete(t.id); return; }
+        const count = tries && tries.commit === card.deliveryCommit ? tries.count + 1 : 1;
+        unmeasuredPasses.set(t.id, { commit: card.deliveryCommit!, count });
+      })
+      .catch((err) => console.warn(`[scheduled-review] ${t.id.slice(0, 8)}:`, err))
+      .finally(() => { scheduledRunning = null; });
+  }
+
+  async function runScheduledPass(t: Task, card: ScheduledReviewCard): Promise<ScheduledReviewOutcome> {
+    const repo = await opts?.integrationRepo?.(t.id).catch(() => null);
+    if (!repo) return "unmeasured";
+    const thread = () => svc.get(t.id, { projectId: t.projectId })?.comments ?? [];
+    const commit = card.deliveryCommit!;
+    const marker = `Ripasso a orario su \`${commit.slice(0, 8)}\``;
+    const doors = opts?.scheduledReviewDoors ?? {};
+    return reviewScheduled(card, {
+      files: async (c) => (opts?.deliveryFiles ? opts.deliveryFiles(c.id, c.deliveryCommit!) : null),
+      personPaths: (projectId) => readWorkflowRules(db, projectId).personPaths,
+      inspect: doors.inspect ?? ((c, files) => inspectDelivery(repo, c.id, c.deliveryCommit!, files)),
+      falseMainClaims: doors.falseMainClaims ?? (async () => {
+        const words = thread().filter((c) => !NOT_A_WRITER.has(commentAuthorLabel(c.author).kind)).slice(-3).map((c) => c.content).join("\n");
+        return falseMainClaims(repo, words);
+      }),
+      onMain: doors.onMain ?? ((c) => isOnMain(repo, c.deliveryCommit!)),
+      bouncedBefore: () => {
+        const earlier = thread().filter((c) => c.content.includes(marker)).pop();
+        return earlier ? earlier.content.slice(earlier.content.indexOf(marker) + marker.length).replace(/^:\s*/, "").split("\n")[0]!.slice(0, 400) : null;
+      },
+      sense: doors.sense ?? (async (c) => {
+        const diff = await deliveryDiff(repo, c.deliveryCommit!);
+        if (diff === null) return { kind: "unmeasured", why: "the diff from the merge-base could not be read" };
+        const cwd = mkdtempSync(join(tmpdir(), "scheduled-review-"));
+        try {
+          const lines = thread().map((m) => `${commentAuthorLabel(m.author).kind}: ${m.content}`).join("\n\n");
+          const nonce = newSenseNonce();
+          const prompt = buildSensePrompt({ title: t.text, description: t.description ?? "", thread: lines, humanAsk: c.humanAsk ?? "", diff, nonce });
+          // The writer is the card's own model, or the board's dispatch model when the card has none.
+          let boardModel: string | null = null;
+          try { const m = svc.getBoardSettings(t.projectId).dispatchModel; boardModel = m && m !== "auto" ? m : null; } catch { /* no board settings: the card's own model decides */ }
+          const model = senseModelFor((t as { model?: string | null }).model ?? boardModel, readWorkflowRules(db, t.projectId).reviewerModels);
+          const verdict = await runSense(prompt, model, cwd, nonce);
+          // A diff cut by the prompt's limit was not seen whole: it can be bounced or handed to a person, never cleared.
+          return verdict.kind === "ok" && diffIsClipped(diff) ? { kind: "person", why: "the diff is larger than the reviewer can read whole" } : verdict;
+        } finally { rmSync(cwd, { recursive: true, force: true }); }
+      }),
+      turnIsLive: () => cardTurnIsLive(t),
+      bounce: (c, why) => ciPhase.bounceWithReason(c.projectId, c.id, why, { as: "scheduled" }),
+      // The question stays on the card until the send-back happened: the review decision clears it, a refusal leaves it with the person.
+      answer: (c, text) => ciPhase.bounceWithReason(c.projectId, c.id, `Risposta del revisore alla tua domanda: ${text}`, { as: "answer" }),
+      close: (c, proof) => {
+        const got = svc.get(c.id, { projectId: c.projectId });
+        if (!got) return false;
+        const row = db.query("SELECT archived FROM tasks WHERE id = ?").get(c.id) as { archived?: number } | null;
+        // The same verdict the land asks, with the review's row already in the bar: a person who spoke, a question, open steps still hold.
+        const verdict = autoLandVerdict({ ...got.task, archived: !!row?.archived } as Parameters<typeof autoLandVerdict>[0], autoLandBoard(c.projectId), got.comments);
+        if (!verdict.ok) return false;
+        try {
+          svc.addComment({ taskId: c.id, author: "system", kind: "service", content: `Chiusa dal ripasso a orario senza land: ${proof}.` });
+          const done = svc.reviewDecision({ taskId: c.id, by: "system", decision: "approve", projectId: c.projectId });
+          broadcastToAll({ type: "task:updated", projectId: c.projectId, task: done });
+          return true;
+        } catch { return false; }
+      },
+      clear: (c, note) => {
+        const fresh = svc.get(c.id, { projectId: c.projectId })?.task;
+        if (!fresh || fresh.status !== "review") return;
+        const cmd = scheduledReviewCmd(c.deliveryCommit!);
+        const row: CheckRun = { name: "Revisione a orario", cmd, ok: true, code: 0, ms: 0, timedOut: false, tail: note.slice(0, 400) };
+        const runs = [...(fresh.checks ?? []).filter((r) => !r.cmd.startsWith(SCHEDULED_REVIEW_PREFIX)), row];
+        const updated = svc.recordChecks({ taskId: c.id, state: fresh.checksState, commit: fresh.checksCommit, runs });
+        broadcastToAll({ type: "task:updated", projectId: c.projectId, task: updated });
+      },
+      land: async (c) => (await autoLander.tryLand(c.projectId, c.id, { quiet: true })) !== "refused",
+      stamp: (c, at) => { db.run("UPDATE tasks SET ai_review_reminded_at = ? WHERE id = ?", [at, c.id]); },
+      log: (line) => console.warn(line),
+    });
+  }
+
   /** Every review card gets the verdict again: a timer lost to a reload strands nothing. */
   async function sweepAutoLand(): Promise<number> {
     let asked = 0;
@@ -288,7 +410,11 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         if (!ciPhase.pending(t.projectId).includes(t.id)) await ciPhase.returnToCiPhase(t.projectId, t.id);
         continue;
       }
-      if (!t.labels.some((l) => l.label === "invisibile") || t.checksState !== "pass") continue;
+      // The scheduled review (off unless the board turns it on) judges a green card in the background; its
+      // clearing row is what lets the automatic land's verdict say yes, for a card with the label or without.
+      const reviewOn = scheduledMinutes(t.projectId) > 0;
+      if (reviewOn && t.checksState === "pass") startScheduledPass(t);
+      if (!(reviewOn ? t.checksState === "pass" : t.labels.some((l) => l.label === "invisibile") && t.checksState === "pass")) continue;
       asked += 1;
       await autoLander.tryLand(t.projectId, t.id, { quiet: true });
     }
@@ -486,6 +612,52 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     // main" button — the fix stays reachable, the closed decision does not
     // get reverted to reach it.
     const closedByHuman = task.status === "done" && task.doneActor === "human";
+    // ALREADY ON MAIN BEATS THE UNMEASURED-DELIVERY GATE. `unmeasuredStop` below
+    // exists for a delivery nobody has run the bar on — but a commit that is
+    // ALREADY an ancestor of the published main (another session's land, a PR
+    // merged by hand, a GC's `merge task <id>`) has nothing left to land, so
+    // there is nothing left to measure either: card 1178675b, 26/11, stuck in
+    // review re-offering a land every 10 minutes for a commit the PR had
+    // already merged hours earlier.
+    if (toMerge && opts?.alreadyLandedProof) {
+      const repoPath = "resolveRepoPath" in autoMerge ? autoMerge.resolveRepoPath(taskId) : null;
+      const proof = repoPath ? await opts.alreadyLandedProof(repoPath, taskId, toMerge).catch(() => null) : null;
+      if (proof) {
+        try { await opts?.stampLanding?.(taskId, "landed"); } catch { /* la spia e' best-effort */ }
+        svc.addComment({
+          taskId, author: "system", kind: "service",
+          content: `Già su main: \`${proof.slice(0, 8)}\` lo prova. Chiusa senza rimisurare la barra.`,
+        });
+        const closed = svc.settleLanded({ taskId, by: "system", reason: `landed: already on main (${proof})` });
+        const fresh = svc.get(taskId, { projectId })?.task;
+        if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
+        if (closed && closed.status !== "done") {
+          const aperti = (svc.get(taskId, { projectId })?.children ?? [])
+            .filter((c) => c.status !== "done")
+            .map((c) => `«${c.text}»`);
+          if (aperti.length) {
+            svc.addComment({
+              taskId, author: "system",
+              content:
+                `Il lavoro è su main, ma la card NON si chiude: restano ${aperti.length} sottotask aperti (${aperti.join(", ")}). ` +
+                "Chiudili o archiviali, poi approva questa card.",
+            });
+          }
+        }
+        if (closed && closed.status === "done") {
+          requestCardProcessStop(opts, taskId);
+          dispatcher?.onBlockerDone(taskId);
+          if (cutLiveTurn(closed, "il lavoro di questa card è atterrato su main: il turno non serve più", "superseded")) {
+            svc.addComment({
+              taskId, author: "system",
+              content: "Fermato l'agente che stava ancora lavorando su questa card: il suo lavoro è appena atterrato su main.",
+            });
+          }
+        }
+        await reapAfterLand(taskId, "landed");
+        return { outcome: "landed", reason: `already on main: ${proof}` };
+      }
+    }
     // Every path stops here, the manual land included: the hook below only runs for the automatic one.
     const unmeasured = unmeasuredStop(projectId, taskId);
     if (unmeasured) {
