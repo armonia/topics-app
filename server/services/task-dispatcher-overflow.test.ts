@@ -1755,5 +1755,10 @@ describe("overflow: nodo con posti liberi dietro run in attesa esterna", () => {
 
     const hits = h.logs.filter((l) => l.includes("remote claim declined") && l.includes("card-rifiutata"));
     expect(hits.length).toBe(1);
+
+    // The motivo goes on the card too, once per episode, not once per tick.
+    const notes = h.svc.get("card-rifiutata")!.comments.filter((c) => c.content.includes("In coda sul nodo"));
+    expect(notes.length).toBe(1);
+    expect(notes[0].content).toContain("si risolve da solo al giro dopo");
   });
 });

@@ -16,6 +16,23 @@ import type { DispatcherCtx } from "./task-dispatcher-context";
 import type { TickPlan } from "./task-dispatcher-tick";
 import { isNodeChildRun } from "./node-child-run";
 
+/**
+ * A remote card the CAS refused: every other row guard (`blocked_by`, a
+ * deferral, attempts, a topic) is already mirrored upstream in
+ * `task-dispatcher-tick.ts` before a card reaches this claim pass, so a
+ * `null` here is almost always a lost race with another claim in the same
+ * instant, which resolves itself at the next tick. The one guard that is
+ * NOT mirrored upstream is `maxAttempts`: a delegated card's cap is 1, not
+ * the board's `dispatchRetryCap`, so a delegated card already at its one
+ * attempt is the one case worth naming.
+ */
+function remoteDeclineReason(t: Task, delegated: unknown): string {
+  if (delegated && t.dispatchAttempts >= 1) {
+    return `il tentativo delegato era già stato usato (${t.dispatchAttempts}/1)`; // allow-italian: user-facing board note
+  }
+  return "il claim ha perso una corsa con un altro tentativo nello stesso istante, si risolve da solo al giro dopo"; // allow-italian: user-facing board note
+}
+
 export function createClaim(ctx: DispatcherCtx) {
   const { capHeldNoted, clock, delegatedPolicy, deps, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceTimers, heavyHeldNoted, heavyHoldSince, inFlight, log, noCheckExemptions, remoteClaimDeclinedNoted, spendHeldNoted, shared } = ctx.core;
 
@@ -440,10 +457,22 @@ export function createClaim(ctx: DispatcherCtx) {
         if (remoteTask) {
           // ONE line per episode, not one per tick: the dispatcher re-reads
           // this card every ~10s while it is held, and the CAS refusal is
-          // the same refusal until something about the card changes.
+          // the same refusal until something about the card changes. The
+          // reason goes on the card too, not only in the server log: a
+          // silent decline here was exactly the defect this branch used to
+          // have (measured 27/11: cards pinned to a free node sat for hours
+          // with nothing on the thread saying why).
           if (!remoteClaimDeclinedNoted.has(t.id)) {
             remoteClaimDeclinedNoted.add(t.id);
-            log(`remote claim declined for ${t.id} on machine ${t.machineId ?? "?"}`);
+            const reason = remoteDeclineReason(t, delegated);
+            log(`remote claim declined for ${t.id} on machine ${t.machineId ?? "?"}: ${reason}`);
+            try {
+              deps.svc.addComment({
+                taskId: t.id, author: "system", kind: "service",
+                content: `In coda sul nodo: il claim è stato rifiutato (${reason}).`, // allow-italian: user-facing board note
+                once: true,
+              });
+            } catch { /* the task may have moved */ }
           }
           continue;
         }
