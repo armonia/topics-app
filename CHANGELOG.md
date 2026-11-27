@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.11 — 2026-11-27
+
+### Correzioni
+- **node-meter** · fall back to the planted branch when the delivered commit is not resolvable yet
+
+### Sotto il cofano
+- **review-checks** · split the mac-only isMacOnlyDiff coverage into its own file
+
 ## 2.5.10 — 2026-11-27
 
 ### Correzioni
@@ -17,6 +25,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - DESIGN.md: round 3 di tab e sidebar approvato (27/11)
+- **review-checks** · cover isMacOnlyDiff and the swap-exhausted mac-only branch
 
 ## 2.5.8 — 2026-11-27
 
@@ -42,6 +51,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Correzioni
 - **land** · node deliveries with a null checks_state are measured again, and every mute exit of the meter says why
+- **review-checks** · give isMacOnlyDiff's git read a deadline and list it
 - **gates** · ci-impact fixtures no longer read as the file's own @covers
 
 ### Sotto il cofano
@@ -50,7 +60,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-26 [skip ci]
 - trace the new archive and blockedByTaskId tests to KANBAN-123/124
 - Tetto di spesa: la striscia resta sotto i 768 px; GAUGE-10 con istante relativo
+- Remeasure review cards stuck with a null checks verdict, realigned on main
 - Tab di lato: un passo sui quattro lati, isole che chiudono la colonna, riga archiviata che esce
+- Fix the moved-aside-copy test: sweep the leftover, don't rely on path reuse
 - Board settings: backlog triage row gets its icon like the rows above
 
 ## 2.5.6 — 2026-11-26
@@ -86,6 +98,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Correzioni
 - **checks** · a spawnError is unmeasured, not a red bounce
 - **dispatch** · count a node seat only by a run the primary still believes open
+- **lint** · drop the unused afterAll import in the swap-exhausted check test
 - **board** · the new board requirements are in the spec, and the person-owned word list carries its language marker
 - **node-checks** · give each run its own checkout folder
 
@@ -110,6 +123,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **bloat** · check mode compares the baseline with origin/main; drop duplicate entry, total 153
 - **board** · scheduled review gate in the CI phase, fetch before 'already on main', closes on proof, keeps the agent's question until answered
 - **board** · drop a stray backspace from the merge-tree conflict regex
+- **review-checks** · run touched tests after CI is green, fall back to its verdict after 2 swap stops
 - **ui** · the sidebar's buttons are tabs, and every tab lights under the pointer
 - don't let an older comment outrank the newest one when carrying a node's thread
 - **board** · the stuck-card sweep leaves an in-progress card its dispatch chip explains
