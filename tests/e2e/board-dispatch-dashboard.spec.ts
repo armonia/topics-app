@@ -119,6 +119,25 @@ async function stubQueue(page: Page) {
     }));
 }
 
+/** A flat hour of free memory peaking at `peakGB`, so the Y axis top is `chartMax`'s
+ *  own rounding of it (a multiple of 3): enough to put a two- or three-digit label
+ *  at the top tick. */
+async function stubQueuePeak(page: Page, peakGB: number) {
+  const end = Date.now();
+  const history = Array.from({ length: 30 }, (_, i) => ({
+    at: new Date(end - (29 - i) * 60_000).toISOString(),
+    freeGB: i === 29 ? peakGB : peakGB - 1,
+  }));
+  await page.route((url) => url.pathname === "/api/dispatch/memory-queue", (route) =>
+    route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({
+        reading: { freeGB: peakGB, at: null }, threshold: { startGB: 3.5 },
+        queue: [], running: [], consumers: [], history,
+      }),
+    }));
+}
+
 test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
   test.describe.configure({ timeout: 90_000 });
   test.beforeAll(async ({ request }) => {
@@ -224,6 +243,31 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     await expect(button).toHaveAttribute("title", /già una card al lavoro/);
     expect(started).toHaveLength(0);
   });
+
+  for (const peak of [12, 120]) {
+    test(`DISPATCHDASH-06: l'etichetta in cima all'asse (${peak} GB) non si taglia`, async ({ page }) => {
+      await stubMachine(page, 0);
+      await stubQueuePeak(page, peak);
+      await page.goto("/");
+      await openBoard(page);
+      await gear(page).click();
+      const menu = page.getByTestId("board-settings-menu");
+      const chart = menu.getByTestId("dispatch-chart");
+      await expect(chart).toBeVisible();
+      const top = Math.ceil(peak / 3) * 3;
+      const label = chart.locator("text", { hasText: new RegExp(`^${top} GB$`) });
+      await expect(label).toHaveCount(1);
+      const box = await page.evaluate(() => {
+        const svg = document.querySelector('[data-testid="dispatch-chart"] svg')!;
+        const text = [...svg.querySelectorAll("text")].find((t) => /^\d+ GB$/.test(t.textContent ?? "") && t.getBoundingClientRect().y < svg.getBoundingClientRect().y + 20)!;
+        const t = text.getBoundingClientRect(), s = svg.getBoundingClientRect();
+        return { textLeft: t.x, svgLeft: s.x, text: text.textContent };
+      });
+      expect(box.text).toBe(`${top} GB`);
+      // The label's own left edge never falls left of the chart it sits in: that is the clip.
+      expect(box.textLeft, JSON.stringify(box)).toBeGreaterThanOrEqual(box.svgLeft - 0.5);
+    });
+  }
 
   test("DISPATCHDASH-05: a 400 px le 3 card in attesa di memoria hanno chip progetto e attesa su una riga, il motivo sta una volta sola nell'intestazione", async ({ page }) => {
     await stubMachine(page, 0);

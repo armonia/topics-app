@@ -210,6 +210,21 @@ describe('cruscotto auto-dispatch', () => {
     expect(chartMax([14.2, 18], 3.5)).toBe(18);
     expect(chartMax([7], 3.5)).toBe(9);
   });
+  test('l\'etichetta in cima all\'asse non resta tagliata a due o tre cifre', () => {
+    // Two peaks: AXIS_TOP lands on 12 (two digits) and 120 (three digits).
+    const atPeak = (peakGB: number) => Array.from({ length: 30 }, (_, i) => ({
+      at: new Date(Date.parse('2026-10-28T12:00:00Z') - (29 - i) * 60_000).toISOString(),
+      freeGB: i === 29 ? peakGB : peakGB - 1,
+    }));
+    const html12 = renderToStaticMarkup(<MemoryChart history={atPeak(12)} startGB={3.5} now={NOW} />);
+    const html120 = renderToStaticMarkup(<MemoryChart history={atPeak(120)} startGB={3.5} now={NOW} />);
+    // The whole number, never cut, and the left margin grows with the digit count
+    // so a wider label has the room a fixed one never gave it.
+    expect(html12).toContain('>12 GB<');
+    expect(html120).toContain('>120 GB<');
+    const leftOf = (html: string, label: string) => Number(html.match(new RegExp(`<text x="(-?[\\d.]+)"[^>]*>${label}<`))?.[1]);
+    expect(leftOf(html120, '120 GB')).toBeGreaterThan(leftOf(html12, '12 GB'));
+  });
   test('quanto aspetta', () => {
     expect(waitingLabel(10_000)).toBe('1 min');
     expect(waitingLabel(125 * 60_000)).toBe('2 h 5 min');
