@@ -13,8 +13,8 @@ import type { WSData } from "../types";
 import type { AfterHttp } from "../boot/scope";
 import { late } from "../boot/late";
 
-export function createDaemonControl(scope: Pick<AfterHttp, "BOOT_COMMIT" | "abortHeadlessTurn" | "attesaQuiescenza" | "bundleProbe" | "ctx" | "dispatcherSvc" | "taskDispatcher" | "timingSafeEqualStr" | "waitForDispatcherQuiescent" | "whatIsStillWorking" | "worktreeGc">) {
-  const { BOOT_COMMIT, abortHeadlessTurn, attesaQuiescenza, bundleProbe, ctx, dispatcherSvc, taskDispatcher, timingSafeEqualStr, waitForDispatcherQuiescent, whatIsStillWorking, worktreeGc } = scope;
+export function createDaemonControl(scope: Pick<AfterHttp, "BOOT_COMMIT" | "abortHeadlessTurn" | "attesaQuiescenza" | "bundleProbe" | "ctx" | "dispatcherSvc" | "scheduleEngine" | "taskDispatcher" | "timingSafeEqualStr" | "waitForDispatcherQuiescent" | "whatIsStillWorking" | "worktreeGc">) {
+  const { BOOT_COMMIT, abortHeadlessTurn, attesaQuiescenza, bundleProbe, ctx, dispatcherSvc, scheduleEngine, taskDispatcher, timingSafeEqualStr, waitForDispatcherQuiescent, whatIsStillWorking, worktreeGc } = scope;
   return async function daemonControl(req: Request, server: Server<WSData>, url: URL, pathname: string, method: string): Promise<Response | undefined> {
     // Phase B · DAEMON-02: token-authed LOOPBACK control endpoints.
     // We read the state file fresh on every call so a state-file rewrite
@@ -165,6 +165,7 @@ export function createDaemonControl(scope: Pick<AfterHttp, "BOOT_COMMIT" | "abor
           ctx,
           dispatcher: taskDispatcher,
           release: (args) => dispatcherSvc.release(args),
+          schedule: scheduleEngine,
           abortTurn: abortHeadlessTurn,
         });
       }

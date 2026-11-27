@@ -60,6 +60,8 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
   const maxConcurrent = options.maxConcurrent ?? (() => DEFAULT_MAX_CONCURRENT);
   let startsPaused = false;
   let timer: ReturnType<typeof setInterval> | null = null;
+  /** Only the primary decides; `start` wires the real question, until then every tick may run (tests, boot). */
+  let active: () => boolean = () => true;
   let lastPruneAt = 0;
 
   const readJob = (id: string) => {
@@ -251,7 +253,8 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
 
   function tick(): TickResult {
     const out: TickResult = { created: [], skipped: [], started: [] };
-    if (startsPaused) return out;
+    // Every caller asks the role, not only the timer: a run that closes calls tick too.
+    if (startsPaused || !active()) return out;
     const instant = now();
     const previousTick = lastTickAt();
     writeHeartbeat(instant);
@@ -313,6 +316,12 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
   }
 
   /** Runs that hold a slot: what a shutdown or a planned restart has to wait for (R28). */
+  /** The runs that hold a slot, one by one: what a primary switch waits for or parks. */
+  function inFlightRuns(): Array<{ runId: string; jobId: string }> {
+    return (db.query("SELECT id, job_id FROM scheduled_job_runs WHERE status IN ('starting','running') ORDER BY id").all() as { id: string; job_id: string }[])
+      .map((r) => ({ runId: r.id, jobId: r.job_id }));
+  }
+
   function inFlight(): number {
     return (db.query("SELECT COUNT(*) AS n FROM scheduled_job_runs WHERE status IN ('starting','running')").get() as { n: number }).n;
   }
@@ -324,13 +333,15 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
     cancelOpenRuns,
     runNow,
     inFlight,
+    inFlightRuns,
     /** R28: no occurrence starts while paused. Shutdown calls it before anything else. */
     pauseStarts() { startsPaused = true; },
     resumeStarts() { startsPaused = false; },
     isPaused: () => startsPaused,
     /** Starts the 15 s timer. `active` is asked at every beat: only the primary server decides. */
-    start(active: () => boolean, onResult?: (result: TickResult) => void) {
+    start(isActive: () => boolean, onResult?: (result: TickResult) => void) {
       if (timer) return timer;
+      active = isActive;
       timer = setInterval(() => {
         if (!active()) return;
         try { onResult?.(tick()); } catch (error) { console.warn("[scheduled-jobs] tick failed:", error); }

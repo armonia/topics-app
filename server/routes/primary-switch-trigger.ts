@@ -26,6 +26,13 @@ export interface PrimarySwitchTriggerDeps {
     busyTurns: () => Array<{ taskId: string; sessionKey: string }>;
   };
   release: (args: { taskId: string; requeue: boolean; reason?: string; by?: string }) => unknown;
+  /** The scheduled jobs engine: paused with the drain, its runs waited for or parked like the cards. */
+  schedule: {
+    pauseStarts: () => void;
+    resumeStarts: () => void;
+    inFlightRuns: () => Array<{ runId: string; jobId: string }>;
+    cancelOpenRuns: (jobId: string, reason: string) => number;
+  };
   abortTurn: (sessionKey: string, cause: StopCause) => Promise<void>;
   fetch?: typeof fetch;
 }
@@ -138,15 +145,18 @@ export async function handlePrimarySwitch(req: Request, deps: PrimarySwitchTrigg
       role,
       localMachineId: ctx.machineStore.upsertLocal().id,
       target: resolved.target,
-      drain: deps.dispatcher.drain,
-      undrain: deps.dispatcher.undrain,
+      drain: (reason) => { deps.dispatcher.drain(reason); deps.schedule.pauseStarts(); },
+      undrain: (reason) => { deps.schedule.resumeStarts(); deps.dispatcher.undrain(reason); },
       stillWorking: (): WorkInFlight[] => {
         const cards = deps.dispatcher.busyTurns();
         const covered = new Set(cards.map((c) => c.sessionKey));
         const chats = [...ctx.activeStreams.keys()].filter((sk) => !covered.has(sk)).map((sessionKey) => ({ sessionKey }));
-        return [...cards, ...chats];
+        const jobs = deps.schedule.inFlightRuns().map((r) => ({ scheduledJobId: r.jobId, sessionKey: `scheduled-run:${r.runId}` }));
+        return [...cards, ...chats, ...jobs];
       },
       park: async (work, note) => {
+        // A run closed `cancelled` here, before the fence, travels closed: the new primary never starts it again.
+        if (work.scheduledJobId) { deps.schedule.cancelOpenRuns(work.scheduledJobId, note); return; }
         await deps.abortTurn(work.sessionKey, "superseded").catch(() => {});
         if (work.taskId) deps.release({ taskId: work.taskId, requeue: true, reason: note, by: "primary-switch" });
       },

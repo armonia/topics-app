@@ -35,7 +35,8 @@ import type { PrimaryRole } from "../lib/primary-role";
 export interface SwitchTarget { id: string; hostname: string; name: string }
 
 /** Something still working when the drain began: a card (with its task) or a chat. */
-export interface WorkInFlight { taskId?: string; sessionKey: string }
+/** A card turn, a chat stream, or a scheduled job run (`scheduledJobId`): what a drain waits for or parks. */
+export interface WorkInFlight { taskId?: string; scheduledJobId?: string; sessionKey: string }
 
 /** What the receiver said to the commit. `refused` is an explicit no: safe to undo. */
 export type CommitAnswer =
@@ -163,13 +164,15 @@ export async function runPrimarySwitch(deps: PrimarySwitchDeps): Promise<SwitchR
       parked.push(work.taskId ?? work.sessionKey);
     }
 
-    step = "fence";
-    deps.setFence(marker("fencing"));
-    fenced = true;
-
+    // Snapshot and fence in one synchronous block, so no other code of this
+    // process runs between them: the copy needs a writable handle (VACUUM INTO),
+    // and the fence turns the live handle read-only right after it.
     step = "snapshot";
     const dbCopy = join(outgoing, DB_NAME);
     const counts = snapshotDatabase(deps.db, dbCopy);
+    step = "fence";
+    deps.setFence(marker("fencing"));
+    fenced = true;
     const live = countRows(deps.db);
     if (!sameCounts(counts, live)) return undo(`the copy counts ${JSON.stringify(counts)}, the live DB ${JSON.stringify(live)}`);
 

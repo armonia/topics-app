@@ -82,6 +82,31 @@ export function isDatabaseOpen(): boolean {
   return _db !== null;
 }
 
+let fencedReadOnly = false;
+
+/**
+ * The write fence of a primary switch (track T4), at the one place every
+ * writer goes through: the live handle turns `query_only`, so from the fence on
+ * NO path writes into the DB that was handed over, whatever timer or route it
+ * comes from. Before the handle opens (the fence is read at boot) only the
+ * wish is kept: `applyFencedReadOnly` turns it on once the boot has run, so a
+ * boot step that writes does not stop the server from coming up.
+ */
+export function setDatabaseReadOnly(on: boolean): void {
+  fencedReadOnly = on;
+  if (_db) _db.run(`PRAGMA query_only = ${on ? "ON" : "OFF"}`);
+}
+
+/** End of boot: a fence read from disk before the DB opened reaches the handle now. */
+export function applyFencedReadOnly(): void {
+  if (fencedReadOnly) setDatabaseReadOnly(true);
+}
+
+/** A write refused by the fence: what the process-level handlers absorb instead of crashing on it. */
+export function isFencedWriteError(err: unknown): boolean {
+  return fencedReadOnly && (err as { code?: unknown } | null)?.code === "SQLITE_READONLY";
+}
+
 /**
  * Planner statistics for `tasks`, and only for `tasks`.
  *
