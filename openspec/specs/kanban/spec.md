@@ -6065,3 +6065,36 @@ against the window.
 - **GIVEN** a board whose columns overflow the row
 - **WHEN** the row is at rest and then scrolled to its end
 - **THEN** the first column SHALL start at least 8px inside the row, the last SHALL end at least 12px inside it, and no column SHALL come within 14px of its bottom edge, in the board's row and in a lane's row
+
+### Requirement: KANBAN-123 — Archiving never leaves a live dependent without its blocker
+
+Archiving a card, alone or as a cascade over its subtree or as one decision over a
+batch of parked steps, SHALL be refused with `409 blocks_live_dependent` when a card
+that goes down is the `blockedByTaskId` of a card that is not done, not archived and
+not under an archived ancestor, outside what goes down. The check SHALL run before
+any side effect (no agent cut, no child detached), the refusal SHALL name the waiting
+card, its board when it is another one, and the descendant it waits on, and the retry
+of a delegated revocation SHALL treat it as a lasting refusal, not a transient error.
+Children that the board DELETE detaches instead of archiving SHALL not count.
+
+#### Scenario: a live blocker is not archived
+- **GIVEN** a card A and a todo card B with `blockedByTaskId` A
+- **WHEN** someone archives A
+- **THEN** the answer SHALL be 409 `blocks_live_dependent` naming B, and A, its agent and its open children SHALL be untouched
+
+#### Scenario: a blocker that stays does not block
+- **GIVEN** a card A whose open child C is detached by the DELETE, and a card waiting on C
+- **WHEN** someone archives A without its children
+- **THEN** the archive SHALL succeed
+
+### Requirement: KANBAN-124 — A future step is a card linked with blockedByTaskId, never a promise in a comment
+
+The kickoff of a dispatched card and `docs/board-protocol.md` SHALL tell the agent to
+create later work as a card wired with `blockedByTaskId`, never as a promise written in
+a comment, and the session-scoped `create_task` and `update_task` routes SHALL persist
+`blockedByTaskId` instead of dropping or rejecting it.
+
+#### Scenario: the agent wires the next step
+- **GIVEN** an agent working card A
+- **WHEN** it calls `create_task(text, blockedByTaskId=A)` through its session route
+- **THEN** the new card SHALL carry the link, and its kickoff SHALL have said to do so
