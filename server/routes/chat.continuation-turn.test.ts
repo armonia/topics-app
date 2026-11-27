@@ -4,8 +4,8 @@
  * A TURN THAT ONLY CONTINUES WORK SAYS SO TO THE PROVIDER.
  *
  * The native engine leaves an agent's compaction ceiling out of a continuation
- * (`continuation`): a resume ("carry on", the note after a restart) or a goal
- * or hook nudge points back at a request that may sit outside the tail
+ * (`continuation`): a resume ("carry on", the note after a restart), a goal
+ * or hook nudge, or a wake (a command's end, sub-agent results) points back at a request that may sit outside the tail
  * compaction never cuts, and the ceiling's low target dropped it (review of PR
  * #1779, reproduced). Every other turn gets the ceiling, and that includes the
  * one jarvis-channels sends for a person's Discord message, which arrives as
@@ -95,5 +95,16 @@ describe("the provider knows whether the turn only continues work", () => {
     expect((await turn(sk, "Carry on from where you were.", { ripresa: 1 })).options.continuation).toBe(true);
     expect((await turn(sk, "Keep going toward the goal.", { goalNudge: 1 })).options.continuation).toBe(true);
     expect((await turn(sk, "The turn-end hook asks for more.", { hookNudge: 1 })).options.continuation).toBe(true);
+  });
+
+  // A wake points back at the request that launched the work just as a resume
+  // does ("Command `build` finished", "Carry on with the task."): on the
+  // ceiling's target the request was dropped (third review of PR #1779).
+  test("a wake (a command's end, sub-agent results, a card's outcome) is a continuation too", async () => {
+    const sk = topic("ct-wake");
+    await turn(sk, "lancia la build e avvisami");
+    expect((await turn(sk, "Command `build` finished: exit 0.", { processExit: true })).options.continuation).toBe(true);
+    expect((await turn(sk, "Sub-agent results. Carry on with the task.", { subagentResults: true })).options.continuation).toBe(true);
+    expect((await turn(sk, "The card you sent to work is done.", { cardOutcome: true })).options.continuation).toBe(true);
   });
 });

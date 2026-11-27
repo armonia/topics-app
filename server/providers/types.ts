@@ -556,8 +556,9 @@ export interface AIProvider {
       turnId?: string;
       /**
        * The message carries no request of its own: it continues work the chat
-       * already started (the resume after a cut turn, the goal loop's or a
-       * `turn-end` hook's nudge), so the request it continues may sit far back
+       * already started (the resume after a cut turn, a goal or `turn-end`
+       * hook nudge, a wake: a command's end, sub-agent results, a card's
+       * outcome), so the request it continues may sit far back
        * in the history. The native engine skips an agent's compaction ceiling
        * on such a turn, whose low target would drop that request.
        */
