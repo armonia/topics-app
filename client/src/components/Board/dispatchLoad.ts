@@ -166,9 +166,18 @@ function bareReading(s: GlobalDispatchCapState): DispatchLoadReading {
   return { ...base, limit, fill, tone };
 }
 
-/** The i18n key of the ONE word beside the ring. */
-export function loadWordKey(r: DispatchLoadReading): string {
+/**
+ * The i18n key of the ONE word beside the ring. `spendHeld` is the 24h spend
+ * cap from the `dispatchBrakes` store (`GET /api/dispatch/brakes`), not the
+ * admission gate `r` is built from: without it a spend stop drew "a budget"
+ * in resources mode, which names the dispatcher's CAP MODE, not why the
+ * queue is actually held.
+ */
+export function loadWordKey(r: DispatchLoadReading, spendHeld = false): string {
   if (r.loading) return 'board.gauge.reading';
+  // Every card is held, whatever axis the gate would otherwise name: the
+  // spend cap comes before the gate's own verdict.
+  if (spendHeld) return 'board.gauge.wait.spend';
   // The axis that holds, before the name of the brake: "a budget" beside a ring
   // while memory held the queue was the one word that answered nothing.
   if (r.heldBy) {

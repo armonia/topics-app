@@ -295,6 +295,7 @@
   "min_clone_lines": 20,
   "duplicated_lines": 290,
   "clone_groups": 11,
+  "max_over_files": 153,
   "files": {
     "client/src/App.tsx": 1140,
 
@@ -584,6 +585,8 @@
       ]
     },
 
+    "server/routes/chat-handler.ts": 811,
+
     "server/routes/chat.outage-direct-answer.test.ts": 1159,
 
     "server/routes/chat.ts": 1113,
@@ -600,8 +603,6 @@
     },
 
     "server/routes/outbound.test.ts": 1049,
-
-    "server/routes/chat-handler.ts": 811,
 
     "server/routes/tasks-board.ts": 1605,
 
@@ -746,5 +747,17 @@
     "tests/integration/process-run-command.test.ts": 836,
 
     "tests/unit/ws-outbound-schema.test.ts": 946
+  },
+
+  "exceptions": {
+    "server/routes/chat-handler.ts": {
+      "why": "Entered main over the threshold before this gate could refuse it (card f3c5a186); to be split in its own card.",
+      "expires": "2026-12-31"
+    },
+
+    "server/providers/native/auth.ts": {
+      "why": "Entered main over the threshold before this gate could refuse it (card f3c5a186); to be split in its own card.",
+      "expires": "2026-12-31"
+    }
   }
 }

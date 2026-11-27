@@ -12,6 +12,7 @@ import {
   RESIDENCY_BUDGET,
   MIN_DWELL_MS,
   NATIVE_IDLE_EVICT_MS,
+  NATIVE_IDLE_KEEP,
   type ResidencyCandidate,
   type ResidencyInput,
 } from './policy';
@@ -63,7 +64,7 @@ describe('residencyClassOf', () => {
     }
   });
 
-  test('una pane browser non viene MAI sfrattata, per quante se ne aprano', () => {
+  test('una pane browser non viene sfrattata dal budget, per quante se ne aprano', () => {
     // Il caso che ha fatto crescere l'app a 4,1 GB in un'ora e mezza: sfratto,
     // rientro, e un processo WebContent in piu' che non morira'.
     const keys = Array.from({ length: 30 }, (_, i) => `browser-${i}`);
@@ -73,7 +74,7 @@ describe('residencyClassOf', () => {
         visible: new Set([keys[0]!]),
         budget: RESIDENCY_BUDGET,
         minDwellMs: MIN_DWELL_MS,
-        lastTouchedAt: touched(Object.fromEntries(keys.map((k, i) => [k, 600_000 + i * 1000]))),
+        lastTouchedAt: touched(Object.fromEntries(keys.map((k, i) => [k, 60_000 + i * 1000]))),
       }),
     );
     expect(d.evicted.size).toBe(0);
@@ -168,6 +169,18 @@ describe('computeResident — pressione memoria sulle pane native', () => {
     expect(evaluate(NATIVE_IDLE_EVICT_MS, { visible: new Set(['browser-1']) }).resident.has('browser-1')).toBe(true);
     expect(evaluate(NATIVE_IDLE_EVICT_MS, { held: new Set(['browser-1']) }).resident.has('browser-1')).toBe(true);
     expect(evaluate(NATIVE_IDLE_EVICT_MS, { evictIdleNative: false }).resident.has('browser-1')).toBe(true);
+  });
+
+  test('without pressure, idle native panes beyond the keep cap are evicted, most recent kept', () => {
+    const keys = ['b1', 'b2', 'b3', 'b4'];
+    const res = computeResident(input({
+      candidates: keys.map((key) => ({ key, cls: 'native' as const })),
+      lastTouchedAt: touched({ b1: NATIVE_IDLE_EVICT_MS + 4000, b2: NATIVE_IDLE_EVICT_MS + 3000, b3: NATIVE_IDLE_EVICT_MS + 2000, b4: NATIVE_IDLE_EVICT_MS + 1000 }),
+      memoryPressure: false,
+    }));
+    expect(NATIVE_IDLE_KEEP).toBe(2);
+    expect([...res.resident].sort()).toEqual(['b3', 'b4']);
+    expect([...res.memoryEvicted].sort()).toEqual(['b1', 'b2']);
   });
 });
 
