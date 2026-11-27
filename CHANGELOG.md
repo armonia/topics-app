@@ -2,23 +2,7 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.5.18 — 2026-11-27
-
-### Sotto il cofano
-- Test della scala del bundle: un'identità git sua, il runner della CI non ne ha una globale
-- Test della scala del bundle: main esplicito, senza config globale init crea master e set-head -a non trova la HEAD
-
-## 2.5.17 — 2026-11-27
-
-### Sotto il cofano
-- Nodo senza origin: il bundle del ramo si allarga quando il nodo dice che gli mancano i commit
-- Test della scala del bundle: il margine viene prima della storia intera, e «whole» non taglia mai
-
 ## 2.5.16 — 2026-11-27
-
-### Correzioni
-- **secrets** · pack refuses to write when the secrets file exists but did not decrypt
-- **secrets** · read and unpack swallow only the decryption failure
 
 ### Sotto il cofano
 - **dispatch** · native child ignores card reserve; mutation-killing tests for reservedMemGB
