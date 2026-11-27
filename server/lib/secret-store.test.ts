@@ -211,6 +211,32 @@ describe("age secret store", () => {
     }
   });
 
+  // Mutation point: drop the `decryptOrThrow` throw (fall back to the
+  // swallow-and-return-empty `decrypt`) and this test goes red, because
+  // `pack` would then merge the new entry on top of `{}` and overwrite the
+  // file, losing `svc/b` for good.
+  test("pack refuses to write when the file exists but does not decrypt, and leaves it untouched", async () => {
+    const writer = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identityPath, secretsPath });
+    await writer.pack({ [TEST_NAME]: "svc-a-value", [OTHER_TEST_NAME]: "svc-b-value" });
+    const ciphertextBefore = readFileSync(secretsPath, "utf8");
+
+    // Fails only the decrypt call (`age -d`); a real encrypt (`age -a`) would
+    // otherwise also fail and the test would go red for the wrong reason.
+    const failingRun = async (argv: string[], stdinData: string): Promise<AgeRunResult> => {
+      if (argv.includes("-d")) return { stdout: "", exitCode: 1 };
+      const r = spawnSync(argv[0]!, argv.slice(1), { input: stdinData, encoding: "utf8" });
+      return { stdout: r.stdout ?? "", exitCode: r.status };
+    };
+    const fresh = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identityPath, secretsPath, run: failingRun });
+    await expect(fresh.pack({ [TEST_NAME]: "overwrite-attempt" })).rejects.toThrow();
+
+    expect(readFileSync(secretsPath, "utf8")).toBe(ciphertextBefore);
+    const reread = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identityPath, secretsPath });
+    const unpacked = await reread.unpack();
+    expect(unpacked[TEST_NAME]).toBe("svc-a-value");
+    expect(unpacked[OTHER_TEST_NAME]).toBe("svc-b-value");
+  });
+
   test("unpack decrypts only once: a second unpack does not spawn age again", async () => {
     let runCount = 0;
     const countingRun = async (argv: string[], stdinData: string): Promise<AgeRunResult> => {
