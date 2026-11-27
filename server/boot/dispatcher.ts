@@ -5,12 +5,13 @@ import { basename, join } from "path";
 import { existsSync, mkdirSync } from "fs";
 import { countAttachedTerminalSessions } from "../routes/terminal";
 import { createAgentWorktree, worktreeReadyMs } from "../services/worktree-for-agent";
+import { mainRedStop, realMainCiPort } from "../services/main-ci-watch";
 import { createTaskDispatcher } from "../services/task-dispatcher";
 import { dispatcherLogLine } from "../services/task-dispatcher-support";
 import { budgetSample, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { createDispatchResourceBlockFromInputs } from "../services/dispatch-memory-inputs";
 import { fleetLoadSync, fleetSessionCoreUnits } from "../lib/fleet-usage";
-import { cardMemPeakGB, recentCardMemPeaksGB } from "../lib/card-memory-peaks";
+import { cardLiveTreeGB, cardMemPeakGB, recentCardMemPeaksGB } from "../lib/card-memory-peaks";
 import { machineCores } from "../lib/machine-cores";
 import { worktreeRealDirt } from "../services/task-automerge";
 import { branchStatusFromRepo, worktreeDiffStat } from "../services/branch-status";
@@ -94,6 +95,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     deliveryLanded: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
     // The empty-node-run guard reads THIS machine's checkout, same resolver the cloud node lane
     // already uses for its own repo lookup (`dispatch-prep.ts`, `cloudNode`).
+    mainIsRed: async (repoPath) => (await mainRedStop(realMainCiPort(repoPath))) !== null,
     repoPathOfTask: (taskId) => {
       const projectId = dispatcherSvc.get(taskId)?.task.projectId;
       return projectId ? projectPathForNode(projectId) ?? null : null;
@@ -152,6 +154,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       try { return recentCardMemPeaksGB(); } catch { return []; }
     },
     cardCheckPeakGB: cardMemPeakGB,
+    cardLiveTreeGB,
     ...dispatchMemoryInputs,
     // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
     // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
@@ -395,7 +398,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       // from this machine's checkout (`branch-on-origin.ts`).
       ensureBranchOnOrigin: ({ projectId, branch }) => ensureBranchOnOrigin(projectPathForNode(projectId), branch),
       // A node that cannot reach origin gets the same branch as a bundle with the run.
-      bundleBranch: ({ projectId, branch }) => bundleBranchForNode(projectPathForNode(projectId), branch),
+      bundleBranch: ({ projectId, branch, reach }) => bundleBranchForNode(projectPathForNode(projectId), branch, undefined, reach),
       // The `node-run` hook starts in the project's checkout on this machine,
       // the same path the planter reads the origin from and plants into.
       projectPathOf: projectPathForNode,

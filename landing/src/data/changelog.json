@@ -1,5 +1,99 @@
 [
   {
+    "version": "2.5.17",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "split node-client.ts under the bloat threshold, name the reason for a declined remote claim",
+          "scope": "dispatch"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.16",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "pack refuses to write when the secrets file exists but did not decrypt",
+          "scope": "secrets"
+        },
+        {
+          "text": "read and unpack swallow only the decryption failure",
+          "scope": "secrets"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.14",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "reserve per card net of its own measured tree, no double count in the memory brake",
+          "scope": "dispatch"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.11",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "fall back to the planted branch when the delivered commit is not resolvable yet",
+          "scope": "node-meter"
+        },
+        {
+          "text": "long timeout for createRun, dedupe the silent remote-claim log line",
+          "scope": "dispatch"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.10",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "block a manual land while the bar is still running",
+          "scope": "land"
+        },
+        {
+          "text": "age store filters unpack/read by the current allowlist",
+          "scope": "secrets"
+        },
+        {
+          "text": "age store keeps the whole file map, filters only its outputs, and never rewrites for refused names",
+          "scope": "secrets"
+        },
+        {
+          "text": "a branch origin is only ahead on is already there",
+          "scope": "dispatch"
+        },
+        {
+          "text": "originContains fetches without tags, like fetchRemoteBase",
+          "scope": "dispatch"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.9",
     "date": "2026-11-27",
     "sections": {
@@ -10,8 +104,16 @@
           "scope": "gates"
         },
         {
+          "text": "free a node seat a waiting run holds forever, log the silent remote claim, cap node calls with a deadline",
+          "scope": "dispatch"
+        },
+        {
           "text": "templateChunks back inside ui-language-scan.ts's 800-line budget",
           "scope": "gates"
+        },
+        {
+          "text": "resolve the installed playwright-core entry from its own manifest",
+          "scope": "browser"
         }
       ],
       "perf": []
@@ -51,12 +153,38 @@
       "new": [],
       "fixes": [
         {
+          "text": "a card at work with no chip keeps its seat (NULL never matches IN)",
+          "scope": "dispatch"
+        },
+        {
           "text": "node deliveries with a null checks_state are measured again, and every mute exit of the meter says why",
           "scope": "land"
         },
         {
+          "text": "give isMacOnlyDiff's git read a deadline and list it",
+          "scope": "review-checks"
+        },
+        {
+          "text": "pin playwright-core to the exact locked version, install with integrity and a deadline",
+          "scope": "browser"
+        },
+        {
           "text": "ci-impact fixtures no longer read as the file's own @covers",
           "scope": "gates"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.6",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a remote run resting on a wait or a question gives its machine seat back",
+          "scope": "dispatch"
         }
       ],
       "perf": []
@@ -91,6 +219,10 @@
           "scope": "dispatch"
         },
         {
+          "text": "drop the unused afterAll import in the swap-exhausted check test",
+          "scope": "lint"
+        },
+        {
           "text": "the new board requirements are in the spec, and the person-owned word list carries its language marker",
           "scope": "board"
         },
@@ -114,6 +246,10 @@
         {
           "text": "a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land",
           "scope": "board"
+        },
+        {
+          "text": "add a single secret-store interface for Mac and Linux",
+          "scope": "secrets"
         },
         {
           "text": "a request that repeats an open card is absorbed by it instead of opening a twin",
@@ -150,6 +286,18 @@
           "scope": "board"
         },
         {
+          "text": "run touched tests after CI is green, fall back to its verdict after 2 swap stops",
+          "scope": "review-checks"
+        },
+        {
+          "text": "stdin secrets, in-memory identity, configurable allowlist",
+          "scope": "secrets"
+        },
+        {
+          "text": "keychain write uses -X hex, closing the newline injection in -i stdin",
+          "scope": "secrets"
+        },
+        {
           "text": "the sidebar's buttons are tabs, and every tab lights under the pointer",
           "scope": "ui"
         },
@@ -158,12 +306,30 @@
           "scope": null
         },
         {
+          "text": "keychain stores printable b64 payload, so read never gets hex back",
+          "scope": "secrets"
+        },
+        {
           "text": "the stuck-card sweep leaves an in-progress card its dispatch chip explains",
           "scope": "board"
         },
         {
           "text": "protect every comment of a resend's round, not two rows by position, in node run briefs",
           "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.1",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "fall back to an installed Chromium-family browser when no Playwright Chromium is found",
+          "scope": "browser"
         }
       ],
       "perf": []
@@ -198,6 +364,10 @@
         }
       ],
       "fixes": [
+        {
+          "text": "install playwright-core on first use when the server cannot resolve it",
+          "scope": "browser"
+        },
         {
           "text": "a pop-out window is dressed on the main thread, not on a tokio worker",
           "scope": "tauri"

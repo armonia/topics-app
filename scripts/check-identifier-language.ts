@@ -678,6 +678,10 @@ export const PROJECT_WORDS = new Set([
   // (2026-10-06, `server/lib/subagent-migration.ts`).
   "handover",
   "emptied", // a past participle the 1934 list lacks, like `held` (`observeTasksEmptied`, 2026-10-09)
+  // ciphertext, decrypt, keygen: crypto vocabulary newer than the 1934 list
+  // (`encrypt` is there, `decrypt` is not); `keygen` is the exact binary name
+  // (`age-keygen`) the secret store spawns (`server/lib/secret-store.ts`).
+  "ciphertext", "decrypt", "keygen",
 ]);
 
 function trackedFiles(): string[] {

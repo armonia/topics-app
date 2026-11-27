@@ -1,5 +1,5 @@
 /**
- * @covers MACHINE-06
+ * @covers MACHINE-07
  * The receiving half of a primary switch: only the channel's device stages and
  * commits, names and offsets are checked, a full upload commits and restarts.
  */

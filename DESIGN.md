@@ -179,6 +179,9 @@ barra dei menu.
   titolo, e i semafori centrati su quella riga; una riga archiviata esce scivolando e sfumando in
   `MOTION.fast` e solo dopo le righe sotto risalgono; chiusa l'ultima isola si chiude la colonna
   del progetto, e riaperta torna su quell'isola com'era. Tab in alto e telefono invariati.
+- La prima riga della colonna sul telefono (27/11 «Sì, va bene», #1731): a riposo sta un passo (6)
+  sotto la riga compatta del titolo, mai dietro il suo velo; il velo serve solo alle righe che
+  scorrono sotto.
 
 ## Feedback di Attilio
 

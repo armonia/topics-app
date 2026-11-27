@@ -31,9 +31,11 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 import { CLOUD_HOLD_KEY, parseCloudWeeklyLimit, type CloudWeeklyLimit } from "../lib/cloud-weekly-limit";
 import { setProviderHold } from "../lib/provider-hold";
 import { BRANCH_NOWHERE_REASON, carriedBranch, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
+import type { BundleReach } from "./branch-on-origin";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
+import { createRunWithBundle } from "./node-bundle-ladder";
 
 /**
  * THE REMOTE LANE'S HOST CAPABILITY: how this board talks to a paired node, and
@@ -103,7 +105,7 @@ export interface NodeDeps {
    * The card's branch as a git bundle, for a node that cannot reach origin
    * (it answered `branch_unreachable`). `null` = no local branch to send.
    */
-  bundleBranch?: (input: { projectId: string; branch: string }) => Promise<Uint8Array | null>;
+  bundleBranch?: (input: { projectId: string; branch: string; reach?: BundleReach }) => Promise<Uint8Array | null>;
   /** The checkout of a project on THIS machine: the `cwd` the `node-run` hook starts in. */
   projectPathOf?: (projectId: string) => string | null;
   /**
@@ -281,6 +283,7 @@ export interface RemoteNodeHost {
   deliveryLanded?: (repoPath: string, commit: string) => Promise<boolean | null>;
   /** This machine's own checkout for the card's project, never the node's. */
   repoPathOfTask?: (taskId: string) => string | null;
+  mainIsRed?: (repoPath: string) => Promise<boolean>;
 }
 
 export interface RemoteNodeLane {
@@ -668,9 +671,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         // The node cannot reach origin (it does not talk to GitHub by choice): the
         // carried branch rides with the run as a bundle, as the delivery rides back.
         if (!baseBranch || !(isNodeError(err) && err.reason === "branch_unreachable") || !node.bundleBranch) throw err;
-        const bytes = await node.bundleBranch({ projectId: task.projectId, branch: baseBranch });
-        if (!bytes) throw err;
-        created = await node.createRun({ ...runInput, body: { ...runInput.body, branchBundle: Buffer.from(bytes).toString("base64") } });
+        const bundled = await createRunWithBundle((reach) => node.bundleBranch!({ projectId: task.projectId, branch: baseBranch, reach }), (b64) => node.createRun({ ...runInput, body: { ...runInput.body, branchBundle: b64 } }));
+        if (!bundled) throw err;
+        created = bundled;
       }
       const { runId } = created;
       startSetupFails.delete(task.id);
@@ -1142,7 +1145,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       ? !!fresh && planted.commitCount === 0
       : !branch && !report.reason && !report.dispatchError;
     if (fresh && producedNothing && await returnEmptyNodeRunToTodo(
-      { svc, releaseAndEmit, emit, log, nameOf: nodeName, deliveryLanded: host.deliveryLanded, repoPathOfTask: host.repoPathOfTask },
+      { svc, releaseAndEmit, emit, log, nameOf: nodeName, deliveryLanded: host.deliveryLanded, repoPathOfTask: host.repoPathOfTask, mainIsRed: host.mainIsRed },
       fresh, name,
     )) return;
     const reason = planted.planted

@@ -1,4 +1,6 @@
 import type { Page, BrowserContext, Browser } from "playwright-core";
+import { loadPlaywrightCore } from "./lib/playwright-loader";
+import { discoverChromiumEngines, pickChromiumEngine, type ChromiumEngine } from "./browser-chromium-sidecar";
 import { browserReapable } from "./lib/browser-idle-reap";
 import { rewriteDomEventResources } from "./lib/dom-resource-rewrite";
 import { pushNetworkEntry, completeNetworkEntry, type NetworkEntry } from "./browser-network-log";
@@ -128,6 +130,8 @@ interface BrowserServiceOptions {
   onDestroy?: (contextId: string) => void;
   /** Override Chromium executable path (highest priority). Falls back to env CHROMIUM_PATH, then chromium.executablePath(), then legacy macOS hardcoded path. */
   chromiumPath?: string;
+  /** Finds Chromium-family browsers installed on the machine; last-resort executable when nothing else resolves. Defaults to the sidecar discovery. */
+  discoverInstalledChromium?: () => ChromiumEngine[];
   /** Phase 30 BROWSER-CHAT-03 — broadcast a message to all WS clients
    *  watching a given contextId. Wired by server.ts via browserWsClients
    *  registry. No-op if absent. */
@@ -616,7 +620,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // How a chromium-engine context reaches the real Chromium (injectable for tests).
   const connectOverCDP =
     opts.connectOverCDP ??
-    (async (endpoint: string) => (await import("playwright-core")).chromium.connectOverCDP(endpoint));
+    (async (endpoint: string) => (await loadPlaywrightCore()).chromium.connectOverCDP(endpoint));
   /** Clamp DPR to a bandwidth-safe range: 2× covers virtually all retina Macs;
    *  3× would quadruple+ frame bytes and trip the backpressure drop. */
   const clampDsf = (dsf: number | undefined): number => {
@@ -667,7 +671,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   }
 
   async function launchBrowserOnce(): Promise<Browser> {
-    const pw = await import("playwright-core");
+    const pw = await loadPlaywrightCore();
 
     // Path resolution chain (priority order):
     //   1. opts.chromiumPath (constructor)
@@ -751,6 +755,16 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           tried.push(`legacy=${p}`);
           break;
         }
+      }
+    }
+    if (!chromiumPath) {
+      // Last resort: a Chromium-family browser installed on the machine (Chrome,
+      // Edge...), the same discovery the sidecar uses. Covers nodes where no
+      // Playwright browser was ever downloaded (e.g. Windows).
+      const installed = pickChromiumEngine((opts.discoverInstalledChromium ?? discoverChromiumEngines)());
+      if (installed) {
+        chromiumPath = installed.executablePath;
+        tried.push(`installed ${installed.name}=${chromiumPath}`);
       }
     }
     if (!chromiumPath) {

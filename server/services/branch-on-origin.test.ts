@@ -9,7 +9,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bundleBranch, bundleBranchForNode, carriedBranch, carriedRef, ensureBranchOnOrigin, isPlainBranchName, plantCarriedBranch, pushRefusalReason } from "./branch-on-origin";
+import { branchGit, bundleBranch, bundleBranchForNode, carriedBranch, carriedRef, ensureBranchOnOrigin, isPlainBranchName, plantCarriedBranch, pushRefusalReason } from "./branch-on-origin";
+import type { GitRunner } from "./own-commits";
 import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { nodeRunBaseBranch } from "../routes/nodes";
 
@@ -90,6 +91,23 @@ describe("il ramo della card su origin", () => {
     expect(pushRefusalReason("", 128)).toBe("exit 128");
   });
 
+  test("a branch origin is only ahead on: already there, and the local copy stays put", async () => {
+    // 27/11/2026: the land's merge of main reached origin, then this checkout went back one commit.
+    sh(["switch", "-q", "-c", "topics/quiet-heron"], mac);
+    const here = commit(mac, "h.txt", "qui");
+    sh(["push", "-q", "origin", "topics/quiet-heron"], mac);
+    sh(["switch", "-q", "main"], mac);
+    sh(["fetch", "-q", "origin"], pc);
+    sh(["switch", "-q", "-c", "topics/quiet-heron", "origin/topics/quiet-heron"], pc);
+    const ahead = commit(pc, "i.txt", "avanti");
+    sh(["push", "-q", "origin", "topics/quiet-heron"], pc);
+    sh(["switch", "-q", "main"], pc);
+
+    expect(await ensureBranchOnOrigin(mac, "topics/quiet-heron")).toEqual({ ok: true });
+    expect(sh(["rev-parse", "refs/heads/topics/quiet-heron"], mac)).toBe(here);
+    expect(sh(["rev-parse", "refs/heads/topics/quiet-heron"], origin)).toBe(ahead);
+  });
+
   test("un ramo che non c'è né qui né su origin", async () => {
     const r = await ensureBranchOnOrigin(mac, "topics/mai-esistito");
     expect(r).toEqual({ ok: false, reason: "il ramo non c'è né qui né su origin" });
@@ -137,6 +155,15 @@ describe("il ramo della card verso un nodo che non vede origin", () => {
     const bytes = await bundleBranchForNode(mac, "topics/endless-calf");
     expect(bytes).not.toBeNull();
     expect(sh(["rev-parse", "--verify", "-q", "refs/heads/topics/endless-calf"], mac)).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  test("«whole» porta la storia intera anche quando origin/HEAD c'è", async () => {
+    // The last step of the card ladder (node-bundle-ladder.ts): a node without origin lacks even the margin.
+    try { sh(["rev-parse", "--verify", "-q", "refs/remotes/origin/HEAD"], mac); } catch { sh(["remote", "set-head", "origin", "main"], mac); }
+    const cuts: string[][] = [];
+    const spy: GitRunner = (cwd, args) => { if (args[0] === "bundle") cuts.push(args.slice(4)); return branchGit(cwd, args); };
+    expect(await bundleBranch(mac, "topics/endless-calf", spy, "whole")).not.toBeNull();
+    expect(cuts).toEqual([[]]);
   });
 
   test("un ramo che non c'è da nessuna parte: null, senza ref lasciati", async () => {

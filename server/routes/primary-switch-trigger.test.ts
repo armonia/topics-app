@@ -1,5 +1,5 @@
 /**
- * @covers MACHINE-06
+ * @covers MACHINE-07
  *
  * The trigger of a primary switch (track T4) with the REAL scheduled jobs
  * engine and the REAL fence on a DB opened by `initDatabase`: the drain pauses

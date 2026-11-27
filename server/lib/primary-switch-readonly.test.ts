@@ -1,5 +1,5 @@
 /**
- * @covers MACHINE-06
+ * @covers MACHINE-07
  *
  * The switch fence at the one place every writer goes through (track T4): from
  * the fence on, the live DB handle is read-only, so neither the scheduled jobs

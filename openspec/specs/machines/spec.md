@@ -175,11 +175,41 @@ MISURA: `bun test server/lib/machine-security.test.ts server/lib/machine-health.
 - **GIVEN** un nodo che non risponde al giro
 - **THEN** la sua sicurezza SHALL restare l'ultimo esito con il suo `checked_at`, e i suoi campioni SHALL essere `null`
 
-### Requirement: MACHINE-06 — Il principale passa a un altro computer intero, a senso unico, senza perdere scritture
+### Requirement: MACHINE-06 — Un solo modo di leggere i segreti, uguale sul Mac e sul server, con un elenco chiuso
+
+I servizi SHALL leggere un segreto per nome attraverso un deposito con due
+implementazioni dietro la stessa interfaccia: il Portachiavi su macOS, un file
+cifrato con `age` su Linux, decifrato solo dopo che l'identità è stata sbloccata.
+Il deposito SHALL rifiutare un nome fuori dall'elenco consentito (letto da
+`<cartella di stato>/secrets/allowed-secret-names.json`; senza file l'elenco è
+vuoto e rifiuta tutto), e un nome con un carattere di controllo qualunque cosa
+dica l'elenco. Il valore di un segreto SHALL passare solo dallo stdin dei comandi,
+mai dagli argomenti, dai log o dalla console; il percorso dell'identità `age` mai
+dagli argomenti di `age`. Un file di identità leggibile dal gruppo o da altri
+SHALL essere rifiutato. I percorsi di default fuori dal Mac SHALL essere generici e
+configurabili, mai il percorso di una persona.
+
+MISURA: `bun test server/lib/secret-store.test.ts` verde.
+
+#### Scenario: nome fuori elenco
+- **GIVEN** un elenco consentito che non contiene `X`
+- **WHEN** si fa `pack` di `X` o lo si legge
+- **THEN** `pack` SHALL saltarlo e la lettura SHALL rispondere null, senza chiamare `security` per quel nome
+
+#### Scenario: andata e ritorno con age
+- **GIVEN** un valore di prova e un'identità sbloccata
+- **WHEN** si fa `pack` e poi `unpack` con il vero binario `age`
+- **THEN** il valore SHALL tornare uguale e il file cifrato SHALL non contenerne traccia
+
+#### Scenario: identità non sbloccata
+- **GIVEN** un deposito age senza identità sbloccata
+- **THEN** `unpack` SHALL rispondere vuoto e `pack` SHALL rifiutare
+
+### Requirement: MACHINE-07 — Il principale passa a un altro computer intero, a senso unico, senza perdere scritture
 
 `bun run primary switch <macchina>` sul principale SHALL fermare i nuovi dispatch, aspettare le card e le chat in volo e parcheggiare in coda con una nota quelle ancora vive allo scadere dell'attesa. Poi SHALL alzare il recinto sulle scritture dei client, copiare il DB con `VACUUM INTO` e verificarlo con `PRAGMA integrity_check`, e spedire al nuovo principale il DB, la cartella di stato (token dei nodi, hash dei token modello, licenza e id di installazione) e i transcript JSONL della CLI delle sessioni dei topic. Il nuovo SHALL accettare solo dal dispositivo del suo canale, verificare hash, integrità e conteggi prima di accettare, e ripartire come principale a epoca+1. Il vecchio, solo dopo quella risposta, SHALL registrare il nuovo principale, mettere da parte il suo DB come `topics.db.prima-<epoca>` e respingere con `primary_moved` ogni scrittura dei client. Dallo snapshot al DB messo da parte il vecchio SHALL respingere ogni scrittura, accesso, nodi e WebSocket compresi. Il marcatore di ritiro SHALL stare su disco prima che il commit parta: un commit senza risposta, o un riavvio a metà, SHALL lasciare il vecchio recintato e secondario anche dopo il riavvio, finché `bun run primary reclaim` non lo riprende dopo il controllo dell'altro computer. Un rifiuto esplicito SHALL lasciare tutto com'era. Il pacchetto SHALL partire solo su https o su un tunnel verso 127.0.0.1, con i segreti 0600 in cartelle 0700, e il ricevente SHALL scrivere solo i file di un elenco chiuso. Due DB non si fondono mai.
 
-MISURA: `bun test server/lib/primary-switch.test.ts server/routes/nodes-primary.test.ts` verde; `bun scripts/primary-switch-probe.ts --db <copia di un DB vero>` esce 0.
+MISURA: `bun test server/lib/primary-switch.test.ts server/lib/primary-switch-readonly.test.ts server/routes/nodes-primary.test.ts server/routes/primary-switch-trigger.test.ts server/services/task-dispatcher-remote-node-switch.test.ts` verde; `bun scripts/primary-switch-probe.ts --db <copia di un DB vero>` esce 0.
 
 #### Scenario: passaggio con una scrittura durante il drain
 - **GIVEN** un principale con una card che scrive un messaggio mentre il drain aspetta

@@ -1,6 +1,7 @@
 /**
  * Landing a task on main: the queue, the auto lander, the land itself, deploy and publish.
  */
+import { REVIEWER_ANSWER_NOTE } from "../services/red-bounce";
 import { isAgentWorking } from "../../shared/board";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { landFallout } from "../services/task-automerge";
@@ -18,7 +19,8 @@ import { createCiPhase } from "./tasks-ci-phase";
 import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
-import { createReviewSweep } from "./tasks-review-sweep";
+import { createReviewSweep, orderForSweep } from "./tasks-review-sweep";
+import { checksLanes } from "./tasks-checks-delivery";
 import { createNothingToLand } from "./tasks-land-nothing";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,6 +29,9 @@ import { commentAuthorLabel } from "../../shared/comment-author";
 import { inspectDelivery } from "../services/scheduled-review-inspect";
 import { buildSensePrompt, deliveryDiff, diffIsClipped, newSenseNonce, falseMainClaims, isOnMain, runSense, senseModelFor } from "../services/scheduled-review-sense";
 import { reviewScheduled, scheduledReviewDue, type ScheduledReviewCard, type ScheduledReviewOutcome } from "../services/scheduled-review";
+
+/** `unmeasuredStop`'s reason when the bar is `running`: a verdict is coming, not a missing one. */
+const CHECKS_RUNNING_STOP = "checks are still running on the commit being merged";
 
 /** What a queued land is asked besides landing. */
 export interface LandRunOpts {
@@ -268,6 +273,9 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   const reviewSweep = createReviewSweep({
     svc, broadcastToAll, runChecksGate, capturaConsegna, nodeMeter, bounceRed, afterDelivery,
     bounceWithReason: ciPhase.bounceWithReason, reviewPrMergeable: opts?.reviewPrMergeable,
+    // Same cap the checks gate itself holds: a second serialization on top of
+    // it meant a long-running measure held every other review card still.
+    maxConcurrent: checksLanes(),
   });
   const { unmeasuredInReview, remeasureInReview, probeConflict } = reviewSweep;
 
@@ -353,7 +361,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       turnIsLive: () => cardTurnIsLive(t),
       bounce: (c, why) => ciPhase.bounceWithReason(c.projectId, c.id, why, { as: "scheduled" }),
       // The question stays on the card until the send-back happened: the review decision clears it, a refusal leaves it with the person.
-      answer: (c, text) => ciPhase.bounceWithReason(c.projectId, c.id, `Risposta del revisore alla tua domanda: ${text}`, { as: "answer" }),
+      answer: (c, text) => ciPhase.bounceWithReason(c.projectId, c.id, `${REVIEWER_ANSWER_NOTE}: ${text}`, { as: "answer" }),
       close: (c, proof) => {
         const got = svc.get(c.id, { projectId: c.projectId });
         if (!got) return false;
@@ -389,16 +397,21 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     await ciPhase.sweepAfterLand(); // the `after` queue lives in memory (marks back in) and main's own CI is looked at
     const rows = svc.list({ scope: "all", status: "review", rootsOnly: true });
     autoLander.forgetExcept(new Set(rows.map((t) => t.id)));
-    for (const t of rows) {
+    // Arrival order, not `svc.list`'s own `updated_at DESC` (reviewer
+    // feedback 27/11): a person who already said "land it" still goes first
+    // within that stable order, ahead of cards nobody has looked at yet.
+    const ordered = orderForSweep(rows);
+    for (const t of ordered) {
       // A red that arrived after the delivery (a node's bar, a CI row that settled late) goes back to its agent here.
       if (t.checksState === "fail") {
         if (await bounceRed(t.projectId, t.id)) continue;
         // A red that is not about the delivered commit is history: the commit itself gets measured below.
         if (!unmeasuredInReview(t)) continue;
       }
-      // One card at a time, in the background: a measure lasts as long as its CI.
+      // Several measures at once, up to the checks gate's own cap: a measure lasts as long as its CI.
       if (unmeasuredInReview(t)) {
-        if (!reviewSweep.measuring() && !nodeMeter.isMeasuring(t.id) && !cardTurnIsLive(t)) {
+        if (reviewSweep.isMeasuring(t.id) || nodeMeter.isMeasuring(t.id)) continue; // already running: not a queue for it
+        if (reviewSweep.hasFreeSlot() && !cardTurnIsLive(t)) {
           void remeasureInReview(t).catch((err) => console.warn(`[review-sweep] ${t.id.slice(0, 8)}: misura fallita:`, err));
         }
         continue;
@@ -541,9 +554,9 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   const nothingToLand = createNothingToLand({ svc, broadcastToAll, opts, explain: explainNothingToLand });
 
   /**
-   * A card whose delivery no bar ever measured does not land on a board that declares one.
-   * Deliveries planted from another machine arrived with `checks` and `checks_state` null
-   * and went straight onto main, turning its gates red.
+   * A card whose delivery no bar ever measured does not land on a board that declares one. Returns
+   * `CHECKS_RUNNING_STOP` when a measure is in flight: the caller treats that one differently (it is
+   * not a missing bar, a verdict is coming on this very commit) from every other reason here.
    */
   function unmeasuredStop(projectId: string, taskId: string): string | null {
     const t = svc.get(taskId, { projectId })?.task;
@@ -555,6 +568,13 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     if (t.checksState == null && rows.length === 0) {
       return "la consegna non ha nessun check misurato (checks nullo) su una board che ne dichiara: non atterra finché la barra non gira sul suo commit";
     }
+    // `running` has no verdict yet, whatever rows it already carries: zero rows (the measure just
+    // started), or every local row done with only the `github-ci:*` rows still pending in `after` mode
+    // (`onCiWait`). Both used to read as "nothing missing" below, and a human's approve merged a commit
+    // whose bar was still turning (f00bc37942, 27/11): `missing` came out empty either way, since zero
+    // rows short-circuits it to `[]` and a partial-but-complete-so-far set of rows has nothing absent
+    // from `expected` once the pending CI rows are filtered out of it.
+    if (t.checksState === "running") return CHECKS_RUNNING_STOP;
     // A partial bar (say gates measured, the unit job never) is the same hole: the card cannot land on it.
     // With a CI phase the `github-ci:*` rows are not on the card at land time: in `after` mode they are written once
     // the land is done, in `before` mode the queue measured the integration commit and lands on its green.
@@ -661,10 +681,16 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     // Every path stops here, the manual land included: the hook below only runs for the automatic one.
     const unmeasured = unmeasuredStop(projectId, taskId);
     if (unmeasured) {
+      // A measure in flight is not a refusal: there is a verdict coming on this exact commit, and the
+      // card keeps whatever landIntent it already has, so it lands by itself the moment the bar turns
+      // (the sweep's own `running` guard on a `landIntent` card, `ciPhase.returnToCiPhase`).
+      const stillMeasuring = unmeasured === CHECKS_RUNNING_STOP;
       try {
         svc.addComment({
           taskId, author: "system", kind: "service",
-          content: `Land rifiutato prima del merge: ${unmeasured}. La card resta in review.`,
+          content: stillMeasuring
+            ? "Misura in corso: atterra da sola quando finisce verde."
+            : `Land rifiutato prima del merge: ${unmeasured}. La card resta in review.`,
         });
         const fresh = svc.get(taskId, { projectId })?.task;
         if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });

@@ -1,5 +1,5 @@
 /**
- * @covers MACHINE-06
+ * @covers MACHINE-07
  * The bar of track T4: a primary moves to another computer and nothing is lost.
  * Two computers in one process, each with its own state dir, app data dir and
  * CLI projects folder; the transport is the receiver's own staging functions.

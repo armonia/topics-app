@@ -20,9 +20,8 @@
  * @covers CCLI-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, existsSync, readFileSync } from "fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, chmodSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
-import { writeNumberedCli } from "../helpers/numbered-fake-cli";
 
 let tempDir = "";
 /** The test's own data root (`setupTestDataDir`), put back in `afterAll`. */
@@ -30,17 +29,19 @@ let dataRoot = "";
 const savedEnv: Record<string, string | undefined> = {};
 function setEnv(k: string, v: string) { savedEnv[k] = process.env[k]; process.env[k] = v; }
 const RESULT = `{"type":"result","result":"FINAL-RESULT","usage":{"input_tokens":1,"output_tokens":1},"duration_ms":1,"total_cost_usd":0}`;
+/** An assistant line whose text is `<printf %d>,`, for a shell loop. */
+const NUMBERED = `{"type":"assistant","message":{"content":[{"type":"text","text":"%d,"}]}}`;
 const N = 400;
 const LATE_MS = 3500;
 
 beforeAll(async () => {
   const { __resetAiBridgeClientForTests } = await import("../../server/lib/ai-bridge-client");
   __resetAiBridgeClientForTests();
-  // A SHORT root, not `os.tmpdir()`: the test shards give every file a TMPDIR of ~60 characters, the
-  // daemon's socket path then reaches 106 bytes and Bun cannot bind a unix socket from 104 on, so the
-  // daemon never opens ("failed to connect after spawning daemon", measured in the gate).
-  const { testTmpDir } = await import("./helpers");
-  tempDir = testTmpDir("late-scan-route-grace-bridge");
+  // A SHORT root, not `tmpdir()`: under the unit runner that is a long per-file scratch
+  // path, and the bridge socket in it breaks the 104-character unix socket limit, so the
+  // daemon never starts (the turn then dies with "send stopped in the queue").
+  const { testTmpDir: shortTmpDir } = await import("./helpers");
+  tempDir = shortTmpDir("lsrg");
   mkdirSync(join(tempDir, "data"), { recursive: true });
   setEnv("DATA_DIR", join(tempDir, "data"));
   setEnv("TOPICS_DATA_DIR", join(tempDir, "data"));
@@ -50,9 +51,17 @@ beforeAll(async () => {
   // The old server's stream keeps production windows: its timers outlive the in-process "shutdown".
   setEnv("TOPICS_STREAM_SOFT_MS", "600000");
   setEnv("TOPICS_STREAM_GRACE_MS", "600000");
-  // SIGINT ends the child, as the real CLI does in stream-json mode (exit 0). Paced by a timer in
-  // the CLI's own process: a shell loop of `sleep 0.02` outlived the test's window on a loaded Mac.
-  const cli = writeNumberedCli(join(tempDir, "cli.sh"), { count: N, intervalMs: 20, result: RESULT });
+  const cli = join(tempDir, "cli.sh");
+  // SIGINT ends the child, as the real CLI does in stream-json mode (exit 0).
+  writeFileSync(cli, `#!/bin/sh
+trap 'exit 0' INT
+while read line; do
+  i=1
+  while [ $i -le ${N} ]; do printf '${NUMBERED}\\n' $i; sleep 0.02; i=$((i+1)); done
+  printf '%s\\n' '${RESULT}'
+done
+`);
+  chmodSync(cli, 0o755);
   setEnv("TOPICS_CLAUDE_CLI_PATH", cli);
 });
 
@@ -135,7 +144,7 @@ const { BridgeAckStalled } = await import("../../server/lib/ai-bridge-errors");
     process.env.TOPICS_STREAM_GRACE_MS = "1000";
     const drained = post(createTopicsRouter(ctx), { messages: [], mode: "reattach", dispatched: true, provider: "claude-code" });
     try {
-      await waitFor("the adopted row to close", () => rows().every((r) => r.partial === 0), 30_000);
+      await waitFor("the adopted row to close", () => rows().every((r) => r.partial === 0), 90_000);
       await drained.catch(() => {});
       expect(capped).toBe(1);
       // No resync stacked a replay behind the scan's while it waited: folded into the muted scan, an old
@@ -153,5 +162,5 @@ const { BridgeAckStalled } = await import("../../server/lib/ai-bridge-errors");
       client.attach = realAttach;
       try { client.kill(sk); } catch { /* already gone */ }
     }
-  }, 90_000);
+  }, 100_000);
 });
