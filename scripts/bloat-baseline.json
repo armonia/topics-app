@@ -295,7 +295,7 @@
   "min_clone_lines": 20,
   "duplicated_lines": 290,
   "clone_groups": 11,
-  "max_over_files": 153,
+  "max_over_files": 154,
   "files": {
     "client/src/App.tsx": 1140,
 
@@ -757,6 +757,11 @@
   },
 
   "exceptions": {
+    "server/services/review-checks.test.ts": {
+      "why": "Grew past 800 lines adding the caller-level droppedBytes coverage required by review (card 59f8c4a0); the per-stream cap it tests is small, no split pending.",
+      "expires": "2027-02-28"
+    },
+
     "server/routes/chat-handler.ts": {
       "why": "Entered main over the threshold before this gate could refuse it (card f3c5a186); to be split in its own card.",
       "expires": "2026-12-31"
