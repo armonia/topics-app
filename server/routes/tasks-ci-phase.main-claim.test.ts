@@ -91,4 +91,35 @@ describe("review entry: already-on-main claims get a note, not a block", () => {
     const after = svc.get(task.id, { projectId: task.projectId });
     expect(after?.comments.some((c) => c.content.includes("Verifica automatica"))).toBe(false);
   });
+
+  test("a denial with no sha ('nessun commit nuovo, si chiude senza land') still gets a note when the branch carries work", async () => {
+    const repo = repoOffMain();
+    writeFileSync(join(repo, "fix.txt"), "fix");
+    git(repo, "add", "fix.txt");
+    git(repo, "commit", "-q", "-m", "fix");
+    const commit = git(repo, "rev-parse", "HEAD");
+    const { phase, task } = setup(repo);
+    svc.addComment({ taskId: task.id, author: "agent", content: "nessun commit nuovo, si chiude senza land" });
+    db.prepare("UPDATE tasks SET status = 'review', delivery_branch = 'topics/x', delivery_commit = ? WHERE id = ?").run(commit, task.id);
+
+    await phase.afterDelivery(task.projectId, task.id);
+
+    const after = svc.get(task.id, { projectId: task.projectId });
+    const note = after?.comments.find((c) => c.content.includes("Verifica automatica"));
+    expect(note?.content).toContain("1 commit");
+    expect(note?.content).toContain("1 file");
+  });
+
+  test("the same denial with no sha gets no note when the commit is truly on main", async () => {
+    const repo = repoOffMain();
+    const onMain = git(repo, "rev-parse", "HEAD");
+    const { phase, task } = setup(repo);
+    svc.addComment({ taskId: task.id, author: "agent", content: "nessun commit nuovo, si chiude senza land" });
+    db.prepare("UPDATE tasks SET status = 'review', delivery_branch = 'topics/x', delivery_commit = ? WHERE id = ?").run(onMain, task.id);
+
+    await phase.afterDelivery(task.projectId, task.id);
+
+    const after = svc.get(task.id, { projectId: task.projectId });
+    expect(after?.comments.some((c) => c.content.includes("Verifica automatica"))).toBe(false);
+  });
 });
