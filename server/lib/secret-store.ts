@@ -263,8 +263,8 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
   let identityResolved = false;
   const identity = (): string | null => {
     if (identityResolved) return cachedIdentity;
-    identityResolved = true;
     cachedIdentity = resolveIdentity(opts);
+    identityResolved = true;
     return cachedIdentity;
   };
 
@@ -279,7 +279,12 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
     // thing age sees in its argv, and that path carries no secret.
     const { stdout, exitCode } = await run(["age", "-d", "-i", "-", opts.secretsPath], id);
     if (exitCode !== 0 || !stdout.trim()) return {};
-    cachedMap = parseSecretMap(stdout);
+    // Names outside the current allowlist never leave the store, even when the file holds them.
+    const allowed: SecretMap = {};
+    for (const [name, value] of Object.entries(parseSecretMap(stdout))) {
+      if (opts.allowlist.has(name)) allowed[name] = value;
+    }
+    cachedMap = allowed;
     return cachedMap;
   };
 

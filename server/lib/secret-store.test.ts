@@ -90,6 +90,14 @@ describe("age secret store", () => {
     expect(ciphertext).not.toContain("a-very-distinctive-plaintext-marker");
   });
 
+  test("a store with a narrower allowlist over the same file unpacks nothing and reads null", async () => {
+    const writer = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identityPath, secretsPath });
+    await writer.pack({ [TEST_NAME]: "probe-value" });
+    const narrow = createAgeSecretStore({ allowlist: createAllowlist([]), identityPath, secretsPath });
+    expect(await narrow.unpack()).toEqual({});
+    expect(await narrow.read(TEST_NAME)).toBeNull();
+  });
+
   test("refuses a name outside the allowlist: pack skips it, read of it answers null", async () => {
     const store = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identityPath, secretsPath });
     await store.pack({ [UNKNOWN_NAME]: "should-never-be-stored" });
