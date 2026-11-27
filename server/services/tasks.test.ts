@@ -1248,9 +1248,16 @@ describe("blocked-by dependency", () => {
     expect(s.claim({ taskId: b.id, cap: 5, maxAttempts: 3 })).not.toBeNull();
   });
 
-  test("an archived blocker does not block", () => {
+  test("an archived blocker does not block, but archiving a LIVE blocker is rejected first", () => {
     const a = s.create({ projectId: PID, text: "blocker" });
     const b = s.create({ projectId: PID, text: "dependent", blockedByTaskId: a.id });
+    // Archiving `a` while `b` still waits on it would silently unblock `b`
+    // without the prerequisite ever being done (the 17-24/11 incident): the
+    // server refuses, and `b` stays blocked.
+    expect(() => s.archive({ taskId: a.id })).toThrow(/unfinished/);
+    expect(s.isDispatchBlocked(b.id)).toBe(true);
+    // Clear the dependency explicitly, and the archived blocker is a no-op.
+    s.update({ taskId: b.id, actor: "human", by: "u", patch: { blockedByTaskId: null } });
     s.archive({ taskId: a.id });
     expect(s.isDispatchBlocked(b.id)).toBe(false);
   });
@@ -1328,6 +1335,70 @@ describe("blocked-by dependency", () => {
     expect(() => s.update({ taskId: a.id, actor: "human", by: "u", patch: { blockedByTaskId: b.id } })).toThrow();
     const cleared = s.update({ taskId: b.id, actor: "human", by: "u", patch: { blockedByTaskId: null } });
     expect(cleared.blockedByTaskId).toBeNull();
+  });
+
+  /**
+   * The 17-24/11 incident: a card was archived "merged into" an already
+   * archived one, and the cards still blocked on it were left waiting on a
+   * promise in a comment instead of a real `blockedByTaskId`. This covers
+   * the half of that incident where the link DOES exist: archiving a card
+   * that is still a live dependent's blocker would silently unblock it
+   * (`isDispatchBlocked` reads `archived = 1` same as `status = 'done'`).
+   */
+  test("archive rejects a card that still blocks a live dependent (blocks_live_dependent)", () => {
+    const blocker = s.create({ projectId: PID, text: "blocker" });
+    const dependent = s.create({ projectId: PID, text: "dependent", blockedByTaskId: blocker.id });
+    expect(() => s.archive({ taskId: blocker.id })).toThrow(/blocks_live_dependent|unfinished/);
+    expect(s.get(blocker.id)?.task.archived).toBe(false);
+    // Finish or detach the dependent first, and the archive goes through.
+    s.update({ taskId: dependent.id, actor: "human", by: "u", patch: { blockedByTaskId: null } });
+    s.archive({ taskId: blocker.id });
+    expect(s.get(blocker.id)?.task.archived).toBe(true);
+  });
+
+  /**
+   * Review feedback 26/11, point 2: the cascade used to bypass the gate,
+   * which only looked at the root. Parent P, child A (alive), external card C
+   * blocked by A: `archive(P)` cascaded over A and silently unblocked C.
+   * Red with the mutation: checking live dependents on `taskId` alone,
+   * instead of on the whole subtree, lets `archive({ taskId: parent.id })`
+   * through.
+   */
+  test("archive rejects a cascade that would unblock a dependent of a NON-root descendant", () => {
+    const parent = s.create({ projectId: PID, text: "parent" });
+    const child = s.create({ projectId: PID, text: "child", parentTaskId: parent.id });
+    const external = s.create({ projectId: PID, text: "external dependent", blockedByTaskId: child.id });
+    expect(() => s.archive({ taskId: parent.id })).toThrow(/blocks_live_dependent|unfinished/);
+    expect(s.get(parent.id)?.task.archived).toBe(false);
+    expect(s.get(child.id)?.task.archived).toBe(false);
+    s.update({ taskId: external.id, actor: "human", by: "u", patch: { blockedByTaskId: null } });
+    s.archive({ taskId: parent.id });
+    expect(s.get(parent.id)?.task.archived).toBe(true);
+    expect(s.get(child.id)?.task.archived).toBe(true);
+  });
+
+  /**
+   * Review feedback 26/11, point 5: the live-dependents query excludes a
+   * dependent that is `done` or already `archived` (`AND archived = 0 AND
+   * status != 'done'`). Without those two clauses every existing test still
+   * passed, meaning a done or archived dependent wrongly blocking an archive
+   * went untested. A finished or already-gone dependent lost nothing by its
+   * blocker being archived, so it must not stop the archive.
+   */
+  test("a done dependent does not block archiving its blocker", () => {
+    const blocker = s.create({ projectId: PID, text: "blocker" });
+    const dependent = s.create({ projectId: PID, text: "done dependent", blockedByTaskId: blocker.id });
+    s.update({ taskId: dependent.id, actor: "human", by: "u", patch: { status: "done" } });
+    s.archive({ taskId: blocker.id });
+    expect(s.get(blocker.id)?.task.archived).toBe(true);
+  });
+
+  test("an already-archived dependent does not block archiving its blocker", () => {
+    const blocker = s.create({ projectId: PID, text: "blocker" });
+    const dependent = s.create({ projectId: PID, text: "archived dependent", blockedByTaskId: blocker.id });
+    s.archive({ taskId: dependent.id });
+    s.archive({ taskId: blocker.id });
+    expect(s.get(blocker.id)?.task.archived).toBe(true);
   });
 
   test("listBlockedBy returns the alive dependents", () => {
@@ -2503,6 +2574,31 @@ describe("bindTopic: al cambio di topic i `done` si archiviano e gli aperti si e
     expect(superstite.archived, "l'aperto non si archivia: è il piano").toBe(0);
     expect(superstite.status, "l'`in_progress` era di un turno che non gira più").toBe("todo");
     expect(superstite.topic, "cambia padrone: ora è del topic nuovo").toBe("topic-b");
+  });
+
+  /**
+   * Review feedback 26/11, point 2: this cascade archived the whole stale
+   * subtree with no live-dependents gate. Step S is `done` and would normally
+   * sweep its grandchild G too, but G was reopened to `todo` and an unrelated
+   * card D depends on it (`blockedByTaskId: G.id`). Red with the mutation:
+   * removing the `assertNoLiveDependents` guard before `archiveSubtree`
+   * archives G along with S and silently unblocks D.
+   */
+  test("the stale cascade does not silently unblock an outside dependent of a reopened grandchild", () => {
+    const { db, s } = setup();
+    const parent = s.create({ projectId: PID, text: "Il task padre" });
+    s.bindTopic({ taskId: parent.id, topicId: "topic-a", freshSession: true });
+    const step = s.create({ projectId: PID, text: "Step done", parentTaskId: parent.id });
+    const grandchild = s.create({ projectId: PID, text: "Reopened grandchild", parentTaskId: step.id });
+    daTopic(db, step.id, "topic-a", "done");
+    daTopic(db, grandchild.id, "topic-a", "todo");
+    const external = s.create({ projectId: PID, text: "external dependent", blockedByTaskId: grandchild.id });
+
+    s.bindTopic({ taskId: parent.id, topicId: "topic-b", freshSession: true });
+
+    expect(rigaDi(db, grandchild.id).archived, "the live blocker must survive the sweep").toBe(0);
+    expect(s.get(external.id)?.task.archived, "the dependent is untouched").toBe(false);
+    expect(s.isDispatchBlocked(external.id), "still waiting on its real blocker").toBe(true);
   });
 
   test("il piano SOPRAVVIVE: il padre resta con la sua checklist aperta, non col foglio bianco", () => {

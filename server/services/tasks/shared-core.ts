@@ -300,7 +300,14 @@ function getTaskRow(taskId: string): any {
 /**
    * Validate a blocked-by edge `taskId → blockerId`. The blocker must exist
    * and be alive; self-blocks and cycles (walking the blockers' own chain)
-   * are rejected — a cycle would deadlock the whole dispatch queue.
+   * are rejected: a cycle would deadlock the whole dispatch queue.
+   *
+   * The two ends may sit on DIFFERENT boards, on purpose: the waiting counter
+   * resolves dependents outside the blocker's own project (`tasks.test.ts`,
+   * the "N waiting" counter), and an agent dispatched on a per-task directory has a
+   * board of its own. What that costs is a refusal to archive quoting a card
+   * the person cannot see on screen, so `assertNoLiveDependents` names the
+   * other board in its message instead of the edge being forbidden here.
    */
   function assertBlockerValid(taskId: string, blockerId: string): void {
     const blocker = getTaskRow(blockerId);
@@ -314,6 +321,99 @@ function getTaskRow(taskId: string): any {
     for (let hops = 0; cur && hops < 100; hops++) {
       if (cur === taskId) throw new TaskServiceError("invalid_input", "blocked-by chain would form a cycle");
       cur = (getTaskRow(cur)?.blocked_by_task_id ?? null) as string | null;
+    }
+  }
+
+
+/**
+   * Archiving `taskId` must not silently unblock a live dependent:
+   * `isDispatchBlocked` reads `blocker.archived = 1` the same as `blocker.status
+   * = 'done'`. Walks the WHOLE subtree `archiveSubtree` is about to take down:
+   * a root-only check misses a non-done CHILD that is itself still the blocker
+   * of a card outside the subtree (`?withChildren=1`, a grandchild in
+   * `status.ts`/`worktree.ts`). Dependents INSIDE the same subtree are not
+   * blockers: they archive together, in the same call. `extraExclude` covers a
+   * sibling batch archived in the same decision (`resolveParkedChildren`),
+   * where an internal `blockedByTaskId` between two parked children must not
+   * block the batch either.
+   *
+   * `detachingOpenChildren` is the board DELETE without `?withChildren=1`,
+   * which UNHOOKS the open direct children instead of archiving them: they
+   * stay on the board as root cards, so their own subtrees are not going away
+   * and a dependent of theirs is no reason to refuse. Checking them anyway made
+   * a single waiting card enough to keep an ancestor from ever being archived.
+   */
+  function assertNoLiveDependents(
+    taskId: string,
+    extraExclude: Iterable<string> = [],
+    opts: { detachingOpenChildren?: boolean } = {},
+  ): void {
+    // What the archive will REALLY take down. Mirrors the route's own order:
+    // detach first, archive after, so the detached children and everything
+    // under them never enter the set.
+    const pruned = opts.detachingOpenChildren
+      ? (db.prepare(
+          "SELECT id FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status != 'done'",
+        ).all(taskId) as Array<{ id: string }>).map((r) => r.id)
+      : [];
+    const descendantRows = db.prepare(
+      `WITH RECURSIVE subtree(id) AS (
+         SELECT id FROM tasks WHERE id = ?
+         UNION ALL
+         SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+          WHERE t.id NOT IN (SELECT value FROM json_each(?))
+       )
+       SELECT t.id, t.status FROM subtree s JOIN tasks t ON t.id = s.id`,
+    ).all(taskId, JSON.stringify(pruned)) as Array<{ id: string; status: string }>;
+    if (descendantRows.length === 0) return;
+    // A member already `done` had already unblocked its dependents before this
+    // call (`isDispatchBlocked` reads done the same as archived): archiving it
+    // changes nothing, so it is never the reason to reject.
+    const nonDoneIds = descendantRows.filter((r) => r.status !== "done").map((r) => r.id);
+    if (nonDoneIds.length === 0) return;
+    const exclude = new Set(descendantRows.map((r) => r.id));
+    for (const id of extraExclude) exclude.add(id);
+    const placeholders = nonDoneIds.map(() => "?").join(", ");
+    const liveDependents = db.prepare(
+      `SELECT id, text, project_id AS projectId, blocked_by_task_id AS blockerId FROM tasks
+         WHERE blocked_by_task_id IN (${placeholders}) AND archived = 0 AND status != 'done'`,
+    ).all(...nonDoneIds) as Array<{ id: string; text: string; projectId: string; blockerId: string }>;
+    // A dependent whose own PARENT CHAIN is already archived is dead work, not
+    // live work: `archived` is written per row, so a card reopened under an
+    // archived ancestor (or born under one) keeps `archived = 0` while being
+    // invisible on the board. Counting it would make its blocker's ancestor
+    // impossible to archive for good, with nothing on screen to act on.
+    const insideArchivedBranch = (id: string): boolean => {
+      let parent = getTaskRow(id)?.parent_task_id as string | null | undefined;
+      for (let hops = 0; parent && hops < 100; hops++) {
+        const row = getTaskRow(parent);
+        if (!row) return false;
+        if (row.archived) return true;
+        parent = row.parent_task_id as string | null | undefined;
+      }
+      return false;
+    };
+    const outside = liveDependents.filter((r) => !exclude.has(r.id) && !insideArchivedBranch(r.id));
+    if (outside.length > 0) {
+      // NAME the cards. A count alone leaves the person hunting the board for
+      // which card is holding the archive, and with a deep subtree the blocker
+      // is often not the card they clicked but a grandchild of it: both ends of
+      // every edge go in the message, with the title, so the refusal says what
+      // to go and do (review feedback, 26/11).
+      const ownBoard = getTaskRow(taskId)?.project_id as string | undefined;
+      const shown = outside.slice(0, 3).map((r) => {
+        const title = (r.text || "").trim().slice(0, 60) || r.id;
+        const via = r.blockerId === taskId ? "" : ` (via ${r.blockerId})`;
+        // A dependent on ANOTHER board is not on the screen the person is
+        // looking at: without its board the refusal sends them hunting.
+        const board = ownBoard && r.projectId !== ownBoard ? ` on board ${r.projectId}` : "";
+        return `"${title}" [${r.id}]${board}${via}`;
+      }).join(", ");
+      const rest = outside.length > 3 ? `, and ${outside.length - 3} more` : "";
+      throw new TaskServiceError(
+        "blocks_live_dependent",
+        `archiving ${taskId} would leave ${outside.length} unfinished card(s) waiting on a blocker (blockedByTaskId) that goes away: ${shown}${rest}. Finish or archive those cards first, or point them at another blocker.`,
+      );
     }
   }
 
@@ -407,6 +507,7 @@ function getTaskRow(taskId: string): any {
     agentAskOnThread,
     archiveSubtree,
     assertBlockerValid,
+    assertNoLiveDependents,
     bindService,
     checkedStage,
     commentOriginColumn,
