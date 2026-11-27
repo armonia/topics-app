@@ -1,4 +1,6 @@
 /**
+ * @covers E2E-GATE-15
+ *
  * A RUN CUT MID-TEST LEAVES NO SERVER AND NO SCRATCH FOLDER BEHIND.
  *
  * THE DEFECT (card 617a7a68). `primary-role-two-servers` boots the real server

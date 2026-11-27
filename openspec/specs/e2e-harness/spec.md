@@ -653,3 +653,39 @@ e il testo della UI non si leggeva.
 - **GIVEN** un progetto di Playwright con un proprio viewport
 - **WHEN** il config ne risolve il video
 - **THEN** `video.size` è uguale al viewport di quel progetto
+
+### Requirement: E2E-GATE-15 — Un run di test tagliato a metà non lascia vivo né il server né la sua cartella
+
+Un test che fa partire un server reale come processo figlio (per esempio il
+test a due istanze con ruolo primario, card 617a7a68) NON SHALL dipendere per
+la propria pulizia da un hook del processo che lo ospita (`afterAll`,
+`process.on("exit")`): su bun 1.4.4, misurato, SIGINT e SIGTERM mandati a `bun
+test` mentre un test gira non uccidono né il runner né il test, e `exit` non
+scatta mai. Un harness che fa leva su quell'hook lascia il server e la sua
+cartella in `/tmp/topics-test` vivi per sempre quando il run viene interrotto
+(CI che cancella, SIGKILL di un harness che fa pulizia dei figli) invece di
+fermarsi da solo.
+
+La pulizia SHALL vivere in un guardiano `detached`, in una sessione di processo
+propria, che muore con il server o con il runner (qualunque muoia prima) e che,
+alla propria uscita, uccide il gruppo di processi di ogni server registrato e
+cancella le sue cartelle sotto `/tmp/topics-test`.
+
+MISURATO il 26/11/2026: SIGKILL al runner a metà test → nessun processo del
+gruppo risponde più entro 10 s (prima uno restava vivo per ore) e le cartelle
+di scratch del run sono sparite.
+
+MISURA: `tests/integration/orphan-guard-cut-run.test.ts`.
+
+#### Scenario: il runner viene ucciso a metà test
+
+- **GIVEN** un server reale avviato dal test, registrato nel guardiano
+- **WHEN** il runner che lo ha avviato viene ucciso con SIGKILL
+- **THEN** entro 10 s nessun processo del suo gruppo risponde più
+- **AND** le cartelle di scratch del run non esistono più
+
+#### Scenario: togliere `detached` fa tornare il test rosso
+
+- **GIVEN** lo spawn del server senza la sessione di processo propria
+- **WHEN** il runner viene ucciso a metà test
+- **THEN** il server sopravvive ai 10 s perché il guardiano non ne controlla più il gruppo
