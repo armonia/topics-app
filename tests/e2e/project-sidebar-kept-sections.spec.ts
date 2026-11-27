@@ -12,7 +12,12 @@
  * the pixel. A section nobody ever opened is not mounted at all, so a project
  * with Processes closed does not pay for it.
  *
+ * Closing the last open island closes the whole column (26/11), and the column
+ * keeps what it held the same way: hidden, not unmounted. Reopening it brings
+ * back the island that closed it, same node, same scroll.
+ *
  * @covers KEPTSEC-01
+ * @covers KEPTSEC-02
  */
 import { expect, type Locator, type Page } from "@playwright/test";
 import { writeFileSync } from "node:fs";
@@ -65,6 +70,11 @@ test.describe("a closed sidebar section is hidden, not rebuilt", () => {
     const tree = fileExplorerPage.fileTree;
     const body = sectionBody(header);
     await expect(tree.getByText("bulk-079.txt")).toBeAttached({ timeout: 15_000 });
+    // Processes open: with Files the only open island, closing it would close
+    // the column (the last test below), and this one is about the island.
+    const processes = sectionHeader(page, "processes");
+    if ((await processes.getAttribute("aria-expanded")) !== "true") await processes.click();
+    await expect(processes).toHaveAttribute("aria-expanded", "true");
 
     await didascalia(page, "Files: scroll the tree, close the section");
     const overflowBy = await body.evaluate((el, to) => el.scrollHeight - el.clientHeight - to, SCROLLED_TO);
@@ -116,6 +126,46 @@ test.describe("a closed sidebar section is hidden, not rebuilt", () => {
     await header.click();
     await expect(body).toBeVisible();
     expect(await body.evaluate((el) => (el as Marked).__kept)).toBe("same-node");
+    await beat(page);
+  });
+
+  test("closing the last open island closes the column; reopening it brings that island back as it was", async ({ fileExplorerPage, page }) => {
+    test.info().annotations.push({ type: "spec", description: "KEPTSEC-02" });
+    await fileExplorerPage.gotoProject(tmpDir, topicName);
+    const column = page.locator('[data-testid="project-sidebar"]').first();
+    const files = sectionHeader(page, "files");
+    const processes = sectionHeader(page, "processes");
+    const tree = fileExplorerPage.fileTree;
+    const body = sectionBody(files);
+    await expect(tree.getByText("bulk-079.txt")).toBeAttached({ timeout: 15_000 });
+    // Files the only open island (the default): Processes closed.
+    if ((await processes.getAttribute("aria-expanded")) === "true") await processes.click();
+    await expect(processes).toHaveAttribute("aria-expanded", "false");
+    await expect(files).toHaveAttribute("aria-expanded", "true");
+
+    await didascalia(page, "Files is the last open island: scroll it, close it");
+    await body.evaluate((el, to) => {
+      el.scrollTop = to;
+      (el as Marked).__kept = "same-node";
+    }, SCROLLED_TO);
+    await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(SCROLLED_TO);
+    await beat(page);
+    await files.click();
+
+    // The column went with it: hidden, its commands left on the row above.
+    await expect(column).toBeHidden();
+    const commands = page.locator('[data-testid="project-rail-inline"]').first();
+    await expect(commands).toBeVisible();
+    await beat(page);
+
+    await didascalia(page, "Reopen the column: Files comes back, same node, same scroll");
+    await commands.getByTestId("project-card").click();
+    await expect(column).toBeVisible();
+    await expect(files).toHaveAttribute("aria-expanded", "true");
+    await expect(processes).toHaveAttribute("aria-expanded", "false");
+    await expect(tree).toBeVisible();
+    expect(await body.evaluate((el) => (el as Marked).__kept)).toBe("same-node");
+    await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(SCROLLED_TO);
     await beat(page);
   });
 });

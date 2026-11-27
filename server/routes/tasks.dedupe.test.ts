@@ -91,6 +91,34 @@ describe("a repeated request lands on the open card instead of making a twin", (
     const other = (await call(router, "POST", "/api/sessions/s2/tasks", { text: "Zeta job" }))!;
     expect(other.status).toBe(201);
   });
+
+  /**
+   * Review feedback 26/11, point 5: absorbing a repeated `create_task` used
+   * to drop `blockedByTaskId` on the floor — the twin it returned kept
+   * whatever blocker it already had (none, here), the new one never landed,
+   * and the caller still believed a dependency was wired. Red without
+   * patching the twin's blocker on absorption.
+   */
+  test("a repeated request carrying blockedByTaskId wires it onto the twin it absorbs into", async () => {
+    const blocker = await create({ text: "Theta blocker" });
+    const first = await create({ text: "Theta job" });
+    expect(first.body.blockedByTaskId ?? first.body.blocked_by_task_id ?? null).toBeFalsy();
+
+    const again = await create({ text: "theta JOB", blockedByTaskId: blocker.body.id });
+    expect(again.status).toBe(200);
+    expect(again.body).toMatchObject({ deduped: true, id: first.body.id });
+    expect(count()).toBe(2);
+
+    const row = db.prepare("SELECT blocked_by_task_id FROM tasks WHERE id = ?").get(first.body.id) as { blocked_by_task_id: string | null };
+    expect(row.blocked_by_task_id).toBe(blocker.body.id);
+  });
+
+  test("the REST body also accepts blocked_by_task_id snake_case", async () => {
+    const created = await create({ text: "snake case job", blocked_by_task_id: (await create({ text: "snake blocker" })).body.id });
+    expect(created.status).toBe(201);
+    const row = db.prepare("SELECT blocked_by_task_id FROM tasks WHERE id = ?").get(created.body.id) as { blocked_by_task_id: string | null };
+    expect(row.blocked_by_task_id).not.toBeNull();
+  });
 });
 
 describe("the coordinator surface shares the same gate", () => {

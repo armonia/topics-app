@@ -1402,6 +1402,23 @@ project with Processes closed does not pay for polling its scripts.
 - **GIVEN** a project whose Processes section is closed and was never opened
 - **THEN** its content SHALL NOT exist in the DOM until the first opening
 
+### Requirement: KEPTSEC-02 — Closing the last open island closes the project column, and reopening it brings that island back
+
+When a person closes the only open island of the project column (Files, Git or
+Processes, counting Git only while it has something to show), the column SHALL
+close too. The closed column SHALL stay mounted and hidden, like a closed
+island, and opening it again from its toggle SHALL bring back the island whose
+close closed it, as the same node at the same scroll offset. A saved state with
+every island closed, or a repository status not yet loaded, SHALL NOT close a
+column nobody touched.
+
+#### Scenario: close the last island
+- **GIVEN** a project column with only Files open, its tree scrolled down
+- **WHEN** the user closes Files
+- **THEN** the column SHALL be hidden and its commands SHALL stay on the row above
+- **WHEN** the user reopens the column from its toggle
+- **THEN** Files SHALL be open again, the same node at the same scroll offset, and the other islands SHALL stay as they were
+
 ### Requirement: E2EDUR-01 — Uno spec e2e che rallenta davvero da una notte all'altra si segnala
 
 Il confronto notturno delle durate e2e SHALL segnalare un file di spec solo se è
