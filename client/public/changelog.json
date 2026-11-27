@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.5.12",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Revert the detached node-check worktree: CI rows can no longer read a branch",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.11",
     "date": "2026-11-27",
     "sections": {
