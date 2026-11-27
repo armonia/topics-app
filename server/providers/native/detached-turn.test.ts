@@ -38,6 +38,7 @@ const { offerSteer, openSteerTarget, resetTurnSteer, setSteerSink, steerState } 
 const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../lib/ai-bridge-client");
 const { clearProviderHold, holdForApiDown, providerHold, setProviderHold } = await import("../../lib/provider-hold");
 import type { TurnSpec } from "./turn-host";
+import type { AgentMessage } from "./agent-loop";
 
 const PIECES = 12;
 let fake: FakeAnthropic;
@@ -114,6 +115,28 @@ describe("detached native turn", () => {
     expect(out.end?.history.length).toBe(2);
     // The broker forgets a session whose ending a server read.
     expect((await liveDetachedSessions()).has("topic:dt000001")).toBe(false);
+  }, 30_000);
+
+  test("the agent's compaction ceiling is applied inside the turn's own process", async () => {
+    // @covers CHAT-COMPACT-06: production runs every native turn here, so the
+    // ceiling must reach the loop the host builds, not only the spec.
+    const long = (scen: string, compactAtTokens?: number): TurnSpec => {
+      const history: AgentMessage[] = [];
+      for (let i = 0; i < 7; i++) {
+        history.push({ role: "user", content: `u${i} `.padEnd(40_000, "u") }, { role: "assistant", content: `a${i} `.padEnd(40_000, "a") });
+      }
+      history.push({ role: "user", content: `SCEN:${scen}` });
+      return { ...spec(`topic:dtcap-${scen}`, scen), history, ...(compactAtTokens ? { compactAtTokens } : {}) };
+    };
+    for (const [scen, cap] of [["capped", 30_000], ["uncapped", undefined]] as const) {
+      const r = recorder();
+      await runDetachedTurn(long(scen, cap), r.handler, {});
+      expect(r.events).toContain("done");
+    }
+    // ~140k estimated tokens: past a 30k ceiling, nowhere near the 1M window's own trigger.
+    const sent = (scen: string) => fake.requests.find((q) => q.scen === scen)!.messages.length;
+    expect(sent("uncapped")).toBe(15);
+    expect(sent("capped")).toBeLessThan(15);
   }, 30_000);
 
   test("a message offered while the host runs reaches the model at its next round, and the journal writes its row", async () => {
