@@ -172,7 +172,7 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
       const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
       const commit = dispatcherSvc.get(taskId)?.task.deliveryCommit;
       if (!ref || !commit) return null;
-      return nodeChecks.open({ repoPath: ref.repoPath, commit, taskId });
+      return nodeChecks.open({ repoPath: ref.repoPath, commit, branch: ref.branch, taskId });
     },
     onAutoLand: (api) => {
       late.misuraConsegnaNodo = api.measureNodeDelivery;

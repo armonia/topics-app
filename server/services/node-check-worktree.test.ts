@@ -184,6 +184,32 @@ describe("the measure is pinned to the delivered commit, not to the branch tip",
   }, WITH_REAL_GIT);
 });
 
+describe("the meter recreates the checkout from the planted branch when the commit itself is unresolvable", () => {
+  test("a commit this checkout cannot resolve falls back to the branch tip (90cd0fcd)", async () => {
+    const { repo, checks } = repoWithNodeBranch();
+
+    const lease = await openNodeCheckWorktree({
+      git: realGit, repoPath: repo, commit: "0".repeat(40), branch: BRANCH, root: checks, taskId: "90cd0fcd-test",
+      resolveHead: async (cwd) => git(cwd, "rev-parse", "HEAD").trim(),
+    });
+
+    expect(lease).not.toBeNull();
+    expect(await lease!.head()).toBe(git(repo, "rev-parse", BRANCH).trim());
+    await lease!.release();
+  }, WITH_REAL_GIT);
+
+  test("without a branch to fall back on, an unresolvable commit still gives up", async () => {
+    const { repo, checks } = repoWithNodeBranch();
+
+    const lease = await openNodeCheckWorktree({
+      git: realGit, repoPath: repo, commit: "0".repeat(40), root: checks, taskId: "90cd0fcd-test",
+      resolveHead: async (cwd) => git(cwd, "rev-parse", "HEAD").trim(),
+    });
+
+    expect(lease).toBeNull();
+  }, WITH_REAL_GIT);
+});
+
 describe("a planted branch already checked out elsewhere does not stop the node check", () => {
   test("the main checkout sitting on the branch does not block a detached measure", async () => {
     const { repo, checks } = repoWithNodeBranch();

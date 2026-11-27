@@ -46,6 +46,15 @@ export interface NodeCheckWorktreeInput {
    * being measured, however the branch moves meanwhile.
    */
   commit: string;
+  /**
+   * The planted branch, when the caller knows its name. A fallback only: the
+   * detach above always targets `commit` first. It exists for the case the
+   * commit itself is not resolvable on this checkout yet (90cd0fcd, 2026-11-25:
+   * the branch `topics/splendid-hummingbird` was there, the commit the card
+   * carried was not, and the meter gave up for 15 hours instead of using what
+   * the branch actually had).
+   */
+  branch?: string | null;
   /** Folder holding one checkout per run (`nodeCheckRoot()`). */
   root: string;
   taskId: string;
@@ -89,7 +98,15 @@ export async function openNodeCheckWorktree(input: NodeCheckWorktreeInput): Prom
   // never hits that refusal, and it also pins the checkout to exactly the
   // commit being measured even if the branch moves on meanwhile. A detach
   // never needs `--force` either, for the same reason.
-  const added = await git(repoPath, ["worktree", "add", "--detach", path, commit]);
+  let added = await git(repoPath, ["worktree", "add", "--detach", path, commit]);
+  // The commit itself can be unresolvable here (a stale `deliveryCommit`, or
+  // an object store view that has not caught up with the plant yet) while the
+  // branch the node planted is right there: retry on the branch tip instead
+  // of giving up on a checkout the branch can still provide.
+  if (added.code !== 0 && input.branch) {
+    await discardWorktree(git, repoPath, path, input.discard);
+    added = await git(repoPath, ["worktree", "add", "--detach", path, input.branch]);
+  }
   if (added.code !== 0) {
     // An add that fails or hits its deadline half-way leaves its partial tree
     // (and, killed by SIGKILL, a locked registration): it goes now, not at the
@@ -105,7 +122,7 @@ export async function openNodeCheckWorktree(input: NodeCheckWorktreeInput): Prom
 }
 
 export interface NodeCheckWorktrees {
-  open(input: { repoPath: string; commit: string; taskId: string }): Promise<NodeDeliveryCheckout | null>;
+  open(input: { repoPath: string; commit: string; branch?: string | null; taskId: string }): Promise<NodeDeliveryCheckout | null>;
   /** Discard every checkout of the root this process does not hold. Returns the card folders it discarded. */
   sweep(): Promise<string[]>;
 }
@@ -117,7 +134,7 @@ export function createNodeCheckWorktrees(deps: Omit<NodeCheckWorktreeInput, "rep
   const leased = new Set<string>();
   let sweeping: Promise<unknown> = Promise.resolve();
 
-  async function open(input: { repoPath: string; commit: string; taskId: string }): Promise<NodeDeliveryCheckout | null> {
+  async function open(input: { repoPath: string; commit: string; branch?: string | null; taskId: string }): Promise<NodeDeliveryCheckout | null> {
     // Its own run id, drawn fresh on every call: never `deps.runId` (that one is
     // only for the bare `openNodeCheckWorktree` a test calls directly).
     const runId = randomBytes(4).toString("hex");
