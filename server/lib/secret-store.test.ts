@@ -98,6 +98,27 @@ describe("age secret store", () => {
     expect(await narrow.read(TEST_NAME)).toBeNull();
   });
 
+  test("a narrower store packing never destroys names it cannot see", async () => {
+    const wide = createAgeSecretStore({ allowlist: createAllowlist([TEST_NAME, OTHER_TEST_NAME]), identityPath, secretsPath });
+    await wide.pack({ [TEST_NAME]: "A", [OTHER_TEST_NAME]: "B" });
+    const narrow = createAgeSecretStore({ allowlist: createAllowlist([TEST_NAME]), identityPath, secretsPath });
+    await narrow.pack({ [TEST_NAME]: "A-new" });
+    const reader = createAgeSecretStore({ allowlist: createAllowlist([TEST_NAME, OTHER_TEST_NAME]), identityPath, secretsPath });
+    expect(await reader.read(TEST_NAME)).toBe("A-new");
+    expect(await reader.read(OTHER_TEST_NAME)).toBe("B");
+  });
+
+  test("an empty-allowlist store packing a refused name leaves the file intact", async () => {
+    const wide = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identityPath, secretsPath });
+    await wide.pack({ [TEST_NAME]: "A" });
+    const before = readFileSync(secretsPath, "utf8");
+    const empty = createAgeSecretStore({ allowlist: createAllowlist([]), identityPath, secretsPath });
+    await empty.pack({ [TEST_NAME]: "X" });
+    expect(readFileSync(secretsPath, "utf8")).toBe(before);
+    const reader = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identityPath, secretsPath });
+    expect(await reader.read(TEST_NAME)).toBe("A");
+  });
+
   test("refuses a name outside the allowlist: pack skips it, read of it answers null", async () => {
     const store = createAgeSecretStore({ allowlist: TEST_ALLOWLIST, identityPath, secretsPath });
     await store.pack({ [UNKNOWN_NAME]: "should-never-be-stored" });

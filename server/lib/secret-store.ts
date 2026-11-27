@@ -203,7 +203,7 @@ function recipientFromIdentity(identity: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Decides what the ciphertext holds (pack is the one gate), so this parser does not filter again. */
+/** Parses the whole ciphertext content without filtering: the gate is on the outputs (`read`, `unpack`) and on `pack`. */
 function parseSecretMap(json: string): SecretMap {
   let parsed: unknown;
   try { parsed = JSON.parse(json); } catch { return {}; }
@@ -279,12 +279,9 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
     // thing age sees in its argv, and that path carries no secret.
     const { stdout, exitCode } = await run(["age", "-d", "-i", "-", opts.secretsPath], id);
     if (exitCode !== 0 || !stdout.trim()) return {};
-    // Names outside the current allowlist never leave the store, even when the file holds them.
-    const allowed: SecretMap = {};
-    for (const [name, value] of Object.entries(parseSecretMap(stdout))) {
-      if (opts.allowlist.has(name)) allowed[name] = value;
-    }
-    cachedMap = allowed;
+    // The WHOLE file map: names outside the current allowlist stay in it, so a
+    // narrower store never destroys them on rewrite. The outputs filter instead.
+    cachedMap = parseSecretMap(stdout);
     return cachedMap;
   };
 
@@ -299,17 +296,24 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
       const recipient = recipientFromIdentity(id);
       if (!recipient) throw new Error("age identity has no public-key comment");
       const next: SecretMap = { ...(await decrypt()) };
+      let changed = false;
       for (const [name, value] of Object.entries(entries)) {
         if (!opts.allowlist.has(name)) { console.warn("[secret-store] refused to pack a name outside the allowlist"); continue; }
-        if (value !== undefined) next[name] = value;
+        if (value !== undefined) { next[name] = value; changed = true; }
       }
+      // Nothing admitted: leave the file untouched instead of rewriting it.
+      if (!changed) return;
       const { stdout, exitCode } = await run(["age", "-a", "-r", recipient], JSON.stringify(next));
       if (exitCode !== 0 || !stdout) throw new Error("age encryption failed");
       writeFileAtomic(opts.secretsPath, stdout, { mode: 0o600 });
       cachedMap = next;
     },
     async unpack() {
-      return { ...(await decrypt()) };
+      const out: SecretMap = {};
+      for (const [name, value] of Object.entries(await decrypt())) {
+        if (opts.allowlist.has(name)) out[name] = value;
+      }
+      return out;
     },
   };
 }
