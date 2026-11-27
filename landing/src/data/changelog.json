@@ -56,6 +56,10 @@
         {
           "text": "templateChunks back inside ui-language-scan.ts's 800-line budget",
           "scope": "gates"
+        },
+        {
+          "text": "resolve the installed playwright-core entry from its own manifest",
+          "scope": "browser"
         }
       ],
       "perf": []
@@ -101,6 +105,10 @@
         {
           "text": "give isMacOnlyDiff's git read a deadline and list it",
           "scope": "review-checks"
+        },
+        {
+          "text": "pin playwright-core to the exact locked version, install with integrity and a deadline",
+          "scope": "browser"
         },
         {
           "text": "ci-impact fixtures no longer read as the file's own @covers",
@@ -242,6 +250,20 @@
     }
   },
   {
+    "version": "2.5.1",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "fall back to an installed Chromium-family browser when no Playwright Chromium is found",
+          "scope": "browser"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.0",
     "date": "2026-11-25",
     "sections": {
@@ -270,6 +292,10 @@
         }
       ],
       "fixes": [
+        {
+          "text": "install playwright-core on first use when the server cannot resolve it",
+          "scope": "browser"
+        },
         {
           "text": "a pop-out window is dressed on the main thread, not on a tokio worker",
           "scope": "tauri"
