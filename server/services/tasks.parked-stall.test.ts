@@ -440,6 +440,70 @@ describe("le due risposte, e cosa fanno davvero", () => {
     expect(chiuso.status).toBe("done");
   });
 
+  /**
+   * Review feedback 26/11, point 3: two parked children, step2 blocked by
+   * step1. Before the fix, `archive()` refused step1 because step2 was still
+   * live: a `blockedByTaskId` INSIDE the batch that
+   * `resolveParkedChildren("archive")` is archiving together must not reject
+   * it. Red without `excludeDependentIds`, with `blocks_live_dependent`.
+   */
+  test("«archivia»: un blockedByTaskId interno al lotto non blocca gli altri parcheggiati", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" }).id;
+    const step1 = s.create({ projectId: PID, text: "step1", parentTaskId: padre }).id;
+    const step2 = s.create({ projectId: PID, text: "step2", parentTaskId: padre, blockedByTaskId: step1 }).id;
+    s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+
+    const esito = s.resolveParkedChildren({ taskId: padre, decision: "archive", by: "attilio" })!;
+    expect(esito.children).toHaveLength(2);
+    expect(archiviato(db, step1)).toBe(1);
+    expect(archiviato(db, step2)).toBe(1);
+  });
+
+  /**
+   * Review feedback 26/11, point 3a: the loop used to archive siblings one at
+   * a time with no precheck. step2 is blocked by an EXTERNAL card, outside the
+   * batch: before the fix, step1 archived fine and step2 then threw, leaving
+   * the batch half-archived and the parent stuck in review. Red without the
+   * batch-wide precheck: step1 ends up archived even though the whole call
+   * throws.
+   */
+  test("«archivia»: un dipendente ESTERNO su uno dei parcheggiati rifiuta tutto il lotto, senza toccarne nessuno", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" }).id;
+    const step1 = s.create({ projectId: PID, text: "step1", parentTaskId: padre }).id;
+    const step2 = s.create({ projectId: PID, text: "step2", parentTaskId: padre }).id;
+    const external = s.create({ projectId: PID, text: "external dependent", blockedByTaskId: step2 }).id;
+    s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+
+    expect(() => s.resolveParkedChildren({ taskId: padre, decision: "archive", by: "attilio" }))
+      .toThrow(/blocks_live_dependent|unfinished/);
+    expect(archiviato(db, step1), "il primo non deve restare archiviato da solo").toBe(0);
+    expect(archiviato(db, step2)).toBe(0);
+    expect(s.get(padre)!.task.status, "il padre resta in review, nessun esito a metà").toBe("review");
+    void external;
+  });
+
+  /**
+   * Review feedback 26/11, point 2: the batch exclusion only covered the
+   * DIRECT parked children, not their own subtrees. step2 has a child g2
+   * blockedBy step1 (step2's sibling): g2 archives together with step2, so a
+   * blocker that is also leaving the board in this same call is not a reason
+   * to refuse. Red without expanding the batch to the whole subtree of each
+   * parked child, with `blocks_live_dependent` on g2.
+   */
+  test("«archivia»: un nipote di un parcheggiato, bloccato da un altro parcheggiato, non rifiuta il lotto", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre" }).id;
+    const step1 = s.create({ projectId: PID, text: "step1", parentTaskId: padre }).id;
+    const step2 = s.create({ projectId: PID, text: "step2", parentTaskId: padre }).id;
+    const g2 = s.create({ projectId: PID, text: "g2", parentTaskId: step2, blockedByTaskId: step1 }).id;
+    s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });
+
+    const esito = s.resolveParkedChildren({ taskId: padre, decision: "archive", by: "attilio" })!;
+    expect(esito.children).toHaveLength(2);
+    expect(archiviato(db, step1)).toBe(1);
+    expect(archiviato(db, step2)).toBe(1);
+    expect(archiviato(db, g2)).toBe(1);
+  });
+
   test("rispondere due volte non inventa un secondo esito", () => {
     const { padre } = parentWithParkedChild(s);
     s.deliverToReviewBySystem({ taskId: padre, reason: "tentativi esauriti" });

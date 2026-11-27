@@ -2,9 +2,33 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.8 — 2026-11-27
+
+### Correzioni
+- **board** · close the review's 5 blocking gaps on archive/revoke/dedupe
+
+### Sotto il cofano
+- Revisione del round 3: cancelli statici verdi, colonna che riapre l'isola giusta, semafori dalla sola finestra principale
+- Riga archiviata in due tempi: prima esce, poi le righe sotto risalgono
+- tolto l'aggancio di test che nessun test usa
+- Uscita in due tempi anche per le righe che non sono treeitem, semafori solo dalla finestra principale
+- CI della PR: tetto del bundle sulla misura, test di bump senza la bomba del 2.5.7
+
+## 2.5.7 — 2026-11-26
+
+### Correzioni
+- **land** · node deliveries with a null checks_state are measured again, and every mute exit of the meter says why
+- **gates** · ci-impact fixtures no longer read as the file's own @covers
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-26 [skip ci]
+- trace the new archive and blockedByTaskId tests to KANBAN-123/124
+- Tab di lato: un passo sui quattro lati, isole che chiudono la colonna, riga archiviata che esce
+
 ## 2.5.6 — 2026-11-26
 
 ### Sotto il cofano
+- ci-changes test: teach the evaluator needs.prepare-e2e.outputs.shards (PR value and none)
 - Bloat baseline: task-dispatcher-overflow.test.ts at 1715 after two cards land together
 
 ## 2.5.5 — 2026-11-26
@@ -17,28 +41,48 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Correzioni
 - una card ripresa dopo un land non risulta atterrata per il merge del giro prima (#1703)
 
+### Sotto il cofano
+- Follow a symlinked project tab to its real path in pane-store (moved folder, card 6d04b342)
+- Integration test: let the spawned server keep its tunnel ports when run from a worktree
+
 ## 2.5.3 — 2026-11-26
 
 ### Correzioni
 - **checks** · a spawnError is unmeasured, not a red bounce
 - **dispatch** · count a node seat only by a run the primary still believes open
+- **board** · the new board requirements are in the spec, and the person-owned word list carries its language marker
+- **node-checks** · give each run its own checkout folder
 
 ### Sotto il cofano
+- close the remaining 26/11 review gaps on archive() and blockedByTaskId
 - Auto-land: a land waiting on the pull request's CI forgets the offer so the sweep asks again at the verdict
+- the refusal to archive names the card, and stops refusing for a blocker that stays
 - il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)
 
 ## 2.5.2 — 2026-11-26
 
+### Novità
+- **board** · a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land
+- **board** · a request that repeats an open card is absorbed by it instead of opening a twin
+- **board** · a card stuck for an hour without a reason gets one service note, and leaves a machine that does not answer
+- **board** · a card that spent its attempts with no outcome stays visible in todo with the reason, instead of moving to backlog
+- **board** · the question a delivery carries goes back to the chat that opened the card
+
 ### Correzioni
 - **ui** · the sidebar's buttons are tabs, and every tab lights under the pointer
 - don't let an older comment outrank the newest one when carrying a node's thread
+- **board** · the stuck-card sweep leaves an in-progress card its dispatch chip explains
 - protect every comment of a resend's round, not two rows by position, in node run briefs
 
 ### Sotto il cofano
+- ci-impact: whole-tree guard tests always ride in a reduced unit plan (replay: any-budget was missed)
 - Land via PR: auto-merge off on every failed exit, re-read at the deadline, probe failure is a refusal, moved base reported, gh missing falls back to the local merge
 - Fix the gh-unavailable pattern word boundary
 - never requeue an empty run or bounce a landed card without checking against this Mac's own main
 - Land via PR: a GitHub refusal falls back to the local merge, running checks release the queue, settle wait cut to 2 min
+- archiving a live blocker no longer silently unblocks its dependents
+- **openspec** · board-avanza-da-sola, the seven rules with their bar
+- close the three gaps left in archive() by the 26/11 review
 - **e2e** · the narrowest column is 248, and the word hides beside the Windows cluster
 - a rimando after a land is not a closed card, and a job-level red is not always a preexisting one
 
@@ -46,7 +90,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Land via PR only on the current origin/main base, switch auto-merge off when the state is unreadable, treat any hook failure as a refusal
+- ci-impact: untraceable files run the whole tier, a failed estimate leaves no judged mark, replay includes --only-changed
 - Fix ci-governor selftest race on SIGSTOP/SIGCONT delivery under load
+- ci-impact-measure: drop the node_modules junction, its removal followed the link
 - Read transcripts by bytes so a cut multi-byte character keeps its line, cap the parsed cache in bytes
 
 ## 2.5.0 — 2026-11-25
@@ -57,6 +103,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **ui** · the new comments quote the report in English
+- ci-impact-measure: an unreadable rerun list no longer aborts the replay
 - **ui** · the browser tab in the title row is a portal in flow, not a floating surface
 
 ## 2.4.110 — 2026-11-25
@@ -65,6 +112,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **tauri** · a pop-out window is dressed on the main thread, not on a tokio worker
 - **ui** · a project's browser in front is the title, and its page is an island
 - **tauri** · corner_plan is macOS-only outside tests, like its neighbours
+
+### Sotto il cofano
+- pull requests run the e2e specs and unit tests their diff reaches, main runs everything
+- ci-impact: replay reads the commit's own worktree
 
 ## 2.4.108 — 2026-11-25
 

@@ -259,3 +259,19 @@ barra dei menu.
   campanella; campanella, cerca, nuova e interruttore sono tasti a misura di tab: niente fondo a
   riposo, il fondo delle tab al passaggio, quello di una tab aperta mentre il loro pannello è
   aperto.
+- 26/11 «vedo che il sistema di tab non segue bene la spaziatura: le icone tipo sidebar ricerca
+  aggiunta della sidebar superiorre, ma anche la tab del progetto aperta, non hanno spaziature fra
+  di loro e ai lati coerenti su tutti e 4 i lati» → con le tab di lato la riga in alto è una tab e
+  un passo sopra e sotto (34 + 6 + 6 = 46), testata della colonna e riga del titolo uguali: 6 sopra,
+  sotto, fra un tasto e l'altro e dall'ultimo al bordo; i comandi del progetto, quelli della cella,
+  il «+» e la parola «Topics» sono alti quanto una tab; i semafori si centrano sulla riga che hanno
+  sotto. Con le tab in alto la riga resta quella della striscia, 40.
+- 26/11 «quando sto archiviando una tab non c'è nessuna animazione ancora» → archiviare una riga
+  si vede come chiuderla: lo stesso conto alla rovescia (anche per terminali, browser, pagine e
+  progetti chiusi, col cerchio che resta acceso), poi la riga esce scivolando verso il bordo e
+  sfumando, e solo dopo quelle sotto risalgono (in due tempi, come una lista nativa: insieme, i
+  due nomi si sovrapponevano per qualche fotogramma); ferma con il movimento ridotto.
+- 26/11 «se si chiudono tutti i menu a tendina della sidebar progetto, si può chiudere anche la
+  sidebar progetto» → chiusa l'ultima isola aperta (File, Git, Processi; Git conta solo quando ha
+  qualcosa da mostrare) si chiude anche la colonna del progetto; riaprendola torna l'isola chiusa
+  per ultima, con lo stesso scorrimento e ciò che c'era dentro.

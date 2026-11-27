@@ -1,58 +1,62 @@
 /**
- * `unmeasuredInReview` is the gate that decides which review cards the sweep
- * remeasures. `checksState: null` used to be read as "nothing to do" — a
- * node delivery whose meter never started (a restart cut it, the checkout
- * was missing) sat there forever, since nothing else ever asked again.
+ * `unmeasuredInReview` decides which review cards the sweep remeasures.
+ *
+ * A node delivery enters review with `checks_state` left at its column
+ * default, `null` — never the string `"unknown"` the local gate writes once
+ * it has actually looked and found nothing to report. The check only matched
+ * the string, so eleven node deliveries sat in review with no verdict and no
+ * retry, silently, forever (found 26/11).
+ *
+ * @covers LAND-05
  */
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createReviewSweep } from "./tasks-review-sweep";
 import type { Task } from "../services/tasks";
 
-function card(patch: Partial<Task>): Task {
-  return {
-    id: "t1", deliveryCommit: "abc1234", deliveryBranch: "topics/x",
-    humanAsk: null, checksState: null, checksCommit: null,
-    ...patch,
-  } as Task;
-}
+const BASE = {
+  id: "card-1", projectId: "p", deliveryCommit: "abc1234", deliveryBranch: "topics/x",
+  checksCommit: null, humanAsk: null,
+} as unknown as Task;
 
-function sweep() {
-  return createReviewSweep({
-    svc: {} as never,
-    broadcastToAll: () => {},
-    runChecksGate: (() => Promise.resolve(null)) as never,
-    capturaConsegna: (() => Promise.resolve()) as never,
-    nodeMeter: { measure: async () => {} },
-    bounceRed: (async () => false) as never,
-    afterDelivery: (async () => {}) as never,
-    bounceWithReason: (async () => false) as never,
+function sweep(over: { nodeMeasures?: string[] } = {}) {
+  const nodeMeasures = over.nodeMeasures ?? [];
+  const { unmeasuredInReview, remeasureInReview } = createReviewSweep({
+    svc: { update: () => BASE, get: () => undefined } as unknown as Parameters<typeof createReviewSweep>[0]["svc"],
+    broadcastToAll: () => undefined,
+    runChecksGate: async () => null, // no worktree of its own: a node delivery
+    capturaConsegna: async () => false,
+    nodeMeter: { measure: async (taskId: string) => { nodeMeasures.push(taskId); } },
+    bounceRed: async () => false,
+    afterDelivery: async () => undefined,
+    bounceWithReason: () => true,
   });
+  return { unmeasuredInReview, remeasureInReview, nodeMeasures };
 }
 
 describe("unmeasuredInReview", () => {
-  test("checksState null, with a commit and a branch of its own, is unmeasured", () => {
+  test("checks_state NULL (a node delivery that never ran once) is unmeasured, same as the string unknown", () => {
     const { unmeasuredInReview } = sweep();
-    expect(unmeasuredInReview(card({ checksState: null }))).toBe(true);
+    expect(unmeasuredInReview({ ...BASE, checksState: null })).toBe(true);
+    expect(unmeasuredInReview({ ...BASE, checksState: "unknown" })).toBe(true);
   });
 
-  test("checksState unknown stays unmeasured, as before", () => {
+  test("a verdict about a stale commit is unmeasured, one about the delivered commit is not", () => {
     const { unmeasuredInReview } = sweep();
-    expect(unmeasuredInReview(card({ checksState: "unknown" }))).toBe(true);
+    expect(unmeasuredInReview({ ...BASE, checksState: "fail", checksCommit: "zzzzzzz" })).toBe(true);
+    expect(unmeasuredInReview({ ...BASE, checksState: "pass", checksCommit: "abc1234" })).toBe(false);
   });
 
-  test("no delivery commit or branch: never (a board without checks reads null forever, harmlessly)", () => {
+  test("no delivery, or a human already asked: never unmeasured", () => {
     const { unmeasuredInReview } = sweep();
-    expect(unmeasuredInReview(card({ checksState: null, deliveryCommit: null }))).toBe(false);
-    expect(unmeasuredInReview(card({ checksState: null, deliveryBranch: null }))).toBe(false);
+    expect(unmeasuredInReview({ ...BASE, checksState: null, deliveryCommit: null })).toBe(false);
+    expect(unmeasuredInReview({ ...BASE, checksState: null, humanAsk: "guarda tu" })).toBe(false);
   });
+});
 
-  test("a human question already on the card: left alone", () => {
-    const { unmeasuredInReview } = sweep();
-    expect(unmeasuredInReview(card({ checksState: null, humanAsk: "serve una scelta" }))).toBe(false);
-  });
-
-  test("pass on the delivered commit: settled, not unmeasured", () => {
-    const { unmeasuredInReview } = sweep();
-    expect(unmeasuredInReview(card({ checksState: "pass", checksCommit: "abc1234" }))).toBe(false);
+describe("remeasureInReview on a null-state node delivery", () => {
+  test("the found case: a planted delivery with no verdict gets handed to the node meter", async () => {
+    const { remeasureInReview, nodeMeasures } = sweep();
+    await remeasureInReview({ ...BASE, checksState: null });
+    expect(nodeMeasures).toEqual(["card-1"]);
   });
 });

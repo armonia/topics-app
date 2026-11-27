@@ -33,11 +33,10 @@ async function runText(argv: string[]): Promise<string> {
   return text;
 }
 
-/** Where the Windows sleep keeper keeps its files; null on a machine without one. */
-function winfleetDir(): string | null {
-  const env = process.env.TOPICS_WINFLEET_DIR;
-  if (env && env.trim()) return env.trim();
-  return process.platform === "win32" ? "C:\\winfleet" : null;
+/** Folder where a sleep keeper writes its screen file, from TOPICS_MACHINE_READOUT_DIR; null when unset (no folder is read). */
+export function machineReadoutDir(): string | null {
+  const env = process.env.TOPICS_MACHINE_READOUT_DIR;
+  return env && env.trim() ? env.trim() : null;
 }
 
 // On Windows one PowerShell kept warm between readings: a fresh one per reading
@@ -52,7 +51,7 @@ const localReadout = createMachineReadout({
   memTotalMB: () => Math.round(os.totalmem() / (1024 * 1024)),
   listProcesses: () => winLister ? winLister.read() : runText(["ps", "-axo", "pid=,rss=,%cpu=,comm="]),
   readScreenFile: async () => {
-    const dir = winfleetDir();
+    const dir = machineReadoutDir();
     if (!dir) return null;
     try { return await readFile(join(dir, "schermo", "stato.js"), "utf8"); } catch { return null; }
   },

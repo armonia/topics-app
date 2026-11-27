@@ -462,4 +462,67 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await expect(popover.getByTestId("dispatch-load-nodes")).toHaveText("Nodo 1 1/2 · PC occupato");
     await page.screenshot({ path: join(SHOTS, "09-after-floor-elsewhere.png"), clip: { x: 0, y: 0, width: 1600, height: 500 } });
   });
+
+  // A held queue whose only stop is the 24h spend cap. The restart instant is
+  // relative: `readSpend` drops a stop whose `untilMs` is already past.
+  async function routeSpendStop(page: Page) {
+    await page.route((url) => url.pathname === "/api/system/dispatch-capacity", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          recommended: 4, cores: 12, totalMemGB: 32, availableMemGB: 18, load1: 3.2, running: 0,
+          machineCpuPct: 20, machineMemPct: 44,
+          oursCores: 0, budgetCores: 6, budgetShare: 0.6, budgetCoreUnits: 7.2, usableCoreUnits: 7.2,
+          usedCoreUnits: 0, usedMemGB: 4, otherCoreUnits: 1, frozen: 0,
+          reason: "12 core, base 4",
+        }),
+      }));
+    await page.route((url) => url.pathname === "/api/dispatch/brakes", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          brakes: [], held: [], working: {}, claudeFiveHour: null,
+          spend: { spentCents: 3_182, capCents: 3_000, untilMs: Date.now() + 2 * 3_600_000, taskIds: ["t1", "t2"] },
+        }),
+      }));
+  }
+
+  test("GAUGE-10: il tetto di spesa delle 24h ferma la coda: la parola lo dice, non «a budget»", async ({ page }) => {
+    // `byResources` names the CAP MODE, not the hold, so the header used to say
+    // "a budget" while the spend cap held every card. At desktop width the top
+    // "Frenato" chip no longer says it: this header does.
+    await page.setViewportSize({ width: 1440, height: 800 });
+    await routeSpendStop(page);
+    await page.goto("/");
+    await openBoard(page);
+    await expect(word(page)).toHaveText("fermo: tetto di spesa");
+    await expect(word(page)).not.toHaveText("a budget");
+    await expect(page.getByTestId("board-brake-chip")).toHaveCount(0);
+
+    await gauge(page).click();
+    const popover = page.getByTestId("dispatch-load-popover");
+    await expect(popover.getByTestId("dispatch-load-spend")).toContainText("31,82 su 30 USD");
+    await page.keyboard.press("Escape");
+
+    await expect(header(page)).toBeInViewport({ ratio: 1 });
+    await header(page).screenshot({ path: join(SHOTS, "10-spend-1440.png") });
+  });
+
+  test("GAUGE-10b: sotto i 768 px la board ha una colonna sola, quindi la striscia nomina il tetto", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await routeSpendStop(page);
+    await page.goto("/");
+    await openBoard(page);
+    const band = page.getByTestId("board-brake-band");
+    await expect(band).toBeVisible();
+    await expect(band).toContainText("Spesa 24 h");
+    await band.screenshot({ path: join(SHOTS, "10-spend-375.png") });
+
+    // Mutation guard: widening to the two-column layout must drop the strip.
+    await page.setViewportSize({ width: 1440, height: 800 });
+    await expect(page.getByTestId("board-brake-band")).toHaveCount(0);
+    await expect(page.getByTestId("board-brake-chip")).toHaveCount(0);
+  });
 });

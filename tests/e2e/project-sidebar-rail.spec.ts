@@ -70,7 +70,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
     //    senza questa asserzione il resto passerebbe anche con la rail ancora
     //    lì accanto, semplicemente ignorata.
     await expect(win.locator('[data-testid="project-sidebar-rail"]')).toHaveCount(0);
-    await expect(win.locator('[data-testid="project-sidebar"]')).toHaveCount(0);
+    await expect(win.locator('[data-testid="project-sidebar"]')).toBeHidden();
 
     // 2. E STA DENTRO la riga di chrome, non accanto: è la differenza fra
     //    «in linea» e «appoggiata di fianco».
@@ -262,6 +262,11 @@ test.describe("sidebar progetto: la rail collassata", () => {
     // parked off it, colours settled: under the pointer it lights its ink.
     const filesRow = win.locator('[data-testid="project-sidebar-files"]');
     await expect(filesRow).toBeVisible({ timeout: 10000 });
+    // Processes open first: closing the last open island closes the column
+    // (26/11), and this reads a closed Files row in an open column.
+    const procHeader = win.locator('[data-testid="project-sidebar-processes"]');
+    if ((await procHeader.getAttribute("aria-expanded")) !== "true") await procHeader.click();
+    await expect(procHeader).toHaveAttribute("aria-expanded", "true");
     if ((await filesRow.getAttribute("aria-expanded")) === "true") await filesRow.click();
     await expect(filesRow).toHaveAttribute("aria-expanded", "false");
     await page.mouse.move(900, 500);
@@ -279,6 +284,11 @@ test.describe("sidebar progetto: la rail collassata", () => {
     await expect.poll(read, { timeout: 5000 }).toEqual({
       fondo: "rgba(0, 0, 0, 0)", fondoIsola: "rgba(0, 0, 0, 0)", raggio: "8px", rientro: 6, bordoSotto: 0,
     });
+    // Back to Files open and Processes closed, for the part below.
+    await filesRow.click();
+    await expect(filesRow).toHaveAttribute("aria-expanded", "true");
+    await procHeader.click();
+    await expect(procHeader).toHaveAttribute("aria-expanded", "false");
 
     // Aprire «Processi» deve mostrare qualcosa. L'altezza e in pixel e viene
     // salvata: strizzata all'altezza dell'intestazione, la sezione si apriva su
