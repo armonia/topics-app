@@ -3,7 +3,7 @@
  * `origin/main` does not have gets a system note naming how much work it actually carries.
  * Real git, no fake door, same shape as `scheduled-review-sense.git.test.ts`.
  *
- * @covers 8b958524
+ * @covers KANBAN-11
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
