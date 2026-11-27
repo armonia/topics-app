@@ -17,6 +17,7 @@
  * Kanban spec: KANBAN-119.
  */
 import type { Browser, BrowserContext } from "playwright-core";
+import { loadPlaywrightCore } from "../lib/playwright-loader";
 
 type PlaywrightModule = typeof import("playwright-core");
 
@@ -45,7 +46,7 @@ const PREVIEW_HEIGHT = 760;
 const EMPTY_SHELL_TEXT = "Welcome to Topics";
 
 export function createPreviewBrowser(opts: PreviewBrowserOptions = {}): PreviewBrowser {
-  const loadPlaywright = opts.loadPlaywright ?? (() => import("playwright-core"));
+  const loadPlaywright = opts.loadPlaywright ?? loadPlaywrightCore;
   const idleMs = opts.idleMs ?? 60_000;
   const settleMs = opts.settleMs ?? 1500;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
