@@ -206,7 +206,8 @@ function fakeClock() {
 }
 
 const input = { cwd: "/tmp/wt", sha: SHA, taskId: "12345678-card" };
-const e2eRow = async (i: typeof input, d: AwaitCiDeps) => (await awaitCiEvidence({ ...i, checks: [E2E_CI_CHECK] }, d))[0]!;
+const e2eRow = async (i: typeof input & { branch?: string | null }, d: AwaitCiDeps) =>
+  (await awaitCiEvidence({ ...i, checks: [E2E_CI_CHECK] }, d))[0]!;
 
 describe("spawnCapped", () => {
   // `git push` runs its hook and ssh as children: a cap that killed git alone
