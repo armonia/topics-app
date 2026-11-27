@@ -178,9 +178,10 @@ describe("failureTail", () => {
 });
 
 describe("appendBoundedTail: a check's output never grows past its cap", () => {
-  // Card f4e623d3: before this cap, `runOne` kept the WHOLE stdout/stderr of
-  // every check in memory as one growing string, and a chatty or stuck
-  // command drove the server's footprint to 9.1 GB. Reverting to plain
+  // Card 59f8c4a0: without this cap, `runOne` kept the WHOLE stdout/stderr of
+  // every check in memory as one growing string, so a chatty or stuck
+  // command would grow unbounded (defensive cap, not the cause of the
+  // 9.1 GB footprint peak that card is about). Reverting to plain
   // concatenation (`text + chunk`, no slice) makes this fail: `text.length`
   // would grow past `max` instead of staying capped.
   test("a chunk past the cap pushes the oldest bytes out, the result never exceeds it", () => {

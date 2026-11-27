@@ -174,7 +174,7 @@ export const STATIC_RAILS_CHECK: ReviewCheck = {
     "bun run check:typography",
   ].join(" && "),
 };
-/** Righe di output tenute per ogni check. Bastano a vedere l'errore, non riempiono il DB. */
+/** Lines of output kept per check. Enough to see the failure, not enough to fill the DB. */
 export const TAIL_LINES = 40;
 
 /**
@@ -182,11 +182,16 @@ export const TAIL_LINES = 40;
  *
  * `failureTail` only ever keeps `TAIL_LINES` of the end, so there is no
  * reason to retain more than a generous multiple of that while the process is
- * still running. Before this cap, a hung or chatty check (card
- * f4e623d3, measured: a review round with several checks in flight drove the
- * server's footprint to 9.1 GB in under three hours) could print for the
- * whole `DEFAULT_TIMEOUT_MS` before being killed, and every byte sat in
+ * still running. Without a cap, a hung or chatty check could print for the
+ * whole `DEFAULT_TIMEOUT_MS` before being killed, with every byte sitting in
  * memory as one growing string per stream per check.
+ *
+ * Defensive cap only: the checks are NOT the cause of the 9.1 GB footprint
+ * peak measured on the production server (card 59f8c4a0). Production log
+ * samples (`[memsig]`, 25/11 21:17 to 26/11 00:10 UTC, 160 samples) show at
+ * most 2 check runs in flight and a check process tree between 0.1 and
+ * 0.5 GB (one outlier at 3.7 GB). That cannot add up to 9 GB; the real cause
+ * is still open.
  */
 export const MAX_CHECK_OUTPUT_BYTES = 2 * 1024 * 1024;
 

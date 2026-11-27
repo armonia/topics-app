@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 /**
- * REPRODUCES THE 9.1 GB FOOTPRINT PEAK (card b8159f7c), with the SAME METHOD
- * before and after: run the SAME chatty commands through the SAME reading loop
+ * MEASURES THE EFFECT OF THE OUTPUT CAP added for card 59f8c4a0 (that card's
+ * 9.1 GB footprint peak is NOT reproduced here, and the check output is not
+ * its proven cause — see the comment above MAX_CHECK_OUTPUT_BYTES). Run the
+ * SAME chatty commands through the SAME reading loop
  * `runOne` uses (spawn, pipe, decode chunk by chunk), once with plain string
  * concatenation (`out = out + chunk`, what `runOne` did before this card) and
  * once with `appendBoundedTail` capped at `MAX_CHECK_OUTPUT_BYTES` (what it
@@ -106,7 +108,7 @@ async function main(): Promise<number> {
     `  |  held per check: ${p.heldPerCheck.map((b) => mb(b).toFixed(1)).join(", ")} MB`;
 
   const report = [
-    `review-checks output cap - reproduction (card b8159f7c)`,
+    `review-checks output cap - memory effect (card 59f8c4a0)`,
     `metric: ${metric}, concurrency: ${CONCURRENCY}, chunk: ${CHUNK_MB_PER_CHECK} MB/check, each phase in its own process`,
     "",
     line("before (concat, old)", before),
