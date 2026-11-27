@@ -48,7 +48,8 @@ function setVersion(root: string, rel: string, version: string): void {
     rel === CARGO ? before.replace(/^version\s*=\s*"\d+\.\d+\.\d+"/m, `version = "${version}"`)
     : rel === LOCK ? before.replace(/^(name = "app"\nversion = ")\d+\.\d+\.\d+"/m, `$1${version}"`)
     : before.replace(/("version"\s*:\s*")\d+\.\d+\.\d+(")/, `$1${version}$2`);
-  expect(after, `non sono riuscito a scollare ${rel}`).not.toBe(before);
+  // The file may already hold this version (main bumped to it): only a missing pattern is a failure.
+  expect(after.includes(version), `non sono riuscito a scollare ${rel}`).toBe(true);
   writeFileSync(path, after);
 }
 
