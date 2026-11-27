@@ -33,7 +33,7 @@ describe("playwright loader", () => {
     expect(installs).toBe(0);
   });
 
-  it("installs once and loads from the data dir when the package is missing", async () => {
+  it("installs once and loads the entry its own manifest names", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pwl-"));
     try {
       let installs = 0;
@@ -43,16 +43,42 @@ describe("playwright loader", () => {
         log: () => {},
         install: async (d) => {
           installs += 1;
-          mkdirSync(join(d, "node_modules", "playwright-core"), { recursive: true });
-          writeFileSync(join(d, "node_modules", "playwright-core", "index.js"), "");
+          const pkgDir = join(d, "node_modules", "playwright-core");
+          mkdirSync(pkgDir, { recursive: true });
+          writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ exports: { ".": { import: "./entry-point.js", default: "./entry-point.js" } } }));
+          writeFileSync(join(pkgDir, "entry-point.js"), "");
           return 0;
         },
         importFrom: async (url) => ({ url }) as never,
       });
       const [a, b] = await Promise.all([load(), load()]);
-      expect((a as never as { url: string }).url).toContain("playwright-core/index.js");
+      expect((a as never as { url: string }).url).toContain("playwright-core/entry-point.js");
       expect(b).toBe(a);
       expect(installs).toBe(1);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("treats a copy without a package.json as not installed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pwl-"));
+    try {
+      const pkgDir = join(dir, "node_modules", "playwright-core");
+      mkdirSync(pkgDir, { recursive: true });
+      let installs = 0;
+      const load = createPlaywrightLoader({
+        importDefault: missing,
+        depsDir: dir,
+        log: () => {},
+        install: async (d) => {
+          installs += 1;
+          const installedPkgDir = join(d, "node_modules", "playwright-core");
+          writeFileSync(join(installedPkgDir, "package.json"), JSON.stringify({ main: "./index.js" }));
+          writeFileSync(join(installedPkgDir, "index.js"), "");
+          return 0;
+        },
+        importFrom: async (url) => ({ url }) as never,
+      });
+      await load();
+      expect(installs).toBe(1); // the pre-existing dir had no package.json, so it was re-installed
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 

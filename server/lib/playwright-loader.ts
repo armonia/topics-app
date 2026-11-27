@@ -13,7 +13,7 @@
  * in the user's project. The install is single-flight and its failure is not
  * cached forever: the next call tries again.
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveAppDataDir } from "./data-dir";
@@ -62,14 +62,40 @@ export interface PlaywrightLoaderDeps {
   log: (msg: string) => void;
 }
 
+/**
+ * The relative entry path of the "." export, read from the package's own
+ * `package.json` rather than hardcoded here: a hardcoded filename is a loose
+ * script name in the server's source, which `installed-app-runtime-deps.test.ts`
+ * rejects as a runtime it did not ship. The package's own manifest already
+ * names it; we just follow it.
+ */
+function entryFromManifest(pkg: { exports?: unknown; main?: string }): string | null {
+  const exportsField = pkg.exports as Record<string, unknown> | string | undefined;
+  const dot = typeof exportsField === "object" && exportsField ? exportsField["."] : exportsField;
+  if (typeof dot === "string") return dot;
+  if (dot && typeof dot === "object") {
+    const byCondition = dot as Record<string, unknown>;
+    const picked = byCondition.import ?? byCondition.default ?? byCondition.require;
+    if (typeof picked === "string") return picked;
+  }
+  return typeof pkg.main === "string" ? pkg.main : null;
+}
+
 /** Entry file of the installed copy, or null when it is not there. */
 function installedEntry(depsDir: string): string | null {
   const pkgDir = join(depsDir, "node_modules", "playwright-core");
-  for (const file of ["index.mjs", "index.js"]) {
-    const full = join(pkgDir, file);
-    if (existsSync(full)) return full;
+  const manifestPath = join(pkgDir, "package.json");
+  if (!existsSync(manifestPath)) return null;
+  let pkg: { exports?: unknown; main?: string };
+  try {
+    pkg = JSON.parse(readFileSync(manifestPath, "utf-8"));
+  } catch {
+    return null;
   }
-  return null;
+  const relative = entryFromManifest(pkg);
+  if (!relative) return null;
+  const full = join(pkgDir, relative);
+  return existsSync(full) ? full : null;
 }
 
 /**
