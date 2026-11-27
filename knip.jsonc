@@ -182,6 +182,10 @@
         // glob, per la stessa ragione delle famiglie qui sopra.
         "scripts/layer-growth.ts",
         "scripts/mem-growth.ts",
+        // The same curve with a declared limit and an exit code, narrowed to
+        // the app's renderer: `bun run check:renderer-growth`. It ships as a
+        // check, hence the `!`.
+        "scripts/renderer-growth-check.ts!",
         "scripts/event-loop-lag.ts",
         // `bun scripts/prompt-ab.ts` — il banco A/B sul prompt del giudice: si
         // lancia a mano quando si vuole rimisurare quale formulazione declassa

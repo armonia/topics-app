@@ -8,8 +8,8 @@ import { hermetic } from "./fixtures/hermetic";
 hermetic(test);
 
 /**
- * THE RENDERER GROWTH BAR (card "Perdita di memoria nel renderer WebContent
- * di Topics", 2026-11-27: main WebContent at 2337 MB after 9h34m, measured
+ * THE RENDERER GROWTH BAR (card "Perdita di memoria nel renderer WebContent di Topics") allow-italian: the card title, quoted verbatim
+ * 2026-11-27: main WebContent at 2337 MB after 9h34m, measured
  * with `footprint -p` on macOS, not `ps rss`).
  *
  * WHAT THIS SPEC MEASURES, AND WHAT IT CANNOT MEASURE HERE. `footprint -p`
@@ -25,6 +25,17 @@ hermetic(test);
  * flat: every promoted node carries a CoreAnimation layer with an IOSurface
  * backing, invisible to the JS heap and visible only to `footprint` - see
  * `domCensus`'s own comment.
+ *
+ * AND THE SAME LOOP IS WEIGHED IN BYTES. DOM nodes answer "who holds it",
+ * they do not answer "how much". The byte reading available in a headless run
+ * is the V8 heap after a forced collection, taken over CDP
+ * (`HeapProfiler.collectGarbage` then `Runtime.getHeapUsage`): forcing the
+ * collection first is what separates garbage not yet swept (noise) from
+ * objects still reachable (the leak). It is a LOWER BOUND on the footprint the
+ * card measured - it misses layer backings, decoded images and the WebKit-side
+ * caches - so a growth it sees is real, while a flat heap does not by itself
+ * clear `footprint`. That second question is what `bun run
+ * check:renderer-growth` answers on the Mac, on the real app.
  *
  * THE GROWING LOOP: open, visit and close N topics repeatedly (the exact
  * suspect the card names - "pane vive, tab browser" - and the same walk
@@ -73,9 +84,24 @@ const SETTLE_MS = 4000 + 1500 + 1500;
 const MAX_NODE_GROWTH_PER_LAP = 40;
 const MAX_SVG_GROWTH_PER_LAP = 10;
 
+/**
+ * Tolerance in BYTES on the V8 heap between two steady-state laps, after a
+ * forced collection. The card's leak is 2337 MB in 9h34m, around 4 MB a
+ * minute, and one lap here is roughly a minute of churn: a limit of 6 MB per
+ * lap therefore sits under the observed rate while leaving room for what a lap
+ * legitimately allocates and keeps (one more entry per topic in the caches
+ * that are capped by design, the strings of a freshly fetched history).
+ */
+const MAX_HEAP_GROWTH_PER_LAP_BYTES = 6 * 1024 * 1024;
+
 interface HeapSnapshot {
   dom: { svg: number; nodes: number; perOwner: Record<string, number> };
   owners: Record<string, { entries: number; items?: number; bytes?: number }>;
+}
+
+interface Sample extends HeapSnapshot {
+  /** V8 heap in use after a forced collection, in bytes. */
+  heapBytes: number;
 }
 
 declare global {
@@ -91,6 +117,30 @@ async function snapshot(page: Page): Promise<HeapSnapshot> {
     return fn();
   });
 }
+
+/**
+ * Heap in use in bytes, garbage already collected. Three collections instead
+ * of one: a single pass leaves objects whose only remaining reference was a
+ * weak one dropped during that very pass, which reads as growth that is not
+ * there.
+ */
+async function heapBytes(page: Page): Promise<number> {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send("HeapProfiler.enable");
+    for (let i = 0; i < 3; i++) await cdp.send("HeapProfiler.collectGarbage");
+    const usage = (await cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
+    return usage.usedSize;
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
+}
+
+async function sample(page: Page): Promise<Sample> {
+  return { ...(await snapshot(page)), heapBytes: await heapBytes(page) };
+}
+
+const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
 
 function shells(page: Page) {
   return page.locator("[data-pane-shell]");
@@ -156,11 +206,11 @@ test.describe("Renderer growth bar", () => {
     await visitEveryTopic(page);
     await page.waitForTimeout(SETTLE_MS);
 
-    const samples: HeapSnapshot[] = [await snapshot(page)];
+    const samples: Sample[] = [await sample(page)];
     for (let lap = 1; lap < LAPS; lap++) {
       await visitEveryTopic(page);
       await page.waitForTimeout(SETTLE_MS);
-      samples.push(await snapshot(page));
+      samples.push(await sample(page));
     }
 
     // Compare ONLY steady-state laps: sample[0] is after the warm-up lap,
@@ -170,9 +220,11 @@ test.describe("Renderer growth bar", () => {
       const cur = samples[i];
       const nodeGrowth = cur.dom.nodes - prev.dom.nodes;
       const svgGrowth = cur.dom.svg - prev.dom.svg;
+      const heapGrowth = cur.heapBytes - prev.heapBytes;
       console.log(
         `[renderer-heap-growth] lap ${i}: nodes ${prev.dom.nodes}->${cur.dom.nodes} (+${nodeGrowth}), ` +
-          `svg ${prev.dom.svg}->${cur.dom.svg} (+${svgGrowth})\n` +
+          `svg ${prev.dom.svg}->${cur.dom.svg} (+${svgGrowth}), ` +
+          `heap ${mb(prev.heapBytes)}->${mb(cur.heapBytes)} MB (+${mb(heapGrowth)} MB)\n` +
           `  owners: ${JSON.stringify(cur.owners)}`,
       );
       expect(nodeGrowth, `extra DOM nodes on lap ${i} (cap already reached)`).toBeLessThanOrEqual(
@@ -181,6 +233,11 @@ test.describe("Renderer growth bar", () => {
       expect(svgGrowth, `extra <svg> on lap ${i} (cap already reached)`).toBeLessThanOrEqual(
         MAX_SVG_GROWTH_PER_LAP,
       );
+      expect(
+        heapGrowth,
+        `extra heap bytes on lap ${i} after a forced collection (cap already reached): ` +
+          `+${mb(heapGrowth)} MB, limit ${mb(MAX_HEAP_GROWTH_PER_LAP_BYTES)} MB`,
+      ).toBeLessThanOrEqual(MAX_HEAP_GROWTH_PER_LAP_BYTES);
     }
   });
 });
