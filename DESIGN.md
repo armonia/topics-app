@@ -173,6 +173,9 @@ barra dei menu.
   non ci sta), interruttore della colonna, campanella, poi cerca e «+»; i quattro tasti a misura di
   tab (34, 44 sotto 768) senza fondo a riposo; l'interruttore del contenuto compare solo a colonna
   chiusa.
+- La prima riga della colonna sul telefono (27/11 «Sì, va bene», #1731): a riposo sta un passo (6)
+  sotto la riga compatta del titolo, mai dietro il suo velo; il velo serve solo alle righe che
+  scorrono sotto.
 
 ## Feedback di Attilio
 
