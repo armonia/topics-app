@@ -450,6 +450,13 @@ export interface TaskService {
     rootsOnly?: boolean;
   }): Neighbour[];
 
+  /**
+   * The OPEN card (not done, not archived) of a board that already says this
+   * very thing: same normalized title, or same idempotency key. Exact only; the
+   * fuzzy neighbours stay with `findDuplicates`.
+   */
+  findOpenTwin(args: { projectId: string; text?: string; idempotencyKey?: string | null; rootsOnly?: boolean }): Task | null;
+
   archive(args: { taskId: string; projectId?: string }): Task;
   /**
    * Unhooks the open children (not archived, not done) of `taskId` so they
@@ -615,7 +622,7 @@ export interface TaskService {
    * una persona, e il backlog non lo dispaccia nessuno. Vedi il commento nel
    * corpo per il guasto del 12/08.
    */
-  release(args: { taskId: string; requeue: boolean; reason?: string; by?: string; parkState?: string | null; rollbackAttempt?: boolean; keepStatus?: boolean }): Task;
+  release(args: { taskId: string; requeue: boolean; reason?: string; by?: string; parkState?: string | null; rollbackAttempt?: boolean; keepStatus?: boolean; keepInTodo?: boolean }): Task;
   /**
    * Agent-declared external-condition wait: release the slot and put the task
    * back in `todo` with chip `waiting` and a `dispatch_deferred_until` window,

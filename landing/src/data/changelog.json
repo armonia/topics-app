@@ -1,13 +1,104 @@
 [
   {
-    "version": "2.5.2",
+    "version": "2.5.7",
     "date": "2026-11-26",
     "sections": {
       "new": [],
       "fixes": [
         {
+          "text": "node deliveries with a null checks_state are measured again, and every mute exit of the meter says why",
+          "scope": "land"
+        },
+        {
+          "text": "ci-impact fixtures no longer read as the file's own @covers",
+          "scope": "gates"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.4",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "una card ripresa dopo un land non risulta atterrata per il merge del giro prima (#1703)",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.3",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a spawnError is unmeasured, not a red bounce",
+          "scope": "checks"
+        },
+        {
+          "text": "count a node seat only by a run the primary still believes open",
+          "scope": "dispatch"
+        },
+        {
+          "text": "the new board requirements are in the spec, and the person-owned word list carries its language marker",
+          "scope": "board"
+        },
+        {
+          "text": "give each run its own checkout folder",
+          "scope": "node-checks"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.2",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [
+        {
+          "text": "a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land",
+          "scope": "board"
+        },
+        {
+          "text": "a request that repeats an open card is absorbed by it instead of opening a twin",
+          "scope": "board"
+        },
+        {
+          "text": "a card stuck for an hour without a reason gets one service note, and leaves a machine that does not answer",
+          "scope": "board"
+        },
+        {
+          "text": "a card that spent its attempts with no outcome stays visible in todo with the reason, instead of moving to backlog",
+          "scope": "board"
+        },
+        {
+          "text": "the question a delivery carries goes back to the chat that opened the card",
+          "scope": "board"
+        }
+      ],
+      "fixes": [
+        {
           "text": "the sidebar's buttons are tabs, and every tab lights under the pointer",
           "scope": "ui"
+        },
+        {
+          "text": "don't let an older comment outrank the newest one when carrying a node's thread",
+          "scope": null
+        },
+        {
+          "text": "the stuck-card sweep leaves an in-progress card its dispatch chip explains",
+          "scope": "board"
+        },
+        {
+          "text": "protect every comment of a resend's round, not two rows by position, in node run briefs",
+          "scope": null
         }
       ],
       "perf": []
