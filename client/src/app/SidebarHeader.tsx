@@ -157,10 +157,10 @@ export function SidebarHeader({
           // scrolling underneath, or the column would carry 56px of glass at
           // the top that stop a scroll without saying why.
           className={`sidebar-header flex items-center justify-between flex-shrink-0 app-drag-region ${
-            // `pointer-events-none` WITHOUT `[&>*]:pointer-events-auto`: under
-            // the row the tabs run from right after the safe area (A1), and
-            // the two groups it is made of, one `flex-1`, wide as the whole
-            // row, would eat the taps of the first one. Only the BUTTONS take
+            // `pointer-events-none` WITHOUT `[&>*]:pointer-events-auto`: once
+            // the list moves the tabs run under the row, and the two groups it
+            // is made of, one `flex-1`, wide as the whole row, would eat the
+            // taps of the tab passing behind. Only the BUTTONS take
             // a tap, each on its own (Topics and the bell with inline
             // `pointerEvents: 'auto'`, the window controls with their own
             // class): the wrappers let everything through.
@@ -168,7 +168,8 @@ export function SidebarHeader({
           }`} data-window-chrome={windowChrome} {...DRAG_REGION}
           // A1: compact at the head (44, the buttons), whole while scrolling
           // (56). Out of flow in both cases, so the size moves nothing,
-          // `data-compact` is the spec's handle.
+          // `data-compact` is the spec's handle. At rest the list starts one
+          // step under the compact row (`--sidebar-scroll-top`, AppSidebar).
           data-compact={isMobile ? String(!mobileTopFull) : undefined}
           style={{
             paddingRight: ROW_INSET,
@@ -178,8 +179,11 @@ export function SidebarHeader({
             // one step above and below with the tabs at the side (46), the
             // strip's 40 with them on top. The lights centre on it either way
             // (`setTrafficLightsRow`).
+            // `--sat` and not a bare `env()`: the list below adds the SAME
+            // inset to its padding, so row and list read one source (and a
+            // spec can force a notch, which `env()` cannot be made to show).
             ...(isMobile ? {
-              top: 'env(safe-area-inset-top, 0px)',
+              top: 'var(--sat, 0px)',
               height: mobileTopFull ? MOBILE_SIDEBAR_HEADER_H : MOBILE_SIDEBAR_HEADER_H_COMPACT,
             } : { height: chromeRowPx(tabStrip) }),
           }}
