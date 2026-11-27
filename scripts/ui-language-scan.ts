@@ -731,30 +731,20 @@ function m0End(m: RegExpExecArray): number {
 }
 
 /**
- * Every raw chunk of the template that starts at `first`.
- *
- * A chunk continues the template only when it is followed by `${`, and the next
- * chunk starts one byte after the `}` that closes that hole. `code` has string
- * contents blanked, so only real braces are counted, and a template nested in a
- * hole does not end the outer one. The old link was "any literal within 400
- * bytes": after `reason: \`landed (${proof})\`` it chained the Italian card
- * comments and the log line that followed, and called them a payload
- * (server/routes/tasks-land.ts, main red on 27/11/2026).
+ * Every raw chunk of the template that starts at `first`. A chunk continues it only when `${`
+ * follows; the next starts after the brace closing that hole (counted on `code`, strings blanked).
+ * Linking by distance chained the literals after the template in (tasks-land.ts, 27/11/2026).
  */
 function templateChunks(code: string, literals: Literal[], first: Literal): Literal[] {
   const out = [first];
-  let cur = first;
-  while (code.startsWith("${", cur.end)) {
-    let depth = 0;
-    let close = cur.end + 1;
-    for (; close < code.length; close++) {
+  for (let cur: Literal | undefined = first; cur && code.startsWith("${", cur.end); ) {
+    let close: number = cur.end + 1;
+    for (let depth = 0; close < code.length; close++) {
       if (code[close] === "{") depth++;
       else if (code[close] === "}" && --depth === 0) break;
     }
-    const next = literals.find((l) => l.start === close + 1);
-    if (!next) break;
-    out.push(next);
-    cur = next;
+    cur = literals.find((l) => l.start === close + 1);
+    if (cur) out.push(cur);
   }
   return out;
 }
