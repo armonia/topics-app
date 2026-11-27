@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GRAPH_ROOTS, buildGraph, changedFiles, isScriptsOnlyChange, mergeBaseSha, pathLiterals, resolveSpecifier, selectTests, specifiersOf, treeWalkers } from "./test-touched.ts";
+import { GRAPH_ROOTS, MAX_REVIEW_TEST_FILES, buildGraph, changedFiles, exceedsReviewCap, isScriptsOnlyChange, mergeBaseSha, pathLiterals, resolveSpecifier, selectTests, specifiersOf, treeWalkers, type Selection } from "./test-touched.ts";
 import { gitEnv } from "../tests/setup/bun-test-preload";
 
 // Spelled in two pieces so the module-mock scan does not read the fixture as a real mock.
@@ -185,6 +185,24 @@ describe("changedFiles", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("exceedsReviewCap", () => {
+  const under: Selection = { kind: "tests", tests: Array(MAX_REVIEW_TEST_FILES).fill("a.test.ts") };
+  const over: Selection = { kind: "tests", tests: Array(MAX_REVIEW_TEST_FILES + 1).fill("a.test.ts") };
+
+  test("a selection past the cap is left to the CI, in review mode only", () => {
+    expect(exceedsReviewCap(over, true)).toBe(true);
+    expect(exceedsReviewCap(over, false)).toBe(false);
+  });
+
+  test("a selection at or under the cap runs", () => {
+    expect(exceedsReviewCap(under, true)).toBe(false);
+  });
+
+  test("the whole-suite fallback is untouched by the cap: its own branch runs first", () => {
+    expect(exceedsReviewCap({ kind: "full", reason: "x" }, true)).toBe(false);
   });
 });
 
