@@ -16,7 +16,7 @@ import type { OverflowMachine } from "./dispatch-overflow";
 import type { LifecycleHookRunner } from "./lifecycle-hooks";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { NodeError } from "./node-client";
-import { bundleBranch, plantCarriedBranch } from "./branch-on-origin";
+import { bundleBranch, plantCarriedBranch, type BundleReach } from "./branch-on-origin";
 import { resolveBranchBaseRef } from "./worktree-for-agent";
 import { delegatedPolicyForTask } from "../lib/delegated-agent-start";
 import { readFileSync } from "node:fs";
@@ -116,7 +116,7 @@ export function harness(opts: {
    * A node that cannot reach origin (the PC does not talk to GitHub): `repos.mac` holds the
    * card's branch, `repos.node` is the node's checkout. The node starts from what it holds.
    */
-  noOrigin?: { mac: string; node: string; startedFrom: string[] };
+  noOrigin?: { mac: string; node: string; startedFrom: string[]; attempts?: ("refused" | "planted")[]; reaches?: BundleReach[] };
   /** What pushing a card's own branch answers (default: it reaches origin). */
   ensure?: (branch: string) => { ok: true } | { ok: false; reason: string };
   /** The `node-run` hook that wakes the PC (default: the lane's own). */
@@ -158,7 +158,11 @@ export function harness(opts: {
         if (opts.noOrigin && body.baseBranch) {
           if (!body.branchBundle) throw new NodeError("branch_unreachable", "create run answered 409", 409);
           const planted = await plantCarriedBranch(opts.noOrigin.node, body.baseBranch, new Uint8Array(Buffer.from(body.branchBundle, "base64")));
-          if (!planted.ok) throw new Error(planted.reason);
+          if (!planted.ok) {
+            opts.noOrigin.attempts?.push("refused");
+            throw new NodeError("rejected", `create run answered 400: branchBundle: ${planted.reason}`, 400);
+          }
+          opts.noOrigin.attempts?.push("planted");
           const base = await resolveBranchBaseRef(opts.noOrigin.node, body.baseBranch);
           const tip = Bun.spawnSync(["git", "-C", opts.noOrigin.node, "rev-parse", base.baseRef], { env: gitEnv() }).stdout.toString().trim();
           opts.noOrigin.startedFrom.push(tip);
@@ -186,7 +190,11 @@ export function harness(opts: {
       localMachineId: () => LOCAL,
       originUrlOf: async () => "https://github.com/acme/alpha.git",
       plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", commitCount: 1, reason: null }),
-      bundleBranch: async ({ branch }) => (opts.noOrigin ? bundleBranch(opts.noOrigin.mac, branch) : null),
+      bundleBranch: async ({ branch, reach }) => {
+        if (!opts.noOrigin) return null;
+        opts.noOrigin.reaches?.push(reach ?? 0);
+        return bundleBranch(opts.noOrigin.mac, branch, undefined, reach);
+      },
       ensureBranchOnOrigin: async ({ branch }) => { pushed.push(branch); return opts.ensure?.(branch) ?? { ok: true }; },
       ...(opts.hooks ? { hooks: opts.hooks } : {}),
     },
