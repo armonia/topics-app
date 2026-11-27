@@ -40,6 +40,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { COLUMN_GAP, MOBILE_SIDEBAR_HEADER_H_COMPACT } from "../../client/src/lib/selectionStyles";
 
 hermetic(test);
 
@@ -705,13 +706,13 @@ test.describe.serial("La chrome del telefono", () => {
     expect(alfaVelo, `il velo c'e' (${riga.velo})`).toBeGreaterThan(0.5);
     expect(alfaVelo, `ed e' semitrasparente (${riga.velo})`).toBeLessThan(1);
     expect(riga.sfocatura, "e sfoca cio' che passa sotto").toContain("blur");
-    // 3. the room it needs is INSIDE the scroll, as padding — and the padding
-    //    is the safe area ALONE (mobile-chrome-feedback A1): the list starts
-    //    right after `--sat` and travels behind the row from the first pixel,
-    //    the way a native list does. It used to carry the height of the row on
-    //    top of the inset, which left a full row of dead space under the notch.
+    // 3. the room it needs is INSIDE the scroll, as padding, so the list
+    //    travels behind the row as soon as it moves. The padding is the safe
+    //    area, the COMPACT row and one step: at rest the first row sits under
+    //    the title instead of behind its veil (mobile-sidebar-first-row, 27/11),
+    //    and not under the whole 56, which left a dead band under the notch.
     expect(riga.scrollerTop).toBeLessThanOrEqual(1);
-    expect(Math.abs(riga.padding - riga.sat)).toBeLessThanOrEqual(1);
+    expect(Math.abs(riga.padding - (riga.sat + MOBILE_SIDEBAR_HEADER_H_COMPACT + COLUMN_GAP))).toBeLessThanOrEqual(1);
 
     // And it does scroll under, measured on a row: a shorter screen so the
     // list overflows for real (nothing is faked: if it does not overflow the

@@ -20,10 +20,58 @@ export interface ReviewSweepDeps {
   afterDelivery: CiPhase["afterDelivery"];
   bounceWithReason: CiPhase["bounceWithReason"];
   reviewPrMergeable?: NonNullable<TasksCore["opts"]>["reviewPrMergeable"];
+  /** How many remeasures may run at once: the same cap the checks gate itself holds (default 1). */
+  maxConcurrent?: number;
+}
+
+/** No verdict about the commit this card delivers: never measured on it, or measured with no outcome. */
+export function unmeasuredInReview(t: Task): boolean {
+  if (!t.deliveryCommit || !t.deliveryBranch || (t.humanAsk ?? "").trim()) return false;
+  // `null` is the state a node delivery enters review with (never measured once): a card stuck there
+  // read as "no verdict yet, nothing to do" forever (11 cards, 26/11) because this only matched the
+  // string `"unknown"` the LOCAL gate writes, never the column's own default.
+  if (t.checksState === "unknown" || t.checksState === null) return true;
+  return (t.checksState === "fail" || t.checksState === "pass") && !sameSha(t.checksCommit, t.deliveryCommit);
+}
+
+function sameSha(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const n = Math.min(a.length, b.length);
+  return n >= 7 && a.slice(0, n) === b.slice(0, n);
+}
+
+/**
+ * Arrival order. `svc.list` sorts review rows by `updated_at DESC`, which any
+ * write on the card (a comment, a label) bumps - feeding that order straight
+ * into the land-intent split below reshuffled the queue on every sweep
+ * (reviewer feedback 27/11). `created_at` never moves once the row exists, so
+ * the order of the rest of the queue holds from one sweep to the next.
+ */
+export function sortForSweep(rows: Task[]): Task[] {
+  return [...rows].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+}
+
+/**
+ * A person already said "land it" (`landIntent === "human"`): the bar is the
+ * only thing left between that decision and the merge. Those cards go first,
+ * stable (by `sortForSweep`) otherwise - a card nobody has looked at yet does
+ * not get to sit in front of one a person is already waiting on. Sorting
+ * lives INSIDE this function, not beside its one call site in `sweepAutoLand`:
+ * two separate calls there once let a later edit drop one of them unnoticed.
+ */
+export function orderForSweep(rows: Task[]): Task[] {
+  const first: Task[] = [];
+  const rest: Task[] = [];
+  for (const t of sortForSweep(rows)) {
+    if (t.landIntent === "human" && unmeasuredInReview(t)) first.push(t);
+    else rest.push(t);
+  }
+  return [...first, ...rest];
 }
 
 export function createReviewSweep(deps: ReviewSweepDeps) {
   const { svc, broadcastToAll, runChecksGate, capturaConsegna, nodeMeter, bounceRed, afterDelivery } = deps;
+  const maxConcurrent = Math.max(1, deps.maxConcurrent ?? 1);
 
   /*
    * A CARD IN REVIEW WITH NO VERDICT ON WHAT IT DELIVERS IS MEASURED AGAIN.
@@ -46,23 +94,11 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
   const REVIEW_REMEASURE_TRIES = 3;
   const reviewRemeasures = new Map<string, { commit: string; at: number; tries: number }>();
   const conflictProbedAt = new Map<string, number>();
-  let reviewMeasuring: string | null = null;
-
-  const sameSha = (a: string | null | undefined, b: string | null | undefined) => {
-    if (!a || !b) return false;
-    const n = Math.min(a.length, b.length);
-    return n >= 7 && a.slice(0, n) === b.slice(0, n);
-  };
-
-  /** No verdict about the commit this card delivers: never measured on it, or measured with no outcome. */
-  function unmeasuredInReview(t: Task): boolean {
-    if (!t.deliveryCommit || !t.deliveryBranch || (t.humanAsk ?? "").trim()) return false;
-    // `null` is the state a node delivery enters review with (never measured once): a card stuck there
-    // read as "no verdict yet, nothing to do" forever (11 cards, 26/11) because this only matched the
-    // string `"unknown"` the LOCAL gate writes, never the column's own default.
-    if (t.checksState === "unknown" || t.checksState === null) return true;
-    return (t.checksState === "fail" || t.checksState === "pass") && !sameSha(t.checksCommit, t.deliveryCommit);
-  }
+  // One slot per concurrent remeasure, up to `maxConcurrent`: a run that lasts
+  // as long as its CI must not hold every other card still, which is the
+  // second serialization `reviewMeasuring: string | null` used to add on top
+  // of the checks gate's own `maxConcurrent` semaphore.
+  const reviewMeasuring = new Set<string>();
 
   async function remeasureInReview(t: Task): Promise<void> {
     const now = Date.now();
@@ -82,7 +118,7 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
       return;
     }
     reviewRemeasures.set(t.id, { commit: t.deliveryCommit!, at: now, tries });
-    reviewMeasuring = t.id;
+    reviewMeasuring.add(t.id);
     try {
       console.warn(`[review-sweep] ${t.id.slice(0, 8)}: nessun verdetto su ${t.deliveryCommit!.slice(0, 8)}, misuro la barra (${tries}/${REVIEW_REMEASURE_TRIES})`);
       let out: Awaited<ReturnType<typeof runChecksGate>> = null;
@@ -91,8 +127,13 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
         out = await runChecksGate(t.id, t.projectId, 60_000, undefined, leg === 0);
         if (!out || !("pending" in out)) break;
       }
-      // No worktree of its own (a planted branch, a reaped worktree): the throwaway checkout of the node lane.
-      if (out === null) { await nodeMeter.measure(t.id); return; }
+      // No worktree of its own (a planted branch, a reaped worktree): the
+      // throwaway checkout of the node lane, which serialises on its own
+      // (`queueTail`) and can wait far longer than any local leg. Free this
+      // slot BEFORE that wait, or a node delivery stuck behind another one
+      // held a local slot for up to ~80 minutes with nothing running in it
+      // (reviewer feedback 27/11).
+      if (out === null) { reviewMeasuring.delete(t.id); await nodeMeter.measure(t.id); return; }
       if ("interrupted" in out || "pending" in out) return;
       // The realign may have moved the tip: the delivery is the commit just measured.
       await capturaConsegna(t.id);
@@ -100,7 +141,7 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
       if (after) broadcastToAll({ type: "task:updated", projectId: after.projectId, task: after });
       if (await bounceRed(t.projectId, t.id)) return;
       if (after?.checksState === "pass") await afterDelivery(t.projectId, t.id);
-    } finally { reviewMeasuring = null; }
+    } finally { reviewMeasuring.delete(t.id); }
   }
 
   /** A green card waiting in review whose pull request conflicts with main goes back to its agent. */
@@ -117,5 +158,15 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
       "Porta main nel tuo ramo (`git fetch origin main && git merge origin/main`), risolvi, committa e rimetti in review.");
   }
 
-  return { unmeasuredInReview, remeasureInReview, probeConflict, measuring: () => reviewMeasuring };
+  /** A free slot is available for one more remeasure, within `maxConcurrent`. */
+  function hasFreeSlot(): boolean {
+    return reviewMeasuring.size < maxConcurrent;
+  }
+
+  /** This card itself already holds one of the slots: a full cap is not a queue for it. */
+  function isMeasuring(taskId: string): boolean {
+    return reviewMeasuring.has(taskId);
+  }
+
+  return { unmeasuredInReview, remeasureInReview, probeConflict, hasFreeSlot, isMeasuring };
 }
