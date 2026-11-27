@@ -12,6 +12,10 @@
  *     `.jsonl` under `<app data>/agents/*\/sessions` older than
  *     `TOPICS_TRANSCRIPT_COMPRESS_DAYS` (default 7) is gzipped IN PLACE, never
  *     deleted (`server/lib/transcript-retention.ts`).
+ *   - AUTOMATIC DB COPIES in `db-backups` (`topics-pre-<hash>[-<hash>]-<date>.db`): only the
+ *     newest `TOPICS_BACKUP_KEEP` (default 3) stay, and only copies at least 7 days old expire;
+ *     they are MOVED to `<home>/trash`, which empties itself after 7 days. Named copies and
+ *     `backups` are never touched.
  *   - MEDIA stays opt-in (`server/lib/media-retention.ts`): a file here can be
  *     referenced by a live message or task preview, and this script never
  *     opens the live database to check, so nothing is deleted unless an
@@ -26,13 +30,14 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, statSync, unlinkSync, readFileSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveAppDataDir, resolveDataDir, resolveStateDir, LIVE_REPO_ROOT } from "../server/lib/data-dir";
 import { topicsHome } from "../server/services/daemon-state";
-import { diskBudgetConfig, evaluateDiskBudget, type DiskBudgetFolder } from "../server/lib/disk-budget";
+import { diskBudgetConfig, evaluateDiskBudget, type DiskBudgetFolder, type DiskBudgetSample } from "../server/lib/disk-budget";
 import { expiredLogFiles, logRetentionDays } from "../server/lib/log-retention";
 import { filesToCompress, transcriptCompressDays, type TranscriptFileStat } from "../server/lib/transcript-retention";
+import { backupKeepCount } from "../server/lib/backup-retention";
+import { pruneOldBackups, purgeTrash, TRASH_DAYS } from "../server/lib/backup-prune";
 import { expiredMediaFiles, mediaRetentionDays, type MediaFileStat } from "../server/lib/media-retention";
 
 function du(path: string): number {
@@ -42,6 +47,11 @@ function du(path: string): number {
   } catch {
     return 0;
   }
+}
+
+function growth(perDay: number | null): string {
+  if (perDay === null) return "";
+  return `  ${perDay >= 0 ? "+" : "-"}${human(Math.abs(perDay))}/day`;
 }
 
 function human(bytes: number): string {
@@ -157,41 +167,72 @@ if (dbBytes === 0) {
 
 const prunedLogs = pruneExpiredLogs(join(home, "logs"), process.env);
 const compressedTranscripts = compressExpiredTranscripts(join(appDataDir, "agents"), process.env);
-const prunedMedia = pruneExpiredMedia(join(homedir(), ".topics", "media"), process.env);
+const prunedBackups = pruneOldBackups(home, process.env);
+const purgedTrash = purgeTrash(home);
+const prunedMedia = pruneExpiredMedia(join(home, "media"), process.env);
 
-/** Folders outside the database that the data folder actually grows with. */
+/**
+ * Folders outside the database. EVERY one counts toward the ratio: the card
+ * measures the whole data folder, user work included. Folders that grew
+ * unbounded carry a default cap (`DEFAULT_FOLDER_CAPS`).
+ */
 const CANDIDATE_FOLDERS: [string, string][] = [
   ["agents", join(appDataDir, "agents")],
   ["workspace", join(appDataDir, "workspace")],
   ["chromium-sidecar", join(appDataDir, "chromium-sidecar")],
   ["logs", join(home, "logs")],
-  ["media", join(homedir(), ".topics", "media")],
-  ["backups", join(homedir(), ".topics", "backups")],
-  ["db-backups", join(homedir(), ".topics", "db-backups")],
-  ["ui-state-backups", join(homedir(), ".topics", "ui-state-backups")],
+  ["media", join(home, "media")],
+  ["backups", join(home, "backups")],
+  ["db-backups", join(home, "db-backups")],
+  ["ui-state-backups", join(home, "ui-state-backups")],
+  ["trash", join(home, "trash")],
 ];
 
 const folders: DiskBudgetFolder[] = CANDIDATE_FOLDERS
   .filter(([, path]) => existsSync(path))
   .map(([name, path]) => ({ name, bytes: du(path) }));
 
+/** Last measurement per folder, kept beside the data so the next run can say bytes per day. */
+const historyPath = join(home, "disk-budget-history.json");
+function readPrevious(): Record<string, DiskBudgetSample> {
+  try {
+    const raw = JSON.parse(readFileSync(historyPath, "utf8")) as { at?: number; folders?: Record<string, number> };
+    if (typeof raw.at !== "number" || !raw.folders) return {};
+    const at = raw.at;
+    return Object.fromEntries(Object.entries(raw.folders).map(([name, bytes]) => [name, { at, bytes }]));
+  } catch {
+    return {};
+  }
+}
+const previous = readPrevious();
+
 const config = diskBudgetConfig(process.env, folders.map((f) => f.name));
-const result = evaluateDiskBudget(dbBytes, folders, config);
+const result = evaluateDiskBudget(dbBytes, folders, config, previous);
+
+// Sampled at most about once a day so "per day" compares against a stable baseline.
+if (Object.values(previous).every((p) => Date.now() - p.at >= 20 * 3_600_000)) {
+  try {
+    writeFileSync(historyPath, JSON.stringify({ at: Date.now(), folders: Object.fromEntries(folders.map((f) => [f.name, f.bytes])) }));
+  } catch { /* history is a convenience, never a reason to fail the check */ }
+}
 
 if (process.argv.includes("--json")) {
-  console.log(JSON.stringify({ ...result, prunedLogs, compressedTranscripts, prunedMedia }));
+  console.log(JSON.stringify({ ...result, prunedLogs, compressedTranscripts, prunedMedia, prunedBackups, purgedTrash }));
 } else {
   console.log(`database           ${human(result.dbBytes)}`);
   console.log(`outside database   ${human(result.outsideBytes)}  (ratio ${result.ratio.toFixed(2)}x, cap ${result.ratioCap}x)${result.ratioOverCap ? "  OVER BUDGET" : ""}`);
   for (const f of result.folders) {
     const cap = f.capBytes !== null ? `, cap ${human(f.capBytes)}` : "";
-    console.log(`  ${f.name.padEnd(18)} ${human(f.bytes).padStart(9)}${cap}${f.overCap ? "  OVER CAP" : ""}`);
+    console.log(`  ${f.name.padEnd(18)} ${human(f.bytes).padStart(9)}${cap}${f.overCap ? "  OVER CAP" : ""}${growth(f.growthPerDay)}`);
   }
   if (prunedLogs.length > 0) {
     console.log(`\npruned ${prunedLogs.length} log file(s) older than ${logRetentionDays(process.env)} days`);
   }
   if (compressedTranscripts.length > 0) {
     console.log(`compressed ${compressedTranscripts.length} agent transcript(s) older than ${transcriptCompressDays(process.env)} days`);
+  }
+  if (prunedBackups.length > 0) {
+    console.log(`moved ${prunedBackups.length} automatic database file(s) beyond the newest ${backupKeepCount(process.env)} (TOPICS_BACKUP_KEEP) to the trash, kept ${TRASH_DAYS} days`);
   }
   if (prunedMedia.length > 0) {
     console.log(`pruned ${prunedMedia.length} media file(s) older than ${mediaRetentionDays(process.env)} days (opt-in, TOPICS_MEDIA_RETENTION_DAYS set)`);

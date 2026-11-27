@@ -411,6 +411,22 @@ queste regole.
 7. **Lavoro futuro fuori scope → task top-level nel backlog** (senza `parent`), mai
    nuovi subtask del task in consegna. Un task con subtask aperti non è approvabile:
    i subtask sono la checklist dello STESSO task, non un modo per rimandare lavoro.
+   **Un passo futuro è una card con `blockedByTaskId`, mai una promessa in un
+   commento** (incidente 17-24/11: una card madre chiusa `done` con 11 figlie
+   aperte mai collegate come subtask veri, una figlia archiviata "unita in" una
+   card già archiviata, e i passi successivi che aspettavano una frase in un
+   commento invece di un legame strutturale — persi tutti). Il server tiene due
+   cancelli, entrambi con un codice proprio e una frase che dice cosa fare:
+   - `open_subtasks` (409) — una card non va in `done` mentre ha sottotask
+     diretti aperti (`parent_task_id`, non chiusi né archiviati).
+   - `blocks_live_dependent` (409) — una card non-`done` non si archivia mentre
+     è ancora il `blockedByTaskId` di una card viva (non `done`, non
+     archiviata): archiviarla sbloccherebbe in silenzio chi la aspettava,
+     perché il cancello di dispatch legge `archiviata` come `fatta`
+     (`server/services/tasks/shared-card-read.ts`). Si sblocca solo spostando
+     o azzerando `blockedByTaskId` sulla card dipendente, o chiudendola prima.
+     Una card già `done` si archivia comunque: i suoi dipendenti erano già
+     sbloccati da quello, non dall'archiviazione.
 
 Regola di prodotto (non numerata: è una riga di kickoff, non una regola di consegna).
 Topics è un prodotto per chiunque: niente nomi, percorsi, IP, account o server di una

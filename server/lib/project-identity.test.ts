@@ -13,18 +13,18 @@ import { projectPathOfAnyId } from "./project-identity";
 describe("projectPathOfAnyId", () => {
   const db = new Database(":memory:");
   db.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, path TEXT)");
-  db.query("INSERT INTO projects (id, path) VALUES (?, ?)").run("3f1c-uuid", "/Users/a/Projects/winfleet");
-  const paths = new Map([["3f1c-uuid", "/Users/a/Projects/winfleet"]]);
+  db.query("INSERT INTO projects (id, path) VALUES (?, ?)").run("3f1c-uuid", "/Users/a/Projects/some-repo");
+  const paths = new Map([["3f1c-uuid", "/Users/a/Projects/some-repo"]]);
   const getPath = (id: string) => paths.get(id) ?? null;
 
   test("a card's board id finds the checkout (the remote lane asks with this one)", () => {
-    const boardId = projectIdForPath("/Users/a/Projects/winfleet");
+    const boardId = projectIdForPath("/Users/a/Projects/some-repo");
     expect(boardId).not.toBe("3f1c-uuid");
-    expect(projectPathOfAnyId(db, getPath, boardId)).toBe("/Users/a/Projects/winfleet");
+    expect(projectPathOfAnyId(db, getPath, boardId)).toBe("/Users/a/Projects/some-repo");
   });
 
   test("the store id still works", () => {
-    expect(projectPathOfAnyId(db, getPath, "3f1c-uuid")).toBe("/Users/a/Projects/winfleet");
+    expect(projectPathOfAnyId(db, getPath, "3f1c-uuid")).toBe("/Users/a/Projects/some-repo");
   });
 
   test("an unknown id has no checkout", () => {

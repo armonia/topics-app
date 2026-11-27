@@ -174,6 +174,12 @@ test.describe.serial("Dettatura ermetica — cursore e testo esatto", () => {
     const recordingBar = page.getByText("Registrazione", { exact: true });
     await expect(recordingBar).toBeVisible({ timeout: 15_000 });
 
+    // The bar shows as soon as the recorder starts, before it has produced any
+    // data. Stopping right then yields a header-only blob, which the app discards
+    // on purpose (with a toast) instead of sending: on a slow runner that was the
+    // flake. The clock reaching 0:01 means the recorder has run for a second.
+    await expect(page.getByText(/^0:0[1-9]$/)).toBeVisible({ timeout: 15_000 });
+
     // Chiude la registrazione e spedisce al server.
     await page.keyboard.press("Meta+Shift+R");
 

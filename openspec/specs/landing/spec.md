@@ -676,3 +676,23 @@ con la sua `TOPICS_HOME`, nello stesso `$TMPDIR`).
 #### Scenario: checkout in uso
 - **GIVEN** una misura che apre il suo checkout mentre la spazzata d'avvio gira, o il checkout di un altro server
 - **THEN** la spazzata NON SHALL toccarlo
+
+### Requirement: LAND-21 — Un land con PR aperta passa da GitHub, così main non rifà la CI
+
+Un land con una PR aperta, la cui testa coincide con il commit da unire e con
+main locale non avanti rispetto a origin, SHALL passare dall'unione automatica di
+GitHub: il commit su main ha lo stesso albero della merge ref già provata. Quando
+non c'è una PR, la testa della PR è un altro commit o main locale è avanti, il
+land SHALL ricadere sul merge locale. Se GitHub non unisce entro il tempo
+concesso, l'unione automatica SHALL essere spenta e il land risulta saltato col
+motivo reale.
+
+#### Scenario: PR con testa uguale al commit da unire
+- **GIVEN** una PR aperta con testa uguale al commit da landare e main non avanti
+- **WHEN** il land parte
+- **THEN** SHALL unire GitHub, non il merge locale
+
+#### Scenario: nessuna PR, testa diversa o main avanti
+- **GIVEN** nessuna PR, oppure una testa diversa, oppure main locale avanti
+- **WHEN** il land parte
+- **THEN** SHALL ricadere sul merge locale
