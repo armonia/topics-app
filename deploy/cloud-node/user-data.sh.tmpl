@@ -28,6 +28,11 @@ b=https://nodejs.org/dist/latest-v@NODE_MAJOR@.x
 f=$(curl -fsSL $b/SHASUMS256.txt | awk '/linux-x64.tar.xz/{print $2}')
 curl -fsSL $b/$f | tar -xJ -C /usr/local --strip-components=1
 npm install -g --silent @NPM@ || true
+# WebKit's OS libs (the preview screenshot's browser, see preview-browser.ts):
+# without this a card dispatched here never gets a live screenshot, it just
+# fails silently and the card sits without evidence. Same version pinned in
+# server/lib/playwright-loader.ts's PLAYWRIGHT_CORE_VERSION; bump together.
+npx -y "playwright@1.59.1" install-deps webkit >/var/log/topics-pw-deps.log 2>&1 || true
 id topics >/dev/null 2>&1 || useradd -m -s /bin/bash topics
 loginctl enable-linger topics
 cat > /home/topics/setup.sh <<'EOS'
@@ -44,6 +49,9 @@ export PATH="$HOME/.topics/bun/$(tr -d '[:space:]' < .bun-version):$PATH"
 bun install
 npm rebuild node-pty || true
 bun run scripts/fix-node-pty-exec-bit.ts || true
+# WebKit's own binary (the OS libs went in above, as root): downloaded into
+# this user's cache, where preview-browser.ts's webkit.launch() finds it.
+npx -y "playwright@1.59.1" install webkit || true
 mkdir -p ~/repos ~/.claude
 EOS
 chown topics:topics /home/topics/setup.sh
