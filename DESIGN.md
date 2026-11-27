@@ -173,6 +173,12 @@ barra dei menu.
   non ci sta), interruttore della colonna, campanella, poi cerca e «+»; i quattro tasti a misura di
   tab (34, 44 sotto 768) senza fondo a riposo; l'interruttore del contenuto compare solo a colonna
   chiusa.
+- Il passo sui quattro lati, l'uscita in due tempi e la colonna che si chiude (27/11 «Sì,
+  approvato», #1723): con le tab di lato la riga in alto è 46 (tab 34 più 6 sopra e sotto), con 6
+  fra un tasto e l'altro e dall'ultimo al bordo, nella testata della colonna e nella riga del
+  titolo, e i semafori centrati su quella riga; una riga archiviata esce scivolando e sfumando in
+  `MOTION.fast` e solo dopo le righe sotto risalgono; chiusa l'ultima isola si chiude la colonna
+  del progetto, e riaperta torna su quell'isola com'era. Tab in alto e telefono invariati.
 - La prima riga della colonna sul telefono (27/11 «Sì, va bene», #1731): a riposo sta un passo (6)
   sotto la riga compatta del titolo, mai dietro il suo velo; il velo serve solo alle righe che
   scorrono sotto.

@@ -327,6 +327,62 @@ describe("approve decoupled from landing", () => {
     expect(merges).toEqual([ids[1]!]);
   });
 
+  /**
+   * A human's approve while the bar is still `running` must not merge: the measure has not finished,
+   * and the next sweep lands the card by itself once it turns green. @covers f00bc37942, 27/11
+   */
+  test("land: a human's approve while the bar is `running` (zero rows yet) never reaches the merge", async () => {
+    const merges: string[] = [];
+    const am = {
+      tryMerge: async (id: string) => { merges.push(id); return { status: "skipped", code: "auto-land-stopped", reason: "stopped" }; },
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const r2 = createTasksRouter(makeCtx(db, broadcasts), undefined, { autoMerge: am });
+    db.run("INSERT INTO topics (id) VALUES ('top-6')");
+    db.run("INSERT OR REPLACE INTO board_settings (project_id, review_checks) VALUES ('pX', ?)",
+      [JSON.stringify([{ name: "gates", cmd: "true" }])]);
+    const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id='top-6', status='review', delivery_branch='topics/y', delivery_commit='bdfcf0cb', checks_state='running', checks_json=NULL, land_intent='human' WHERE id = ?")
+      .run(t.id);
+
+    await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(merges).toEqual([]);
+    const after = createTaskService(db).get(t.id)!;
+    expect(after.task.status).toBe("review");
+    expect(after.task.landIntent).toBe("human");
+    expect(after.comments.some((c) => c.content.includes("Misura in corso: atterra da sola quando finisce verde"))).toBe(true);
+  });
+
+  test("land in `after` mode: `running` with every local row done and the `github-ci:*` row still pending never reaches the merge, and lands once `recordChecks` says pass", async () => {
+    const merges: string[] = [];
+    const am = {
+      tryMerge: async (id: string) => { merges.push(id); return { status: "skipped", code: "auto-land-stopped", reason: "stopped" }; },
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    setCiPhaseMode(db, "after");
+    const r2 = createTasksRouter(makeCtx(db, broadcasts), undefined, { autoMerge: am, integrationMeasure: async () => ({ measured: [], conflicts: [], verdict: "pass", commit: "bdfcf0cb" }) } as any);
+    db.run("INSERT INTO topics (id) VALUES ('top-7')");
+    db.run("INSERT OR REPLACE INTO board_settings (project_id, review_checks, dispatch_auto_merge) VALUES ('pX', ?, 1)",
+      [JSON.stringify([{ name: "gates", cmd: "true" }, { name: "unit", cmd: "github-ci:unit" }])]);
+    const rowOf = (cmd: string) => ({ name: cmd, cmd, ok: true, code: 0, ms: 1, timedOut: false, tail: "" });
+    const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id='top-7', status='review', delivery_branch='topics/y', delivery_commit='bdfcf0cb', checks_state='running', checks_json=? WHERE id = ?")
+      .run(JSON.stringify([rowOf("true")]), t.id);
+
+    await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((r) => setTimeout(r, 50));
+    expect(merges).toEqual([]);
+
+    createTaskService(db).recordChecks({
+      taskId: t.id, state: "pass", commit: "bdfcf0cb", runs: [rowOf("true"), rowOf("github-ci:unit")],
+    });
+    await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((r) => setTimeout(r, 50));
+    expect(merges).toEqual([t.id]);
+  });
+
   test("land: with main red the merge hook refuses, but the repair card (main-ci-red:) goes through", async () => {
     const hooks: Array<(sha: string) => Promise<string | null>> = [];
     const am = {

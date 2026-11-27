@@ -1,13 +1,92 @@
 [
   {
-    "version": "2.5.8",
+    "version": "2.5.11",
     "date": "2026-11-27",
     "sections": {
       "new": [],
       "fixes": [
         {
+          "text": "fall back to the planted branch when the delivered commit is not resolvable yet",
+          "scope": "node-meter"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.10",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "block a manual land while the bar is still running",
+          "scope": "land"
+        },
+        {
+          "text": "age store filters unpack/read by the current allowlist",
+          "scope": "secrets"
+        },
+        {
+          "text": "age store keeps the whole file map, filters only its outputs, and never rewrites for refused names",
+          "scope": "secrets"
+        },
+        {
+          "text": "a branch origin is only ahead on is already there",
+          "scope": "dispatch"
+        },
+        {
+          "text": "originContains fetches without tags, like fetchRemoteBase",
+          "scope": "dispatch"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.9",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a template's chunks end at its backtick, not 400 bytes later",
+          "scope": "gates"
+        },
+        {
+          "text": "templateChunks back inside ui-language-scan.ts's 800-line budget",
+          "scope": "gates"
+        },
+        {
+          "text": "resolve the installed playwright-core entry from its own manifest",
+          "scope": "browser"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.8",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [
+        {
+          "text": "Windows node scripts move into deploy/windows-node, single node-tools list, no personal paths",
+          "scope": "deploy"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "read the clock once per render in the load gauge",
+          "scope": "board"
+        },
+        {
           "text": "close the review's 5 blocking gaps on archive/revoke/dedupe",
           "scope": "board"
+        },
+        {
+          "text": "close a card whose delivery already reached main",
+          "scope": "land"
         }
       ],
       "perf": []
@@ -22,6 +101,14 @@
         {
           "text": "node deliveries with a null checks_state are measured again, and every mute exit of the meter says why",
           "scope": "land"
+        },
+        {
+          "text": "give isMacOnlyDiff's git read a deadline and list it",
+          "scope": "review-checks"
+        },
+        {
+          "text": "pin playwright-core to the exact locked version, install with integrity and a deadline",
+          "scope": "browser"
         },
         {
           "text": "ci-impact fixtures no longer read as the file's own @covers",
@@ -60,6 +147,10 @@
           "scope": "dispatch"
         },
         {
+          "text": "drop the unused afterAll import in the swap-exhausted check test",
+          "scope": "lint"
+        },
+        {
           "text": "the new board requirements are in the spec, and the person-owned word list carries its language marker",
           "scope": "board"
         },
@@ -77,11 +168,23 @@
     "sections": {
       "new": [
         {
+          "text": "scheduled review reuses the land verdict, judges sense, isolated test env",
+          "scope": "board"
+        },
+        {
           "text": "a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land",
           "scope": "board"
         },
         {
+          "text": "add a single secret-store interface for Mac and Linux",
+          "scope": "secrets"
+        },
+        {
           "text": "a request that repeats an open card is absorbed by it instead of opening a twin",
+          "scope": "board"
+        },
+        {
+          "text": "scheduled review reads one nonce-bound verdict, no tools, bounded retries, board-set models",
           "scope": "board"
         },
         {
@@ -99,6 +202,30 @@
       ],
       "fixes": [
         {
+          "text": "check mode compares the baseline with origin/main; drop duplicate entry, total 153",
+          "scope": "bloat"
+        },
+        {
+          "text": "scheduled review gate in the CI phase, fetch before 'already on main', closes on proof, keeps the agent's question until answered",
+          "scope": "board"
+        },
+        {
+          "text": "drop a stray backspace from the merge-tree conflict regex",
+          "scope": "board"
+        },
+        {
+          "text": "run touched tests after CI is green, fall back to its verdict after 2 swap stops",
+          "scope": "review-checks"
+        },
+        {
+          "text": "stdin secrets, in-memory identity, configurable allowlist",
+          "scope": "secrets"
+        },
+        {
+          "text": "keychain write uses -X hex, closing the newline injection in -i stdin",
+          "scope": "secrets"
+        },
+        {
           "text": "the sidebar's buttons are tabs, and every tab lights under the pointer",
           "scope": "ui"
         },
@@ -107,12 +234,30 @@
           "scope": null
         },
         {
+          "text": "keychain stores printable b64 payload, so read never gets hex back",
+          "scope": "secrets"
+        },
+        {
           "text": "the stuck-card sweep leaves an in-progress card its dispatch chip explains",
           "scope": "board"
         },
         {
           "text": "protect every comment of a resend's round, not two rows by position, in node run briefs",
           "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.1",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "fall back to an installed Chromium-family browser when no Playwright Chromium is found",
+          "scope": "browser"
         }
       ],
       "perf": []
@@ -140,8 +285,17 @@
     "version": "2.4.110",
     "date": "2026-11-25",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "text": "scheduled review of technical cards in review (rule off by default)",
+          "scope": "board"
+        }
+      ],
       "fixes": [
+        {
+          "text": "install playwright-core on first use when the server cannot resolve it",
+          "scope": "browser"
+        },
         {
           "text": "a pop-out window is dressed on the main thread, not on a tokio worker",
           "scope": "tauri"

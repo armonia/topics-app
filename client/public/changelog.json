@@ -1,14 +1,226 @@
 [
   {
-    "version": "2.5.8",
+    "version": "2.5.13",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "secret-store: timeout sui comandi e voce nell'elenco degli spawn sincroni",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.12",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Revert the detached node-check worktree: CI rows can no longer read a branch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "secret-store test: salta la suite age se i binari mancano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revert \"secret-store test: salta la suite age se i binari mancano\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "installa age nel job unit per i test del deposito segreti",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.11",
     "date": "2026-11-27",
     "sections": {
       "new": [],
       "fixes": [
         {
+          "it": "fall back to the planted branch when the delivered commit is not resolvable yet",
+          "en": "",
+          "scope": "node-meter",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Fix queue order drift and false queue notes in the review sweep",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "split the mac-only isMacOnlyDiff coverage into its own file",
+          "en": "",
+          "scope": "review-checks",
+          "breaking": false
+        },
+        {
+          "it": "Drop the queue note and free a node delivery's local slot early",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.10",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "block a manual land while the bar is still running",
+          "en": "",
+          "scope": "land",
+          "breaking": false
+        },
+        {
+          "it": "age store filters unpack/read by the current allowlist",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "age store keeps the whole file map, filters only its outputs, and never rewrites for refused names",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "a branch origin is only ahead on is already there",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "originContains fetches without tags, like fetchRemoteBase",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Prioritize human-confirmed lands in the review remeasure sweep",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "rerun the touched-test check after a load-induced relay flake",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "retry tsc file listing once under load before judging the program",
+          "en": "",
+          "scope": "relay",
+          "breaking": false
+        },
+        {
+          "it": "Revert \"test(relay): retry tsc file listing once under load before judging the program\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "rerun the review check",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.9",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a template's chunks end at its backtick, not 400 bytes later",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "templateChunks back inside ui-language-scan.ts's 800-line budget",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "resolve the installed playwright-core entry from its own manifest",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "DESIGN.md: round 3 di tab e sidebar approvato (27/11)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cover isMacOnlyDiff and the swap-exhausted mac-only branch",
+          "en": "",
+          "scope": "review-checks",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.8",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [
+        {
+          "it": "Windows node scripts move into deploy/windows-node, single node-tools list, no personal paths",
+          "en": "",
+          "scope": "deploy",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "read the clock once per render in the load gauge",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
           "it": "close the review's 5 blocking gaps on archive/revoke/dedupe",
           "en": "",
           "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "close a card whose delivery already reached main",
+          "en": "",
+          "scope": "land",
           "breaking": false
         }
       ],
@@ -31,12 +243,39 @@
           "breaking": false
         },
         {
+          "it": "pin the patch/minor/major case to a 0.x version",
+          "en": "",
+          "scope": "bump",
+          "breaking": false
+        },
+        {
           "it": "Uscita in due tempi anche per le righe che non sono treeitem, semafori solo dalla finestra principale",
           "en": "",
           "scope": null
         },
         {
+          "it": "Il test del bump non presume che la versione di partenza sia diversa",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "CI della PR: tetto del bundle sulla misura, test di bump senza la bomba del 2.5.7",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "drop the packages.microsoft.com apt source before installing Playwright",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il deposito dei segreti ha il suo requisito, MACHINE-06, e il test lo dichiara",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il deposito dei segreti è dichiarato in attesa del suo primo chiamante",
           "en": "",
           "scope": null
         }
@@ -56,6 +295,18 @@
           "breaking": false
         },
         {
+          "it": "give isMacOnlyDiff's git read a deadline and list it",
+          "en": "",
+          "scope": "review-checks",
+          "breaking": false
+        },
+        {
+          "it": "pin playwright-core to the exact locked version, install with integrity and a deadline",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
           "it": "ci-impact fixtures no longer read as the file's own @covers",
           "en": "",
           "scope": "gates",
@@ -64,6 +315,17 @@
       ],
       "perf": [],
       "internal": [
+        {
+          "it": "bloat baseline raises only tasks-land.ts, the one file the scheduled review pushes over its ceiling",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "Evict idle hidden browser panes beyond the 2 most recent after 10 min, swap or not",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "aggiorna durate shard dal nightly del 2026-11-26 [skip ci]",
           "en": "",
@@ -77,9 +339,35 @@
           "breaking": false
         },
         {
+          "it": "Tetto di spesa: la striscia resta sotto i 768 px; GAUGE-10 con istante relativo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Remeasure review cards stuck with a null checks verdict, realigned on main",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Tab di lato: un passo sui quattro lati, isole che chiudono la colonna, riga archiviata che esce",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Fix the moved-aside-copy test: sweep the leftover, don't rely on path reuse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board settings: backlog triage row gets its icon like the rows above",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cover installed-Chromium fallback and frozen lockfile install; silence install output",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
         }
       ]
     }
@@ -93,7 +381,33 @@
       "perf": [],
       "internal": [
         {
+          "it": "scheduled review tests declare the requirement they cover; bloat baseline records the land growth",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
           "it": "ci-changes test: teach the evaluator needs.prepare-e2e.outputs.shards (PR value and none)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "G5 conta solo cio' che Topics produce; backup e db-backups tengono le ultime N copie (TOPICS_BACKUP_KEEP)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La potatura dei backup tocca solo le copie automatiche di db-backups",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Disk budget: ogni cartella nel rapporto con tetti di default e crescita al giorno; potatura db-backups per data nel nome, verso il cestino",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "backup-retention test: neutral name for the named-copy fixture",
           "en": "",
           "scope": null
         },
@@ -101,6 +415,17 @@
           "it": "Bloat baseline: task-dispatcher-overflow.test.ts at 1715 after two cards land together",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Backlog triage test: declares KANBAN-123 and runs git with the isolated env",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "give the full-repo baseline check a 120s timeout",
+          "en": "",
+          "scope": "bloat",
+          "breaking": false
         }
       ]
     }
@@ -113,6 +438,18 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "sibling-worktree merge is not live; tests assert landedNotLive/checkoutBranch/dirty-checkout",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la nota vocale si ferma solo dopo il primo secondo di registrazione",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
         {
           "it": "the owner approved the title tab, the row grammar and the column header",
           "en": "",
@@ -169,6 +506,12 @@
           "breaking": false
         },
         {
+          "it": "drop the unused afterAll import in the swap-exhausted check test",
+          "en": "",
+          "scope": "lint",
+          "breaking": false
+        },
+        {
           "it": "the new board requirements are in the spec, and the person-owned word list carries its language marker",
           "en": "",
           "scope": "board",
@@ -215,13 +558,31 @@
     "sections": {
       "new": [
         {
+          "it": "scheduled review reuses the land verdict, judges sense, isolated test env",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
           "it": "a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land",
           "en": "",
           "scope": "board",
           "breaking": false
         },
         {
+          "it": "add a single secret-store interface for Mac and Linux",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
           "it": "a request that repeats an open card is absorbed by it instead of opening a twin",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "scheduled review reads one nonce-bound verdict, no tools, bounded retries, board-set models",
           "en": "",
           "scope": "board",
           "breaking": false
@@ -247,6 +608,42 @@
       ],
       "fixes": [
         {
+          "it": "check mode compares the baseline with origin/main; drop duplicate entry, total 153",
+          "en": "",
+          "scope": "bloat",
+          "breaking": false
+        },
+        {
+          "it": "scheduled review gate in the CI phase, fetch before 'already on main', closes on proof, keeps the agent's question until answered",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "drop a stray backspace from the merge-tree conflict regex",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "run touched tests after CI is green, fall back to its verdict after 2 swap stops",
+          "en": "",
+          "scope": "review-checks",
+          "breaking": false
+        },
+        {
+          "it": "stdin secrets, in-memory identity, configurable allowlist",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "keychain write uses -X hex, closing the newline injection in -i stdin",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
           "it": "the sidebar's buttons are tabs, and every tab lights under the pointer",
           "en": "",
           "scope": "ui",
@@ -256,6 +653,12 @@
           "it": "don't let an older comment outrank the newest one when carrying a node's thread",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "keychain stores printable b64 payload, so read never gets hex back",
+          "en": "",
+          "scope": "secrets",
           "breaking": false
         },
         {
@@ -274,7 +677,18 @@
       "perf": [],
       "internal": [
         {
+          "it": "trace the playwright loader test to BROWSER-NODE-DEPS-01",
+          "en": "",
+          "scope": "spec",
+          "breaking": false
+        },
+        {
           "it": "ci-impact: whole-tree guard tests always ride in a reduced unit plan (replay: any-budget was missed)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Backlog triage: asks with the system signature, keeps subtasks of live parents, no done without a second model",
           "en": "",
           "scope": null
         },
@@ -293,6 +707,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Backlog triage: system actor for closes, asks and moves through the service, base from origin like the land, subtasks keep their parent",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Land via PR: a GitHub refusal falls back to the local merge, running checks release the queue, settle wait cut to 2 min",
@@ -337,7 +756,14 @@
     "date": "2026-11-25",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "fall back to an installed Chromium-family browser when no Playwright Chromium is found",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -405,6 +831,11 @@
           "en": "",
           "scope": "ui",
           "breaking": false
+        },
+        {
+          "it": "Backlog triage: sorts subtasks (detach, then todo) and cards whose blocker is done",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -413,8 +844,21 @@
     "version": "2.4.110",
     "date": "2026-11-25",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "it": "scheduled review of technical cards in review (rule off by default)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        }
+      ],
       "fixes": [
+        {
+          "it": "install playwright-core on first use when the server cannot resolve it",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
         {
           "it": "a pop-out window is dressed on the main thread, not on a tokio worker",
           "en": "",
@@ -546,7 +990,17 @@
           "breaking": false
         },
         {
+          "it": "Backlog triage: a per-board twice-daily sort of the backlog, off by default",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Write in English the two comments main brought in Italian",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Regenerate the migrations manifest",
           "en": "",
           "scope": null
         },
@@ -786,6 +1240,11 @@
           "scope": null
         },
         {
+          "it": "bloat baseline: record chat-handler as an exception after realign",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Split server/services/tasks/shared.ts into six factory modules behind the same barrel",
           "en": "",
           "scope": null
@@ -912,6 +1371,12 @@
           "scope": null
         },
         {
+          "it": "merge main inside a sibling worktree that already has it open",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13",
           "en": "",
           "scope": null
@@ -962,6 +1427,29 @@
           "it": "Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "bloat: the baseline only goes down; new or bigger entries need a written exception with expiry, total of offenders capped",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "bloat ratchet test: declare coverage and isolate git env",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "check-bloat tests: fixtures carry the exceptions the ratchet now requires",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "bloat: fix type guard, declare BLOAT-RATCHET-01 in the spec",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Claude CLI usage-limit sentence: read as a rate-limit and hold until the declared reset, so the resume sweep resends the turn by itself",
@@ -1494,6 +1982,11 @@
         },
         {
           "it": "Share the CLI binary resolver across claude, codex, kimi and muse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tetto di spesa: lo dice solo il gauge di In progress",
           "en": "",
           "scope": null
         },
