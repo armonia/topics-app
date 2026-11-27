@@ -273,18 +273,39 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
   /** The decrypted map, kept after the first `unpack`; `pack` replaces it with the fresh truth instead of leaving it stale. */
   let cachedMap: SecretMap | null = null;
 
-  const decrypt = async (): Promise<SecretMap> => {
+  /** The one failure `read`/`unpack` answer empty for; any other error (an insecure identity file, a runner that throws) still surfaces. */
+  class DecryptFailedError extends Error {}
+
+  /**
+   * Throws when the file exists but did not decrypt (bad exit, timeout, wrong
+   * identity): a caller that would otherwise merge on top of this result —
+   * `pack` — must never treat that failure as "no secrets yet" and overwrite
+   * the file with only what it just packed.
+   */
+  const decryptOrThrow = async (): Promise<SecretMap> => {
     if (cachedMap) return cachedMap;
     const id = identity();
     if (!id || !existsSync(opts.secretsPath)) return {};
     // Identity travels via stdin ("-i -"); the ciphertext path is the only
     // thing age sees in its argv, and that path carries no secret.
     const { stdout, exitCode } = await run(["age", "-d", "-i", "-", opts.secretsPath], id);
-    if (exitCode !== 0 || !stdout.trim()) return {};
+    if (exitCode !== 0 || !stdout.trim()) {
+      throw new DecryptFailedError(`secrets file exists but did not decrypt (age exited ${exitCode})`);
+    }
     // The WHOLE file map: names outside the current allowlist stay in it, so a
     // narrower store never destroys them on rewrite. The outputs filter instead.
     cachedMap = parseSecretMap(stdout);
     return cachedMap;
+  };
+
+  /** Same decryption, but a failure answers empty: the behaviour `read`/`unpack` have always had. */
+  const decrypt = async (): Promise<SecretMap> => {
+    try {
+      return await decryptOrThrow();
+    } catch (err) {
+      if (err instanceof DecryptFailedError) return {};
+      throw err;
+    }
   };
 
   return {
@@ -297,7 +318,7 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
       if (!id) throw new Error("age identity is not unlocked: nothing was packed");
       const recipient = recipientFromIdentity(id);
       if (!recipient) throw new Error("age identity has no public-key comment");
-      const next: SecretMap = { ...(await decrypt()) };
+      const next: SecretMap = { ...(await decryptOrThrow()) };
       let changed = false;
       for (const [name, value] of Object.entries(entries)) {
         if (!opts.allowlist.has(name)) { console.warn("[secret-store] refused to pack a name outside the allowlist"); continue; }
