@@ -1,5 +1,23 @@
 [
   {
+    "version": "2.5.16",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "pack refuses to write when the secrets file exists but did not decrypt",
+          "scope": "secrets"
+        },
+        {
+          "text": "read and unpack swallow only the decryption failure",
+          "scope": "secrets"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.14",
     "date": "2026-11-27",
     "sections": {
