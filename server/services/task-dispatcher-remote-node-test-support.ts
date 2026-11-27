@@ -86,6 +86,8 @@ export interface NodeFakeOptions {
   onBundle?: () => void;
   /** The node's own attachments, by the exact path a comment declares. Absent path = `fetchMedia` answers `null`. */
   media?: Record<string, Uint8Array>;
+  /** Overrides `fetchMedia` entirely (e.g. to throw), when `media` alone cannot say "answers null" vs "throws". */
+  fetchMedia?: (path: string) => Promise<Uint8Array | null>;
   planted?: { planted: boolean; commit: string | null; commitCount: number; reason: string | null };
   /** The `node-run` hook runner; absent = the lane's own default. */
   hooks?: LifecycleHookRunner;
@@ -122,7 +124,7 @@ export function nodeFake(o: NodeFakeOptions = {}) {
     },
     fetchMedia: async ({ path }) => {
       calls.push(`media:${path}`);
-      return o.media?.[path] ?? null;
+      return o.fetchMedia ? o.fetchMedia(path) : o.media?.[path] ?? null;
     },
     cancelRun: async ({ runId }) => {
       calls.push(`cancel:${runId}`);

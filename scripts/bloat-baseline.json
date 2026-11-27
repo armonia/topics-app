@@ -657,8 +657,9 @@
     },
 
     "server/services/task-dispatcher-remote-node.test.ts": {
-      "lines": 1651,
+      "lines": 1742,
       "why": [
+        "2026-11-27, `null` is absence, not a hiccup (card a16ec772): 1651 -> 1742, +91 the three cases a `fetchMedia` answering `null` must land once without that attachment and never be retried, an exception retried up to NODE_MEDIA_RETRY_POLLS before giving up the same way, and a transient throw healing before the cap, on the lane's own fake node and clock.",
         "2026-11-27, node attachments on the primary and delivery mainRef (card 990222b0): 1507 on main -> 1651, +144 (plus the 30 the file already picked up from the two red-bounce cards that landed in between, 03c40cd63e and d7ff626556) for a retry on a failed attachment fetch instead of marking it seen forever, previewImage read straight off the card, and the planted-branch mainRef wiring on its own test, on the lane's own fake node and clock, which a second file would have to copy.",
         "2026-11-21, corsa vuota due volte di fila: 1497 on main -> 1507, +10 the second empty node run in a row stays on this machine for six hours instead of bouncing to a third node (f562cda4 ran 11 times in 35 minutes), on the lane's own fake node and clock.",
         "2026-10-26, copia vecchia dopo un riavvio: 998 on main -> 1124, +126 the five cases of the stale mirror a node hands back after a server restart (retired and requeued, the slot freed, a cancel that fails keeps it, one that never works parks the card, a live run is never taken for it) on the lane's own fake node and clock, which a second file would have to copy.",
@@ -667,8 +668,9 @@
     },
 
     "server/services/task-dispatcher-remote-node.ts": {
-      "lines": 1671,
+      "lines": 1799,
       "why": [
+        "2026-11-27, `null` is absence, not a hiccup (card a16ec772): 1671 -> 1799, +128 `mirroredMedia` split into `missingPaths` (the node's own `null`, mirrored once with a note naming the gone attachment) and `retryPaths` (an exception, retried up to NODE_MEDIA_RETRY_POLLS and then mirrored the same way), with `mediaRetries` on the NodeSlot counting the latter per comment.",
         "2026-11-22, corsa sul nodo che sopravvive al riavvio (card 4a1a6d3d): 1527 on main -> 1662, +135 reattachOpenRun and the six reasons NOT to reattach: on boot, an in_progress card with a machineId and an open node_run_id is reattached with readRun and polled inside the node's slots instead of always being requeued, while a run the node no longer has, one it closed or parked, one whose card was archived over there, one handing back the delivery this card already carries or already sent back, a delegated authorization that no longer names this capability and machine, a node that never answers inside the timeout, and a card another path relaunched while readRun was in the air all still go back to the queue (or are left to that other path). Its tests live in task-dispatcher-remote-node-restart.test.ts, on the lane's shared bench.",
         "2026-10-30, overflow dispatch (card 6d60b323): 939 on main -> 982, +43 a card's own branch carried to the node (pushed first, parked when it cannot reach origin) and a cloud account without an active environment parked with its cause instead of deferred as a silent node. The push lives in branch-on-origin.ts.",
         "2026-10-26, pc-nodo (PR #457): 797 on main -> 831, +34 the node-run hook that wakes a sleeping node before any call to it (two optional NodeDeps fields, the call and its veto). The hook runner lives in server/services/lifecycle-hooks.ts; the lane stays whole in one file as its header says."
@@ -759,6 +761,11 @@
   "exceptions": {
     "server/services/task-dispatcher-remote-node.test.ts": {
       "why": "Node attachments on the primary and delivery mainRef (card 990222b0): raised 1507 -> 1651 in the same commit; the exception clears once this branch is in main and the base ref catches up.",
+      "expires": "2026-12-15"
+    },
+
+    "server/services/task-dispatcher-remote-node.ts": {
+      "why": "An attachment the node answers `null` for (gone for good) was retried forever instead of mirrored without it (card a16ec772): raised 1671 -> 1799 in the same commit; the exception clears once this branch is in main and the base ref catches up.",
       "expires": "2026-12-15"
     },
 

@@ -18,6 +18,7 @@
  * with a fake node, a fake clock and no repository at all
  * (`task-dispatcher-remote-node.test.ts`).
  */
+import { basename } from "node:path";
 import { isModelUnavailable, MODEL_SKIP_MS } from "./dispatch-overflow";
 import { wakeBreaker, hangBreaker } from "./wake-breaker";
 import { awaitsHuman } from "../../shared/workflow";
@@ -147,6 +148,8 @@ export interface NodeSlot {
   retireFails?: number;
   /** Consecutive polls answered with a cloud account error (see `NODE_SETUP_POLLS`). Reset by any answer. */
   setupFails?: number;
+  /** Consecutive EXCEPTION failures of a comment's attachment fetch, by comment id (see `NODE_MEDIA_RETRY_POLLS`). */
+  mediaRetries?: Map<string, number>;
 }
 
 /**
@@ -203,6 +206,14 @@ export const NODE_SETUP_POLLS = 3;
  * same mirror back for ever.
  */
 export const NODE_RETIRE_TRIES = 5;
+
+/**
+ * Consecutive polls a comment's attachment may fail with an EXCEPTION (a
+ * timeout, a 5xx) before it is mirrored anyway, missing that attachment.
+ * `fetchMedia` answering `null` is not counted here at all: that is the
+ * node telling us the file is gone for good, not a hiccup to retry.
+ */
+export const NODE_MEDIA_RETRY_POLLS = 3;
 
 /**
  * Polls a run may sit in review with no branch, and no reason for it, before the
@@ -989,31 +1000,39 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    */
   /**
    * One attachment of `c`, fetched from the node and landed under this
-   * machine's own media (KANBAN-76 follow-up). `failed` is true when ANY path
-   * could not be landed (the fetch threw, or came back empty): the caller
-   * must NOT mark the comment seen in that case, or a single network hiccup
-   * loses the image for good — the comment never comes up for a retry again,
-   * because `anchored` (built from what is already mirrored) would then skip
-   * it even though it was never actually written (card 9a850b73, 2026-11-26).
+   * machine's own media (KANBAN-76 follow-up). `fetchMedia` answering `null`
+   * is a DEFINITIVE absence (the node's own doc: gone, or never there) —
+   * that path is dropped from `media` and listed in `missingPaths`, and the
+   * comment still lands. Only an EXCEPTION (a timeout, a 5xx) sets `retry`:
+   * the caller must not mark the comment seen in that case, or a single
+   * network hiccup loses the image for good — the comment never comes up for
+   * a retry again, because `anchored` (built from what is already mirrored)
+   * would then skip it even though it was never actually written (card
+   * 9a850b73, 2026-11-26, and the follow-up on the same card: treating
+   * `null` like an exception meant a mirror that never had the file in the
+   * first place retried it forever and its delivery never reached review).
    */
   async function mirroredMedia(
     taskId: string, node: NodeSlot, c: NodeRunComment,
-  ): Promise<{ media: string[] | undefined; failed: boolean }> {
+  ): Promise<{ media: string[] | undefined; missingPaths: string[]; retryPaths: string[] }> {
     const client = host.client;
-    if (!c.media?.length || !client?.fetchMedia || !host.saveNodeMedia) return { media: undefined, failed: false };
+    if (!c.media?.length || !client?.fetchMedia || !host.saveNodeMedia) {
+      return { media: undefined, missingPaths: [], retryPaths: [] };
+    }
     const landed: string[] = [];
-    let failed = false;
+    const missingPaths: string[] = [];
+    const retryPaths: string[] = [];
     for (const nodePath of c.media) {
       try {
         const bytes = await client.fetchMedia({
           baseUrl: node.baseUrl, token: node.token, runId: node.runId, path: nodePath, delegation: node.delegation,
         });
-        if (!bytes) { failed = true; continue; }
+        if (bytes === null) { missingPaths.push(nodePath); continue; }
         const local = host.saveNodeMedia({ taskId, commentId: c.id, nodePath, bytes });
-        if (local) landed.push(local); else failed = true;
-      } catch (err) { failed = true; log(`nodo: allegato ${nodePath} del commento ${c.id} non scaricato su ${taskId}`, err); }
+        if (local) landed.push(local); else retryPaths.push(nodePath);
+      } catch (err) { retryPaths.push(nodePath); log(`nodo: allegato ${nodePath} del commento ${c.id} non scaricato su ${taskId}`, err); }
     }
-    return { media: landed.length ? landed : undefined, failed };
+    return { media: landed.length ? landed : undefined, missingPaths, retryPaths };
   }
 
   async function mirrorNodeReport(taskId: string, node: NodeSlot, report: NodeRunReport): Promise<void> {
@@ -1047,10 +1066,25 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       if (!c.id || node.seen.has(c.id) || anchored.has(c.id)) continue;
       const fromAgent = isAgentAuthor(c.author);
       try {
-        const { media, failed } = await mirroredMedia(taskId, node, c);
-        // Never mark it seen on a failed attachment: the comment is retried
-        // whole on the next poll, instead of landing forever without its image.
-        if (failed) continue;
+        const { media, missingPaths, retryPaths } = await mirroredMedia(taskId, node, c);
+        let gaveUpPaths: string[] = [];
+        if (retryPaths.length) {
+          // An exception (not a definitive `null`): retried whole on the next
+          // poll, up to NODE_MEDIA_RETRY_POLLS, instead of landing forever
+          // without its image on the first hiccup.
+          const tries = (node.mediaRetries?.get(c.id) ?? 0) + 1;
+          if (tries < NODE_MEDIA_RETRY_POLLS) {
+            node.mediaRetries ??= new Map();
+            node.mediaRetries.set(c.id, tries);
+            continue;
+          }
+          gaveUpPaths = retryPaths;
+        }
+        node.mediaRetries?.delete(c.id);
+        const absentPaths = [...missingPaths, ...gaveUpPaths];
+        const content = absentPaths.length
+          ? `${c.content}\n\n_Il nodo non ha più ${absentPaths.length === 1 ? "questo allegato" : "questi allegati"}: ${absentPaths.map((p) => basename(p)).join(", ")}._`
+          : c.content;
         svc.addComment({
           taskId,
           // THE AGENT KEEPS ITS VOICE. On the node an agent signs `agent:<id>`,
@@ -1065,7 +1099,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           // comments and nothing else). An agent's comment stays a comment;
           // what the node's own machinery wrote stays bookkeeping.
           kind: c.kind === "delivery" ? "delivery" : fromAgent && c.kind === "comment" ? "comment" : "service",
-          content: c.content,
+          content,
           media,
           messageId: c.id,
         });
