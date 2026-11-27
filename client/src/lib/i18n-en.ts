@@ -1866,6 +1866,7 @@ const EN = {
   'board.gauge.wait.drain': 'stopped: restart',
   'board.gauge.wait.frozen': 'waiting: checks frozen',
   'board.gauge.wait.floorElsewhere': 'Mac idle · node free',
+  'board.gauge.wait.spend': 'stopped: spend cap',
   'board.gauge.nodeFree': '{name} {used}/{slots}',
   'board.gauge.nodeFull': '{name} busy',
   'board.gauge.nodeOffline': '{name} offline',

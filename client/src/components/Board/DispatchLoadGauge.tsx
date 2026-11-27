@@ -30,10 +30,12 @@ import { ChevronRight, Gauge } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { useActiveLocale, useT } from '../../hooks/useT';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
+import { useDispatchBrakes } from '../../state/dispatchBrakes';
 import {
   admissionVerdictText, dispatchLoadReading, gateCoreNumbers, limitDerivation,
   loadToneClass, loadWordKey, nodeStatusLine, verdictSentence, type DispatchLoadReading,
 } from './dispatchLoad';
+import { spendWhy } from './brakeText';
 import { MachineAxesLine, MachineBusyLine } from '../Shared/MachineBusyLine';
 import { pctPlaceholders } from '../../lib/machineBusy';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
@@ -155,6 +157,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
   const locale = useActiveLocale();
   const s = useGlobalDispatchCap();
   const reading = dispatchLoadReading(s);
+  const spend = useDispatchBrakes().spend;
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const cap = s.capacity;
@@ -190,7 +193,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
         className={`tap-expand-y flex items-center gap-1 rounded px-1 py-0.5 text-mini font-medium normal-case tracking-normal tabular-nums hover:bg-black/5 dark:hover:bg-white/10 ${loadToneClass(reading)}`}
       >
         <LoadRing reading={reading} size={12} />
-        <span data-testid="dispatch-load-word">{tr(loadWordKey(reading))}</span>
+        <span data-testid="dispatch-load-word">{tr(loadWordKey(reading, !!spend))}</span>
       </button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={264} testId="dispatch-load-popover">
         <div className="space-y-2 px-3 py-2.5 text-mini leading-snug text-app-text-secondary">
@@ -205,6 +208,16 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
           <MachineBusyLine shares={cap} />
 
           <p className="tabular-nums">{tr(agents.key, agents.params)}</p>
+
+          {/* The 24h spend cap stops every card whatever its mode or axis:
+              said before the gate's own verdict, with what was spent, the
+              cap and when it restarts (`spendWhy`, shared with the "Frenato"
+              chip's own popover). */}
+          {spend && (
+            <p className={`tabular-nums ${DANGER_TEXT}`} data-testid="dispatch-load-spend">
+              {spendWhy(spend, Date.now(), tr, locale)}
+            </p>
+          )}
 
           {/* Why the queue waits, in the same percentage as the line above,
               and where it restarts by itself when that point is honest. */}
@@ -272,6 +285,7 @@ export function DispatchLoadSummary({ calm = false, hideHold = false }: {
   const locale = useActiveLocale();
   const s = useGlobalDispatchCap();
   const reading = dispatchLoadReading(s);
+  const spend = useDispatchBrakes().spend;
   if (hideHold && reading.heldBy) return null;
   const tone = calm && reading.tone === 'over' && !reading.loading ? 'text-amber-800 dark:text-amber-300' : loadToneClass(reading);
 
@@ -285,7 +299,7 @@ export function DispatchLoadSummary({ calm = false, hideHold = false }: {
       title={gaugePhrase(reading, tr, locale)}
     >
       <LoadRing reading={reading} size={12} />
-      <span>{tr(loadWordKey(reading))}</span>
+      <span>{tr(loadWordKey(reading, !!spend))}</span>
     </span>
   );
 }

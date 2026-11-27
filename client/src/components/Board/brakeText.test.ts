@@ -115,10 +115,16 @@ describe('the 24h spend cap, which stops every card whatever its provider', () =
     spend: { spentCents: 3_559, capCents: 3_000, untilMs: TOMORROW_0156, taskIds: ['a', 'b'] },
   };
 
-  test('the chip names the cap before the walls: spend, cap and restart', () => {
+  test('the chip names the walls, not the spend cap (that is the "In progress" gauge\'s job)', () => {
     const state = readBrakeAnswer(answer, NOW);
-    expect(queueChipView(state, NOW, tr, 'it')).toEqual({ who: 'Spesa 24 h', why: '35,59 su 30 USD, riparte domani alle 01:56' });
-    expect(queueChipView(readBrakeAnswer({ ...answer, spend: null }, NOW), NOW, tr, 'it')?.who).toBe('Claude');
+    expect(queueChipView(state, NOW, tr, 'it')?.who).toBe('Claude');
+    expect(queueChipView(readBrakeAnswer({ ...answer, brakes: [], held: [] }, NOW), NOW, tr, 'it')).toBeNull();
+  });
+
+  test('on the narrow layout the chip names the spend cap, since the gauge is off screen', () => {
+    const state = readBrakeAnswer({ ...answer, brakes: [], held: [] }, NOW);
+    expect(queueChipView(state, NOW, tr, 'it', true)?.who).toBe(tr('brake.spend.who'));
+    expect(queueChipView(state, NOW, tr, 'it')).toBeNull();
   });
 
   test('the Todo strip counts the cards it stops, and says when they restart', () => {
