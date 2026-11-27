@@ -1,5 +1,5 @@
 /**
- * @covers KANBAN-123
+ * @covers KANBAN-125
  * Backlog triage: a workable card goes to todo, a card that needs a person gets
  * its question and moves to review, and a card that looks done closes only with
  * a proof found by the code AND confirmed by a second model. Taking either half
