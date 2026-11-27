@@ -57,7 +57,10 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
   /** No verdict about the commit this card delivers: never measured on it, or measured with no outcome. */
   function unmeasuredInReview(t: Task): boolean {
     if (!t.deliveryCommit || !t.deliveryBranch || (t.humanAsk ?? "").trim()) return false;
-    if (t.checksState === "unknown") return true;
+    // `null` is the state a node delivery enters review with (never measured once): a card stuck there
+    // read as "no verdict yet, nothing to do" forever (11 cards, 26/11) because this only matched the
+    // string `"unknown"` the LOCAL gate writes, never the column's own default.
+    if (t.checksState === "unknown" || t.checksState === null) return true;
     return (t.checksState === "fail" || t.checksState === "pass") && !sameSha(t.checksCommit, t.deliveryCommit);
   }
 

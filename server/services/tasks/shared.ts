@@ -47,6 +47,7 @@ export function createTasksShared(db: Database, opts: ServiceOpts) {
     anteprimaUtile: merged.anteprimaUtile,
     archiveSubtree: merged.archiveSubtree,
     assertBlockerValid: merged.assertBlockerValid,
+    assertNoLiveDependents: merged.assertNoLiveDependents,
     awaitingAnswerFor: merged.awaitingAnswerFor,
     baseName: merged.baseName,
     buildBatch: merged.buildBatch,
