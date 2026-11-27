@@ -39,15 +39,6 @@ fn service_down_draws_offline_not_blank() {
     assert!(s.width > 20 && opaque(&s) > 50, "offline strip must have ink");
 }
 
-#[test]
-fn strip_has_ink_and_scales_with_accounts() {
-    let cols = parse_overview(SAMPLE).unwrap();
-    let two = render_strip(Some(&cols), &Extras::default());
-    let one = render_strip(Some(&cols[..1]), &Extras::default());
-    assert_eq!(two.height, 44);
-    assert!(two.width > one.width && opaque(&two) > opaque(&one));
-}
-
 /// Perf bar: a redraw happens every 60 s on a worker thread, so it must be cheap
 /// and must not grow (same size and bytes every time, no cache that accumulates).
 #[test]
@@ -64,49 +55,77 @@ fn redraw_is_cheap_and_stable() {
     assert!(per < 25.0, "render took {per:.1} ms (debug build budget 25 ms)");
 }
 
-#[test]
-fn names_are_upper_case_and_cropped_with_an_ellipsis() {
-    assert_eq!(crop_header("alpha-account", 500.0), "ALPHA-ACCOUNT");
-    let cropped = crop_header("a.very.long.account.name.here", 40.0);
-    assert!(cropped.ends_with('…') && cropped.chars().count() < 31);
-}
-
-#[test]
-fn what_does_not_fit_collapses_into_plus_n() {
-    let one = |n: usize| Column {
-        provider: "claude".into(),
-        label: format!("account{n}@example.com"),
-        active: n == 0,
+fn col(provider: &str, used: u32, status: &str, reset: &str) -> Column {
+    Column {
+        provider: provider.into(),
+        label: "x@example.com".into(),
+        active: false,
         current: false,
         reset_credits: 0,
-        quotas: vec![Quota { key: "7D".into(), status: "ok".into(), used_pct: 10, reset_text: "5d6h".into() }],
-    };
-    let many: Vec<Column> = (0..20).map(one).collect();
-    let narrow = render_strip_on(Some(&many), &Extras::default(), 1000.0);
-    assert!(narrow.width as f32 <= MAX_STRIP_PT.min(1000.0 * SCREEN_SHARE) * SCALE + 4.0, "capped by the screen share");
-    let wide = render_strip_on(Some(&many), &Extras::default(), 5000.0);
-    assert!(wide.width > narrow.width);
-    assert!(wide.width as f32 <= MAX_STRIP_PT * SCALE + 4.0);
+        quotas: vec![Quota { key: "7D".into(), status: status.into(), used_pct: used, reset_text: reset.into() }],
+    }
 }
 
-/// A live service reading, names replaced: six accounts on a wide screen. The
-/// original strip showed four columns and "+2"; the dials at its head are why.
 #[test]
-fn live_overview_collapses_like_the_original_strip() {
-    let cols = parse_overview(include_str!("tray_overview_live.json")).expect("fixture parses");
-    assert_eq!(cols.len(), 6);
-    let extras = Extras {
-        mac: crate::tray_dials::parse_mac(r#"{"effort":{"loadPct":100,"parts":[{"key":"cpu","pct":66,"level":2},{"key":"mem","pct":30,"level":0},{"key":"gpu","pct":60,"level":0},{"key":"disk","pct":77,"level":0}]}}"#),
-        pace: crate::tray_dials::parse_pace(r#"{"overall":{"value":4.41,"zone":"sopra"}}"#),
-    };
-    assert!(extras.mac.is_some() && extras.pace.is_some());
-    let with = render_strip_on(Some(&cols), &extras, 3440.0);
-    let without = render_strip_on(Some(&cols), &Extras::default(), 3440.0);
-    assert!(with.width as f32 / SCALE <= MAX_STRIP_PT, "capped");
-    assert!(without.width > 0 && with.width > 0);
-    let kept = |e: &Extras| hidden_count(&cols, e, 3440.0);
-    assert_eq!(kept(&extras), 2, "four columns and +2 with the dials");
-    assert_eq!(kept(&Extras::default()), 1, "without the dials one more fits");
+fn quota_is_one_cumulated_figure_per_provider() {
+    let cols = vec![col("claude", 100, "depleted", "7h38m"), col("claude", 100, "depleted", "1d"), col("claude", 50, "ok", "2d"), col("claude", 80, "warning", "3d"), col("claude", 93, "critical", "4d"), col("codex", 40, "ok", "5d")];
+    let sums = rows::summarize(&cols);
+    assert_eq!(sums.len(), 2, "one item per provider, not per account");
+    assert_eq!(rows::figure(&sums[0]), "423/500%");
+    assert_eq!(rows::figure(&sums[1]), "40/100%");
+    assert_eq!(sums[0].first_reset, "7h38m", "the first account that ran out gives the reset");
+    assert_eq!(sums[1].first_reset, "", "nobody ran out: no clock");
+    assert!(!sums[0].dim && !sums[1].dim);
+}
+
+#[test]
+fn the_strip_carries_no_words() {
+    let cols = vec![col("claude", 100, "depleted", "7h38m"), col("muse", 100, "stale", "dato di 44h fa")];
+    for s in rows::summarize(&cols) {
+        let text = format!("{}{}", rows::figure(&s), s.first_reset);
+        assert!(text.chars().all(|c| !c.is_alphabetic() || matches!(c, 'd' | 'h' | 'm')), "only digits, units and signs: {text}");
+    }
+    assert!(!rows::summarize(&cols)[1].first_reset.contains("dato"), "an old reading says it with dimness, not text");
+}
+
+#[test]
+fn stale_or_missing_reading_is_a_faint_row() {
+    let stale = rows::summarize(&[col("muse", 100, "stale", "dato di 44h fa")]);
+    assert!(stale[0].dim && stale[0].first_reset.is_empty());
+    let empty = Column { quotas: vec![], ..col("codex", 0, "ok", "") };
+    let none = rows::summarize(&[empty]);
+    assert!(none[0].dim);
+    assert_eq!(rows::figure(&none[0]), "-");
+    let fresh = Strip { ..render_strip_on(Some(&[col("claude", 50, "ok", "")]), &Extras::default(), 1440.0) };
+    let faint = Strip { ..render_strip_on(Some(&[col("claude", 50, "stale", "")]), &Extras::default(), 1440.0) };
+    let ink = |s: &Strip| s.rgba.chunks(4).map(|p| p[3] as u64).sum::<u64>();
+    assert!(ink(&faint) < ink(&fresh), "the faint row carries less ink");
+}
+
+#[test]
+fn width_grows_with_providers_not_accounts() {
+    let many: Vec<Column> = (0..20).map(|_| col("claude", 10, "ok", "")).collect();
+    let one = render_strip_on(Some(&many[..1]), &Extras::default(), 1440.0);
+    let all = render_strip_on(Some(&many), &Extras::default(), 1440.0);
+    assert!(all.width <= one.width + 40, "twenty accounts of one provider stay one item (only the figure grows)");
+    let two = render_strip_on(Some(&[col("claude", 10, "ok", ""), col("codex", 10, "ok", "")]), &Extras::default(), 1440.0);
+    assert_eq!(two.height, 44);
+}
+
+#[test]
+fn service_down_and_empty_draw_the_same_faint_placeholder() {
+    let down = render_strip(None, &Extras::default());
+    let empty = render_strip(Some(&[]), &Extras::default());
+    assert!(down.rgba == empty.rgba, "no word tells them apart");
+}
+
+#[test]
+fn light_ink_swaps_the_neutrals_and_keeps_colours() {
+    let mut px = vec![255, 255, 255, 255, 0, 0, 0, 255, 48, 209, 88, 255];
+    tint_for_light(&mut px);
+    assert_eq!(&px[0..3], &[DARK_INK; 3], "white ink becomes dark");
+    assert_eq!(&px[4..7], &[255; 3], "black shadow becomes light");
+    assert_eq!(&px[8..11], &[48, 209, 88], "status colours stay");
 }
 
 /// Dumps the live-fixture strip as a PPM on a menu-bar grey when `TRAY_STRIP_DUMP`
@@ -171,7 +190,9 @@ fn snapshot() {
         Err(_) => fetch_columns(&hub_base()),
     };
     let screen = std::env::var("TRAY_SNAPSHOT_SCREEN_W").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_SCREEN_PT);
-    let strip = render_strip_on(cols.as_deref(), &Extras::default(), screen);
+    set_light_ink(std::env::var("TRAY_SNAPSHOT_LIGHT").is_ok());
+    let agents = AgentStates { working: 3, review: 2, waiting: 1, stopped: 0 };
+    let strip = render_strip_agents(cols.as_deref(), &fetch_extras(&hub_base()), screen, &agents, tray_agents::STATIC_FRAME);
     let file = std::fs::File::create(out).unwrap();
     let mut enc = png::Encoder::new(file, strip.width, strip.height);
     enc.set_color(png::ColorType::Rgba);

@@ -167,32 +167,18 @@ pub fn fetch_columns(base: &str) -> Option<Vec<Column>> {
 // same fonts, sizes, baselines, widths, colours and the same "+N" collapse rule.
 // Metrics are logical points, bottom-origin like the original; `S` scales to pixels.
 
-/// Vertical metrics of the three rows, measured from the bottom edge.
-const HEADER_BASELINE: f32 = 17.0;
 const ROW_TOP_BASELINE: f32 = 9.0;
 const ROW_BOTTOM_BASELINE: f32 = 1.0;
-const TAG_BASELINE_SHIFT: f32 = -0.5;
 const ICON_SIZE: f32 = 8.0;
-const ICON_Y: f32 = 15.0;
-const ICON_INDENT: f32 = 11.0;
-const HEADER_PT: f32 = 7.0;
-const TAG_PT: f32 = 7.0;
 const PCT_PT: f32 = 9.0;
 const TIME_PT: f32 = 9.0;
 const BAR_W: f32 = 20.0;
 const BAR_H: f32 = 6.0;
 const BAR_RADIUS: f32 = 2.5;
-const PCT_W: f32 = 22.0;
 const GAP: f32 = 2.0;
-const TIME_GAP: f32 = 3.0;
 const ACCOUNT_GAP: f32 = 6.0;
 pub(crate) const PAD_X: f32 = 4.0;
-/// The strip never takes more than this share of the screen width (and never more than the cap).
-const SCREEN_SHARE: f32 = 0.3;
-const MAX_STRIP_PT: f32 = 520.0;
 const DEFAULT_SCREEN_PT: f32 = 1440.0;
-const NOT_ACTIVE_BAR_DIM: f32 = 0.45;
-const NOT_ACTIVE_TEXT_DIM: f32 = 0.8;
 const TRACK_ALPHA: f32 = 0.22;
 const SHADOW_ALPHA: f32 = 0.5;
 
@@ -549,132 +535,66 @@ pub(crate) fn status_color(status: &str) -> ([u8; 3], f32) {
     }
 }
 
-/// A stale reading says only its age on the strip; the full sentence lives in the menu.
-fn bar_time(q: &Quota) -> String {
-    if q.status == "stale" { q.reset_text.replace("dato di ", "") } else { q.reset_text.clone() }
-}
-
-fn quota_width(q: &Quota) -> f32 {
-    width_pt(Face::MonoBold, &q.key, TAG_PT) + GAP + BAR_W + GAP + PCT_W + TIME_GAP + width_pt(Face::Mono, &bar_time(q), TIME_PT)
-}
-
-/// Upper-cased name, cropped with an ellipsis beyond `cap` points.
-fn crop_header(label: &str, cap: f32) -> String {
-    let up = label.to_uppercase();
-    let wide = |s: &str| width_pt(Face::SansMetrics, s, HEADER_PT);
-    if wide(&up) <= cap {
-        return up;
-    }
-    let mut t: Vec<char> = up.chars().collect();
-    while t.len() > 6 && wide(&format!("{}…", t.iter().collect::<String>())) > cap {
-        t.pop();
-    }
-    format!("{}…", t.iter().collect::<String>())
-}
-
-struct Cell<'a> {
-    col: &'a Column,
-    header: String,
-    badge: String,
-    width: f32,
-}
-
-/// Draws the strip. `None` (service down) renders the word "offline", never an empty image.
+/// Draws the strip. `None` (service down) or an empty list draws the same faint placeholder
+/// row, never an empty image and never a word.
 pub fn render_strip(cols: Option<&[Column]>, extras: &Extras) -> Strip {
     render_strip_on(cols, extras, screen_width_pt())
-}
-
-/// First pass: the width of every account, no positions yet.
-fn measure(cols: &[Column]) -> Vec<Cell<'_>> {
-    cols.iter()
-        .map(|c| {
-            let badge = if c.reset_credits > 0 { format!(" ↻{}", c.reset_credits) } else { String::new() };
-            let badge_w = width_pt(Face::Sans, &badge, HEADER_PT);
-            let qw = c.quotas.iter().map(quota_width).fold(0.0, f32::max);
-            let header = crop_header(&c.label, (qw - ICON_INDENT - badge_w).max(30.0));
-            let hw = ICON_INDENT + width_pt(Face::Sans, &header, HEADER_PT) + badge_w;
-            Cell { col: c, header, badge, width: hw.max(qw) }
-        })
-        .collect()
-}
-
-/// Who fits: active accounts first, then the most loaded; the rest becomes "+N".
-/// The Mac dial and the pace gauge sit at the head and take their room first.
-fn kept_cells(cells: &[Cell], extras: &Extras, screen_pt: f32, lead: f32) -> Vec<bool> {
-    let plus_w = width_pt(Face::Sans, "+9", HEADER_PT) + ACCOUNT_GAP;
-    let room = (MAX_STRIP_PT.min(screen_pt * SCREEN_SHARE)) - PAD_X * 2.0 - lead - extras.head_width(ACCOUNT_GAP) - plus_w;
-    let peak = |c: &Column| c.quotas.iter().map(|q| q.used_pct).max().unwrap_or(0);
-    let mut ranked: Vec<usize> = (0..cells.len()).collect();
-    ranked.sort_by(|&a, &b| {
-        let (ca, cb) = (cells[a].col, cells[b].col);
-        (cb.active || cb.current).cmp(&(ca.active || ca.current)).then(peak(cb).cmp(&peak(ca)))
-    });
-    let mut keep = vec![false; cells.len()];
-    let mut used = 0.0;
-    let mut kept = 0;
-    for i in ranked {
-        let need = cells[i].width + if kept > 0 { ACCOUNT_GAP } else { 0.0 };
-        if used + need <= room || kept == 0 {
-            keep[i] = true;
-            used += need;
-            kept += 1;
-        }
-    }
-    keep
-}
-
-/// How many accounts end up in the "+N" for these dials on this screen.
-#[cfg(test)]
-fn hidden_count(cols: &[Column], extras: &Extras, screen_pt: f32) -> usize {
-    cols.len() - kept_cells(&measure(cols), extras, screen_pt, 0.0).iter().filter(|k| **k).count()
 }
 
 pub fn render_strip_on(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32) -> Strip {
     render_strip_agents(cols, extras, screen_pt, &AgentStates::default(), 0)
 }
 
-/// The strip with the agents-by-state group on its LEFT, before the Mac dial and the
-/// quota columns. `frame` turns the working glyph; it changes nothing else.
-pub fn render_strip_agents(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32, agents: &AgentStates, frame: u32) -> Strip {
+/// Ink of the strip: white on a dark menu bar, dark on a light one.
+static LIGHT_INK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The poller tells the renderer which menu bar tint the strip sits on.
+pub fn set_light_ink(light: bool) {
+    LIGHT_INK.store(light, Ordering::Relaxed);
+}
+
+const DARK_INK: u8 = 28;
+
+/// True when the system appearance is Light (macOS leaves the key unset then).
+pub fn system_is_light() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("defaults").args(["read", "-g", "AppleInterfaceStyle"]).output();
+        return out.map_or(true, |o| !String::from_utf8_lossy(&o.stdout).contains("Dark"));
+    }
+    #[cfg(not(target_os = "macos"))]
+    false
+}
+
+/// Light menu bar: the neutral pixels (white ink, black shadow) swap places; coloured ones stay.
+pub(crate) fn tint_for_light(px: &mut [u8]) {
+    for p in px.chunks_exact_mut(4) {
+        let (r, g, b) = (p[0] as i32, p[1] as i32, p[2] as i32);
+        if p[3] > 0 && (r - g).abs() < 14 && (g - b).abs() < 14 {
+            let v = (255 - g).max(DARK_INK as i32) as u8;
+            p[0] = v;
+            p[1] = v;
+            p[2] = v;
+        }
+    }
+}
+
+/// The strip: agents by state, then the Mac dial and pace gauge, then one item per provider
+/// (logo, bar, cumulated figure, first reset). `frame` turns the working glyph only.
+pub fn render_strip_agents(cols: Option<&[Column]>, extras: &Extras, _screen_pt: f32, agents: &AgentStates, frame: u32) -> Strip {
     STRIP_RENDERS.with(|c| c.set(c.get() + 1));
     let s = SCALE;
     let lead = agents.width();
-    let h = (HEIGHT_PT * s) as u32;
-
-    let Some(cols) = cols.filter(|c| !c.is_empty()) else {
-        let label = if cols.is_none() { "offline" } else { "nessun account" };
-        let w = (text_width(Face::Sans, label, 9.0 * s) + (PAD_X * 3.0 + lead) * s).ceil() as u32;
-        let mut cv = Canvas::new(w, h);
-        tray_agents::draw(&mut cv, PAD_X, agents, frame);
-        cv.text(Face::Sans, label, (PAD_X * 1.5 + lead) * s, h as f32 * 0.66, 9.0 * s, WHITE, 0.85);
-        return Strip { width: w, height: h, rgba: cv.px };
-    };
-
-    let cells = measure(cols);
     let head = extras.head_width(ACCOUNT_GAP);
-    let keep = kept_cells(&cells, extras, screen_pt, lead);
-    let hidden = keep.iter().filter(|k| !**k).count();
-    let plus_w = width_pt(Face::Sans, "+9", HEADER_PT) + ACCOUNT_GAP;
-
-    // Second pass: positions for the survivors, in service order.
-    let mut x = PAD_X + lead + head;
-    let mut placed: Vec<(f32, &Cell)> = Vec::new();
-    for (i, cell) in cells.iter().enumerate().filter(|(i, _)| keep[*i]) {
-        let _ = i;
-        placed.push((x, cell));
-        x += cell.width + ACCOUNT_GAP;
-    }
-    x -= ACCOUNT_GAP;
-    let plus_x = x + ACCOUNT_GAP;
-    if hidden > 0 {
-        x = plus_x + plus_w - ACCOUNT_GAP;
-    }
-    let total_pt = x + PAD_X;
-    let mut cv = Canvas::new((total_pt * s).ceil() as u32, h);
-
-    let top = |bottom_origin: f32| (HEIGHT_PT - bottom_origin) * s;
-    let mut hx = PAD_X + lead;
+    let sums = match cols.filter(|c| !c.is_empty()) {
+        Some(c) => rows::summarize(c),
+        None => vec![rows::Summary { provider: String::new(), used: 0, total: 0, first_reset: String::new(), dim: true }],
+    };
+    let (rows_w, _) = rows::layout(&sums);
+    let total_pt = PAD_X + lead + head + rows_w + PAD_X;
+    let mut cv = Canvas::new((total_pt * s).ceil() as u32, (HEIGHT_PT * s) as u32);
     tray_agents::draw(&mut cv, PAD_X, agents, frame);
+    let mut hx = PAD_X + lead;
     if let Some(m) = &extras.mac {
         draw_mac(&mut cv, hx, m);
         hx += MAC_W + ACCOUNT_GAP;
@@ -682,49 +602,9 @@ pub fn render_strip_agents(cols: Option<&[Column]>, extras: &Extras, screen_pt: 
     if let Some(p) = &extras.pace {
         draw_pace(&mut cv, hx, p);
     }
-    for (cx, cell) in placed {
-        let c = cell.col;
-        let text_dim = if c.active { 1.0 } else { NOT_ACTIVE_TEXT_DIM };
-        let bar_dim = if c.active { 1.0 } else { NOT_ACTIVE_BAR_DIM };
-        if let Some(icon) = provider_icon(&c.provider) {
-            let y = top(ICON_Y + ICON_SIZE);
-            cv.icon(icon, ((cx - 1.0) * s).round() as i32, y.round() as i32, (ICON_SIZE * s) as i32, 1.0);
-        }
-        let hx = (cx + ICON_INDENT) * s;
-        cv.text(Face::Sans, &cell.header, hx, top(HEADER_BASELINE), HEADER_PT * s, WHITE, text_dim);
-        if !cell.badge.is_empty() {
-            let hw = text_width(Face::Sans, &cell.header, HEADER_PT * s);
-            cv.text(Face::Sans, &cell.badge, hx + hw, top(HEADER_BASELINE), HEADER_PT * s, WHITE, text_dim);
-        }
-        for (ri, q) in c.quotas.iter().enumerate() {
-            let base = if ri == 0 { ROW_TOP_BASELINE } else { ROW_BOTTOM_BASELINE };
-            let mut qx = cx;
-            let tag_w = width_pt(Face::MonoBold, &q.key, TAG_PT);
-            cv.text(Face::MonoSemibold, &q.key, qx * s, top(base + TAG_BASELINE_SHIFT), TAG_PT * s, WHITE, text_dim);
-            qx += tag_w + GAP;
-            let (color, calpha) = status_color(&q.status);
-            let fill_w = BAR_W * s * q.used_pct.min(100) as f32 / 100.0;
-            cv.bar(
-                qx * s,
-                top(base + BAR_H),
-                BAR_W * s,
-                BAR_H * s,
-                BAR_RADIUS * s,
-                if fill_w > 0.5 { fill_w } else { 0.0 },
-                (WHITE, TRACK_ALPHA * bar_dim),
-                (color, calpha * bar_dim),
-            );
-            qx += BAR_W + GAP;
-            let pct = format!("{}%", q.used_pct);
-            let pw = width_pt(Face::MonoBold, &pct, PCT_PT);
-            let (pc, pa) = if q.status == "ok" { (WHITE, text_dim) } else { (color, calpha * text_dim) };
-            cv.text(Face::MonoBold, &pct, (qx + (PCT_W - pw) / 2.0) * s, top(base), PCT_PT * s, pc, pa);
-            qx += PCT_W + TIME_GAP;
-            cv.text(Face::Mono, &bar_time(q), qx * s, top(base), TIME_PT * s, WHITE, text_dim);
-        }
-    }
-    if hidden > 0 {
-        cv.text(Face::Sans, &format!("+{hidden}"), plus_x * s, top(HEADER_BASELINE), HEADER_PT * s, WHITE, 1.0);
+    rows::draw(&mut cv, PAD_X + lead + head, &sums);
+    if LIGHT_INK.load(Ordering::Relaxed) {
+        tint_for_light(&mut cv.px);
     }
     Strip { width: cv.w, height: cv.h, rgba: cv.px }
 }
@@ -735,6 +615,9 @@ pub fn render_strip_agents(cols: Option<&[Column]>, extras: &Extras, screen_pt: 
 pub fn strip_due(ever_answered: bool, answered_now: bool) -> bool {
     ever_answered || answered_now
 }
+
+#[path = "tray_quota_rows.rs"]
+mod rows;
 
 #[cfg(test)]
 #[path = "tray_quota_tests.rs"]
