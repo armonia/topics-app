@@ -16,7 +16,8 @@ import { createCiPhase } from "./tasks-ci-phase";
 import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
-import { createReviewSweep } from "./tasks-review-sweep";
+import { createReviewSweep, orderForSweep } from "./tasks-review-sweep";
+import { checksLanes } from "./tasks-checks-delivery";
 import { createNothingToLand } from "./tasks-land-nothing";
 
 /** What a queued land is asked besides landing. */
@@ -258,6 +259,9 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   const reviewSweep = createReviewSweep({
     svc, broadcastToAll, runChecksGate, capturaConsegna, nodeMeter, bounceRed, afterDelivery,
     bounceWithReason: ciPhase.bounceWithReason, reviewPrMergeable: opts?.reviewPrMergeable,
+    // Same cap the checks gate itself holds: a second serialization on top of
+    // it meant a long-running measure held every other review card still.
+    maxConcurrent: checksLanes(),
   });
   const { unmeasuredInReview, remeasureInReview, probeConflict } = reviewSweep;
 
@@ -267,18 +271,25 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     await ciPhase.sweepAfterLand(); // the `after` queue lives in memory (marks back in) and main's own CI is looked at
     const rows = svc.list({ scope: "all", status: "review", rootsOnly: true });
     autoLander.forgetExcept(new Set(rows.map((t) => t.id)));
-    for (const t of rows) {
+    // A person who already said "land it" waits only on the bar: that card
+    // goes first, ahead of cards nobody has looked at yet.
+    const ordered = orderForSweep(rows);
+    let aheadUnmeasured = 0;
+    for (const t of ordered) {
       // A red that arrived after the delivery (a node's bar, a CI row that settled late) goes back to its agent here.
       if (t.checksState === "fail") {
         if (await bounceRed(t.projectId, t.id)) continue;
         // A red that is not about the delivered commit is history: the commit itself gets measured below.
         if (!unmeasuredInReview(t)) continue;
       }
-      // One card at a time, in the background: a measure lasts as long as its CI.
+      // Several measures at once, up to the checks gate's own cap: a measure lasts as long as its CI.
       if (unmeasuredInReview(t)) {
-        if (!reviewSweep.measuring() && !nodeMeter.isMeasuring(t.id) && !cardTurnIsLive(t)) {
+        if (reviewSweep.hasFreeSlot() && !nodeMeter.isMeasuring(t.id) && !cardTurnIsLive(t)) {
           void remeasureInReview(t).catch((err) => console.warn(`[review-sweep] ${t.id.slice(0, 8)}: misura fallita:`, err));
+        } else {
+          reviewSweep.noteQueued(t, aheadUnmeasured);
         }
+        aheadUnmeasured += 1;
         continue;
       }
       if (t.checksState === "pass" && !cardTurnIsLive(t) && await probeConflict(t)) continue;

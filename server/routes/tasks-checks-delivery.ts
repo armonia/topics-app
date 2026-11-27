@@ -15,7 +15,7 @@ import { ciNotMeasured, ciRemeasurable, ciRowOfThisHead } from "../services/ci-e
 import type { TasksCore, TasksLate } from "./tasks-scope";
 
 /** How many pre-review check runs may execute at once (see `createChecksGate`). */
-function checksLanes(): number {
+export function checksLanes(): number {
   const forced = Number(process.env.TOPICS_CHECKS_LANES);
   if (Number.isFinite(forced) && forced >= 1) return Math.floor(forced);
   let cores = 0;
