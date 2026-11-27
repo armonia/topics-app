@@ -756,6 +756,10 @@
   },
 
   "exceptions": {
+    "server/services/task-dispatcher-overflow.test.ts": {
+      "why": "Grew with the CI-red bounce cards already on local main (not this card); to be split by its own card.",
+      "expires": "2026-12-31"
+    },
     "server/routes/chat-handler.ts": {
       "why": "Entered main over the threshold before this gate could refuse it (card f3c5a186); to be split in its own card.",
       "expires": "2026-12-31"
