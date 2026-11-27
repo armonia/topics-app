@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.10 — 2026-11-27
+
+### Correzioni
+- **land** · block a manual land while the bar is still running
+- **dispatch** · a branch origin is only ahead on is already there
+- **dispatch** · originContains fetches without tags, like fetchRemoteBase
+
 ## 2.5.9 — 2026-11-27
 
 ### Correzioni

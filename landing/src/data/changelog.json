@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.5.10",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "block a manual land while the bar is still running",
+          "scope": "land"
+        },
+        {
+          "text": "a branch origin is only ahead on is already there",
+          "scope": "dispatch"
+        },
+        {
+          "text": "originContains fetches without tags, like fetchRemoteBase",
+          "scope": "dispatch"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.9",
     "date": "2026-11-27",
     "sections": {
