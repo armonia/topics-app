@@ -95,13 +95,19 @@ async function waitForServer(timeoutMs: number): Promise<boolean> {
   return false;
 }
 
-/** Example data, all invented. A failed seed is reported and ignored: the preview still serves. */
+/**
+ * Example data, all invented. A failed seed is reported and ignored: the
+ * preview still serves.
+ *
+ * The topic is STANDALONE (no `projectPath`): the deep link below opens it in
+ * a detached window (`?topic=<id>`), and a detached window never promotes a
+ * project-bound topic into its project pane (`usePanelLifecycle`'s validation
+ * effect skips that conversion for `isDetached`) — it rendered an empty grid,
+ * which the preview-manager's empty-shell gate then retired as a blank shot.
+ */
 async function seed(): Promise<void> {
-  const projectDir = join(root, "example-project");
-  mkdirSync(projectDir, { recursive: true });
   await api("PUT", "/api/app-settings", { firstRunDoneAt: new Date().toISOString() });
-  await api("POST", "/api/projects", { name: "Example project", path: projectDir });
-  const created = await api("POST", "/api/topics", { name: "Example topic", type: "chat", projectPath: projectDir });
+  const created = await api("POST", "/api/topics", { name: "Example topic", type: "chat" });
   const id = created?.topic?.id ?? created?.id;
   if (!id) throw new Error("topic id missing in the answer");
   const messages = [
