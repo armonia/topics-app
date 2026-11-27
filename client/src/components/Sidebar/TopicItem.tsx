@@ -33,6 +33,7 @@ import { TopicColorDot } from '@/components/Shared/TopicColorDot';
 import { CHANNEL_MARKS } from '@/lib/brandIcons';
 import { topicColorInk } from '@/lib/topicColor';
 import type { WorktreeLabel } from '@/lib/sidebarWorktrees';
+import { ROW_EXIT_ATTR, topicRowExitKey } from '@/lib/rowExit';
 
 /* L'altezza della riga NON è più dichiarata qui: è {@link ROW_H} in
  * `lib/selectionStyles`, importata sopra. Stava in questo file come costante di
@@ -319,6 +320,7 @@ export const TopicItem = memo(function TopicItem({
       data-attention={rawAttentionTier ?? undefined}
       data-attention-fill={attentionTier ?? undefined}
       data-tab-state={tab}
+      {...{ [ROW_EXIT_ATTR]: topicRowExitKey(topic.id) }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();

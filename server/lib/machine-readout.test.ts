@@ -78,7 +78,7 @@ describe("machine readout parsers", () => {
     expect(root.test("node.exe -r E:\\offload\\pw-srv\\1.58.0\\loopback-x.cjs node_modules\\playwright\\cli.js run-server")).toBe(true);
     expect(root.test("tar -xzf - -C E:/offload/topics-app_ab12cd")).toBe(true);
     // A service of the PC is not sent work, nor a file that only has the word in its name.
-    expect(root.test("node.exe E:\\topics-nodo\\server.js")).toBe(false);
+    expect(root.test("node.exe C:\\topics-node\\server.js")).toBe(false);
     expect(root.test("C:\\Users\\zorah\\offload.txt")).toBe(false);
     // The loop looks at ancestors and command lines; the old rule (only `bun`, only the words offload|pw-remote) is gone.
     expect(WINDOWS_PS_LOOP).toContain("ParentProcessId");

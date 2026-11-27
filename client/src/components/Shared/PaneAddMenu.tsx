@@ -229,9 +229,11 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
    *     (Settings, Remote, etc.).
    *   - `'header'` — a tab button (TAB_BUTTON), no ground at rest like the
    *     Search button beside it, with room for a `triggerKbd` hint.
+   *   - `'tab'` — the pill's skin on a square tab button (34 / 44 with the
+   *     finger), for the title row with the tabs at the side.
    *
    *  The size also drives the inner `Plus` icon (14px / 18px). */
-  triggerVariant?: 'pill' | 'ghost' | 'header' | 'bar';
+  triggerVariant?: 'pill' | 'ghost' | 'header' | 'bar' | 'tab';
   /** Keyboard-shortcut hint rendered INSIDE the trigger (kbd style — same
    *  as the sidebar Search button's ⌘K). Desktop only; hidden on mobile. */
   triggerKbd?: string;
@@ -408,6 +410,11 @@ export function PaneAddMenu({
       ? `edge-lit relative flex flex-1 min-w-0 h-full items-center justify-center rounded-xl px-1 ${RAISED_CONTROL} text-app-text transition-colors`
       : triggerVariant === 'header'
       ? `${TAB_BUTTON} ${isMobile ? TAB_BUTTON_SQUARE : ''} gap-1.5 ${tabButton(open)}`
+      // 'tab': the pill's skin on a tab button's box, for the title row with
+      // the tabs at the side, where every command is as tall as the title tab
+      // beside it and so one step from the row's top and bottom (26/11).
+      : triggerVariant === 'tab'
+      ? `${TAB_BUTTON} ${TAB_BUTTON_SQUARE} edge-lit ${RAISED_CONTROL} text-app-text`
       : triggerVariant === 'ghost'
         ? `${isMobile ? 'w-11 h-11' : 'w-7 h-7'} flex items-center justify-center text-app-text hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
         : TRIGGER_CLASS_PILL;
