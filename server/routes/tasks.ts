@@ -32,6 +32,7 @@ import { createBoardRoutes } from "./tasks-board";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { confirmCardOrigin } from "../services/card-origin-notice";
+import { absorbRepeatedRequest } from "../services/card-dedupe";
 import { logActivity } from "../db/activity-log";
 import { listPickerProjects, loadRegisteredProjects } from "../services/project-display-name";
 
@@ -1043,24 +1044,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           }, 400);
         }
 
-        // Same duplicate gate as the ordinary agent surface. A global task is
-        // still a normal task on one real board, so collision detection belongs
-        // to that board and an explicit override remains auditable in the body.
-        if (body?.allow_duplicate !== true && typeof body?.text === "string" && body.text.trim()) {
-          const twins = svc
-            .findDuplicates({ projectId, text: body.text, limit: 3, rootsOnly: true })
-            .filter((near) => near.duplicate);
-          if (twins.length > 0) {
-            return json({
-              error: `a card already says it: "${twins[0]!.task.text}". Read that one and comment on it with comment_global_task; if it really is different work, create again with allow_duplicate: true.`,
-              code: "duplicate",
-              duplicates: twins.map((near) => ({
-                id: near.task.id,
-                text: near.task.text,
-                score: Number(near.score.toFixed(3)),
-              })),
-            }, 409);
-          }
+        // Same duplicate gate as the ordinary agent surface (one helper for
+        // both): an open card that already says it absorbs the request, a
+        // merely similar one keeps the 409.
+        const verdict = absorbRepeatedRequest(svc, {
+          projectId,
+          text: typeof body?.text === "string" ? body.text : "",
+          description: typeof body?.description === "string" ? body.description : null,
+          idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
+          by: "agent:coordinator",
+          rootsOnly: true,
+        }, { allowDuplicate: body?.allow_duplicate === true });
+        if (verdict.kind === "absorbed") return json({ ...verdict.task, deduped: true, id: verdict.task.id }, 200);
+        if (verdict.kind === "similar") {
+          return json({
+            error: `a card already says it: "${verdict.twins[0]!.text}". Read that one and comment on it with comment_global_task; if it really is different work, create again with allow_duplicate: true.`,
+            code: "duplicate",
+            duplicates: verdict.twins,
+          }, 409);
         }
 
         try {
@@ -1211,25 +1212,34 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // come ha sempre fatto, e un cancello che parla per primo trasformava
         // quel 404 in un 409 (preso da `tasks.test.ts`, che era verde).
         const wantsParent = typeof body?.parent_task_id === "string" && body.parent_task_id;
-        if (body?.allow_duplicate !== true && !wantsParent && typeof body?.text === "string" && body.text.trim()) {
-          const twins = svc
-            .findDuplicates({ projectId: sess.projectId, text: body.text, limit: 3, rootsOnly: true })
-            .filter((n) => n.duplicate);
-          if (twins.length > 0) {
-            return json(
-              {
-                // Gli id NON stanno in questa stringa: stanno in `duplicates[]`,
-                // e il client MCP li appende al messaggio (`httpJson`). Qui si
-                // dice cosa FARE, e si nomina il parametro esatto: un agente che
-                // legge «rimanda con allow_duplicate» e non sa come si scrive
-                // finisce per riscrivere il titolo storto finché passa.
-                error: `a card already says it: "${twins[0]!.task.text}". Read that one and comment on it with add_comment; if it really is another job, recreate with allow_duplicate: true.`,
-                code: "duplicate",
-                duplicates: twins.map((n) => ({ id: n.task.id, text: n.task.text, score: Number(n.score.toFixed(3)) })),
-              },
-              409,
-            );
-          }
+        const verdict = wantsParent ? null : absorbRepeatedRequest(svc, {
+          projectId: sess.projectId,
+          text: typeof body?.text === "string" ? body.text : "",
+          description: typeof body?.description === "string" ? body.description : null,
+          idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
+          by: "agent:session",
+          rootsOnly: true,
+          blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId
+            : typeof body?.blocked_by_task_id === "string" ? body.blocked_by_task_id
+            : null,
+        }, { allowDuplicate: body?.allow_duplicate === true });
+        // The identical title of an OPEN card is absorbed: the repeated request
+        // lands on that card as a service comment, nothing new is created.
+        if (verdict?.kind === "absorbed") return json({ ...verdict.task, deduped: true, id: verdict.task.id }, 200);
+        if (verdict?.kind === "similar") {
+          return json(
+            {
+              // Gli id NON stanno in questa stringa: stanno in `duplicates[]`,
+              // e il client MCP li appende al messaggio (`httpJson`). Qui si
+              // dice cosa FARE, e si nomina il parametro esatto: un agente che
+              // legge «rimanda con allow_duplicate» e non sa come si scrive
+              // finisce per riscrivere il titolo storto finché passa.
+              error: `a card already says it: "${verdict.twins[0]!.text}". Read that one and comment on it with add_comment; if it really is another job, recreate with allow_duplicate: true.`,
+              code: "duplicate",
+              duplicates: verdict.twins,
+            },
+            409,
+          );
         }
         try {
           const task = svc.create({
@@ -1259,6 +1269,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             createdSource: resolveCreatedSource(req, body) ?? `session:${sk}`,
             originTopicId: sess.topicId,
             bar: typeof body?.bar === "string" ? body.bar : null,
+            // A future step is a card with a real `blockedByTaskId` link, never a
+            // promise in a comment (`buildKickoff`, docs/board-protocol.md). The
+            // MCP `create_task` tool already sends this field; it was silently
+            // dropped here (review feedback, 26/11, point 4). Every OTHER field
+            // on this REST body is snake_case (`parent_task_id`,
+            // `idempotency_key`, `allow_duplicate`...): `blocked_by_task_id`
+            // read here too, camelCase kept for whoever already sends that
+            // (review feedback, 26/11, point 5).
+            blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId
+              : typeof body?.blocked_by_task_id === "string" ? body.blocked_by_task_id
+              : null,
           });
           const wait = scheduledWait(body);
           if (wait) svc.deferForWait({ taskId: task.id, reason: wait.reason, minutes: wait.minutes, by: "agent:session" });

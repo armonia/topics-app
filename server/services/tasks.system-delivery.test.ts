@@ -231,7 +231,7 @@ describe("deliverToReviewBySystem: card visibile senza foto torna in coda, non i
   // rule): bouncing to `todo` forever would just burn turns for nothing.
   // After VISIBLE_PREVIEW_BOUNCE_CAP rounds the card stops in backlog, with
   // the reason written.
-  test("due giri senza foto ⇒ il terzo non rimanda a todo, va in backlog col motivo", () => {
+  test("due giri senza foto ⇒ resta in todo, istradata su questa macchina col motivo, mai in backlog", () => {
     const svc = createTaskService(db);
     const taskId = seedInProgress(db, svc);
     label(db, taskId, "visibile");
@@ -240,10 +240,13 @@ describe("deliverToReviewBySystem: card visibile senza foto torna in coda, non i
     expect(first.status).toBe("todo");
 
     const second = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
-    expect(second.status).toBe("backlog");
+    expect(second.status).toBe("todo");
+    expect(second.stayLocal).toBe(true);
+    const third = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+    expect(third.status).toBe("todo");
     const texts = db.prepare("SELECT content FROM task_comments WHERE task_id = ?")
       .all(taskId).map((r: any) => r.content as string);
-    expect(texts.some((x) => x.includes("nessun agente") && x.includes("Backlog"))).toBe(true);
+    expect(texts.some((x) => x.includes("instrado su questa macchina"))).toBe(true);
   });
 
   test("una vera anteprima dopo un giro azzera il contatore: non resta un debito silenzioso", () => {

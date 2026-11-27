@@ -8,6 +8,7 @@ import { TaskServiceError, VALID_EFFORT } from "./shared";
 export function createWorktreeMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "boardProjectForTopic" | "taskForTopic" | "bindTopic" | "recordAgentUsage" | "raiseAgentUsage" | "nodeRunOf" | "setNodeRun" | "nodeRunIsOpen" | "closeNodeRun" | "retiredNodeRuns" | "setModel"> {
   const {
     archiveSubtree,
+    assertNoLiveDependents,
     getTaskRow,
     logStatus,
     now,
@@ -140,7 +141,19 @@ bindTopic(this: TaskService, { taskId, topicId, freshSession }): Task {
         const archiviati = staleOf().filter((c) => c.status === "done");
         // Prima gli archiviati, e in cascata: un aperto che pendeva da uno step
         // `done` se ne va con lui invece di restare appeso a un padre sparito.
-        for (const c of archiviati) archiveSubtree(c.id, ts);
+        // Review feedback 26/11, point 2: this cascade used to skip the live-dependent
+        // gate entirely. A reopened grandchild that is itself the blocker of an
+        // unrelated card must not vanish silently just because this reconciliation
+        // is automatic. On a rejection here there is no user to answer a 409 to, so
+        // the stale card is simply left in place rather than retried forever.
+        for (const c of archiviati) {
+          try {
+            assertNoLiveDependents(c.id);
+          } catch {
+            continue;
+          }
+          archiveSubtree(c.id, ts);
+        }
         // Poi si rilegge: quello che e' ancora aperto DOPO la cascata e' quello
         // che il nuovo agente eredita davvero.
         const ereditati = staleOf().filter((c) => c.status !== "done");

@@ -137,6 +137,8 @@ async function bootOnce(s: ServerUnderTest): Promise<void> {
       PATH: process.env.PATH ?? "",
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
       NO_TLS: "1",
+      // The child already has its own isolated dirs; without this a run from a card worktree switches the tunnel ports off.
+      TOPICS_ALLOW_WORKTREE_PROD: "1",
       BUN_PORT: String(s.port),
       PORT: String(s.port),
       DATA_DIR: join(s.root, "data"),

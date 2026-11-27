@@ -5,6 +5,7 @@ import { createPaneId } from '../state/pane/adapters';
 import type { useBrowserContexts } from '../hooks/useBrowserContexts';
 import type { UsePanelLifecycleReturn } from '../hooks/usePanelLifecycle';
 import type { Topic } from '../types';
+import { markRowLeaving } from '../lib/rowExit';
 
 type PanelHandlers = UsePanelLifecycleReturn['handlers'];
 
@@ -167,7 +168,11 @@ export function useDeferredActions({
       key: `forget-closed:${paneId}`,
       kind: 'archive-topic',
       label: label || paneId.replace(/^[a-z]+:/, ''),
-      commit: () => { removeClosedTab(paneId); },
+      commit: () => {
+        // The row leaves with its record: its exit is recorded first (lib/rowExit).
+        markRowLeaving(paneId);
+        removeClosedTab(paneId);
+      },
     });
   }, [enqueueAndTick, removeClosedTab]);
 
@@ -178,7 +183,10 @@ export function useDeferredActions({
       key: `archive-project:${projectPath}`,
       kind: 'archive-project',
       label,
-      commit: async () => { await handleArchiveProject(projectPath, true); },
+      commit: async () => {
+        markRowLeaving(createPaneId('project', projectPath));
+        await handleArchiveProject(projectPath, true);
+      },
     });
     return Promise.resolve(true);
   }, [handleArchiveProject, enqueueAndTick]);

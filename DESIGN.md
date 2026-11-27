@@ -164,6 +164,21 @@ barra dei menu.
   poi progetto con la sua icona (il nome accanto da pannello largo), titolo, chip di chi la segue;
   intestazione e righe in un solo riquadro con l'intestazione su `inset`, hover `app-hover` e anello
   di focus sulle righe.
+- La tab del browser nel titolo e la grammatica delle righe (26/11 «Approvato», #1688 e #1695):
+  dentro un progetto il browser in primo piano è il titolo, alto una riga e largo quanto la tab
+  attiva della striscia (300 il browser, 150 le altre) con l'indirizzo, e la sua pagina è un'isola
+  coi quattro angoli; righe, intestazioni delle isole e piede della colonna alti 34 e senza fondo a
+  riposo; ogni tab, anche chiusa, prende il fondo al passaggio.
+- La testata della colonna (26/11 «Approvato», #1695): semafori, «Topics» (sparisce intera quando
+  non ci sta), interruttore della colonna, campanella, poi cerca e «+»; i quattro tasti a misura di
+  tab (34, 44 sotto 768) senza fondo a riposo; l'interruttore del contenuto compare solo a colonna
+  chiusa.
+- Il passo sui quattro lati, l'uscita in due tempi e la colonna che si chiude (27/11 «Sì,
+  approvato», #1723): con le tab di lato la riga in alto è 46 (tab 34 più 6 sopra e sotto), con 6
+  fra un tasto e l'altro e dall'ultimo al bordo, nella testata della colonna e nella riga del
+  titolo, e i semafori centrati su quella riga; una riga archiviata esce scivolando e sfumando in
+  `MOTION.fast` e solo dopo le righe sotto risalgono; chiusa l'ultima isola si chiude la colonna
+  del progetto, e riaperta torna su quell'isola com'era. Tab in alto e telefono invariati.
 
 ## Feedback di Attilio
 
@@ -250,3 +265,19 @@ barra dei menu.
   campanella; campanella, cerca, nuova e interruttore sono tasti a misura di tab: niente fondo a
   riposo, il fondo delle tab al passaggio, quello di una tab aperta mentre il loro pannello è
   aperto.
+- 26/11 «vedo che il sistema di tab non segue bene la spaziatura: le icone tipo sidebar ricerca
+  aggiunta della sidebar superiorre, ma anche la tab del progetto aperta, non hanno spaziature fra
+  di loro e ai lati coerenti su tutti e 4 i lati» → con le tab di lato la riga in alto è una tab e
+  un passo sopra e sotto (34 + 6 + 6 = 46), testata della colonna e riga del titolo uguali: 6 sopra,
+  sotto, fra un tasto e l'altro e dall'ultimo al bordo; i comandi del progetto, quelli della cella,
+  il «+» e la parola «Topics» sono alti quanto una tab; i semafori si centrano sulla riga che hanno
+  sotto. Con le tab in alto la riga resta quella della striscia, 40.
+- 26/11 «quando sto archiviando una tab non c'è nessuna animazione ancora» → archiviare una riga
+  si vede come chiuderla: lo stesso conto alla rovescia (anche per terminali, browser, pagine e
+  progetti chiusi, col cerchio che resta acceso), poi la riga esce scivolando verso il bordo e
+  sfumando, e solo dopo quelle sotto risalgono (in due tempi, come una lista nativa: insieme, i
+  due nomi si sovrapponevano per qualche fotogramma); ferma con il movimento ridotto.
+- 26/11 «se si chiudono tutti i menu a tendina della sidebar progetto, si può chiudere anche la
+  sidebar progetto» → chiusa l'ultima isola aperta (File, Git, Processi; Git conta solo quando ha
+  qualcosa da mostrare) si chiude anche la colonna del progetto; riaprendola torna l'isola chiusa
+  per ultima, con lo stesso scorrimento e ciò che c'era dentro.

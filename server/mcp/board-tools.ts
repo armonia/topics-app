@@ -35,7 +35,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown; human_ask?: unknown; bar?: unknown; source?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown; human_ask?: unknown; bar?: unknown; source?: unknown; blockedByTaskId?: unknown; blocked_by_task_id?: unknown },
   fetchImpl: typeof fetch = fetch,
   /**
    * Le manopole del ciclo a gambe: servono quando la consegna fa girare i check
@@ -98,6 +98,12 @@ export async function callUpdateTask(
   if (typeof toolArgs.summary === "string" && patch.status !== undefined) patch.summary = toolArgs.summary;
   // The workflow column and the question for the person (`shared/workflow.ts`).
   if (typeof toolArgs.human_ask === "string") patch.humanAsk = toolArgs.human_ask;
+  // Same wiring, same reason, as `callCreateTask`: a future step is a card
+  // with this field set, never a promise in a comment.
+  const blockedBy = typeof toolArgs.blockedByTaskId === "string" ? toolArgs.blockedByTaskId
+    : typeof toolArgs.blocked_by_task_id === "string" ? toolArgs.blocked_by_task_id
+    : undefined;
+  if (blockedBy !== undefined) patch.blockedByTaskId = blockedBy || null;
   if (Object.keys(patch).length === 0) {
     throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'bar', 'source', 'preview_image'");
   }
@@ -174,7 +180,7 @@ export const CHECKS_MAX_LEGS = 240;
 
 export async function callCreateTask(
   args: ParsedArgs,
-  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown; bar?: unknown; wait_reason?: unknown; wait_minutes?: unknown },
+  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown; bar?: unknown; wait_reason?: unknown; wait_minutes?: unknown; blockedByTaskId?: unknown; blocked_by_task_id?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.text !== "string" || !toolArgs.text.trim()) {
@@ -186,6 +192,17 @@ export async function callCreateTask(
   if (typeof toolArgs.assignee === "string") reqBody.assignee = toolArgs.assignee;
   if (typeof toolArgs.idempotency_key === "string") reqBody.idempotency_key = toolArgs.idempotency_key;
   if (typeof toolArgs.parent_task_id === "string" && toolArgs.parent_task_id) reqBody.parent_task_id = toolArgs.parent_task_id;
+  // A FUTURE STEP IS A CARD WITH A REAL LINK, NEVER A PROMISE IN A COMMENT
+  // (task-dispatcher-kickoff.ts, docs/board-protocol.md). Without this, the
+  // field was silently dropped: the card born here had no way to say what it
+  // was waiting on, exactly what the 17-24/11 incident shipped. Two accepted
+  // names for the same reason `previewImage`/`preview_image` both are: the
+  // kickoff prose teaches `blockedByTaskId` camelCase, this tool's own
+  // parameters are snake_case.
+  const blockedBy = typeof toolArgs.blockedByTaskId === "string" ? toolArgs.blockedByTaskId
+    : typeof toolArgs.blocked_by_task_id === "string" ? toolArgs.blocked_by_task_id
+    : undefined;
+  if (blockedBy) reqBody.blockedByTaskId = blockedBy;
   // La scappatoia del cancello sui doppioni deve passare da QUI: questa è la
   // porta da cui gli agenti aprono le card, e senza inoltro l'unico modo di
   // scavalcare un falso positivo è riscrivere il titolo storto finché passa,
@@ -199,6 +216,10 @@ export async function callCreateTask(
   const nested = typeof toolArgs.parent_task_id === "string" && toolArgs.parent_task_id
     ? ` (subtask of ${toolArgs.parent_task_id})`
     : "";
+  // A repeated request is ABSORBED into the open twin, not created new — say
+  // so, or the caller believes a fresh card exists when none was made
+  // (review feedback, 26/11, point 5).
+  if (res?.deduped) return `deduplicated into existing task ${res?.id ?? "?"} [${res?.status ?? "backlog"}]${nested}: ${toolArgs.text}`;
   return `created task ${res?.id ?? "?"} [${res?.status ?? "backlog"}]${nested}: ${toolArgs.text}`;
 }
 
