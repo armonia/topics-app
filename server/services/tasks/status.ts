@@ -245,7 +245,8 @@ function assertParentValid(taskId: string, parentId: string): void {
   }
 
   return {
-update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, statusReason, messageId, origin, asCoordinator }): Task {
+update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, statusReason, messageId, origin, asCoordinator, systemAction }): Task {
+      const systemClose = actor === "agent" && !!systemAction?.closeProof?.trim();
       const row = getTaskRow(taskId);
       // projectId guard: a session may only touch tasks on its own project.
       // A mismatch is reported as not_found (not 403) so cross-project ids stay
@@ -361,7 +362,8 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
         // ONE carve-out: its own checklist steps (strict descendants of the
         // task bound to its topic) close directly — they are the agent's plan,
         // not the deliverable the human reviews.
-        if (patch.status === "done" && actor === "agent" && !(agentTopicId && isOwnStep(taskId, agentTopicId))) {
+        // A system rule may close a card only with its verified proof, which the caller wrote in the thread.
+        if (patch.status === "done" && actor === "agent" && !systemClose && !(agentTopicId && isOwnStep(taskId, agentTopicId))) {
           throw new TaskServiceError(
             "agent_cannot_complete",
             "agents deliver to 'review' for human approval; only a human moves 'review' → 'done' (exception: subtask steps of YOUR assigned task). Set status to 'review' instead.",
@@ -398,7 +400,7 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
           );
         }
         // Agent entering review → open a pending review approval for the human.
-        if (patch.status === "review" && actor === "agent" && current !== "review") {
+        if (patch.status === "review" && actor === "agent" && !systemAction && current !== "review") {
           // A DELIVERY IS DECLARED, NOT GUESSED.
           //
           // The gate used to accept any fresh agent comment — one written after
@@ -584,7 +586,7 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
         // Chi chiude, e chi riapre — i due fatti che la board deve poter dire da
         // sé (il thread non basta: chi guarda la colonna vede solo il buco).
         if (patch.status === "done") {
-          put("done_actor", actor);
+          put("done_actor", systemClose ? "system" : actor);
           // Ciclo chiuso: la card è di nuovo fatta, non è più «riaperta».
           put("reopened_at", null); put("reopened_by", null); put("reopened_actor", null);
         } else if (current === "done" || (current === "review" && patch.status !== "review")) {
@@ -713,8 +715,9 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
         // `delivered_reason` si azzera: è la causa di QUESTA consegna, e questa
         // non è di sistema.
         if (patch.status === "review" && current !== "review") {
-          put("delivered_by", actor);
-          put("delivered_reason", null);
+          put("delivered_by", systemAction ? "system" : actor);
+          put("delivered_reason", systemAction?.reason ?? null);
+          if (systemAction && humanAsk) put("dispatch_state", "needs_input");
         }
         // A HUMAN dragging a task into todo is a fresh mandate: reset the
         // retry budget. Without this, a task parked at the cap could never be

@@ -841,6 +841,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // ON unless a person switched it off: an absent column or row is the default.
         dispatchOverflow: r?.dispatch_overflow == null ? true : !!r.dispatch_overflow,
         dispatchStayLocal: !!r?.dispatch_stay_local,
+        backlogTriage: !!r?.backlog_triage,
         language: r?.language ?? inheritedLanguage ?? "inherit",
         // NULL = 1: una board che non ha mai sentito parlare di fan-out dispaccia
         // un agente per task, com'è sempre stato.
@@ -915,6 +916,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       if (patch.dispatchOverflow !== undefined) { sets.push("dispatch_overflow = ?"); params.push(patch.dispatchOverflow ? 1 : 0); }
       if (patch.dispatchStayLocal !== undefined) { sets.push("dispatch_stay_local = ?"); params.push(patch.dispatchStayLocal ? 1 : 0); }
+      if (patch.backlogTriage !== undefined) { sets.push("backlog_triage = ?"); params.push(patch.backlogTriage ? 1 : 0); }
       if (patch.language !== undefined) { sets.push("language = ?"); params.push(patch.language && patch.language !== "inherit" ? patch.language : null); }
       // Tetto a 5: oltre, il fan-out non è più "confronto fra alternative" ma un
       // modo di saturare la macchina — e ogni tentativo è un agente vero che
