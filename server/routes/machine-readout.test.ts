@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { createMachineReadoutRoute } from "./machine-readout";
+import { createMachineReadoutRoute, machineReadoutDir } from "./machine-readout";
 import type { AppContext } from "../types";
 
 const realFetch = globalThis.fetch;
@@ -36,5 +36,25 @@ describe("machine readout of a node", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("machine readout folder", () => {
+  const saved = process.env.TOPICS_MACHINE_READOUT_DIR;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.TOPICS_MACHINE_READOUT_DIR;
+    else process.env.TOPICS_MACHINE_READOUT_DIR = saved;
+  });
+
+  test("without the variable no folder is read, on any platform", () => {
+    delete process.env.TOPICS_MACHINE_READOUT_DIR;
+    expect(machineReadoutDir()).toBeNull();
+    process.env.TOPICS_MACHINE_READOUT_DIR = "   ";
+    expect(machineReadoutDir()).toBeNull();
+  });
+
+  test("with TOPICS_MACHINE_READOUT_DIR set it reads from there", () => {
+    process.env.TOPICS_MACHINE_READOUT_DIR = " /srv/readout ";
+    expect(machineReadoutDir()).toBe("/srv/readout");
   });
 });

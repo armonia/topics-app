@@ -91,7 +91,7 @@ test("a path git once tracked and now ignores is never deleted from the PC, a pl
 
   const r = Bun.spawnSync(["bash", join(repo, "tools", "topwin"), "sync"], {
     cwd: repo,
-    env: { ...ENV, PATH: `${bin}:${process.env.PATH}`, WINFLEET_SSH: "fake-pc", FAKE_PC: pc, FAKE_LOG: log },
+    env: { ...ENV, PATH: `${bin}:${process.env.PATH}`, TOPWIN_SSH: "fake-pc", FAKE_PC: pc, FAKE_LOG: log },
   });
   expect({ exit: r.exitCode, stderr: r.stderr.toString() }).toEqual({ exit: 0, stderr: "" });
   const deleted = existsSync(log) ? readFileSync(log, "utf-8").trim().split("\n").filter(Boolean).sort() : [];

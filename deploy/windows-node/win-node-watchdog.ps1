@@ -19,7 +19,7 @@
 # particular.
 #
 #   powershell -File win-node-watchdog.ps1 `
-#     -StartCommand 'C:\topics-node\avvia-nodo.ps1' `
+#     -StartCommand 'C:\topics-node\start-node.ps1' `
 #     -LogDir 'C:\topics-node\logs'
 #
 param(
@@ -35,7 +35,7 @@ param(
   [string[]]$StartArgs = @(),
   [string]$HealthzHost = "127.0.0.1",
   # Where `daemon-state.json` lives, for the bearer token `/__daemon/healthz`
-  # requires. The default matches every other tool in `tools/`.
+  # requires. The default matches the other scripts in `deploy/windows-node/`.
   [string]$StateFile = (Join-Path $env:USERPROFILE ".topics\daemon-state.json"),
   [string]$LogDir = (Join-Path $env:USERPROFILE ".topics\watchdog-logs"),
   [int]$PollSeconds = 30,

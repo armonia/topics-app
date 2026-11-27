@@ -1,4 +1,4 @@
-# Run: powershell -Command "Invoke-Pester tools/win-node-watchdog.Tests.ps1"
+# Run: powershell -Command "Invoke-Pester deploy/windows-node/win-node-watchdog.Tests.ps1"
 . (Join-Path $PSScriptRoot "win-node-watchdog-logic.ps1")
 
 Describe "win-node-watchdog decision" {
