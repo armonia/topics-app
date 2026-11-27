@@ -354,7 +354,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     expect(turnedCalm.release).toBe(false);
     expect(turnedCalm).toEqual({ release: false, wait: "room", anyway: false, heldBy: "room", budgetMs: 3 * 60_000, spentMs: 0 });
     // Three of those minutes under the floor, and it goes.
-    expect(releaseDecision({ ...under, swap: CALM, spent: { calmFloor: 3 * 60_000, other: 10 * 60_000 } }).release).toBe(true);
+    expect(releaseDecision({ ...under, swap: CALM, spent: spent({ calmFloor: 3 * 60_000, other: 10 * 60_000 }) }).release).toBe(true);
     // The other way round too: a round that spent the calm valve does not carry
     // it over to the swap, which keeps its own thirty minutes.
     const thenSwapping = releaseDecision({ ...under, swap: SUSTAINED, spent: spent({ calmFloor: 3 * 60_000 }) });
