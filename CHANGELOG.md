@@ -2,11 +2,35 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.21 — 2026-11-27
+
+### Correzioni
+- **native** · the agent's ceiling is checked when a turn starts; a lightened argument stays as it was
+- **native** · an agent's ceiling never clips fresh tool results; token-audit bounds the markers too
+- **native** · an agent's ceiling applies only on a turn a person opened; a resume keeps its request
+- **native** · the ceiling skips a continuation, not every turn nobody typed in the composer
+- **native** · a wake is a continuation too; one list of machine marks for continuation and sentByPerson
+
+### Sotto il cofano
+- **openspec** · tetto-contesto-agenti, the ceiling at turn start and its three new scenarios
+- **openspec** · tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k
+- **openspec** · tetto-contesto-agenti, the ceiling skips continuations; a Discord message from Jarvis's channel gets it
+- **openspec** · tetto-contesto-agenti, wakes are continuations
+
 ## 2.5.20 — 2026-11-27
+
+### Novità
+- **native** · an agent's chats compact at an absolute token ceiling
+
+### Correzioni
+- **node-delivery** · move the spawn allowlist entry to where the install call now lives
 
 ### Sotto il cofano
 - review-checks brakes: load gets its own budget clock, only the load reason is released by it (card 9fecea98)
 - review-checks brakes test: complete the spent clocks literal (card 9fecea98)
+- **native** · the ceiling reaches the loop inside the turn's own process
+- **openspec** · tetto-contesto-agenti, CHAT-COMPACT-06 and its bar; token-audit measures an agent's calls
+- **openspec** · no machine path in the proposal
 
 ## 2.5.19 — 2026-11-27
 
@@ -25,6 +49,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Correzioni
 - **dispatch** · split node-client.ts under the bloat threshold, name the reason for a declined remote claim
+- **node-delivery** · widen the install-call slice after the checkout revert's extra comments
 
 ### Sotto il cofano
 - Nodo senza origin: il bundle del ramo si allarga quando il nodo dice che gli mancano i commit
@@ -144,6 +169,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **review-checks** · give isMacOnlyDiff's git read a deadline and list it
 - **browser** · pin playwright-core to the exact locked version, install with integrity and a deadline
 - **gates** · ci-impact fixtures no longer read as the file's own @covers
+- **node-delivery** · say why on the card, and lock the install call with a test
 
 ### Sotto il cofano
 - **board** · bloat baseline raises only tasks-land.ts, the one file the scheduled review pushes over its ceiling
@@ -204,6 +230,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **lint** · drop the unused afterAll import in the swap-exhausted check test
 - **board** · the new board requirements are in the spec, and the person-owned word list carries its language marker
 - **node-checks** · give each run its own checkout folder
+- **node-delivery** · measure node deliveries whose bar mixes CI and local checks
 
 ### Sotto il cofano
 - close the remaining 26/11 review gaps on archive() and blockedByTaskId
