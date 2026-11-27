@@ -106,7 +106,12 @@ async function tscListFiles(config: string): Promise<string[]> {
   // `--listFilesOnly` builds the program (parse + resolve, same file set) and
   // stops before the checker: 5-7x faster, and type errors stay the job of
   // typecheck:server / typecheck:relay, not of this file list.
-  const { code, out } = await capture(["node", TSC, "-p", config, "--listFilesOnly"]);
+  // Under a loaded machine (parallel shards) the native tsc sometimes exits
+  // early with an error instead of a list: try again before judging the program.
+  let { code, out } = await capture(["node", TSC, "-p", config, "--listFilesOnly"]);
+  for (let attempt = 0; attempt < 2 && !out.includes(ROOT); attempt++) {
+    ({ code, out } = await capture(["node", TSC, "-p", config, "--listFilesOnly"]));
+  }
   // A non-zero exit here is a broken program, not a missing one: the file list
   // is still printed, and swallowing it would turn a broken build into "the
   // gate does not see relay", which is a different and much worse diagnosis.
