@@ -111,7 +111,12 @@ function flush(): void {
 }
 
 function ensureWatchdog(): void {
-  if (watchdog && watchdog.exitCode === null) return;
+  // `localState` and `watchdog` are retired together (see `retireOrphanGuard`):
+  // checking the watchdog alone would trust a handle left over from a server
+  // this process already finished with, while `localState` is already null -
+  // the short-circuit below would then skip recreating it and the caller's
+  // `as Registry` cast would push onto `null`.
+  if (watchdog && watchdog.exitCode === null && localState) return;
   localState ??= { owner: process.pid, groups: [], roots: [] };
   flush();
   // Its own session (`detached`), no stdio of the runner and unreferenced: it
@@ -186,6 +191,11 @@ export function retireOrphanGuard(): void {
     rmdirSync(ORPHAN_GUARD_DIR);
   } catch { /* other registries still inside, or already gone */ }
   localState = null;
+  // The watchdog this process spawned is about to find its registry gone and
+  // exit on its own; drop the handle too, so a server registered right after
+  // this call (same process, another test file's worth of work) spawns a
+  // fresh one instead of trusting one already on its way out.
+  watchdog = null;
 }
 
 // ── The watchdog side: what the spawned process does ─────────────────────────
