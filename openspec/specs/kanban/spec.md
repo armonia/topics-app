@@ -6098,3 +6098,12 @@ a comment, and the session-scoped `create_task` and `update_task` routes SHALL p
 - **GIVEN** an agent working card A
 - **WHEN** it calls `create_task(text, blockedByTaskId=A)` through its session route
 - **THEN** the new card SHALL carry the link, and its kickoff SHALL have said to do so
+
+### Requirement: KANBAN-125 — The backlog sorts itself twice a day, off by default, per board
+
+A board with the setting on SHALL, once per half-day slot, read each backlog card with a cheap model and decide one of four things: move it to todo (workable by an agent, not blocked by an open card, still current), ask a person (the question goes on the card in review with the system signature, through the task service), close it as already done, or leave it with a one-line reason. A card SHALL close as already done only when the code found a proof (a commit on the project's origin main after a fetch, or the id of the card that did it) AND a second model confirmed it; the closing is signed by the system, never by a person. A subtask SHALL keep its parent. The setting SHALL be off by default and no name or path of a user SHALL appear in it.
+
+#### Scenario: workable, human decision, done without proof
+- **GIVEN** three backlog cards: one workable, one needing a human decision, one that looks done but has no verified proof
+- **WHEN** the triage runs
+- **THEN** the first SHALL move to todo, the second SHALL move to review with its question, and the third SHALL stay in backlog

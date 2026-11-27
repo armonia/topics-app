@@ -427,6 +427,7 @@
         // scripts/ is outside the production graph.
         "!server/lib/disk-budget.ts!",
         "!server/lib/log-retention.ts!",
+        "!server/lib/backup-retention.ts!",
         // The `--check` and `--projects` halves of `bun run worktrees:orphans`
         // (scripts/worktree-orphans.ts), a command run by hand or by the bar of
         // the worktree-standard change: production code with no caller in the

@@ -50,6 +50,10 @@ runs:
         if compgen -G "$HOME/apt-playwright/*.deb" > /dev/null; then
           sudo cp "$HOME"/apt-playwright/*.deb /var/cache/apt/archives/
         fi
+        # The image ships a packages.microsoft.com source that Playwright's deps never
+        # come from; on 27/11 it answered 403 and its `apt-get update` failed the whole
+        # install (exit 100) three attempts in a row. Ubuntu's archive is all we need.
+        sudo grep -rlZ 'packages.microsoft.com' /etc/apt/sources.list.d/ 2>/dev/null | xargs -0 -r sudo rm -f
         for attempt in 1 2 3; do
           npx playwright install --with-deps ${{ inputs.browsers }} && break
           [ "$attempt" = 3 ] && exit 1
