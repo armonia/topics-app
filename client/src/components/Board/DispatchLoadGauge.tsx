@@ -158,6 +158,8 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
   const s = useGlobalDispatchCap();
   const reading = dispatchLoadReading(s);
   const spend = useDispatchBrakes().spend;
+  // eslint-disable-next-line react-hooks/purity -- countdown: the brakes store re-renders on every dispatcher tick and the spend line reads the clock each render on purpose
+  const now = Date.now();
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const cap = s.capacity;
@@ -215,7 +217,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
               chip's own popover). */}
           {spend && (
             <p className={`tabular-nums ${DANGER_TEXT}`} data-testid="dispatch-load-spend">
-              {spendWhy(spend, Date.now(), tr, locale)}
+              {spendWhy(spend, now, tr, locale)}
             </p>
           )}
 
