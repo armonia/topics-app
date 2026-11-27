@@ -261,6 +261,18 @@ export const PREVIEW_RULE = [
  * loro nomi. I comandi che il server esegue davvero restano quelli dichiarati
  * per board (`reviewChecks`) — questa stringa non li sostituisce, li precede.
  */
+/**
+ * "Already on main" is a git fact, not a feeling. Measured 2026-11-27, twice in one hour on the same
+ * board: a delivery said a commit was already on main, or that no land was needed, while the agent's
+ * worktree had started from another card's branch and never looked at `origin/main` at all — one
+ * commit carried 138 real lines, the other the whole fix (381 lines). The scheduled review already
+ * catches this on a green card every 120 minutes (`falseMainClaims`), but a human who read the claim
+ * and closed the card first never saw the clock tick. This rule asks the agent for the proof BEFORE
+ * it writes the sentence, so the claim and the command that backs it travel together.
+ */
+export const MAIN_CLAIM_RULE =
+  "BEFORE YOU WRITE THAT WORK IS \"ALREADY ON MAIN\" OR THAT NO LAND IS NEEDED: prove it, do not assume it from your worktree (it may have started from another card's branch). Run `git fetch origin main && git merge-base --is-ancestor <commit> origin/main` (exit 0 = yes, exit 1 = no) and put that command with its exit code in the delivery comment. Two deliveries said \"already on main\" in the same hour (27/11) for commits `origin/main` did not have, carrying real unlanded work.";
+
 export const CODE_GATES_RULE = [
   "THE SEVEN CODE GATES, and ALL of them hold before you deliver — the script names you read in `package.json`, the gates you do not: types (`bun run typecheck`), lint (`bun run lint`), dead code (`bun run check:deadcode`), unit tests (`bun run test:touched`, which picks the tests of your diff by itself: the test files you changed plus every test that imports what you changed, and the whole suite when you touched config, lockfile or test setup; do not choose them by hand; the FULL `bun run test:unit` is what the board measures when you deliver, in your worktree or on the pull request CI as the UNIT line further down says, and its verdict comes back in the `update_task` result: do not run the whole suite yourself, and never in the background with nohup, because under a fleet it is the single heaviest thing on this machine and on 2026-09-04 two orphaned copies of it, left by a cut turn, drove the load to 115 on 12 cores), prose (`bun run check:emdash`), comment language (`bun run check:comment-language`), identifier language (`bun run check:identifier-language`: every NEW name you declare, constants and test fixtures included, must be an English word or go into PROJECT_WORDS with a reason; on 2026-09-04 thirty-five Italian test names landed green through the other six and turned main red).",
   "The fifth one is new and it surprises people: `check:emdash` rejects the long dash in ANY text in the repo, protocol strings and the comments you write in the code included. You do not replace it with a short dash: the sentence the dash was holding together was two sentences, and they split. If the character IS the data, the line ends with `// allow-emdash: <reason>`.",

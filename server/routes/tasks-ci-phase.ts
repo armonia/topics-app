@@ -18,6 +18,7 @@ import { describeMainRed, MAIN_RED_MODEL, mainRedKey, mainRedTitle, watchMainCi,
 import { personPlace, scheduledReviewCmd } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
 import { MAIN_RED_NOTE, MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict, scheduledBounceMessage } from "../services/red-bounce";
+import { commitsSinceMain, deliveryClaimWords, falseMainClaims, mainClaimReviewNote } from "../services/scheduled-review-sense";
 import { formatChecksComment } from "../services/review-checks";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { Task, TaskService } from "../services/tasks";
@@ -724,11 +725,32 @@ export function createCiPhase(deps: CiPhaseDeps) {
   }
 
   /**
+   * Reuses the scheduled review's own check (`falseMainClaims`, no second detector) right as a card
+   * enters review, instead of waiting for the next clock pass: the delivery's last words named a
+   * commit as "already on main" that `origin/main` does not have. The approval stays as always — this
+   * only warns a human about to read "already on main" and believe it (card 8b958524, 27/11: two
+   * deliveries in one hour said so for a commit that in fact carried real, unlanded work).
+   */
+  async function noteFalseMainClaim(projectId: string, taskId: string): Promise<void> {
+    const got = deps.svc.get(taskId, { projectId });
+    const commit = got?.task.deliveryCommit;
+    if (!got || !commit) return;
+    const repo = await deps.integrationRepo?.(taskId).catch(() => null);
+    if (!repo) return;
+    const claims = await falseMainClaims(repo, deliveryClaimWords(got.comments)).catch(() => null);
+    if (!claims || claims.length === 0) return;
+    const counts = await commitsSinceMain(repo, commit).catch(() => null);
+    if (!counts || counts.commits === 0) return;
+    deps.svc.addComment({ taskId, author: "system", kind: "service", content: mainClaimReviewNote(claims, counts.commits, counts.files) });
+  }
+
+  /**
    * After a delivery enters review: a card someone already decided to land
    * goes back to the CI phase by itself (`returnToCiPhase`); any other card, and an
    * automatic decision, is offered to the automatic land.
    */
   async function afterDelivery(projectId: string, taskId: string): Promise<void> {
+    await noteFalseMainClaim(projectId, taskId).catch(() => {});
     const r = await returnToCiPhase(projectId, taskId);
     if (r === "ci" || r === "person") return;
     await deps.tryAutoLand(projectId, taskId);

@@ -4,7 +4,7 @@
  * Output language, task framing, the kickoff prompt and the fan-out kickoff.
  */
 import { LAND_ACTION_LABEL, type Task } from "./tasks";
-import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, REVIEW_CARD_RULE, VERSION_BUMP_RULE } from "../../shared/board";
+import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, MAIN_CLAIM_RULE, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, REVIEW_CARD_RULE, VERSION_BUMP_RULE } from "../../shared/board";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
 import { type OutputLanguage } from "../../shared/types";
@@ -230,6 +230,7 @@ export function createKickoff(ctx: DispatcherCtx) {
         PREVIEW_RULE,
         `- On delivery, BEFORE moving to review: ONE summary comment with comment_task for THIS turn. The server refuses the review if you have not commented in this turn.`,
         `- ${REVIEW_CARD_RULE}`,
+        `- ${MAIN_CLAIM_RULE}`,
         `- DO NOT WAIT FOR THE CI AFTER YOUR WORK LANDS: on most boards the land comes first and the CI measures main afterwards, so your work can be on main before the CI answers. You deliver, say it in the comment, and END YOUR TURN: nobody (not you, not whoever merged) sits on the CI. A red comes back by itself: your card leaves \`done\`, a note says your work is ALREADY ON MAIN and carries the log, a fresh session starts from the updated \`origin/main\`, you fix FORWARD with a new commit (never a revert) and move to review again; the decision to land is kept, so the fix lands by itself. A red on a commit no card owns becomes a card of its own.`,
         `- IF you committed code on your branch (landable work), in that delivery comment offer ONLY the option: comment_task(..., options=["${LAND_ACTION_LABEL}"]). If the human picks it, the SYSTEM does the LOCAL merge onto main (no push). You NEVER do a git merge/push by hand. Publishing online (push + deploy) is a SEPARATE step, decided and run by the human from the board's "Pubblica" control with a diff preview — do NOT propose it, it is not an option of the task. Do NOT offer the option without committed code (a question, a plan, headless-only work).`,
         `- If you have to WAIT for an external condition (a service coming back up, machine load dropping, a time window): do NOT sleep on a poller holding the slot. Declare the wait with wait_for_condition(task_id="${task.id}", reason=<what you are waiting for>, minutes=<when to retry, default 15>): the task goes back to the queue with that note, the slot frees up for others, and the system re-dispatches it by itself when the window elapses. A repeat for the same condition keeps the card in Todo with a longer window (15 min, 1 h, 6 h, 24 h). Ask the human only if the condition needs them (a login, a spend, a real person). It is NOT a delivery: do not send it to review "empty".`,
