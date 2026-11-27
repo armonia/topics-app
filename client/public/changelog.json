@@ -14,6 +14,21 @@
           "breaking": false
         },
         {
+          "it": "Node reruns: the system's red/conflict send-back reaches the node brief",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "check-bloat: record the overflow test growth of the CI-red bounce cards",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "check-bloat: exception for the overflow test grown by the CI-red bounce cards",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "aggiorna durate shard dal nightly del 2026-11-27 [skip ci]",
           "en": "",
           "scope": "e2e",
@@ -21,6 +36,16 @@
         },
         {
           "it": "Impianto dei test di overflow in un modulo a parte: main torna sotto il tetto di check:bloat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Node brief: scheduled-review send-backs and reviewer answers reach the node like the red bounce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "check-bloat: overflow test ceiling follows main down to 1631",
           "en": "",
           "scope": null
         }
