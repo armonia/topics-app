@@ -1,0 +1,10 @@
+[Unit]
+Description=Topics node pool every 60 s (node-pool-giro.service)
+
+[Timer]
+OnBootSec=60
+OnUnitInactiveSec=60
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target

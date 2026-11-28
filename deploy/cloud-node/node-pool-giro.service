@@ -1,0 +1,18 @@
+# node-pool giro on a Linux primary, the twin of the launchd job on macOS (same script, one source).
+# Install: copy this file and node-pool-giro.timer to /etc/systemd/system, write
+# /etc/topics/node-pool.env with NODE_POOL_SCRIPT=<app>/deploy/cloud-node/node-pool and the
+# NODE_POOL_* paths of this installation (NODE_POOL_APP_DIR, NODE_POOL_MAC_DB, NODE_POOL_SSH_KEY),
+# then `systemctl enable --now node-pool-giro.timer`.
+# The Hetzner token comes from the secret store (scripts/secret-read.ts): its age identity is the
+# credential below (/etc/credstore.encrypted), decrypted by systemd into a tmpfs only for the life of
+# the run; absent, the unit still runs and node-pool says the token is unreadable.
+[Unit]
+Description=Topics node pool, one giro (primary only)
+After=network-online.target topics.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/topics/node-pool.env
+ImportCredential=secret-store-identity
+ExecStart=/usr/bin/python3 ${NODE_POOL_SCRIPT} giro
+TimeoutStartSec=900
