@@ -75,7 +75,7 @@ describe("scanTranscripts is incremental", () => {
     mkdirSync(join(root, "proj"));
     return root;
   };
-  const rec = (h: number, out: number) => turn(h, "claude-sonnet-4", out) + "\n";
+  const record = (h: number, out: number) => turn(h, "claude-sonnet-4", out) + "\n";
 
   test("a second scan does not reopen unchanged files and reads only appended bytes", async () => {
     const root = setup();
