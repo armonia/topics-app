@@ -152,3 +152,37 @@ describe("persistLocal — a new chat on this device comes back after a reload",
     expect(s.groups["group:default"].paneIds).toEqual(["chat:a"]);
   });
 });
+
+describe("persistLocal — write dedupe and exit flush", () => {
+  const KEY = "pane-store-v2";
+  let writes = 0;
+  const realSet = localStorage.setItem.bind(localStorage);
+  const settle = () => new Promise<void>((r) => setTimeout(r, 160));
+
+  test("same-content ticks write at most once, an OPEN_PANE writes, the exit flush writes at once and survives another window", async () => {
+    const { initLocalPersistence } = await import("./persistLocal");
+    (localStorage as unknown as { setItem: (k: string, v: string) => void }).setItem = (k, v) => {
+      if (k === KEY) writes++;
+      realSet(k, v);
+    };
+    initLocalPersistence();
+    const d = usePaneStore.getState().dispatch;
+    d({ type: "OPEN_PANE", payload: { id: "chat:a", type: "chat", title: "a", groupId: "group:default" } });
+    await settle();
+    expect(writes).toBe(1);
+    for (let i = 0; i < 10; i++) d({ type: "FOCUS_PANE", payload: { id: "chat:a" } });
+    await settle();
+    expect(writes).toBeLessThanOrEqual(2);
+    const before = writes;
+    for (let i = 0; i < 10; i++) d({ type: "FOCUS_PANE", payload: { id: "chat:a" } });
+    await settle();
+    expect(writes).toBe(before);
+    d({ type: "OPEN_PANE", payload: { id: "chat:b", type: "chat", title: "b", groupId: "group:default" } });
+    flushLocalPaneStoreNow();
+    expect(JSON.parse(localStorage.getItem(KEY)!).panes["chat:b"]).toBeDefined();
+    // Another window overwrites the shared key; this window's exit flush still restores its state.
+    localStorage.setItem(KEY, JSON.stringify({ panes: {}, groups: {}, server_seq: 0 }));
+    flushLocalPaneStoreNow();
+    expect(JSON.parse(localStorage.getItem(KEY)!).panes["chat:b"]).toBeDefined();
+  });
+});

@@ -221,7 +221,7 @@ function CommandRow({ row, open, ended, onToggle, onStop }: {
         )}
       </div>
       {/* Under its row, indented under the name: the line runs down from the row's icon. */}
-      <DisclosureBody open={open} id={logId} testId="live-command-log" className="ml-[15px] mr-2.5 mb-1.5 border-l border-app-border pl-[11px]">
+      <DisclosureBody open={open} id={logId} testId="live-command-log" className="ml-3.75 mr-2.5 mb-1.5 border-l border-app-border pl-2.75">
         <ProcessTail processId={row.id} variant="row" />
       </DisclosureBody>
     </div>

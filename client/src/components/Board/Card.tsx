@@ -1359,7 +1359,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
             <span
               data-testid="card-blocked-by"
               title={blockedChip.title}
-              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
+              className="flex max-w-44 items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockedChip.label}</span></span>
           )}
           {reopened && (
@@ -1380,7 +1380,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
             <button
               onClick={(e) => { e.stopPropagation(); onOpen(task.parentTaskId!); }}
               title={parentTitle ? tr('board.card.openParentNamedTitle', { title: parentTitle }) : tr('board.task.openParentCardTitle')}
-              className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-800 dark:text-violet-300 hover:bg-violet-500/25"
+              className="max-w-36 truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-800 dark:text-violet-300 hover:bg-violet-500/25"
             >⤴ {parentTitle ?? tr('board.card.parent')}</button>
           )}
           {task.userCommentCount > 0 && (
@@ -1657,7 +1657,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
             <span
               data-testid="card-blocked-by"
               title={blockedChip.title}
-              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
+              className="flex max-w-44 items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockedChip.label}</span></span>
           )}
           {attesa && (
@@ -1796,7 +1796,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
                 <button
                   data-testid="card-human-context-toggle"
                   onClick={(e) => { e.stopPropagation(); setRichiestaAperta((v) => !v); }}
-                  className="inline-flex min-h-[24px] min-w-[24px] items-center text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+                  className="inline-flex min-h-6 min-w-6 items-center text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
                 >
                   {richiestaAperta ? tr('board.card.commentLess') : tr('board.card.commentMore')}
                 </button>
@@ -1899,7 +1899,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
             <button
               data-testid="card-comment-toggle"
               onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
-              className="inline-flex min-h-[24px] min-w-[24px] items-center text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+              className="inline-flex min-h-6 min-w-6 items-center text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
             >
               {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
             </button>
@@ -2020,7 +2020,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
               : tr('board.card.modelTitle', { model: modelLine })}
             data-testid="card-measure"
             className="flex w-full min-w-0 max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
-          ><span className="min-w-[8rem] flex-1 break-words" title={measureLine}>{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
+          ><span className="min-w-32 flex-1 break-words" title={measureLine}>{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. The
               last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span className="inline-flex items-center gap-1">{(task.agentMs > 0 || costo > 0) && <><Timer size={STATUS_GLYPH_PX} className="shrink-0" aria-hidden />{fmtMs(task.agentMs)}{costo > 0 && ` · ${fmtTok(costo)}`}</>}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{task.status !== 'in_progress' && updatedAgo('')}</span></span>
         ) : null}

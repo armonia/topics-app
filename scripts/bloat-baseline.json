@@ -641,7 +641,7 @@
 
     "server/services/task-automerge.test.ts": 1103,
 
-    "server/services/task-automerge.ts": 1765,
+    "server/services/task-automerge.ts": 1895,
 
     "server/services/task-dispatcher-admission.test.ts": 812,
 
@@ -759,6 +759,11 @@
   },
 
   "exceptions": {
+    "server/services/task-automerge.ts": {
+      "why": "Land no longer refuses a checkout for any modified file, only an overlap with what the merge changes (card d6b0fdf4); the foreign-ancestry probe moved to a scratch worktree so it never resets a live checkout: raised 1765 -> 1895 across this card's commits; the exception clears once this branch is in main and the base ref catches up.",
+      "expires": "2026-12-15"
+    },
+
     "server/services/task-dispatcher-remote-node.test.ts": {
       "why": "Node attachments on the primary and delivery mainRef (card 990222b0): raised 1507 -> 1651 in the same commit; the exception clears once this branch is in main and the base ref catches up.",
       "expires": "2026-12-15"

@@ -76,7 +76,7 @@ export function StartupSteps({ steps, ariaLabel }: { steps: StartupStepModel[]; 
 export function Ticks({ value, total = 30, label }: { value: number; total?: number; label: string }) {
   const filled = Math.round(Math.min(1, Math.max(0, value)) * total);
   return (
-    <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)} className="flex h-3 gap-[2px]">
+    <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)} className="flex h-3 gap-0.5">
       {Array.from({ length: total }, (_, i) => (
         <span key={i} className={clsx('h-full flex-1 rounded-[2px]', i < filled ? 'bg-primary' : 'bg-black/[0.08] dark:bg-white/[0.12]')} />
       ))}

@@ -170,7 +170,7 @@ class DeleteForgetsMachine(unittest.TestCase):
         np.subprocess.run = self._run
 
     def state(self, **slot):
-        return {"slots": {"2": {"n": 2, **slot}}, "lives": []}
+        return {"slots": {"2": {"n": 2, **slot}}}
 
     def test_hourly_server_row_is_deleted(self):
         s = self.state(server_id=7, machine_id="m2", ip="1.2.3.4", name="x")
@@ -289,6 +289,25 @@ class BundleNeverStays(unittest.TestCase):
         self.assertEqual(sorted(removed), ["alpha-999999999.bundle", f"gamma-{os.getppid()}.bundle"])
         self.assertEqual(self.bundles(), [f"beta-{os.getppid()}.bundle"])
         self.assertTrue(os.path.exists(other))
+
+
+class LoadedThroughASymlink(unittest.TestCase):
+    """The launchd copy is a symlink to the repo file: HERE must resolve to the repo, not to the link's folder."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_repo_paths_resolve_through_a_symlink(self):
+        link = os.path.join(self.tmp, "node-pool")
+        os.symlink(os.path.join(HERE, "node-pool"), link)
+        loader = importlib.machinery.SourceFileLoader("node_pool_link", link)
+        mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("node_pool_link", loader))
+        loader.exec_module(mod)
+        self.assertTrue(os.path.isdir(os.path.join(mod.HERE, "..", "permanent-node")), mod.HERE)
+        self.assertTrue(os.path.exists(mod.STRUMENTI), mod.STRUMENTI)
 
 
 if __name__ == "__main__":

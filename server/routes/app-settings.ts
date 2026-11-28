@@ -174,6 +174,8 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   firstRunDoneAt: { kind: "string" },
   securityAlertsProjectId: { kind: "string" },
   topicsCheck: { kind: "string" },
+  scheduledDelivery: { kind: "string" },
+  mailboxes: { kind: "string" },
   // Worktrees (change worktree-standard, T1). The root is normalised before it
   // is written (`~` expanded, absolute, not a temp, system or home folder); the
   // checks that need the disk and the projects run in the PUT below, which also

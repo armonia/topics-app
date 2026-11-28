@@ -136,7 +136,7 @@ export function ParcelViewScreen({ view, copy, onBack, backLabel, onConfirm, onR
     </>
   );
   const map = (
-    <section className={clsx('relative min-w-0 overflow-hidden', phone ? 'h-[420px] shrink-0' : 'flex-1')}>
+    <section className={clsx('relative min-w-0 overflow-hidden', phone ? 'h-105 shrink-0' : 'flex-1')}>
       <ParcelMap map={view.map} label={p.title} hidden={hidden} ortho={ortho} />
       <LayerBar layers={view.layers} on={isOn} onToggle={onToggleLayer} copy={copy} />
       <p className={clsx(FLOATING, 'absolute bottom-3 left-3 max-w-[calc(100%-24px)] text-app-text-secondary')}>

@@ -108,7 +108,7 @@ export function ColumnInsertDivider({
   return (
     <div
       data-resize-axis="col"
-      className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+      className="w-0.25 flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
       data-panel-divider-row={rowIdx}
       data-panel-divider-col={colIdx}
       // DOVE CADRÀ: `before`, cioè «la cosa entra qui, fra queste due celle».
@@ -125,12 +125,12 @@ export function ColumnInsertDivider({
       onDrop={handleDrop}
     >
       {/* Resize hit-box: 6px wide centered on the 1px line */}
-      <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
+      <div className="absolute inset-y-0 -left-0.75 -right-0.75" />
       {/* Drop hit-box: only renders during a drag, 30px wide centered */}
       {isDragActive && (
         <div
           data-insert-divider-col={colIdx}
-          className="absolute inset-y-0 -left-[15px] -right-[15px] z-20"
+          className="absolute inset-y-0 -left-3.75 -right-3.75 z-20"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -201,7 +201,7 @@ export function RowInsertDivider({
   return (
     <div
       data-resize-axis="row"
-      className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+      className="h-0.25 flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
       data-panel-row-divider={rowIdx}
       // Come il divisore di colonna, ma su una fila IMPILATA: qui si entra
       // sopra o sotto, quindi la lama è orizzontale e l'asse lo dichiara il
@@ -215,11 +215,11 @@ export function RowInsertDivider({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />
+      <div className="absolute inset-x-0 -top-0.75 -bottom-0.75" />
       {isDragActive && (
         <div
           data-insert-divider-row={rowIdx}
-          className="absolute inset-x-0 -top-[15px] -bottom-[15px] z-20"
+          className="absolute inset-x-0 -top-3.75 -bottom-3.75 z-20"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}

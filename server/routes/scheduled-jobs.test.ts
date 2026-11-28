@@ -121,6 +121,17 @@ describe("run now and history", () => {
     const { data } = await call("GET", `/api/scheduled-jobs/${job.id}/runs`);
     expect(data.runs[0]).toMatchObject({ status: "ok", exitCode: 0, stdout: "the output" });
   });
+
+  test("the run says what happened to its delivery, in the history and on the job", async () => {
+    const { data: job } = await create();
+    const run = await call("POST", `/api/scheduled-jobs/${job.id}/run`);
+    built.action.ended({ processId: "proc-1", runId: run.data.id, exitCode: 0, stopped: false, timedOut: false });
+    expect((await call("GET", `/api/scheduled-jobs/${job.id}/runs`)).data.runs[0].delivery).toBeNull();
+    db.prepare("INSERT INTO deliveries (key, kind, state, attempts, detail, created_at, updated_at) VALUES (?, 'run', 'not_delivered', 0, 'No adapter is configured.', 'x', 'x')").run(run.data.id);
+    const history = (await call("GET", `/api/scheduled-jobs/${job.id}/runs`)).data.runs[0];
+    expect(history.delivery).toEqual({ state: "not_delivered", detail: "No adapter is configured." });
+    expect((await call("GET", `/api/scheduled-jobs/${job.id}`)).data.lastRun.delivery).toEqual({ state: "not_delivered", detail: "No adapter is configured." });
+  });
 });
 
 describe("a recurring job stays what it is", () => {

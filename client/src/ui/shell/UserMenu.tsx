@@ -18,7 +18,7 @@ export function UserMenu({ header, items, onSelect, onClose, ariaLabel }: {
   return (
     /* A zero-height anchor on the window: the menu stands on top of it, growing upward. */
     <div className="fixed bottom-12 left-2 h-0 w-0">
-      <Menu header={header} items={items} ariaLabel={ariaLabel} side="above" className="w-[272px]" onSelect={onSelect} onClose={onClose} />
+      <Menu header={header} items={items} ariaLabel={ariaLabel} side="above" className="w-68" onSelect={onSelect} onClose={onClose} />
     </div>
   );
 }

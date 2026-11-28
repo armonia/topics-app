@@ -386,13 +386,13 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
     >
       <span className="flex min-w-0 items-center gap-1">
         {avatarUrl ? (
-          <img src={avatarUrl} alt="" className="h-[22px] w-[22px] flex-shrink-0 rounded-full object-cover" />
+          <img src={avatarUrl} alt="" className="h-5.5 w-5.5 flex-shrink-0 rounded-full object-cover" />
         ) : sigla ? (
           // Le iniziali stanno nella STESSA scatola da 22 del glifo: se il cerchio
           // cambiasse misura con la lunghezza del nome, la fila si muoverebbe da
           // sola al primo login — e le alzate dell'arco si rimisurano su quella
           // larghezza.
-          <span className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full bg-primary text-mini font-semibold text-white">
+          <span className="flex h-5.5 w-5.5 flex-shrink-0 items-center justify-center rounded-full bg-primary text-mini font-semibold text-white">
             {sigla}
           </span>
         ) : (

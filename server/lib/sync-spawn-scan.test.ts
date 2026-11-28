@@ -23,9 +23,12 @@ const SERVER = join(ROOT, "server");
 const SYNC_CALL = /(?<![\w])(Bun\.spawnSync|spawnSync|execSync|execFileSync)\(/;
 
 const ALLOWED: Array<{ file: string; snippet: string; why: string }> = [
+  { file: "server/schedule/deliver/adapter.ts", snippet: "Bun.spawnSync([\"taskkill\"", why: "Windows only: the tree kill of a timed-out delivery adapter, a short local call that runs once, after the time limit" },
   { file: "server/lib/secret-store.ts", snippet: "Bun.spawnSync([cmd, ...args]", why: "the secret store's `security` calls (Keychain backend): a short local read or write, 15 s timeout, never on a timer or in a request path" },
   { file: "server/lib/live-checkout-branch-guard.ts", snippet: "spawnSync(\"git\"", why: "the live checkout branch guard: a short local git read that must answer before the agent's command is allowed to run" },
   { file: "server/routes/processes-persist.ts", snippet: `Bun.spawnSync(["ps", "-o", "lstart="`, why: "pidStartTime: the identity stamp of a re-adopted row at boot, and of a row at its launch, which must be on disk before the launch answers (a server that exits right after a launch must still re-adopt it: CMDRUN-03). Never on a timer." },
+  { file: "server/lib/primary-replica.ts", snippet: "spawnSync(shell[0]!", why: "the replica stop and start commands around the DB swap of a primary change, at boot before the server listens, 60 s timeout; empty by default, so most installations never run it" },
+  { file: "server/lib/primary-replica.ts", snippet: "spawnSync(\"lsof\"", why: "who holds the live DB open, asked by a primary switch at the commit and at the boot restore (before the server listens), 10 s timeout; never on a timer" },
   { file: "server/utils/path-env.ts", snippet: "execFileSync(shell", why: "the login shell's PATH, read once at boot" },
   { file: "server/lib/nome-installazione.ts", snippet: "execFileSync(\"/usr/sbin/scutil\"", why: "the computer name, memoized after the first read" },
   { file: "server/services/discord-ipc.ts", snippet: "execFileSync(\"/usr/bin/getconf\"", why: "the per-user temp dir, macOS only, remembered after the first good read (the presence asks on every connect attempt, every 30 s while Discord is closed)" },

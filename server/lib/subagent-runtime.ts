@@ -14,7 +14,7 @@
  * child's `subagents` row (`lib/subagent-store.ts`), not here.
  */
 import fs from "fs";
-import { getDatabase } from "../db";
+import { getDatabase, isDatabaseOpen } from "../db";
 import { warnThrottled } from "./warn-throttled";
 import { resetStaleSweep, sweepStaleResults } from "./subagent-stale-sweep";
 import { noteSubagentWaitChanged } from "./subagent-wait-events";
@@ -548,7 +548,7 @@ export function subagentLimitRefusal(parentKey: string, live: { depth: number; c
   let room: { admit: boolean; reason: string } | null = null;
   try { room = configured?.machineRoom?.() ?? null; } catch { /* unmeasurable: lets it through */ }
   if (room && !room.admit) {
-    return `no memory for another sub-agent right now (${room.reason}; ${runningSubagents(db).length} live). Wait for one to finish, or stop one with stop_agent.`;
+    return `no memory for another sub-agent right now (${room.reason}; ${mine.size} live for this parent). Wait for one to finish, or stop one with stop_agent.`;
   }
   return null;
 }
@@ -725,7 +725,7 @@ let childWatchTimer: ReturnType<typeof setInterval> | null = null;
 /** Start the watch, once for the process however many routers there are. */
 export function startChildWatch(): void {
   if (childWatchTimer) return;
-  childWatchTimer = setInterval(() => { void watchChildren(); sweepStaleResults(getDatabase(), deliverChildResult); }, CHILD_WATCH_MS);
+  childWatchTimer = setInterval(() => { void watchChildren(); if (isDatabaseOpen()) sweepStaleResults(getDatabase(), deliverChildResult); }, CHILD_WATCH_MS);
   childWatchTimer.unref?.();
 }
 

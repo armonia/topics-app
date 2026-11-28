@@ -5,6 +5,7 @@ import { createLandingQueue } from "../services/landing-queue";
 import { join } from "path";
 import { branchAheadOfMain } from "../services/own-branch";
 import { resolveStateDir } from "../lib/data-dir";
+import { CLAUDE_CLOUD_RUNS, instanceEntryPath } from "../lib/instance-files";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "../services/swap-freeze-ledger";
 import { createMemoryPressureSignal } from "../services/memory-pressure";
 import { readStartTimes } from "../lib/process-snapshot";
@@ -18,6 +19,10 @@ import { createScheduleEngine, type TickResult } from "../schedule/engine";
 import { createCommandAction } from "../schedule/command-action";
 import { createRegistryRunner } from "../schedule/command-runner";
 import { createJobsService } from "../schedule/jobs-service";
+import { createScheduleDelivery } from "../schedule/deliver/wiring";
+import { startMailInbox } from "../mail/inbox/wiring";
+import { recordSubjectNotice } from "../attention/owner-notices";
+import { jobSubject } from "../../shared/attention";
 import { createExternalSessionsService } from "../services/external-sessions";
 import { type AgentWorktreeDeps } from "../services/worktree-for-agent";
 import { isChecksHold as isChecksHoldOf } from "../services/checks-lights";
@@ -136,11 +141,21 @@ export function bootDispatchPrep(scope: AfterRouters1) {
       setTimeout(() => { tickAfterCloseQueued = false; tickScheduledCards(); }, 0).unref?.();
     },
   });
-  const scheduleEngine = createScheduleEngine(ctx.db, { executors: { card: createCardAction(ctx.db, dispatcherSvc), command: commandAction.executor }, now: scheduleNow });
+  const scheduleDelivery = createScheduleDelivery(ctx.db, scheduleNow);
+  // Incoming mail: a round of the server, only for mailboxes the person declared (change posta-per-gli-agenti, P2).
+  startMailInbox(ctx.db, scheduleDelivery.alert, scheduleNow);
+  const scheduleEngine = createScheduleEngine(ctx.db, {
+    executors: { card: createCardAction(ctx.db, dispatcherSvc), command: commandAction.executor }, now: scheduleNow,
+    // Outcomes leave the app and failures are counted after every tick (R22 to R24); the sweep never throws into the tick.
+    onTick: () => { void scheduleDelivery.delivery.sweep().catch((error) => console.warn("[schedule] delivery sweep failed:", error)); },
+  });
   // The registry reports a scheduled command's end; the ones that ended while the server was down close now.
   jobRunner.onEnd((end) => commandAction.ended(end));
   const scheduledJobs = createJobsService(ctx.db, {
     engine: scheduleEngine, now: scheduleNow,
+    agentJobMode: () => scheduleDelivery.settings().agentJobs,
+    // A job an agent made waits in pause: the person is told on the bell, under the job's own subject (R26).
+    onPausedByAgent: (job) => recordSubjectNotice({ subject: jobSubject(job.id), title: `An agent created the job "${job.name}"`, body: "It is paused until you turn it on.", dedupeKey: `agent-job:${job.id}`, lights: false }),
     projectPath: (projectId) => projectPathOfAnyId(ctx.db, (storeId) => ctx.projectStore.get(storeId)?.path, projectId) ?? null,
   });
 
@@ -352,7 +367,7 @@ export function bootDispatchPrep(scope: AfterRouters1) {
       const projectId = dispatcherSvc.get(taskId)?.task.projectId;
       return projectId ? projectPathForNode(projectId) ?? null : null;
     },
-    statePath: join(ctx.STATE_DIR, "claude-cloud-runs.json"),
+    statePath: instanceEntryPath(CLAUDE_CLOUD_RUNS, { stateDir: ctx.STATE_DIR }),
     // One notice per cause, in the system notices where the other configuration alerts go.
     notify: (n) => recordSystemNotice({ key: "claude-cloud", cycle: n.key, title: n.title, body: n.body }),
   });

@@ -76,6 +76,16 @@ export function stateDirTarget(fallback: string, env: NodeJS.ProcessEnv = proces
   return env.TOPICS_DATA_DIR || env.DATA_DIR || fallback;
 }
 
+/** The live DB file name: the one a backup or a replica (Litestream) watches. */
+export const LIVE_DB_NAME = "topics.db";
+/**
+ * What a server that handed the primary over opens instead (track T4). A
+ * different name in the same folder on purpose: whatever replicates
+ * `topics.db` finds no file there after the hand-over, so it can never publish
+ * the empty DB of the retired server as a newer copy of the data that moved.
+ */
+export const RETIRED_DB_NAME = "topics.retired.db";
+
 /**
  * The data folder INSIDE the state root: SQLite (`topics.db`), `browser-state/`,
  * `usage/`. Historically its own variable, DATA_DIR, which the launcher points

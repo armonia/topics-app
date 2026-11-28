@@ -21,6 +21,7 @@ import {
 } from "./lib/project-visibility";
 import { readMutedProjects } from "./lib/muted-projects";
 import { appDataRoots, resolveAppDataDir, resolveStateDir } from "./lib/data-dir";
+import { CONTEXT_FILES, instanceEntryPath } from "./lib/instance-files";
 import { observeCardFrame, type CardFrame } from "./services/card-outcome-wake";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { isInsideDir } from "./lib/path-containment";
@@ -124,7 +125,7 @@ export function createAppContext(baseDir: string): AppContext {
   // `tests/e2e/global-setup.ts` (snapshotBundle) e `helpers/test-server.ts`.
   const PUBLIC_DIR = process.env.TOPICS_PUBLIC_DIR || join(baseDir, "public");
   const UPLOADS_DIR = join(STATE_DIR, "uploads");
-  const CONTEXT_DIR = join(STATE_DIR, "context-files");
+  const CONTEXT_DIR = instanceEntryPath(CONTEXT_FILES, { stateDir: STATE_DIR });
   // The app data root (media/, workspace/, the agents' homes). One rule, in
   // lib/data-dir.ts: an explicit variable, else the Topics home.
   const APP_DATA_DIR = resolveAppDataDir();

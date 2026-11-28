@@ -24,7 +24,7 @@ import { attentionOf, type AttentionRows } from '../state/attention';
 import { chromeAttentionSubjects } from '../state/attentionTotal';
 import { familyLabelForPath } from './boardProjectsStore';
 
-export type InboxKind = 'chat' | 'terminal' | 'card';
+export type InboxKind = 'chat' | 'terminal' | 'card' | 'job';
 
 export interface InboxItem {
   subject: string;
@@ -81,6 +81,8 @@ function nameOf(kind: InboxKind, id: string, topics: Record<string, Topic>, term
     const s = terminals.get(id);
     return { title: s?.name || id, project: s?.cwd ? familyLabelForPath(s.cwd) : null };
   }
+  // A failed job has no name here: its row says what failed (the attention detail).
+  if (kind === 'job') return { title: id, project: null };
   const c = cards.get(id);
   // A card's board is named on the card itself, in its drawer: the row says the card.
   return { title: c?.text?.split('\n')[0]?.trim() || id, project: null };
@@ -106,6 +108,7 @@ function kindOf(subject: string): { kind: InboxKind; id: string } | null {
   if (prefix === 'topic') return { kind: 'chat', id };
   if (prefix === 'terminal') return { kind: 'terminal', id };
   if (prefix === 'task') return { kind: 'card', id };
+  if (prefix === 'job') return { kind: 'job', id };
   return null;
 }
 
@@ -127,7 +130,7 @@ export function inboxModel(
       subject: s.key,
       kind: s.kind,
       id: s.id,
-      title: named.title,
+      title: s.kind === 'job' ? a.detail || named.title : named.title,
       project: named.project,
       since: a.since,
       tier: a.tier as InboxItem['tier'],

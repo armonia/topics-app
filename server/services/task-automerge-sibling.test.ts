@@ -6,7 +6,7 @@
  * @covers KANBAN-76
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTaskAutoMerge } from "./task-automerge";
@@ -37,9 +37,11 @@ beforeAll(() => {
   sh(["config", "user.name", "t"], mainWt);
   sh(["config", "user.email", "t@t"], mainWt);
   commit(mainWt, "a.txt", "base");
+  commit(mainWt, "shared.txt", "shared base");
   sh(["worktree", "add", "-q", "-b", "park", projectWt], mainWt);
   sh(["switch", "-q", "-c", "topics/card"], projectWt);
   commit(projectWt, "card.txt", "card work");
+  commit(projectWt, "shared.txt", "shared card edit");
   sh(["switch", "-q", "park"], projectWt);
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -50,15 +52,39 @@ const make = () => createTaskAutoMerge({
 });
 
 describe("land with main open in a sibling worktree", () => {
-  test("dirty sibling → skipped naming its path", async () => {
-    writeFileSync(join(mainWt, "a.txt"), "dirty\n");
+  test("modified file the merge changes → skipped naming the file and the path", async () => {
+    // shared.txt is changed by the card branch, so a local edit to it overlaps the merge.
+    writeFileSync(join(mainWt, "shared.txt"), "dirty\n");
     const res = await make().tryMerge("t1", "x");
     expect(res.status).toBe("skipped");
     if (res.status === "skipped") {
       expect(res.code).toBe("dirty-checkout");
-      expect(res.reason).toContain(mainWt);
+      expect(res.reason.split("\\").join("/")).toContain(mainWt.split("\\").join("/"));
+      expect(res.reason).toContain("shared.txt");
     }
+    sh(["checkout", "--", "shared.txt"], mainWt);
+  });
+
+  test("staged change → skipped even when unrelated", async () => {
+    writeFileSync(join(mainWt, "a.txt"), "staged\n");
+    sh(["add", "a.txt"], mainWt);
+    const res = await make().tryMerge("t1", "x");
+    expect(res.status).toBe("skipped");
+    if (res.status === "skipped") {
+      expect(res.code).toBe("dirty-checkout");
+      expect(res.reason).toContain("a.txt");
+    }
+    sh(["reset", "-q", "--hard", "HEAD"], mainWt);
+  });
+
+  test("modified file the merge does not touch → merged, file intact and out of the commit", async () => {
+    writeFileSync(join(mainWt, "a.txt"), "unrelated edit\n");
+    const res = await make().tryMerge("t1", "x");
+    expect(res.status).toBe("merged");
+    expect(readFileSync(join(mainWt, "a.txt"), "utf8")).toBe("unrelated edit\n");
+    expect(sh(["show", "--name-only", "--format=", "HEAD"], mainWt)).not.toContain("a.txt");
     sh(["checkout", "--", "a.txt"], mainWt);
+    sh(["reset", "-q", "--hard", "HEAD~1"], mainWt);
   });
 
   test("clean sibling → merged, main advances there", async () => {

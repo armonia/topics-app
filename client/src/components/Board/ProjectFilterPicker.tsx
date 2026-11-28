@@ -79,7 +79,7 @@ const ICON_BOX = 12;
  * for the suggestions: they were `11rem` and `13rem`, that is, the same object
  * truncated at two different measures in the same row.
  */
-const CHIP_MAX = 'max-w-[12rem]';
+const CHIP_MAX = 'max-w-48';
 
 function ChipIcon({ path }: { path: string }) {
   return (

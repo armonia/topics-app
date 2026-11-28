@@ -27,7 +27,7 @@ function Ticks({ row }: { row: AutomationRow }) {
   const bad = h.filter((x) => x.outcome === 'error').length;
   return (
     <span className="inline-flex items-center gap-2" data-testid="automation-ticks">
-      <span className="inline-flex gap-[2px]" aria-hidden="true">
+      <span className="inline-flex gap-0.5" aria-hidden="true">
         {h.map((x, i) => (
           <i key={i} className={`h-2.5 w-1.5 rounded-[1px] ${x.outcome === 'error' ? 'bg-red-500 dark:bg-red-400' : x.outcome === 'ok' ? 'bg-emerald-500/75 dark:bg-emerald-400/70' : 'bg-app-text-faint/50'}`} />
         ))}

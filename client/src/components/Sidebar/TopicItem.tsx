@@ -448,7 +448,7 @@ export const TopicItem = memo(function TopicItem({
           riga muta. Sul telefono, dove la sidebar è a tutto schermo, è la
           superficie principale per capire di cosa parla una chat.
           On an attention fill the name goes white (fixes grey-on-blue). */}
-      {/* A gap and not an `mt-[3px]` on the subline: both lines use
+      {/* A gap and not an `mt-0.75` on the subline: both lines use
           `truncate-tight`, which spends its vertical margin to widen the
           clipping zone without moving the line, and an `mt` on the child would
           overwrite it and bring the clipped descenders back.

@@ -154,8 +154,8 @@ export function PeopleFilters({ query, onQuery, role, onRole, roles, copy }: {
   const s = copy.team.squad;
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <TextField className="min-w-[220px] flex-1" type="search" icon={Search} value={query} onChange={onQuery} placeholder={s.search} />
-      <Select className="w-[200px]" label={undefined} value={role} onChange={onRole} title={s.roleFilter} options={[{ value: '', label: s.allRoles }, ...roles]} />
+      <TextField className="min-w-55 flex-1" type="search" icon={Search} value={query} onChange={onQuery} placeholder={s.search} />
+      <Select className="w-50" label={undefined} value={role} onChange={onRole} title={s.roleFilter} options={[{ value: '', label: s.allRoles }, ...roles]} />
     </div>
   );
 }

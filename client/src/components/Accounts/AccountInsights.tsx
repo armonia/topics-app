@@ -29,7 +29,7 @@ type Money = (usd: number) => string;
 const HOUR_MS = 3_600_000;
 const SPAN_MS = { fiveH: 24 * HOUR_MS, week: 7 * 24 * HOUR_MS } as const;
 /** The track of a bar starts after its 36 px label and the 6 px gap: what sits under a bar starts there too. */
-const UNDER_BAR = 'pl-[42px] pr-[42px]';
+const UNDER_BAR = 'pl-10.5 pr-10.5';
 
 /** A quiet chip of the header line, left-aligned and in the regular weight. */
 const HEALTH_CHIP = 'inline-flex h-5 flex-none items-center gap-1 whitespace-nowrap rounded-xs px-1.5 text-mini';
@@ -59,7 +59,7 @@ function Strip({ window: w, money }: { window: AttributionWindow; money: Money }
     : b.kind === 'outside' ? tr('accounts.band.outside', { when: when(b.toMs), pct: b.deltaPct ?? 0 })
       : tr(`accounts.band.${b.kind}`, { when: when(b.toMs) }));
   return (
-    <div className="mt-[3px] flex h-[5px] gap-px" data-testid="account-strip">
+    <div className="mt-0.75 flex h-1.25 gap-px" data-testid="account-strip">
       {w.bands.map((b) => (
         <i key={b.fromMs} data-band={b.kind} title={title(b)} className={`min-w-0 flex-1 rounded-[1px] ${bandClass(b)}`}
           style={b.kind === 'mine' && peak > 0 ? { opacity: 0.35 + (0.65 * b.tokens) / peak } : undefined} />
@@ -86,7 +86,7 @@ function Spark({ points, span, now }: { points: TrendPoint[]; span: 'fiveH' | 'w
   });
   const area = `${line} L${x(now)},${H} L${x(inWindow[0]!.ts)},${H} Z`;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mt-[3px] block h-[22px] w-full" data-testid="account-spark" data-span={span} data-points={inWindow.length}
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mt-0.75 block h-5.5 w-full" data-testid="account-spark" data-span={span} data-points={inWindow.length}
       role="img" aria-label={tr(`accounts.spark.${span}`, { from: inWindow[0]!.pct, to: inWindow[inWindow.length - 1]!.pct })}>
       <title>{tr(`accounts.spark.${span}`, { from: inWindow[0]!.pct, to: inWindow[inWindow.length - 1]!.pct })}</title>
       <path d={area} className="fill-primary/15" />
@@ -102,7 +102,7 @@ function Figures({ window: w, span, money }: { window: AttributionWindow; span: 
   const v = attributionVerdict(w);
   const tip = tr('accounts.figures.title', { n: w.requests });
   return (
-    <div className="mt-[3px] text-mini leading-snug tabular-nums text-app-text-secondary" data-testid="account-figures" data-verdict={v.kind} title={tip}>
+    <div className="mt-0.75 text-mini leading-snug tabular-nums text-app-text-secondary" data-testid="account-figures" data-verdict={v.kind} title={tip}>
       <div>{tr('accounts.figures.tokens', { tokens: tokenWords(w.tokens, locale), money: money(w.usd), period: tr(`accounts.figures.period.${span}`) })}</div>
       <div>
         {v.kind === 'unmeasured' && <span>{tr('accounts.verdict.unmeasured')}</span>}
@@ -129,7 +129,7 @@ export function WindowTrail({ window: w, trend, span, readAt, money }: { window:
 export function TrailLegend() {
   const tr = useT();
   const item = (cls: string, key: string) => (
-    <span className="inline-flex items-center gap-1"><i className={`inline-block h-[5px] w-2.5 rounded-[1px] ${cls}`} />{tr(`accounts.trail.${key}`)}</span>
+    <span className="inline-flex items-center gap-1"><i className={`inline-block h-1.25 w-2.5 rounded-[1px] ${cls}`} />{tr(`accounts.trail.${key}`)}</span>
   );
   return (
     <div className="mb-1.5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-mini text-app-text-secondary" data-testid="account-trail-legend">
@@ -175,7 +175,7 @@ export function BoardExtras({ board: b }: { board: BoardAccount }) {
   return (
     <div className="mb-1" data-testid="account-board">
       {(b.dial || state || end || b.tokens) && (
-        <div className="mb-1 flex min-h-[20px] flex-wrap items-center gap-x-2 gap-y-0.5 text-mini tabular-nums" data-testid="account-outlook" title={hubProse(b.reason, locale) ?? undefined}>
+        <div className="mb-1 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-0.5 text-mini tabular-nums" data-testid="account-outlook" title={hubProse(b.reason, locale) ?? undefined}>
           {b.dial && <PaceDial needle={b.dial.needle} zone={b.dial.zone} label={tr('accounts.dial.label', { state: state ?? '' })} />}
           {state && <span className={`font-semibold ${TONE_TEXT[b.state.tone]}`} data-testid="account-outlook-state">{state}</span>}
           {end && <span className="text-app-text-secondary" title={hubProse(b.end!.hint, locale) ?? undefined} data-testid="account-outlook-end">{tr('accounts.outlook.end')} <b className={`font-semibold ${b.end!.tone === 'ok' ? 'text-app-text' : TONE_TEXT[b.end!.tone]}`}>{end}</b></span>}
@@ -241,7 +241,7 @@ export function AccessAndSpend({ board: b }: { board: BoardAccount }) {
               {b.top.map((t) => (
                 <li key={t.name} className="grid grid-cols-[minmax(0,1fr)_64px_44px_32px] items-center gap-1.5 tabular-nums" data-testid="account-top-row">
                   <span className="truncate text-app-text">{t.name}</span>
-                  <span className="relative h-[4px] rounded-[2px] bg-black/[0.08] dark:bg-white/[0.1]"><i className="block h-full rounded-[2px] bg-primary" style={{ width: `${Math.min(100, t.pct)}%` }} /></span>
+                  <span className="relative h-1 rounded-[2px] bg-black/[0.08] dark:bg-white/[0.1]"><i className="block h-full rounded-[2px] bg-primary" style={{ width: `${Math.min(100, t.pct)}%` }} /></span>
                   <span className="text-right">{tokenWords(t.tokens, locale)}</span>
                   <span className="text-right">{t.pct}%</span>
                 </li>
@@ -263,7 +263,7 @@ export function LoginCard({ board: b }: { board: BoardAccount }) {
   return (
     <CardShell current={false} testId="login-card" data={{ provider: b.provider, account: b.account, login: b.access?.state ?? '' }}>
       <CardHead name={name} plan={b.account} chip={<span className={`${CHIP} ${CHIP_TONE[loginBroken(b) ? 'bad' : 'quiet']}`}>{hubProse(b.state.text, locale) ?? tr('accounts.login.chip')}</span>} />
-      <div className={`mb-[9px] min-h-[17px] leading-snug ${loginBroken(b) ? DANGER_TEXT : 'text-app-text-secondary'}`}>{say ?? tr('accounts.login.caption')}</div>
+      <div className={`mb-2.25 min-h-4.25 leading-snug ${loginBroken(b) ? DANGER_TEXT : 'text-app-text-secondary'}`}>{say ?? tr('accounts.login.caption')}</div>
       <AccessAndSpend board={b} />
     </CardShell>
   );
