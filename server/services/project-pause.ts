@@ -27,10 +27,9 @@
  */
 import type { Database } from "bun:sqlite";
 
-import { DEFAULT_QUOTA_LIMIT } from "../../shared/usage-shapes";
 import { resolveProjectLimit } from "../usage/project-limit";
 
-export const DEFAULT_LIMIT_24H_PCT = DEFAULT_QUOTA_LIMIT;
+export const DEFAULT_LIMIT_24H_PCT: number | null = resolveProjectLimit("", undefined);
 /** How many more points "Continua" buys before the confirmation returns. */
 export const CONTINUE_GRACE_PCT = 10;
 

@@ -163,9 +163,6 @@ export interface SessionUsageResponse {
 /** The steps the project menu's 24h limit selector offers (`null` = no limit). One list for the route that validates and the menu that draws. */
 export const QUOTA_LIMIT_CHOICES: ReadonlyArray<number | null> = [null, 5, 10, 15, 20, 30];
 
-/** What a project's limit is when nobody chose one. */
-export const DEFAULT_QUOTA_LIMIT = 10;
-
 /** Where a call came from, so a project's points can be read as "who spent them". */
 export type QuotaSurface =
   /** A board card's own agent. */

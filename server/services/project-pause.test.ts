@@ -18,14 +18,19 @@ const MIGRATION = await Bun.file(join(import.meta.dir, "../db/migrations/2026111
 function makeDb(): Database {
   const db = new Database(":memory:");
   db.exec(MIGRATION);
+  // Until 64b1f052 a project with no row has no limit, so the brake tests start
+  // from an explicit row at 10 points.
+  db.run("INSERT INTO project_quota (project_id, limit_24h_pct, updated_at) VALUES ('p', 10, 'x')");
   return db;
 }
 
 describe("pauseState", () => {
-  test("a project with no settings pauses above the default 10 points", () => {
-    expect(pauseState(null, 10.4).paused).toBe(true);
-    expect(pauseState(null, 10.4).reason).toBe("limit");
-    expect(pauseState(null, 9.9).paused).toBe(false);
+  test("a project with a row at 10 points pauses above it; no row means no limit", () => {
+    const row = { projectId: "p", limit24hPct: 10, pausedAt: null, continuedUntilPct: null, holdUntil: null };
+    expect(pauseState(row, 10.4).paused).toBe(true);
+    expect(pauseState(row, 10.4).reason).toBe("limit");
+    expect(pauseState(row, 9.9).paused).toBe(false);
+    expect(pauseState(null, 35).paused).toBe(false);
   });
 
   test("a read that could not be trusted (null points) never pauses — fail open", () => {
@@ -161,11 +166,24 @@ describe("the pause CLOSES: what every gate reads (projectIsPaused) flips back",
 });
 
 describe("projectPauseInfo", () => {
-  test("a project never configured uses the default limit", () => {
+  test("a project never configured has no limit and is not stopped at 35 points", () => {
     const db = makeDb();
-    const info = projectPauseInfo(db, "p", 5);
+    const info = projectPauseInfo(db, "q", 35);
     expect(info.limit).toBe(DEFAULT_LIMIT_24H_PCT);
+    expect(info.limit).toBeNull();
     expect(info.paused).toBe(false);
+    expect(openPauseIfNeeded(db, "q", 35, 1_700_000_000_000)).toBe(false);
+    expect(projectIsPaused(db, "q", 1_700_000_000_000)).toBe(false);
+  });
+
+  test("a project with an explicit row at 10 stops at 35 points and Continue releases it", () => {
+    const db = makeDb();
+    setProjectLimit(db, "r", 10);
+    const T = 1_700_000_000_000;
+    expect(openPauseIfNeeded(db, "r", 35, T)).toBe(true);
+    expect(projectIsPaused(db, "r", T)).toBe(true);
+    continueProject(db, "r", 35);
+    expect(projectIsPaused(db, "r", T)).toBe(false);
   });
 
   test("a DB error fails open with no limit and no pause", () => {
@@ -229,6 +247,7 @@ describe("integrazione: il freno nel dispatcher (USAGE-29)", () => {
 
   function harness() {
     const db = freshDb();
+    db.run("INSERT INTO project_quota (project_id, limit_24h_pct, updated_at) VALUES (?, 10, 'x')", [PID]);
     const svc: TaskService = createTaskService(db);
     const turns: { sessionKey: string; content: string }[] = [];
     const deps: DispatcherDeps = {

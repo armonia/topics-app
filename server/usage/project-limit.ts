@@ -2,15 +2,13 @@
  * A PROJECT'S 24H LIMIT in quota points (project quota).
  *
  * One row per project that ever had its limit chosen from the project menu.
- * A project with no row reads as the DEFAULT, never as unlimited: the default
- * has to hold with zero configuration, so it cannot live in a column default
- * that an absent row never sees. A row with a `null` limit is the person's own
- * choice of "no limit".
+ * A project with no row reads as the DEFAULT, decided in resolveProjectLimit
+ * below (it cannot live in a column default that an absent row never sees).
+ * A row with a `null` limit is the person's own choice of "no limit".
  *
  * This only STORES and reads the number. Nothing here pauses anything.
  */
 import type { Database } from "bun:sqlite";
-import { DEFAULT_QUOTA_LIMIT } from "../../shared/usage-shapes";
 
 /**
  * THE one place that turns "what is stored for a project" into the limit the
@@ -19,7 +17,11 @@ import { DEFAULT_QUOTA_LIMIT } from "../../shared/usage-shapes";
  * limit is computed (per project, share of the day's quota) changes only here.
  */
 export function resolveProjectLimit(_projectId: string, stored: number | null | undefined): number | null {
-  return stored === undefined ? DEFAULT_QUOTA_LIMIT : stored;
+  // TODO(64b1f052): until the day-quota percentage formula of that card lands,
+  // a project with no row has NO limit (null). A fixed default of points would
+  // pause projects that are already far above it the moment this ships. The
+  // default for rowless projects is changed here and only here.
+  return stored === undefined ? null : stored;
 }
 
 /** The limit a project has: its row's value, or the default when it has no row. `null` = no limit. */
