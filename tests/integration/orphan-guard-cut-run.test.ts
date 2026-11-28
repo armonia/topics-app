@@ -75,6 +75,8 @@ function readLogQuietly(path: string): string {
  */
 function listeningAddresses(port: number): string[] {
   for (const argv of [["ss", "-ltnH"], ["lsof", "-nP", "-iTCP", "-sTCP:LISTEN"]]) {
+    // Bun.spawnSync throws, instead of returning a failure, when the binary is missing.
+    if (!Bun.which(argv[0])) continue;
     const run = Bun.spawnSync(argv, { stdout: "pipe", stderr: "ignore" });
     if (!run.success) continue;
     const found: string[] = [];
@@ -95,10 +97,15 @@ function isLoopback(address: string): boolean {
 }
 
 let leftovers: { groups: number[]; roots: string[] } = { groups: [], roots: [] };
+let runnerGroup = 0;
 
 // This test exists to prove nothing is left behind, so it must not BE the thing
 // that leaves something behind when it fails.
 afterAll(() => {
+  // A red assertion before the cut must not leave the runner itself behind.
+  if (runnerGroup) {
+    try { process.kill(-runnerGroup, "SIGKILL"); } catch { /* already gone */ }
+  }
   for (const group of leftovers.groups) {
     try { process.kill(-group, "SIGKILL"); } catch { /* already gone */ }
   }
@@ -118,6 +125,7 @@ test("a cut run leaves no server process group and no scratch folder", async () 
     // leaving every other group of this machine alone.
     detached: true,
   });
+  runnerGroup = runner.pid;
 
   // The run has started a server once it has registered one with the watchdog.
   const bootDeadline = Date.now() + slackMs(120_000);
@@ -170,4 +178,5 @@ test("a cut run leaves no server process group and no scratch folder", async () 
   while (Date.now() < rootsDeadline && roots.some((root) => existsSync(root))) await Bun.sleep(200);
   expect(roots.filter((root) => existsSync(root))).toEqual([]);
   leftovers = { groups: [], roots: [] };
+  runnerGroup = 0;
 }, slackMs(240_000));
