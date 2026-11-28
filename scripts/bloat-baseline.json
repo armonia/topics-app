@@ -295,6 +295,7 @@
   "min_clone_lines": 20,
   "duplicated_lines": 290,
   "clone_groups": 11,
+  "max_over_files": 153,
   "files": {
     "client/src/App.tsx": 1140,
 
@@ -584,6 +585,8 @@
       ]
     },
 
+    "server/routes/chat-handler.ts": 811,
+
     "server/routes/chat.outage-direct-answer.test.ts": 1159,
 
     "server/routes/chat.ts": 1113,
@@ -601,11 +604,14 @@
 
     "server/routes/outbound.test.ts": 1049,
 
-    "server/routes/chat-handler.ts": 811,
-
     "server/routes/tasks-board.ts": 1605,
 
-    "server/routes/tasks-land.ts": 917,
+    "server/routes/tasks-land.ts": {
+      "lines": 1077,
+      "why": [
+        "2026-11-26, scheduled review of technical cards (card fe59766e): 917 on main -> 1077, +160. The wiring of the clock-driven pass (due check, one pass at a time, the verdict applied as land or send-back), the CI-phase gate that lands only with the reviewer's line on the commit, and the agent's question kept until the send-back happens. The judgement itself lives in services/scheduled-review*.ts."
+      ]
+    },
 
     "server/routes/tasks.test.ts": 2887,
 
@@ -642,15 +648,19 @@
     "server/services/task-dispatcher-held-resume-quiet.test.ts": 818,
 
     "server/services/task-dispatcher-overflow.test.ts": {
-      "lines": 1586,
+      "lines": 1631,
       "why": [
-        "2026-11-22, card pinned at its machine's seats: 1556 on main -> 1578, +22 the two cases of a pinned card held in todo while its node is at its seats (no claim, no attempt spent) and started once a seat frees, on the file's own harness and fake machines."
+        "2026-11-22, card pinned at its machine's seats: 1556 on main -> 1578, +22 the two cases of a pinned card held in todo while its node is at its seats (no claim, no attempt spent) and started once a seat frees, on the file's own harness and fake machines.",
+        "2026-11-26, two cards landed together: 1586 -> 1715, +129. Card e4fe62e2 (+46): a waiting or closed run no longer holds a node seat. Card a06e82ad (+64): an empty run whose work is already on main is not put back in todo. Each one alone stayed under the ceiling; together they cross it.",
+        "2026-11-27, CI-red bounce cards (2c7a9d21 and its follow-up): 1715 -> 1891, +176, cases on the file's own harness for the bounce only while main is red."
       ]
     },
 
     "server/services/task-dispatcher-remote-node.test.ts": {
-      "lines": 1507,
+      "lines": 1742,
       "why": [
+        "2026-11-27, `null` is absence, not a hiccup (card a16ec772): 1651 -> 1742, +91 the three cases a `fetchMedia` answering `null` must land once without that attachment and never be retried, an exception retried up to NODE_MEDIA_RETRY_POLLS before giving up the same way, and a transient throw healing before the cap, on the lane's own fake node and clock.",
+        "2026-11-27, node attachments on the primary and delivery mainRef (card 990222b0): 1507 on main -> 1651, +144 (plus the 30 the file already picked up from the two red-bounce cards that landed in between, 03c40cd63e and d7ff626556) for a retry on a failed attachment fetch instead of marking it seen forever, previewImage read straight off the card, and the planted-branch mainRef wiring on its own test, on the lane's own fake node and clock, which a second file would have to copy.",
         "2026-11-21, corsa vuota due volte di fila: 1497 on main -> 1507, +10 the second empty node run in a row stays on this machine for six hours instead of bouncing to a third node (f562cda4 ran 11 times in 35 minutes), on the lane's own fake node and clock.",
         "2026-10-26, copia vecchia dopo un riavvio: 998 on main -> 1124, +126 the five cases of the stale mirror a node hands back after a server restart (retired and requeued, the slot freed, a cancel that fails keeps it, one that never works parks the card, a live run is never taken for it) on the lane's own fake node and clock, which a second file would have to copy.",
         "2026-10-26, pc-nodo (PR #457): 750 on main -> 899, +149 the node-run hook's cases (green light, veto deferred like a silent node with no attempt burned, a runner that throws, the hook before the cancel of the old run, the payload) on the lane's own fake node and clock, which a second file would have to copy."
@@ -658,8 +668,9 @@
     },
 
     "server/services/task-dispatcher-remote-node.ts": {
-      "lines": 1671,
+      "lines": 1799,
       "why": [
+        "2026-11-27, `null` is absence, not a hiccup (card a16ec772): 1671 -> 1799, +128 `mirroredMedia` split into `missingPaths` (the node's own `null`, mirrored once with a note naming the gone attachment) and `retryPaths` (an exception, retried up to NODE_MEDIA_RETRY_POLLS and then mirrored the same way), with `mediaRetries` on the NodeSlot counting the latter per comment.",
         "2026-11-22, corsa sul nodo che sopravvive al riavvio (card 4a1a6d3d): 1527 on main -> 1662, +135 reattachOpenRun and the six reasons NOT to reattach: on boot, an in_progress card with a machineId and an open node_run_id is reattached with readRun and polled inside the node's slots instead of always being requeued, while a run the node no longer has, one it closed or parked, one whose card was archived over there, one handing back the delivery this card already carries or already sent back, a delegated authorization that no longer names this capability and machine, a node that never answers inside the timeout, and a card another path relaunched while readRun was in the air all still go back to the queue (or are left to that other path). Its tests live in task-dispatcher-remote-node-restart.test.ts, on the lane's shared bench.",
         "2026-10-30, overflow dispatch (card 6d60b323): 939 on main -> 982, +43 a card's own branch carried to the node (pushed first, parked when it cannot reach origin) and a cloud account without an active environment parked with its cause instead of deferred as a silent node. The push lives in branch-on-origin.ts.",
         "2026-10-26, pc-nodo (PR #457): 797 on main -> 831, +34 the node-run hook that wakes a sleeping node before any call to it (two optional NodeDeps fields, the call and its veto). The hook runner lives in server/services/lifecycle-hooks.ts; the lane stays whole in one file as its header says."
@@ -745,5 +756,27 @@
     "tests/integration/process-run-command.test.ts": 836,
 
     "tests/unit/ws-outbound-schema.test.ts": 946
+  },
+
+  "exceptions": {
+    "server/services/task-dispatcher-remote-node.test.ts": {
+      "why": "Node attachments on the primary and delivery mainRef (card 990222b0): raised 1507 -> 1651 in the same commit; the exception clears once this branch is in main and the base ref catches up.",
+      "expires": "2026-12-15"
+    },
+
+    "server/services/task-dispatcher-remote-node.ts": {
+      "why": "An attachment the node answers `null` for (gone for good) was retried forever instead of mirrored without it (card a16ec772): raised 1671 -> 1799 in the same commit; the exception clears once this branch is in main and the base ref catches up.",
+      "expires": "2026-12-15"
+    },
+
+    "server/routes/chat-handler.ts": {
+      "why": "Entered main over the threshold before this gate could refuse it (card f3c5a186); to be split in its own card.",
+      "expires": "2026-12-31"
+    },
+
+    "server/providers/native/auth.ts": {
+      "why": "Entered main over the threshold before this gate could refuse it (card f3c5a186); to be split in its own card.",
+      "expires": "2026-12-31"
+    }
   }
 }

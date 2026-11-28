@@ -24,7 +24,7 @@ import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useT } from '../../hooks/useT';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { OPEN_INBOX_EVENT, type OpenInboxDetail } from '../../lib/inboxEvents';
-import { RAISED_CONTROL } from '../../lib/selectionStyles';
+import { TAB_BUTTON, TAB_BUTTON_SQUARE, tabButton } from '../../lib/selectionStyles';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
 const PANEL_W = 420;
@@ -96,9 +96,10 @@ export function Inbox({
         onClick={() => (open ? close() : setOpen(true))}
         onPointerEnter={preload}
         onFocus={preload}
-        // The same box as its neighbours on the row (Search and «+»): 44 with
-        // a finger, 28 with a mouse.
-        className={`edge-lit relative ${isMobile ? 'h-11 w-11' : 'h-7 w-7'} flex items-center justify-center rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag ${className}`}
+        // A tab button like its neighbours on the row (Search, «+» and the
+        // column's toggle): a row's height, square, no ground at rest, the
+        // open tabs' ground while its panel is open.
+        className={`relative ${TAB_BUTTON} ${TAB_BUTTON_SQUARE} ${tabButton(open)} cursor-pointer app-no-drag ${className}`}
         // The attribute, not only the class: under Tauri it is what gives up
         // dragging the window (tests/e2e/drag-regions.spec.ts).
         {...NO_DRAG_REGION}

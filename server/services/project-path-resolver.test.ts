@@ -124,6 +124,7 @@ describe("isSelectableProjectDir (display filter)", () => {
     "/Users/x/.app-data/workspace/topics-app",             // husk (recreated), no marker
     "/Users/x/.claude",
     "/Users/x/.claude/jarvis",
+    "/Users/x/.claude/worktrees/x",
     "/Users/x",
   ]);
   const opts = { workspaceDir, homeDir, exists: (p: string) => real.has(p) };
@@ -147,7 +148,11 @@ describe("isSelectableProjectDir (display filter)", () => {
   it("drops the home dir itself and config dot-dirs", () => {
     expect(ok("/Users/x")).toBe(false);
     expect(ok("/Users/x/.claude")).toBe(false);
-    expect(ok("/Users/x/.claude/jarvis")).toBe(false);
+  });
+
+  it("keeps a project that lives in a folder under a dot-dir (not archived, hidden parent)", () => {
+    expect(ok("/Users/x/.claude/jarvis")).toBe(true);
+    expect(ok("/Users/x/.claude/worktrees/x")).toBe(false);
   });
 
   it("drops paths inside /.topics/ (worktrees and topics data dir)", () => {

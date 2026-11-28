@@ -12,7 +12,8 @@
  *
  * So the branch is pushed first, plainly (never forced): a branch origin already
  * has at the same tip is a no-op, one this checkout is ahead on is
- * fast-forwarded, one that diverged is refused, and the card stays here.
+ * fast-forwarded, one origin is ahead on is already there (`originContains`),
+ * one that diverged is refused, and the card stays here.
  */
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -50,6 +51,7 @@ export const BRANCH_NOWHERE_REASON = "il ramo non c'è né qui né su origin";
 export const UNPLANTED_DELIVERY_COMMIT = "0".repeat(40);
 
 export type BranchOnOrigin = { ok: true } | { ok: false; reason: string };
+export type BundleReach = number | "whole";
 
 /** The real git: bounded, no prompt for credentials (a prompt nobody answers is a hang). */
 export const branchGit: GitRunner = (cwd, args) =>
@@ -75,7 +77,23 @@ export async function ensureBranchOnOrigin(
   }
   const push = await run(repoPath, ["push", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
   if (push.code === 0) return { ok: true };
+  if (await originContains(repoPath, branch, run)) return { ok: true };
   return { ok: false, reason: `push rifiutato: ${pushRefusalReason(push.stderr || push.stdout, push.code)}` };
+}
+
+/**
+ * A refused push whose branch origin is only AHEAD on: every commit here is
+ * already there, and the other machine starts from origin's tip. On 27/11/2026
+ * nine cards were held for hours as "non-fast-forward": the land's merge of main
+ * had reached origin, then this checkout's copy went back to the commit before
+ * it (so a node without origin gets a bundle it can apply). The local branch is
+ * left where it is, for that bundle.
+ */
+async function originContains(repoPath: string, branch: string, run: GitRunner): Promise<boolean> {
+  const tracking = `refs/remotes/origin/${branch}`;
+  const fetched = await run(repoPath, ["fetch", "--quiet", "--no-tags", "origin", `+refs/heads/${branch}:${tracking}`]);
+  if (fetched.code !== 0) return false;
+  return (await run(repoPath, ["merge-base", "--is-ancestor", `refs/heads/${branch}`, tracking])).code === 0;
 }
 
 /**
@@ -116,7 +134,7 @@ export async function bundleBranch(
   run: GitRunner = branchGit,
   // How far behind the sender's origin/HEAD the receiver's checkout may be: 0 = the receiver
   // has fetched at least as recently as the sender (the card lane's assumption).
-  marginCommits = 0,
+  marginCommits: BundleReach = 0,
 ): Promise<Uint8Array | null> {
   if (!repoPath || !isPlainBranchName(branch)) return null;
   const dir = await mkdtemp(join(tmpdir(), "topics-carry-"));
@@ -131,9 +149,9 @@ export async function bundleBranch(
     const hasOriginHead = (await run(repoPath, ["rev-parse", "--verify", "-q", "refs/remotes/origin/HEAD"])).code === 0;
     // A margin leaves out only what origin's default held `marginCommits` back, so a node that
     // has not fetched the newest commits still has every prerequisite.
-    const marginBase = marginCommits > 0 ? await originHeadAncestor(repoPath, marginCommits, run) : null;
+    const marginBase = typeof marginCommits === "number" && marginCommits > 0 ? await originHeadAncestor(repoPath, marginCommits, run) : null;
     const thin = [["--not", "refs/remotes/origin/HEAD"], ["--not", `${ref}~1`], []];
-    const attempts = !hasOriginHead
+    const attempts = marginCommits === "whole" ? [[]] : !hasOriginHead
       ? [[]]
       : marginCommits === 0
         ? thin
@@ -164,15 +182,16 @@ export async function bundleBranchForNode(
   repoPath: string | null | undefined,
   branch: string,
   run: GitRunner = branchGit,
+  reach: BundleReach = 0,
 ): Promise<Uint8Array | null> {
   if (!repoPath || !isPlainBranchName(branch)) return null;
   const ref = `refs/heads/${branch}`;
-  if ((await run(repoPath, ["rev-parse", "--verify", "-q", ref])).code === 0) return bundleBranch(repoPath, branch, run);
+  if ((await run(repoPath, ["rev-parse", "--verify", "-q", ref])).code === 0) return bundleBranch(repoPath, branch, run, reach);
   const fetched = await run(repoPath, ["fetch", "--no-tags", "-q", "origin", `${ref}:${ref}`]);
   if (fetched.code !== 0) return null;
   const borrowed = (await run(repoPath, ["rev-parse", "--verify", "-q", ref])).stdout.trim();
   try {
-    return await bundleBranch(repoPath, branch, run);
+    return await bundleBranch(repoPath, branch, run, reach);
   } finally {
     if (borrowed) await run(repoPath, ["update-ref", "-d", ref, borrowed]);
   }

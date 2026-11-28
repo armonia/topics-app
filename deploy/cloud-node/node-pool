@@ -5,10 +5,10 @@ Gira sul Mac, accanto a Topics. Non tocca il dispatcher: gli dà macchine. Il gi
 (dispatch-overflow.ts) manda già le card ferme per memoria al primo nodo online con posto; questo
 guardiano fa sì che quel nodo esista quando serve e non costi quando non serve.
 
-  node-pool giro        launchd ogni 60 s: domanda dalla coda della board -> crea; nodo fermo a fine ora -> cancella
-  node-pool hook        hook `node-run` di Topics (payload su stdin): per un posto del pool lo accende se è
-                        spento, apre il tunnel, porta il repo con un git bundle e lo registra sul nodo; exit 0
-  node-pool snapshot    rifà lo snapshot dalla ricetta unica (user-data.sh.tmpl + winfleet/nodo/strumenti.txt)
+  node-pool giro        launchd ogni 60 s: riallinea il nodo permanente al commit del Mac, ne tiene il tunnel aperto
+  node-pool hook        hook `node-run` di Topics (payload su stdin): per il posto permanente riapre il tunnel
+                        se serve, porta il repo con un git bundle e lo registra sul nodo; exit 0
+  node-pool snapshot    rifà lo snapshot dalla ricetta unica (user-data.sh.tmpl + deploy/node-tools.txt)
   node-pool stato       posti, server, spesa del mese del pool
   node-pool spegni      cancella subito ogni server del pool
   node-pool permanent-ci    installa o riallinea i runner della CI sul nodo permanente (deploy/permanent-node/ci-runners.sh)
@@ -18,24 +18,18 @@ Memorie e regole degli agenti (harness-sync, accanto a questo file): a ogni giro
 con i nodi pronti; dopo un riallineamento del codice lo forza. Cosa e dove sta in ~/.topics/harness-sync.config.json
 (fuori dal repo), lo stato in ~/.topics/harness-sync.json. Senza quel file non fa niente.
 
-NODO PERMANENTE (Attilio, Discord 10/11 23:31): topics-permanent-node, un cx53 sempre acceso nel progetto topics-nodes,
-fa da runner della CI di topics-app e da nodo di Topics sul posto 1. Finché esiste, il pool non accende
-nodi a richiesta (e `hetzner-tetto puo` li rifiuta comunque): il posto 1 è lui, mai cancellato, e le card
-che vi entrano sono 2 mentre la CI lavora, 4 quando è ferma. La CI ha la precedenza sulla CPU, Topics
-prende il server quando la CI è ferma (ci.slice a 500, topics.service a 100, deploy/permanent-node/ci-runners.sh).
+NODO PERMANENTE (Attilio, Discord 10/11 23:31, confermato 26/11 «o la togliamo o la facciamo bene»):
+topics-permanent-node, un cx53 sempre acceso nel progetto topics-nodes, fa da runner della CI di
+topics-app e da nodo di Topics sul posto 1, mai cancellato. Le card che vi entrano sono 2 mentre la CI
+lavora, 4 quando è ferma. La CI ha la precedenza sulla CPU, Topics prende il server quando la CI è ferma
+(ci.slice a 500, topics.service a 100, deploy/permanent-node/ci-runners.sh). Non ci sono più nodi a
+richiesta: il posto 1 è l'unico che questo script accende o tiene in vita.
 
-Posti, non server: il posto N è la riga `machines` con base_url http://127.0.0.1:(3400+N), stabile fra
-una vita e l'altra (stesso hostname = stessa riga). Ogni vita è un server Hetzner nel progetto
-`topics-nodes` (token Keychain hcloud/topics-nodes), label topics-node=1, topics-node-slot=N, expires.
-Il nodo non ha porte aperte tranne la 22 dal Mac: il Mac ci parla da un tunnel ssh
-(-L 3400+N -> 3341 del nodo, l'ascoltatore remoto che vuole l'appaiamento; -R 3410+N -> 3391 del Mac,
-il solo proxy dei modelli: sul nodo nessun login di Claude).
-
-Soldi (Attilio 09/11, «sì a tutte le consigliate»): al massimo 3 nodi del pool, tetto 10 €/mese del
-pool (ore arrotondate per eccesso), e prima di ogni creazione `hetzner-tetto puo <tipo>` (tetto di tutti
-gli effimeri). Un nodo muore quando è senza card da 10 minuti e alla sua ora pagata mancano meno di
-10 minuti; il label expires (+2 h, spostato in avanti mentre lavora) lo cancella anche se questo
-registro lo ha perso.
+Posto, non server: il posto 1 è la riga `machines` con base_url http://127.0.0.1:3401, stabile fra
+una vita e l'altra del nodo permanente (stesso hostname = stessa riga). Il nodo non ha porte aperte
+tranne la 22 dal Mac: il Mac ci parla da un tunnel ssh (-L 3401 -> 3341 del nodo, l'ascoltatore remoto
+che vuole l'appaiamento; -R 3301 -> 3391 del Mac, il solo proxy dei modelli: sul nodo nessun login di
+Claude).
 """
 import base64, datetime, json, math, os, signal, ssl, subprocess, sys, time, urllib.request
 
@@ -50,20 +44,14 @@ STATE = os.path.join(ST, "state.json")
 LOG = os.environ.get("NODE_POOL_LOG", os.path.join(HOME, ".claude/jarvis/logs/node-pool.log"))
 KEY = os.path.join(HOME, ".ssh/offload_hetzner")
 TETTO_BIN = os.path.join(HOME, "bin/hetzner-tetto")
-STRUMENTI = os.environ.get("WINFLEET_STRUMENTI", os.path.join(HOME, "Projects/winfleet/nodo/strumenti.txt"))
+STRUMENTI = os.environ.get("TOPICS_NODE_TOOLS", os.path.join(os.path.dirname(HERE), "node-tools.txt"))
 
 HARNESS_SYNC = os.path.join(HERE, "harness-sync")
 # Tetto mensile di tutti i server Hetzner (lo stesso di hetzner-tetto, quello che la tray mostra come «x / 60 €»)
 SPEND_CAP_EUR = float(os.environ.get("NODE_POOL_SPEND_CAP_EUR", "60"))
 
-MAX_NODES = int(os.environ.get("NODE_POOL_MAX", "3"))
-CAP_EUR = float(os.environ.get("NODE_POOL_CAP_EUR", "10"))
 TYPES = os.environ.get("NODE_POOL_TYPES", "cx43 cpx32 ccx13").split()
 LOCATIONS = ("fsn1", "nbg1", "hel1")
-DEMAND_CARDS = int(os.environ.get("NODE_POOL_DEMAND_CARDS", "2"))
-DEMAND_AFTER_S = int(os.environ.get("NODE_POOL_DEMAND_AFTER_S", "180"))
-IDLE_S = 600
-END_OF_HOUR_S = 600
 EXPIRES_S = 2 * 3600
 BOOT_MAX_S = 600
 SLOTS_PER_NODE = int(os.environ.get("NODE_POOL_SLOTS", "2"))
@@ -85,10 +73,11 @@ PERMANENT_SLOT = 1
 PERMANENT_SLOTS_CI, PERMANENT_SLOTS_IDLE = 2, 4
 CI_RUNNERS = int(os.environ.get("NODE_POOL_CI_RUNNERS", "4"))
 CI_REPO = "armonia/topics-app"
-# A node that stays behind the Mac commit longer than this is drained (slots 0) so the realign can run
-BEHIND_S = int(os.environ.get("NODE_POOL_BEHIND_MIN", "60")) * 60
-# Longest wait for the running cards to finish before the drain is given up and retried later
-DRAIN_MAX_S = int(os.environ.get("NODE_POOL_DRAIN_MAX_MIN", "180")) * 60
+
+
+# Behind the Mac commit longer than this with no lossless restart: take no NEW cards (slots follow the
+# running ones, never 0 for hours) until the node realigns
+BEHIND_S = int(os.environ.get("NODE_POOL_BEHIND_MIN", "360")) * 60
 
 
 def log(msg):
@@ -106,21 +95,14 @@ def billed_hours(created, end):
     return max(1, math.ceil((end - created) / 3600))
 
 
-def month_spend(lives, now):
-    """Spesa del mese del pool: ogni vita del mese, ore arrotondate per eccesso."""
-    month = time.strftime("%Y-%m", time.localtime(now))
-    return round(sum(billed_hours(l["created"], l.get("ended") or now) * l["eur_h"]
-                     for l in lives if time.strftime("%Y-%m", time.localtime(l["created"])) == month), 4)
-
-
 def _day(ts):
     return time.strftime("%Y-%m-%d", time.localtime(ts))
 
 
-def spend_daily(lives, fixed, now):
+def spend_daily(fixed, now):
     """Spesa del mese corrente giorno per giorno: [{day, eur}] dal primo a oggi. Ogni ora pagata va al giorno in cui
     comincia (Hetzner fattura a ore intere per eccesso). Il nodo permanente costa le sue ore del mese al prezzo orario
-    fino al prezzo mensile, come in hetzner-tetto; senza il suo dato conta solo il pool."""
+    fino al prezzo mensile, come in hetzner-tetto; senza il suo dato non c'è spesa da riportare."""
     lt = time.localtime(now)
     month = time.strftime("%Y-%m", lt)
     first = time.mktime((lt.tm_year, lt.tm_mon, 1, 0, 0, 0, 0, 0, -1))
@@ -139,35 +121,10 @@ def spend_daily(lives, fixed, now):
             cost = eur_h if cap is None else min(eur_h, max(0.0, cap - spent))
             days[day] += cost
             spent += cost
-    for l in lives:
-        if time.strftime("%Y-%m", time.localtime(l["created"])) == month:
-            charge(l["created"], billed_hours(l["created"], l.get("ended") or now), l["eur_h"])
     if fixed and fixed.get("eur_h"):
         start = max(first, fixed["created"])
         charge(start, billed_hours(start, now), fixed["eur_h"], cap=fixed.get("eur_month"))
     return [{"day": k, "eur": round(v, 4)} for k, v in sorted(days.items())]
-
-
-def should_delete(created, idle_since, now):
-    """Fermo da 10 minuti E all'ora pagata mancano meno di 10 minuti: prima si buttano minuti pagati."""
-    if idle_since is None or now - idle_since < IDLE_S:
-        return False
-    into_hour = (now - created) % 3600
-    return 3600 - into_hour <= END_OF_HOUR_S
-
-
-def should_create(held_since, alive, creating, spend, eur_h, now):
-    """(sì/no, motivo). Domanda = carte ferme per memoria da DEMAND_AFTER_S; una creazione alla volta."""
-    held = [t for t in held_since.values() if now - t >= DEMAND_AFTER_S]
-    if len(held) < DEMAND_CARDS:
-        return False, f"{len(held)} card ferme da {DEMAND_AFTER_S}s (servono {DEMAND_CARDS})"
-    if creating:
-        return False, "una creazione è già in corso"
-    if alive >= MAX_NODES:
-        return False, f"già {alive} nodi (max {MAX_NODES})"
-    if spend + eur_h > CAP_EUR:
-        return False, f"tetto del pool: {spend:.2f} € su {CAP_EUR:.0f} €"
-    return True, f"{len(held)} card ferme per memoria da oltre {DEMAND_AFTER_S}s"
 
 
 def permanent_slots(ci_busy):
@@ -175,37 +132,15 @@ def permanent_slots(ci_busy):
     return PERMANENT_SLOTS_CI if ci_busy > 0 else PERMANENT_SLOTS_IDLE
 
 
-def free_slot(slots):
-    for n in range(1, MAX_NODES + 1):
-        if not slots.get(str(n), {}).get("server_id"):
-            return n
-    return None
-
-
 def selftest():
-    h = 3600
     assert billed_hours(0, 20 * 60) == 1 and billed_hours(0, 61 * 60) == 2
-    assert not should_delete(0, 0, 15 * 60), "a 15 minuti non si cancella"
-    assert should_delete(0, 40 * 60, 52 * 60), "a 52 minuti, fermo da 12, si cancella"
-    assert not should_delete(0, 45 * 60, 52 * 60), "fermo da 7 minuti resta"
-    assert not should_delete(0, None, 55 * 60), "chi lavora resta"
-    assert should_delete(0, h, h + 55 * 60), "seconda ora, stesso conto"
-    ok, _ = should_create({"a": 0, "b": 0}, 0, False, 0, 0.03, 200)
-    assert ok
-    assert not should_create({"a": 0}, 0, False, 0, 0.03, 200)[0], "una card sola non basta"
-    assert not should_create({"a": 100, "b": 100}, 0, False, 0, 0.03, 200)[0], "ferme da poco"
-    assert not should_create({"a": 0, "b": 0}, 3, False, 0, 0.03, 200)[0], "massimo raggiunto"
-    assert not should_create({"a": 0, "b": 0}, 0, True, 0, 0.03, 200)[0], "una alla volta"
-    assert not should_create({"a": 0, "b": 0}, 0, False, 9.99, 0.03, 200)[0], "tetto"
-    now = time.time()
-    assert month_spend([{"created": now - 70 * 60, "ended": now, "eur_h": 0.5}], now) == 1.0
-    assert free_slot({"1": {"server_id": 5}}) == 2 and free_slot({}) == 1
     assert permanent_slots(0) == 4 and permanent_slots(3) == 2, "card del nodo permanente: 2 con la CI, 4 senza"
     t0 = time.mktime((2026, 11, 3, 10, 0, 0, 0, 0, -1))
-    sd = spend_daily([{"created": t0, "ended": t0 + 90 * 60, "eur_h": 0.5}], None, t0 + 5 * 86400)
+    sd = spend_daily({"created": t0, "eur_h": 0.0}, t0 + 5 * 86400)
     assert sd[0]["day"].endswith("-01") and sd[0]["eur"] == 0 and len(sd) == 8, "dal primo del mese a oggi"
-    assert next(x for x in sd if x["day"].endswith("-03"))["eur"] == 1.0, "90 minuti = 2 ore pagate"
-    fx = spend_daily([], {"created": t0 - 86400, "eur_h": 1.0, "eur_month": 30.0}, t0 + 3 * 86400)
+    sd2 = spend_daily({"created": t0, "eur_h": 0.5}, t0 + 90 * 60)
+    assert next(x for x in sd2 if x["day"].endswith("-03"))["eur"] == 1.0, "90 minuti = 2 ore pagate"
+    fx = spend_daily({"created": t0 - 86400, "eur_h": 1.0, "eur_month": 30.0}, t0 + 3 * 86400)
     assert round(sum(x["eur"] for x in fx), 2) == 30.0, "il nodo fisso si ferma al prezzo mensile"
     print("selftest ok")
 
@@ -219,8 +154,6 @@ def load_state():
     except Exception:
         s = {}
     s.setdefault("slots", {})
-    s.setdefault("lives", [])
-    s.setdefault("held", {})
     return s
 
 
@@ -339,24 +272,26 @@ def machine_row(slot):
 
 def slot_busy(machine_id, running_only=False):
     """Card vive del posto sul Mac: in coda o al lavoro con questa macchina. While draining only
-    the running ones count: queued cards cannot start with slots 0, they wait for the realign."""
+    the running ones count: queued cards cannot start with slots 0, they wait for the realign.
+    A card waiting for a human answer (needs_input) has no turn in flight: counting it kept the
+    node drained 3 h out of 4 for two days (21/11, one card unanswered since 19/11). A deferred card
+    (`waiting`, it waits for a condition) has no turn either: on 26/11 one held the drain past midnight."""
     if not machine_id:
         return 0
     import sqlite3
     db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
     try:
         states = "('in_progress')" if running_only else "('todo','in_progress')"
-        return db.execute(f"select count(*) from tasks where machine_id=? and status in {states}",
+        return db.execute(f"select count(*) from tasks where machine_id=? and status in {states}"
+                          " and coalesce(dispatch_state, '') not in ('needs_input', 'waiting')",
                           (machine_id,)).fetchone()[0]
     finally:
         db.close()
 
 
 def slot_of_base(base):
-    for n in range(1, MAX_NODES + 1):
-        if base.rstrip("/") == f"http://127.0.0.1:{LPORT + n}":
-            return n
-    return None
+    """Il solo posto che esiste è il permanente: nessun altro nasce più a richiesta."""
+    return PERMANENT_SLOT if base.rstrip("/") == f"http://127.0.0.1:{LPORT + PERMANENT_SLOT}" else None
 
 
 # ── ricetta ─────────────────────────────────────────────────────────────────────
@@ -543,31 +478,16 @@ def wire_model(sl):
 
 
 def bring_up(state, n, reason):
-    """Accende il posto n: server, pronto, tunnel, appaiamento, modelli. Ritorna lo slot o None."""
-    if n == PERMANENT_SLOT:
-        fx = permanent_server()
-        if fx:
-            return ensure_permanent(state, fx)
-    sl = state["slots"].setdefault(str(n), {"n": n})
-    sl.update({"n": n, "creating": time.time()})
-    save_state(state)
-    t0 = time.time()
-    server, eur = create_server(n)
-    if not server:
-        sl.pop("creating", None)
-        save_state(state)
-        log(f"posto {n}: nessun server ({eur})")
+    """Accende il posto permanente: tunnel, appaiamento, modelli. Ritorna lo slot o None. Non esiste
+    più un posto a richiesta da creare: se non è il posto 1, o il nodo permanente non c'è, non fa nulla."""
+    if n != PERMANENT_SLOT:
+        log(f"posto {n}: non esiste (solo il posto {PERMANENT_SLOT}, il nodo permanente)")
         return None
-    sl.update({"server_id": server["id"], "name": server["name"], "provider": PROVIDER_LABEL, "created": t0, "eur_h": eur, "idle_since": None})
-    state["lives"].append({"server_id": server["id"], "slot": n, "created": t0, "eur_h": eur, "reason": reason})
-    save_state(state)
-    ip = wait_ready(server)
-    if not ip:
-        log(f"posto {n}: {server['name']} non pronto in {BOOT_MAX_S}s, cancellato")
-        delete(state, n, "non pronto")
+    fx = permanent_server()
+    if not fx:
+        log("nodo permanente non trovato su Hetzner")
         return None
-    sl["ip"] = ip
-    return finish(state, sl, t0)
+    return ensure_permanent(state, fx)
 
 
 def finish(state, sl, t0=None):
@@ -630,11 +550,7 @@ def delete(state, n, reason):
             _SERVER_OF_IP[sl["ip"]] = sid
         ssh(sl["ip"], "systemctl stop topics.service", timeout=30) if sl.get("ip") else None
         hz("DELETE", f"/servers/{sid}")
-        for l in state["lives"]:
-            if l["server_id"] == sid and not l.get("ended"):
-                l["ended"] = time.time()
-                log(f"cancellato {sl.get('name')} id={sid} dopo {int((l['ended'] - l['created']) / 60)} min "
-                    f"({billed_hours(l['created'], l['ended'])} h pagate × {l['eur_h']} €): {reason}")
+        log(f"cancellato {sl.get('name')} id={sid}: {reason}")
     forget_machine(sl.get("machine_id"))
     state["slots"][str(n)] = {"n": n}
     save_state(state)
@@ -680,7 +596,7 @@ def ensure_permanent(state, fx):
     r = ssh(ip, "pgrep -c -x Runner.Worker", timeout=20)
     out = (r.stdout or "").split()
     ci_busy = int(out[0]) if out and out[0].isdigit() else 0
-    want = 0 if sl.get("draining") else permanent_slots(ci_busy)
+    want = sl["slots"] if sl.get("capped") and sl.get("slots") is not None else permanent_slots(ci_busy)
     if sl.get("slots") != want and sl.get("machine_id"):
         try:
             mac("PATCH", f"/api/machines/{sl['machine_id']}", {"slots": want})
@@ -703,34 +619,54 @@ def set_slots(sl, key, n):
         return False
 
 
+LOSSLESS_PROBE = (
+    "su - topics -c 'd=\"$HOME/.topics/daemon-state.json\"; "
+    "t=$(sed -n \"s/.*\\\"token\\\"[[:space:]]*:[[:space:]]*\\\"\\([0-9a-f]\\{64\\}\\)\\\".*/\\1/p\" \"$d\" | head -1); "
+    "p=$(sed -n \"s/.*\\\"port\\\"[[:space:]]*:[[:space:]]*\\([0-9]\\{1,5\\}\\).*/\\1/p\" \"$d\" | head -1); "
+    "for s in https http; do curl -sk -m 5 -H \"Authorization: Bearer $t\" $s://127.0.0.1:$p/__daemon/healthz && break; done'"
+)
+
+
+def node_lossless(ip):
+    """True when the running server says a restart loses no turn (healthz `losslessRestart`):
+    its native turns live under the AI broker, which survives the restart."""
+    r = ssh(ip, LOSSLESS_PROBE, timeout=30)
+    return r.returncode == 0 and '"losslessRestart":true' in (r.stdout or "").replace(" ", "")
+
+
 def align_permanent(sl, ip, key, c, ci_busy, now=None):
-    """Realign the node to the Mac commit. Cards running: wait. Behind for more than BEHIND_S: drain
-    (slots 0, no new cards), then realign once the running ones finish. Never restart with a card live."""
+    """Realign the node to the Mac commit WITHOUT ever taking slots away: a drain left the node at
+    0 slots for hours behind long cards (measured 24-25/11: 7 drains, ~22 h in 27). Realign as soon as
+    no turn is in flight; if the node's server restarts losslessly, also with turns in flight."""
     now = now or time.time()
     # «aligned», not HEAD: a checkout that worked with a failed `bun install` moves HEAD
     # while the running node is still the old one
     if not c or sl.get("aligned") == c or sl.get("align_failed") == c:
         sl.pop("behind_since", None)
         sl["draining"] = False
+        if sl.pop("capped", None) and sl.get("machine_id"):
+            set_slots(sl, key, permanent_slots(ci_busy))
         # un fallimento è del commit che non è passato: se il nodo è già a quello del Mac non ce n'è più
         # (la tray lo leggeva per sempre come «riallineamento fallito»)
         if sl.get("aligned") == c:
             sl.pop("align_failed", None)
         return
-    # The clock starts when the node first falls behind and only stops once it is aligned again:
-    # a Mac commit that moves every few minutes must not restart it
     sl.setdefault("behind_since", now)
-    busy = slot_busy(sl.get("machine_id"), running_only=bool(sl.get("draining")))
-    if busy:
-        if not sl.get("draining") and now - sl["behind_since"] >= BEHIND_S and sl.get("machine_id"):
-            if set_slots(sl, key, 0):
-                # drain_until: la tray dice «card ferme fino alle HH:MM» leggendo questo, non ricalcolandolo
-                sl["draining"], sl["drain_since"], sl["drain_until"] = True, now, now + DRAIN_MAX_S
-                log(f"posto {key}: nodo indietro da {int((now - sl['behind_since']) / 60)} min, lo svuoto ({busy} card in corso)")
-        elif sl.get("draining") and now - sl.get("drain_since", now) >= DRAIN_MAX_S:
-            sl["draining"], sl["behind_since"] = False, now
-            set_slots(sl, key, permanent_slots(ci_busy))
-            log(f"posto {key}: svuotamento oltre il tetto, rimetto le card e riprovo più tardi")
+    if sl.get("draining"):
+        # state left by an older version of this loop: give the slots back
+        sl["draining"] = False
+        sl.pop("drain_until", None)
+        set_slots(sl, key, permanent_slots(ci_busy))
+    # cards without a turn in flight (waiting on a person) do not hold the restart
+    running = slot_busy(sl.get("machine_id"), running_only=True)
+    if running and not node_lossless(ip):
+        if now - sl["behind_since"] >= BEHIND_S and sl.get("machine_id"):
+            # no new cards: the slots follow the running ones down, so the node frees up and realigns
+            if not sl.get("capped"):
+                log(f"posto {key}: nodo indietro da {int((now - sl['behind_since']) / 60)} min, niente card nuove ({running} in corso)")
+            sl["capped"] = True
+            if sl.get("slots") != running:
+                set_slots(sl, key, running)
         return
     # restart only if the checkout succeeded: a commit of the Mac not yet on origin would
     # otherwise restart Topics every minute; a failed commit is not retried until the next one
@@ -745,10 +681,20 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     global _REALIGNED
     _REALIGNED = _REALIGNED or a.returncode == 0
     log(f"posto {key}: nodo permanente riallineato a {c[:10]} (exit {a.returncode})")
-    if sl.get("draining"):
-        sl["draining"] = False
-        set_slots(sl, key, permanent_slots(ci_busy))
     sl.pop("behind_since", None)
+    if sl.pop("capped", None):
+        set_slots(sl, key, permanent_slots(ci_busy))
+
+
+# Files copied to the permanent node before ci-runners.sh runs: the runners script and the CI governor.
+PERMANENT_FILES = ("ci-runners.sh", "ci-governor.py", "ci-governor.service")
+
+
+def push_permanent_files(ip, known):
+    pdir = os.path.join(HERE, "..", "permanent-node")
+    for f in PERMANENT_FILES:
+        subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+                        "-o", f"UserKnownHostsFile={known}", os.path.join(pdir, f), f"root@{ip}:/root/{f}"], check=True, timeout=120)
 
 
 def permanent_ci():
@@ -768,9 +714,7 @@ def permanent_ci():
         raise SystemExit("node-pool: gh non dà i token di registrazione e rimozione dei runner")
     known = known_file(ip)
     os.makedirs(os.path.dirname(known), exist_ok=True)
-    subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
-                    "-o", f"UserKnownHostsFile={known}", os.path.join(HERE, "..", "permanent-node", "ci-runners.sh"),
-                    f"root@{ip}:/root/ci-runners.sh"], check=True, timeout=120)
+    push_permanent_files(ip, known)
     r = ssh(ip, f"read -r REG_TOKEN; read -r REMOVE_TOKEN; export REG_TOKEN REMOVE_TOKEN; N={CI_RUNNERS} bash /root/ci-runners.sh",
             timeout=1800, inp=f"{tok}\n{rm_tok}\n")
     print(r.stdout.strip()[-500:], r.stderr.strip()[-1500:], sep="\n")
@@ -825,18 +769,6 @@ def run_harness_sync(targets, force=False):
 
 # ── comandi ─────────────────────────────────────────────────────────────────────
 
-def memory_held(state, now):
-    """Le card ferme per memoria adesso, con da quando il giro le vede ferme."""
-    try:
-        q = mac("GET", "/api/dispatch/memory-queue").get("queue", [])
-    except Exception as e:
-        log(f"coda della board non leggibile: {e}")
-        return state["held"]
-    ids = {c["taskId"] for c in q if c.get("reason") == "waiting-memory"}
-    state["held"] = {i: state["held"].get(i, now) for i in ids}
-    return state["held"]
-
-
 def giro():
     sweep_stale_bundles()
     with Lock("giro"):
@@ -849,50 +781,12 @@ def giro():
             except Exception as e:
                 log(f"nodo permanente: {e}")
         known = {sl.get("server_id") for sl in state["slots"].values()}
-        # 1. raccoglitore: ciò che Hetzner ha col label e il registro non conosce, se scaduto
+        # raccoglitore: server Hetzner col label che il registro non conosce più, se scaduti
         for s in pool_servers():
             exp = int((s.get("labels") or {}).get("expires", "0") or 0)
             if s["id"] not in known and exp and exp < now:
                 hz("DELETE", f"/servers/{s['id']}")
                 log(f"raccolto {s['name']} id={s['id']}: scaduto e sconosciuto al registro")
-        alive_ids = {s["id"] for s in pool_servers()}
-        # 2. vite: morte a fine ora, scadenza spostata, tunnel riaperto
-        for key, sl in list(state["slots"].items()):
-            sid = sl.get("server_id")
-            if not sid or sl.get("fixed"):
-                continue
-            if sid not in alive_ids and not sl.get("creating"):
-                log(f"posto {key}: {sl.get('name')} sparito da Hetzner")
-                delete(state, int(key), "sparito")
-                continue
-            if sl.get("creating"):
-                if now - sl["creating"] > BOOT_MAX_S + 120:
-                    import fcntl
-                    lk = open(os.path.join(ST, f"slot{key}.lock"), "w")
-                    try:
-                        fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    except OSError:
-                        continue  # un hook la sta già riprendendo
-                    log(f"posto {key}: accensione lasciata a metà, riprendo")
-                    sl.pop("creating", None)
-                    ok = finish(state, sl)
-                    lk.close()
-                    if not ok:
-                        continue
-                else:
-                    continue
-            busy = slot_busy(sl.get("machine_id"))
-            if busy:
-                sl["idle_since"] = None
-                hz("PUT", f"/servers/{sid}", {"labels": {"topics-node": "1", "topics-node-slot": key,
-                                                          "expires": str(int(now) + EXPIRES_S)}})
-            elif sl.get("idle_since") is None:
-                sl["idle_since"] = now
-            if should_delete(sl["created"], sl.get("idle_since"), now):
-                delete(state, int(key), f"fermo da {int((now - sl['idle_since']) / 60)} min, fine dell'ora pagata")
-                continue
-            if sl.get("ip") and not tunnel_alive(sl):
-                log(f"posto {key}: tunnel riaperto ({open_tunnel(sl)})")
         # carico di ogni posto per la tray: «acceso, N card». Solo lettura del DB del Mac.
         for sl in state["slots"].values():
             if sl.get("machine_id") and (sl.get("server_id") or sl.get("fixed")):
@@ -900,25 +794,10 @@ def giro():
                     sl["cards"] = slot_busy(sl["machine_id"])
                 except Exception:
                     pass
-        state["spend_daily"] = spend_daily(state["lives"], state.get("fixed_cost"), now)
+        state["spend_daily"] = spend_daily(state.get("fixed_cost"), now)
         state["spend_cap_eur"] = SPEND_CAP_EUR
         save_state(state)
         run_harness_sync(harness_targets(state), force=_REALIGNED)
-        # 3. domanda: col nodo permanente non si accendono nodi a richiesta
-        if fx:
-            return 0
-        held = memory_held(state, now)
-        alive = sum(1 for sl in state["slots"].values() if sl.get("server_id"))
-        creating = any(sl.get("creating") and now - sl["creating"] < BOOT_MAX_S + 120 for sl in state["slots"].values())
-        spend = month_spend(state["lives"], now)
-        ok, why = should_create(held, alive, creating, spend, 0.06, now)
-        save_state(state)
-        if not ok:
-            return 0
-        n = free_slot(state["slots"])
-        log(f"domanda: {why} -> accendo il posto {n}")
-    with Lock(f"slot{n}"):
-        bring_up(load_state(), n, why)
     return 0
 
 
@@ -1099,7 +978,9 @@ def snapshot():
 def stato():
     state = load_state()
     now = time.time()
-    print(f"pool: {month_spend(state['lives'], now):.2f} € del mese su {CAP_EUR:.0f} €")
+    fx_spend = sum(d["eur"] for d in spend_daily(state.get("fixed_cost"), now))
+    cap = (state.get("fixed_cost") or {}).get("eur_month")
+    print(f"nodo fisso: {fx_spend:.2f} € del mese" + (f" su {cap:.0f} €" if cap else ""))
     for k, sl in sorted(state["slots"].items()):
         if sl.get("server_id"):
             print(f"posto {k}: {sl.get('name')} id={sl['server_id']} da {int((now - sl['created']) / 60)} min, "

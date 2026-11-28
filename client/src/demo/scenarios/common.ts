@@ -49,7 +49,7 @@ export function boardSettings(projectId: string): BoardSettings {
     projectId, autoDispatch: false, dispatchEffort: "auto", dispatchUseWorktree: false,
     dispatchAutoMerge: false, deployCommand: "", dispatchTimeoutMin: 0, dispatchIdleMin: 0,
     dispatchMcp: "bridge-only", dispatchModel: "auto", dispatchTopicsRouting: null,
-    dispatchMachineId: null, dispatchOverflow: false, dispatchStayLocal: false, language: "inherit",
+    dispatchMachineId: null, dispatchOverflow: false, dispatchStayLocal: false, backlogTriage: false, language: "inherit",
     dispatchFanOut: 1, dispatchRetryCap: 0, dispatchRetryBackoffS: 0, requireApprovalForDone: false,
     requireReviewBeforeDone: false, reviewChecks: [], dispatchPaused: false, nightMode: false,
     nightModeUntil: "", nightModeStartedAt: null,
@@ -88,7 +88,7 @@ export function appSettings(): AppSettingsWire {
       profilePublishCost: null, profileShareToken: null, turnCheckpointsEnabled: null,
       calendarEnabled: null, calendarFeedUrl: null, calendarRefreshMinutes: null,
       calendarHorizonDays: null, browserStoreCacheReapEnabled: null, browserStoreReapEnabled: null,
-      browserStoreReapAfterDays: null, firstRunDoneAt: "2026-01-01T00:00:00.000Z",  securityAlertsProjectId: null, topicsCheck: null,
+      browserStoreReapAfterDays: null, firstRunDoneAt: "2026-01-01T00:00:00.000Z",  securityAlertsProjectId: null, topicsCheck: null, scheduledDelivery: null,
       worktreeRoot: null, worktreeMaxPerProject: null, worktreeDiskFloorGb: null, cargoTargetMode: null, gcForeign: null, worktreeAbandonDays: null, claudeWorktreeHooks: null, worktreeQuarantineDays: null,
     },
   };

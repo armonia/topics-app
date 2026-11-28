@@ -73,6 +73,8 @@ jobs:
       tauri_systems: ${{ steps.scope.outputs.tauri_systems }}
       process_groups: ${{ steps.proof.outputs.proven == 'true' && 'false' || steps.scope.outputs.process_groups }}
       proven: ${{ steps.proof.outputs.proven }}
+      # On a pull request: true when e2e or unit run a SUBSET of what main runs.
+      reduced: ${{ steps.impact.outputs.reduced }}
     steps:
       # Only the directories the script reads: it builds the import closure of what
       # the macOS and Windows legs execute (scripts/ci-changes.ts, osSensitiveFiles),
@@ -111,8 +113,24 @@ jobs:
       # suite still runs every night (e2e-nightly.yml).
       # Both steps fail open: a registry that is down or slow costs the saving, never
       # the verdict (continue-on-error, and a 2-minute cap instead of the job's 10).
-      - name: Mark the tree this pull request run tests
+      # THE TEST-SIDE TREE SHAKING (scripts/ci-impact.ts). A pull request runs the e2e
+      # specs and the unit tests its diff reaches; the push to main and the nightly run
+      # everything. A run that did less than main will do must not leave the "judged"
+      # mark, or main would skip the tree and the part nobody ran would never run. The
+      # mark below therefore needs `reduced == false`, and an impact step that failed
+      # leaves `reduced` empty, which is no mark either.
+      - name: What does this pull request reach?
+        id: impact
         if: github.event_name == 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 4
+        run: |
+          git sparse-checkout disable
+          git fetch --no-tags --unshallow origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" "${{ github.sha }}"
+          bun run scripts/ci-impact.ts --base "origin/${{ github.base_ref }}" --github-output
+
+      - name: Mark the tree this pull request run tests
+        if: ${{ github.event_name == 'pull_request' && steps.impact.outputs.reduced == 'false' }}
         continue-on-error: true
         timeout-minutes: 2
         run: npx --yes "@armonia-io/spec-flow@$(jq -r '.dependencies["@armonia-io/spec-flow"] // .devDependencies["@armonia-io/spec-flow"]' package.json)" tree-verdict --mark
@@ -199,11 +217,35 @@ jobs:
       # collision.test.ts resolves `main`/`origin/main` and is red without it
       # (run 36491680424). The `+` for the same reason written on that step.
       - name: Fetch main (tests read it as a ref)
+        if: ${{ github.event_name != 'pull_request' }}
         run: git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
+
+      # The secret store tests drive the real age and age-keygen binaries.
+      - name: Install age
+        run: |
+          for attempt in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y -qq age && exit 0
+            sleep $((attempt * 10))
+          done
+          exit 1
+
+      # The pull request needs the merge base to know what it touched, so it brings the
+      # history of both parents (the same fetch `e2e (0)` does); it also leaves `origin/main` as a ref.
+      - name: Fetch the base with its history (pull request)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: git fetch --no-tags --unshallow origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" "${{ github.sha }}" +main:refs/remotes/origin/main
 
       # `bun test:unit` is this same command: the slot wrapper (disabled under
       # CI, but it still caps the run at 60 min) around the runner.
+      # ON A PULL REQUEST ONLY THE TESTS THE DIFF REACHES (scripts/test-touched.ts: the
+      # changed tests and every test importing what changed; config, lockfile and test
+      # setup select the whole suite). The push to main and the nightly run all of it.
+      - name: Unit + integration tests of the files this pull request touches
+        if: ${{ github.event_name == 'pull_request' }}
+        run: bun run scripts/test-touched.ts --base "origin/${{ github.base_ref }}"
+
       - name: Unit + integration tests (one process per file)
+        if: ${{ github.event_name != 'pull_request' }}
         run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-shards.ts"
         # On a push to main every file also writes its JUnit, merged into one
         # report for the `living-doc` job: it is the outcome of most requirements
@@ -546,17 +588,15 @@ jobs:
           node_modules/.bin/spec-flow check-intersections
           # spec-flow D20, design system: DESIGN.md lints clean, every UI file stays inside the
           # tokens and primitives declared in `designSystem` (spec-flow.completeness.json) against
-          # the recorded debt (spec-flow.design-baseline.json), and on a pull request every touched
-          # UI file carries its visual proof at 375/768/1440/3440 px. It runs only once the installed
+          # the recorded debt (spec-flow.design-baseline.json). It runs only once the installed
           # package has the command, so the dependency bump to the release that ships it turns it on
           # without another edit here.
+          # 0.8.0's `--base` mode also requires a `visual-proof.json` (375/768/1440/3440px) per
+          # touched UI file, which nothing produces yet, so pull requests still run the same
+          # `--changed ""` form as the push: switch to `--base` once a delivery writes that proof
+          # (see card "Prova visiva dei file UI toccati: la scrive la consegna, poi si accende in PR").
           if node_modules/.bin/spec-flow --help | grep -q check-design-system; then
-            if [ "${{ github.event_name }}" = "pull_request" ]; then
-              git fetch --no-tags --depth=300 origin "${{ github.base_ref }}" "${{ github.sha }}"
-              node_modules/.bin/spec-flow check-design-system --base "origin/${{ github.base_ref }}"
-            else
-              node_modules/.bin/spec-flow check-design-system --changed ""
-            fi
+            node_modules/.bin/spec-flow check-design-system --changed ""
           fi
           # `check:untraced-tests` guarda nella direzione OPPOSTA a
           # `check:spec-coverage`: quello parte dalle spec e cerca i test, questo
@@ -1111,6 +1151,8 @@ jobs:
       actions: read
     outputs:
       plan-ok: ${{ steps.plan.outputs.ok }}
+      # Matrix of the `e2e` job when the plan is reduced: runners that have a piece to run.
+      shards: ${{ steps.plan.outputs.shards }}
     steps:
       - name: Nothing the e2e shards read has changed
         if: ${{ needs.changes.outputs.e2e == 'false' }}
@@ -1156,9 +1198,31 @@ jobs:
         # ogni shard cade nel fallback --shard=i/8, che e' sempre stato l'unico.
         # 16 = the 8 runners of the matrix of `e2e` times the 2 processes each
         # runs (see that job). Change one and the other two move with it.
+        #
+        # ON A PULL REQUEST the plan can be REDUCED: scripts/ci-impact.ts picks the specs
+        # the diff reaches (plus a fixed smoke and `playwright test --only-changed`), and
+        # the plan holds only those. Whatever it cannot link, or whatever fails, leaves the
+        # whole tier. The push to main always plans the whole tier.
         run: |
-          if bun run scripts/e2e-plan-shards.ts 16 --out plan; then
+          only=()
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --unshallow origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" "${{ github.sha }}" || true
+            if bun run scripts/ci-impact.ts --base "origin/${{ github.base_ref }}" --plan-out only.json && [ -f only.json ]; then
+              only=(--only only.json)
+            fi
+          fi
+          if bun run scripts/e2e-plan-shards.ts 16 --out plan "${only[@]}"; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
+            if [ "${#only[@]}" -gt 0 ]; then
+              last=0
+              for f in plan/shard-*.txt; do
+                n="${f##*/shard-}"; n="${n%.txt}"
+                if [ -s "$f" ] && [ "$n" -gt "$last" ]; then last=$n; fi
+              done
+              runners=$(( (last + 1) / 2 ))
+              list="0"; for i in $(seq 1 "$runners"); do list="$list, $i"; done
+              echo "shards=[$list]" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
@@ -1396,7 +1460,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.changes.outputs.e2e == 'false' && '[0]' || (github.event_name == 'pull_request' && '[0, 1, 2, 3, 4, 5, 6, 7, 8]' || '[1, 2, 3, 4, 5, 6, 7, 8]')) }}
+        shard: ${{ fromJSON(needs.changes.outputs.e2e == 'false' && '[0]' || (github.event_name == 'pull_request' && (needs.prepare-e2e.outputs.shards || '[0, 1, 2, 3, 4, 5, 6, 7, 8]') || '[1, 2, 3, 4, 5, 6, 7, 8]')) }}
     steps:
       - name: Nothing the e2e shards read has changed
         if: ${{ needs.changes.outputs.e2e == 'false' }}
@@ -1543,6 +1607,10 @@ jobs:
           if compgen -G "$HOME/apt-playwright/*.deb" > /dev/null; then
             sudo cp "$HOME"/apt-playwright/*.deb /var/cache/apt/archives/
           fi
+          # Same as .github/actions/playwright-browsers: the packages.microsoft.com
+          # source answered 403 on 27/11 and failed apt-get update; Playwright's deps
+          # come from Ubuntu's archive only.
+          sudo grep -rlZ 'packages.microsoft.com' /etc/apt/sources.list.d/ 2>/dev/null | xargs -0 -r sudo rm -f
           for attempt in 1 2 3; do npx playwright install --with-deps chromium webkit && break; [ "$attempt" = 3 ] && exit 1; sleep $((attempt * 30)); done
           # Quello che apt ha appena installato torna nella cache, che si salva a
           # fine job. autoclean toglie le versioni superate, così la cache presa
@@ -1615,6 +1683,11 @@ jobs:
           for k in $(seq 1 "$PROCS"); do
             piece=$(( (SHARD - 1) * PROCS + k ))
             PLAN_FILE="plan/shard-$piece.txt"
+            if [ -f "$PLAN_FILE" ] && [ ! -s "$PLAN_FILE" ]; then
+              # A reduced plan leaves pieces empty: nothing to run, NOT the native fallback.
+              echo "[ci] processo $k: pezzo $piece vuoto nel piano ridotto"
+              continue
+            fi
             if [ -f "$PLAN_FILE" ]; then
               echo "[ci] processo $k: piano per durata $PLAN_FILE"
               readarray -t SELECTORS < "$PLAN_FILE"

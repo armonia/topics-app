@@ -50,7 +50,7 @@ export interface TasksResp { tasks?: TaskRow[] }
 export interface UpdateTaskResp { status?: string; id?: string; pending?: boolean }
 export interface CommentRow { id?: string; author?: string; content?: string }
 export interface GetTaskResp { task?: TaskRow; comments?: CommentRow[] }
-export interface CreateTaskResp { id?: string; status?: string }
+export interface CreateTaskResp { id?: string; status?: string; deduped?: boolean }
 export interface CommentResp { id?: string }
 
 /** Pause between poll legs; shared by the board and human-prompt tools. */

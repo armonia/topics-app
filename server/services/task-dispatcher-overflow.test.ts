@@ -22,284 +22,26 @@
  *
  * Harness: the node fake and the injected floor of
  * `task-dispatcher-remote-node-floor.test.ts`, with a clock the test moves.
+ * It lives in `task-dispatcher-overflow.harness.ts`: a new scenario goes in a
+ * sibling test file that imports it, not here (check:bloat ceiling).
  *
  * @covers KANBAN-76
  */
-import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { describe, it, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { Database } from "bun:sqlite";
-import { createTaskService, type TaskService } from "./tasks";
-import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
-import type { ResourceFloorVerdict } from "./dispatch-capacity";
 import { CLOUD_HOLD_KEY } from "../lib/cloud-weekly-limit";
-import type { NodeRunReport } from "./node-client";
 import { clearProviderHold, providerHold, resetProviderHoldStore } from "../lib/provider-hold";
-import type { TurnEndInfo } from "../providers/stop-reason";
-import {
-  OVERFLOW_MAX_PER_ROUND, OVERFLOW_SLOTS, cloudRunsModel, overflowEligible, pickOverflowMachine,
-  type OverflowChoice, type OverflowMachine,
-} from "./dispatch-overflow";
+import { OVERFLOW_MAX_PER_ROUND, OVERFLOW_SLOTS, cloudRunsModel, overflowEligible, pickOverflowMachine, type OverflowChoice, type OverflowMachine } from "./dispatch-overflow";
 import { CloudSetupError } from "../providers/claude-cloud/api";
 import { NODE_DEAD_POLLS, NODE_SETUP_POLLS } from "./task-dispatcher-remote-node";
 import { overflowNoteImmediate } from "./dispatch-overflow";
 import { hangBreaker, wakeBreaker } from "./wake-breaker";
 import type { LifecycleHookRunner } from "./lifecycle-hooks";
-import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
-import { NodeError } from "./node-client";
-import { BRANCH_NOWHERE_REASON, bundleBranch, plantCarriedBranch } from "./branch-on-origin";
-import { resolveBranchBaseRef } from "./worktree-for-agent";
+import { BRANCH_NOWHERE_REASON } from "./branch-on-origin";
 import { delegatedPolicyForTask, putAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
-
-const PID = "alpha-abc123";
-const LOCAL = "questo-mac";
-const CLOUD = "cloud-claude";
-const PC = "pc-windows";
-const CARD = "card-ferma";
-
-const BLOCKED: ResourceFloorVerdict = {
-  reason: "Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è 4.1 GB, sotto il pavimento di 6 GB.",
-  kind: "memory",
-  memoryFirstCardExempt: false,
-};
-
-/**
- * The delegated-start tables as the migration creates them (its `ALTER TABLE
- * tasks` lines are already in `TASKS_DDL`), plus the identity tables the policy
- * query joins: the delegated card of these tests holds a REAL policy, read by
- * the real `delegatedPolicyForTask`, not one built by hand.
- */
-function delegationTables(db: Database): void {
-  db.run("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT, applied_at TEXT)");
-  db.run("CREATE TABLE people (id TEXT PRIMARY KEY, display_name TEXT, revoked_at INTEGER)");
-  db.run("CREATE TABLE devices (id TEXT PRIMARY KEY, name TEXT, person_id TEXT, revoked_at INTEGER)");
-  db.run("CREATE TABLE orgs (id TEXT PRIMARY KEY, revoked_at INTEGER)");
-  db.run("CREATE TABLE org_members (org_id TEXT, person_id TEXT, revoked_at INTEGER, local_blocked_at INTEGER)");
-  db.run("CREATE TABLE projects (id TEXT PRIMARY KEY, path TEXT NOT NULL)");
-  const migration = readFileSync(join(import.meta.dir, "../db/migrations/20260912115225-delegated-agent-start.sql"), "utf8")
-    .split("\n").filter((line) => !line.startsWith("ALTER TABLE tasks")).join("\n");
-  db.exec(migration);
-  db.run("INSERT INTO people VALUES ('owner', 'Owner', NULL), ('person-a', 'Guest', NULL)");
-  db.run("INSERT INTO devices VALUES ('device-a', 'Guest device', 'person-a', NULL)");
-}
-
-function freshDb(): Database {
-  const db = new Database(":memory:");
-  db.run("PRAGMA foreign_keys = ON");
-  // Before the stubs: the policy query reads the machine's name.
-  db.run("CREATE TABLE machines (id TEXT PRIMARY KEY, name TEXT, base_url TEXT)");
-  db.run(TASKS_DDL);
-  delegationTables(db);
-  db.run(TASKS_FK_STUBS_DDL);
-  db.run(TASK_LABELS_DDL);
-  db.run(`CREATE TABLE board_settings (
-    project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
-    require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
-    only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
-    auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
-    dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
-    dispatch_mcp TEXT,
-    dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
-    max_agents_auto INTEGER, dispatch_fanout INTEGER,
-    dispatch_overflow INTEGER NOT NULL DEFAULT 1, dispatch_stay_local INTEGER NOT NULL DEFAULT 0,
-    dispatch_model TEXT, dispatch_paused INTEGER NOT NULL DEFAULT 0
-  )`);
-  db.run(`CREATE TABLE task_comments (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
-    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'comment',
-    message_id TEXT
-  )`);
-  db.run(`CREATE TABLE approvals (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
-    approval_type TEXT NOT NULL, from_status TEXT, to_status TEXT, confidence_score REAL,
-    rubric_scores TEXT, justification TEXT, status TEXT NOT NULL DEFAULT 'pending',
-    reviewed_by TEXT, review_comment TEXT, created_at TEXT NOT NULL, reviewed_at TEXT, expires_at TEXT
-  )`);
-  for (const id of [LOCAL, CLOUD, PC]) db.run("INSERT INTO machines (id) VALUES (?)", [id]);
-  return db;
-}
-
-const ADDRESS: Record<string, string> = { [CLOUD]: "claude-cloud://", [PC]: "https://pc.local" };
-const NAME: Record<string, string> = { [CLOUD]: "Cloud Claude", [PC]: "PC Windows" };
-
-function harness(opts: {
-  cloudOnline?: boolean; pcOnline?: boolean; cloudCredit?: boolean; github?: boolean;
-  /** The PC is offline but a `node-run` hook can wake it. */
-  pcWakeable?: boolean;
-  /** The PC's declared slots (0 = being drained). */
-  pcSlots?: number;
-  /** What `createRun` throws instead of answering (a cloud account without environments). */
-  createRunError?: () => Error | null;
-  /** What `readRun` throws instead of answering, while set (a live run's account refused). */
-  readRunError?: { current: (() => Error) | null };
-  /** The run report `readRun` answers instead of an idle run. */
-  runReport?: () => Partial<NodeRunReport>;
-  /** Leave `cloudCredit` to the real provider hold. */
-  realCredit?: boolean;
-  /** The Mac under its memory floor (default) or free. */
-  floor?: boolean;
-  /** The floor's verdict while it holds (default `BLOCKED`, a memory floor). */
-  verdict?: ResourceFloorVerdict;
-  /**
-   * A node that cannot reach origin (the PC does not talk to GitHub): `repos.mac` holds the
-   * card's branch, `repos.node` is the node's checkout. The node starts from what it holds.
-   */
-  noOrigin?: { mac: string; node: string; startedFrom: string[] };
-  /** What pushing a card's own branch answers (default: it reaches origin). */
-  ensure?: (branch: string) => { ok: true } | { ok: false; reason: string };
-  /** The `node-run` hook that wakes the PC (default: the lane's own). */
-  hooks?: LifecycleHookRunner;
-} = {}) {
-  const db = freshDb();
-  const svc: TaskService = createTaskService(db);
-  const created: Array<{ baseUrl: string; originTaskId: string }> = [];
-  const bodies: Array<{ originTaskId: string; baseBranch?: string | null }> = [];
-  const pushed: string[] = [];
-  const worktrees: Array<{ baseBranch?: string } | undefined> = [];
-  const turns: string[] = [];
-  let now = Date.UTC(2026, 9, 30, 10, 0, 0);
-  let nextRun = 0;
-  const machines = (): OverflowMachine[] => [
-    { id: CLOUD, name: NAME[CLOUD], kind: "cloud", online: opts.cloudOnline ?? true },
-    { id: PC, name: NAME[PC], kind: "node", online: opts.pcOnline ?? true, wakeable: opts.pcWakeable ?? false, ...(opts.pcSlots !== undefined ? { slots: opts.pcSlots } : {}) },
-  ];
-
-  const deps: DispatcherDeps = {
-    svc,
-    resolveProject: () => ({ path: "/tmp/alpha", projectStoreId: "store-1" }),
-    createTopic: () => {
-      const id = `topic-${turns.length + 1}`;
-      db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [id]);
-      return { topicId: id, sessionKey: `topic:${id}` };
-    },
-    createWorktree: async (_store, wopts) => { worktrees.push(wopts); return "wt-1"; },
-    deleteWorktree: async () => {},
-    runTurn: (sessionKey) => { turns.push(sessionKey); return new Promise<TurnEndInfo | void>(() => {}); },
-    broadcast: () => {},
-    // The Mac stays under its floor for the whole test: only a move gets the card out.
-    resourceBlock: () => (opts.floor === false ? null : opts.verdict ?? BLOCKED),
-    node: {
-      createRun: async ({ baseUrl, body }) => {
-        const startError = opts.createRunError?.();
-        if (startError) throw startError;
-        if (opts.noOrigin && body.baseBranch) {
-          if (!body.branchBundle) throw new NodeError("branch_unreachable", "create run answered 409", 409);
-          const planted = await plantCarriedBranch(opts.noOrigin.node, body.baseBranch, new Uint8Array(Buffer.from(body.branchBundle, "base64")));
-          if (!planted.ok) throw new Error(planted.reason);
-          const base = await resolveBranchBaseRef(opts.noOrigin.node, body.baseBranch);
-          const tip = Bun.spawnSync(["git", "-C", opts.noOrigin.node, "rev-parse", base.baseRef], { env: gitEnv() }).stdout.toString().trim();
-          opts.noOrigin.startedFrom.push(tip);
-        }
-        created.push({ baseUrl, originTaskId: body.originTaskId });
-        bodies.push({ originTaskId: body.originTaskId, baseBranch: body.baseBranch });
-        nextRun += 1;
-        return { runId: `run-${nextRun}` };
-      },
-      readRun: async () => {
-        const fail = opts.readRunError?.current;
-        if (fail) throw fail();
-        return {
-        status: "in_progress", dispatchState: "working", dispatchError: null, comments: [],
-        deliveryBranch: null, deliveryCommit: null, baseSha: null, stat: null,
-        ...opts.runReport?.(),
-        };
-      },
-      fetchBundle: async () => ({ empty: true as const }),
-      cancelRun: async () => {},
-      baseUrlOf: (id) => ADDRESS[id] ?? null,
-      tokenOf: () => "tok",
-      nameOf: (id) => NAME[id] ?? null,
-      localMachineId: () => LOCAL,
-      originUrlOf: async () => "git@github.com:acme/alpha.git",
-      plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", commitCount: 1, reason: null }),
-      bundleBranch: async ({ branch }) => (opts.noOrigin ? bundleBranch(opts.noOrigin.mac, branch) : null),
-      ensureBranchOnOrigin: async ({ branch }) => { pushed.push(branch); return opts.ensure?.(branch) ?? { ok: true }; },
-      ...(opts.hooks ? { hooks: opts.hooks } : {}),
-    },
-    overflowMachines: machines,
-    githubOriginOf: async () => opts.github ?? true,
-    ...(opts.realCredit ? {} : { cloudCredit: () => opts.cloudCredit ?? true }),
-    // The real policy, read from the real tables (`delegationTables`).
-    delegatedPolicyForTask: (taskId) => delegatedPolicyForTask(db, taskId, now, LOCAL),
-    now: () => now,
-    graceMs: 0,
-    retryBackoffMs: 0,
-    log: () => {},
-  };
-  const dispatcher = createTaskDispatcher(deps);
-  svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchFanOut: 1 });
-  svc.setGlobalCap({ auto: false, max: 9 });
-
-  const seed = (id: string, extra: { machineId?: string | null; stayLocal?: boolean; deliveryBranch?: string; model?: string; costCents?: number; baseBranch?: string } = {}) => {
-    const ts = new Date(now).toISOString();
-    db.run(
-      `INSERT INTO tasks (id, project_id, text, description, status, created_at, updated_at, dispatch_attempts, machine_id, stay_local,
-                          delivery_branch, model, agent_cost_cents, base_branch)
-       VALUES (?, ?, 'una card in coda', 'sotto il pavimento', 'todo', ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
-      [id, PID, ts, ts, extra.machineId ?? null, extra.stayLocal ? 1 : 0, extra.deliveryBranch ?? null, extra.model ?? null, extra.costCents ?? 0, extra.baseBranch ?? null],
-    );
-  };
-  /**
-   * A card that was delivered on `branch` and then sent back to the queue by the
-   * REAL transition (review -> todo through `svc.update`), not seeded in todo.
-   */
-  const sendBack = (id: string, branch: string, extra: { machineId?: string | null; landed?: boolean } = {}) => {
-    seed(id, { machineId: extra.machineId ?? null });
-    db.run("UPDATE tasks SET status = 'review', delivery_branch = ?, delivery_commit = 'abc1234', landing_state = ? WHERE id = ?",
-      [branch, extra.landed ? "landed" : null, id]);
-    svc.update({ taskId: id, actor: "human", by: "attilio", patch: { status: "todo" } });
-    // The transition clears the delivery snapshot: what is left is the kept branch.
-    expect(svc.get(id)!.task.deliveryBranch).toBeNull();
-  };
-  const flush = async (n = 12) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
-  const tick = async () => { await dispatcher.tick(PID); await flush(); };
-  const advance = (ms: number) => { now += ms; };
-  const poll = async () => { await dispatcher.reconcile({ reason: "poll" }); await flush(); };
-  return {
-    db, svc, dispatcher, created, bodies, pushed, worktrees, turns, seed, sendBack, tick, poll, advance, now: () => now,
-    task: (id: string) => svc.get(id)!.task, thread: (id: string) => svc.get(id)!.comments.map((c) => c.content).join("\n"),
-  };
-}
-
-/**
- * NO MACHINE HAS ROOM: overrides `machineLoad`'s own read (`svc.countOnMachine`)
- * so `pickOverflowMachine` finds no free seat on `machineId`, without seeding
- * real filler cards - those would be live `in_progress` rows the dispatcher's
- * own remote-run reconciler tries to poll/relaunch, which is not what these
- * tests are about. Lets a test about what keeps a card HERE run without the
- * free-seat rule moving it elsewhere first.
- */
-const machineFillOverrides = new WeakMap<TaskService, Map<string, number>>();
-function fillMachine(h: ReturnType<typeof harness>, machineId: string, n: number) {
-  let overrides = machineFillOverrides.get(h.svc);
-  if (!overrides) {
-    overrides = new Map<string, number>();
-    machineFillOverrides.set(h.svc, overrides);
-    const real = h.svc.countOnMachine.bind(h.svc);
-    h.svc.countOnMachine = (id: string) => overrides!.get(id) ?? real(id);
-  }
-  overrides.set(machineId, n);
-}
-/** Undoes `fillMachine`, freeing the machine's slots again. */
-function freeMachine(h: ReturnType<typeof harness>, machineId: string) {
-  machineFillOverrides.get(h.svc)?.delete(machineId);
-}
-
-/**
- * Two rounds: the first one only starts this project's origin lookup
- * (`overflowOriginOf`), the second has the answer, which is the round the move
- * can happen in. The time in between is there only to make the wait visible:
- * no rule reads it any more.
- */
-async function settleTwoRounds(h: ReturnType<typeof harness>) {
-  await h.tick();
-  h.advance(5 * 60_000);
-  await h.tick();
-}
+import { PID, LOCAL, CLOUD, PC, CARD, BLOCKED, harness, fillMachine, freeMachine, settleTwoRounds } from "./task-dispatcher-overflow.harness";
 
 describe("overflow: la card prende un posto libero altrove appena ce n'è uno", () => {
   it("Mac sotto il pavimento, Cloud online e con un posto libero: la card parte lì SUBITO, senza nessuna attesa", async () => {
@@ -1132,17 +874,63 @@ describe("verifica del 31/10: i posti di una macchina contano le card che le son
     expect(ids.filter((id) => h.task(id).machineId === PC)).toHaveLength(OVERFLOW_SLOTS.node);
   });
 
-  it("il conteggio legge le card in coda o al lavoro su quella macchina, non quelle chiuse o archiviate", () => {
+  it("il conteggio legge le card in coda o con una corsa aperta su quella macchina, non quelle chiuse o archiviate", () => {
     const h = harness();
     h.seed("in-coda", { machineId: PC });
     h.seed("al-lavoro", { machineId: PC });
     h.seed("chiusa", { machineId: PC });
     h.seed("archiviata", { machineId: PC });
     h.seed("altrove", { machineId: CLOUD });
-    h.db.run("UPDATE tasks SET status = 'in_progress' WHERE id = 'al-lavoro'");
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 1 WHERE id = 'al-lavoro'");
     h.db.run("UPDATE tasks SET status = 'done' WHERE id = 'chiusa'");
     h.db.run("UPDATE tasks SET archived = 1 WHERE id = 'archiviata'");
     expect(h.svc.countOnMachine(PC)).toBe(2);
+  });
+
+  // 26/11: `nodes[].used` in the capacity line counted every card with a
+  // `machine_id` pin, even one the primary had already closed, or one
+  // waiting on something other than the node. A seat now counts only a run
+  // the primary still believes is open.
+  it("una corsa chiusa sul primario libera il posto, anche con machine_id ancora scritto", () => {
+    const h = harness();
+    h.seed("chiusa-ma-pinnata", { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 0 WHERE id = 'chiusa-ma-pinnata'");
+    expect(h.svc.countOnMachine(PC)).toBe(0);
+  });
+
+  it("una card in attesa di qualcosa che non è il nodo (una persona, una condizione) lascia il posto", () => {
+    const h = harness();
+    h.seed("in-attesa-altrove", { machineId: PC });
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'agent', node_run_open = 0 WHERE id = 'in-attesa-altrove'",
+    );
+    expect(h.svc.countOnMachine(PC)).toBe(0);
+  });
+
+  it("una card in attesa del nodo stesso (silenzioso) resta contata", () => {
+    const h = harness();
+    h.seed("in-attesa-del-nodo", { machineId: PC });
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'machine', node_run_open = 0 WHERE id = 'in-attesa-del-nodo'",
+    );
+    expect(h.svc.countOnMachine(PC)).toBe(1);
+  });
+
+  it("4 posti presi con 2 corse aperte sul primario: dopo un giro i posti contati sono 2", () => {
+    const h = harness();
+    h.seed("corsa-1", { machineId: CLOUD });
+    h.seed("corsa-2", { machineId: CLOUD });
+    h.seed("ferma-1", { machineId: CLOUD });
+    h.seed("ferma-2", { machineId: CLOUD });
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 1 WHERE id IN ('corsa-1', 'corsa-2')");
+    // The other two still carry `machine_id` but the primary never opened (or
+    // already closed) a run for them: before the reconciliation, the old SQL
+    // (`status IN ('todo','in_progress')`) counted all four.
+    h.db.run("UPDATE tasks SET status = 'in_progress', node_run_open = 0 WHERE id = 'ferma-1'");
+    h.db.run(
+      "UPDATE tasks SET status = 'todo', dispatch_state = 'waiting', wait_source = 'agent', node_run_open = 0 WHERE id = 'ferma-2'",
+    );
+    expect(h.svc.countOnMachine(CLOUD)).toBe(2);
   });
 });
 
@@ -1589,8 +1377,129 @@ describe("overflow: una corsa vuota su un nodo lo salta, non ferma la card sul M
     const h = harness();
     h.seed(CARD, { machineId: PC });
     h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), CARD]);
-    const ok = returnEmptyNodeRunToTodo({ svc: h.svc, releaseAndEmit: (a) => h.svc.release(a), emit: () => {}, log: () => {} }, h.task(CARD), "PC Windows");
+    const ok = await returnEmptyNodeRunToTodo({ svc: h.svc, releaseAndEmit: (a) => h.svc.release(a), emit: () => {}, log: () => {} }, h.task(CARD), "PC Windows");
     expect(ok).toBe(true);
+    expect(h.task(CARD).stayLocal).toBe(false);
+    expect(h.task(CARD).overflowSkipMachine).toBe(PC);
+  });
+
+  it("il delivery di prima è già dentro main: chiusa, non torna in todo (25/11)", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET delivery_commit = 'deadbeef' WHERE id = ?", [CARD]);
+    const emitted: unknown[] = [];
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: (t) => emitted.push(t),
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("done");
+    expect(emitted.length).toBe(1);
+    expect(h.thread(CARD)).toContain("deadbeef".slice(0, 8));
+    expect(h.thread(CARD)).toContain("già dentro main");
+  });
+
+  it("rimandata dopo il land, corsa vuota: non chiude, va in review con la nota del rimando (26/11)", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'review', delivery_commit = 'deadbeef' WHERE id = ?", [CARD]);
+    h.svc.addComment({ taskId: CARD, author: "user", content: "manca il caso del rosso preesistente, aggiungi il test" });
+    h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
+    expect(h.task(CARD).reopenedActor).toBe("human");
+    const emitted: unknown[] = [];
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: (t) => emitted.push(t),
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("review");
+    expect(emitted.length).toBeGreaterThan(0);
+    expect(h.thread(CARD)).toContain("manca il caso del rosso preesistente");
+    expect(h.thread(CARD)).toContain("il nodo non ha fatto niente");
+  });
+
+  it("rimbalzo per CI rossa su main dopo il land, corsa vuota: la card NON è done (26/11)", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'done', delivery_commit = 'deadbeef', overflowed_at = ? WHERE id = ?", [new Date().toISOString(), CARD]);
+    h.svc.addComment({ taskId: CARD, author: "system", content: "La CI su main è rossa dopo il land: check:spec-coverage" });
+    h.svc.update({ taskId: CARD, actor: "human", by: "system", patch: { status: "todo" } });
+    expect(h.task(CARD).reopenedActor).toBe("system");
+    await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: () => {},
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(h.task(CARD).status).toBe("todo");
+  });
+
+  it("rimbalzo per CI rossa ma main già riparata altrove: corsa vuota, done come già su main", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'done', delivery_commit = 'deadbeef' WHERE id = ?", [CARD]);
+    h.svc.addComment({ taskId: CARD, author: "system", content: "La CI su main è rossa dopo il land: check:spec-coverage" });
+    h.svc.update({ taskId: CARD, actor: "human", by: "system", patch: { status: "todo" } });
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: () => {},
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+      mainIsRed: async () => false,
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("done");
+  });
+
+  it("riaperta dal sistema per altri motivi, già su main, corsa vuota: done come prima", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'done', delivery_commit = 'deadbeef' WHERE id = ?", [CARD]);
+    h.svc.update({ taskId: CARD, actor: "human", by: "system", patch: { status: "todo" } });
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: () => {},
+      log: () => {},
+      deliveryLanded: async (_repoPath, commit) => commit === "deadbeef",
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("done");
+  });
+
+  it("nessun delivery precedente, o non è su main: comportamento di oggi, torna in todo", async () => {
+    const { returnEmptyNodeRunToTodo } = await import("./task-dispatcher-remote-node-empty");
+    const h = harness();
+    h.seed(CARD, { machineId: PC });
+    h.db.run("UPDATE tasks SET delivery_commit = 'deadbeef', overflowed_at = ? WHERE id = ?", [new Date().toISOString(), CARD]);
+    const ok = await returnEmptyNodeRunToTodo({
+      svc: h.svc,
+      releaseAndEmit: (a) => h.svc.release(a),
+      emit: () => {},
+      log: () => {},
+      deliveryLanded: async () => false,
+      repoPathOfTask: () => "/tmp/alpha",
+    }, h.task(CARD), "Nodo cloud 1");
+    expect(ok).toBe(true);
+    expect(h.task(CARD).status).toBe("todo");
     expect(h.task(CARD).stayLocal).toBe(false);
     expect(h.task(CARD).overflowSkipMachine).toBe(PC);
   });
@@ -1601,5 +1510,122 @@ describe("overflow: una card che nomina file di questo Mac non va su un nodo", (
     expect(overflowEligible({ machineId: null, description: "tocca ~/.claude/jarvis/tools/usage-hub" }, {}, LOCAL)).toBe(false);
     expect(overflowEligible({ machineId: null, text: "plist in LaunchAgents" }, {}, LOCAL)).toBe(false);
     expect(overflowEligible({ machineId: null, description: "server/services/tasks.ts" }, {}, LOCAL)).toBe(true);
+  });
+});
+
+/**
+ * A REMOTE RUN AT REST GIVES ITS SEAT BACK (card 40903322). A run that declared
+ * a wait (`waiting`) or asks a person (`needs_input`) runs no turn over there, so
+ * it counts in none of the three reads (`countOnMachine`, the live slots of
+ * `machineLoad`, `countRunningOnMachine`) and counts again as soon as its chip
+ * says it is back at work. Each test goes through the real tick and claim.
+ */
+describe("a remote run that rests gives its seat back", () => {
+  function restingHarness(opts: { pcSlots?: number } = {}) {
+    const chips = new Map<string, string>();
+    const h = harness({
+      cloudOnline: false,
+      ...(opts.pcSlots !== undefined ? { pcSlots: opts.pcSlots } : {}),
+      runReport: (taskId) => ({ dispatchState: chips.get(taskId) ?? "working" }),
+    });
+    /** Ticks enough rounds for every free seat to be taken (`OVERFLOW_MAX_PER_ROUND` moves per round). */
+    const settle = async () => { for (let i = 0; i < 4; i++) { await h.tick(); h.advance(60_000); } };
+    /** The node reports `chip` for these cards, and the origin mirrors it. */
+    const report = async (chip: string, ...ids: string[]) => {
+      for (const id of ids) chips.set(id, chip);
+      await h.poll();
+      for (const id of ids) expect(h.task(id).dispatchState).toBe(chip);
+    };
+    const started = (ids: string[]) => ids.filter((id) => h.created.some((c) => c.originTaskId === id));
+    /** Cards on the PC with a turn alive or about to start: in progress, not resting. */
+    const atWork = () => (h.db.query(`SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status = 'in_progress'
+         AND COALESCE(dispatch_state, '') NOT IN ('waiting', 'needs_input')`).get(PC) as { n: number }).n;
+    return { h, settle, report, started, atWork };
+  }
+
+  it("a node with 2 seats and 2 runs at rest takes 2 new cards, and not a third", async () => {
+    const { h, settle, report, started } = restingHarness();
+    h.seed("rest-1"); h.seed("rest-2");
+    await settle();
+    expect(started(["rest-1", "rest-2"])).toHaveLength(2);
+    await report("waiting", "rest-1");
+    await report("needs_input", "rest-2");
+
+    const fresh = ["new-1", "new-2", "new-3"];
+    for (const id of fresh) h.seed(id);
+    await settle();
+    expect(started(fresh)).toHaveLength(OVERFLOW_SLOTS.node);
+    expect(fresh.filter((id) => h.task(id).machineId === PC)).toHaveLength(OVERFLOW_SLOTS.node);
+  });
+
+  it("a card pinned to that node starts too: the pinned read does not count the runs at rest", async () => {
+    // Declared seats: a pinned card is held only on a machine that declares them.
+    const { h, settle, report, started } = restingHarness({ pcSlots: 2 });
+    h.seed("rest-1"); h.seed("rest-2");
+    await settle();
+    await report("waiting", "rest-1", "rest-2");
+
+    for (const id of ["pinned-1", "pinned-2", "pinned-3"]) h.seed(id, { machineId: PC });
+    await settle();
+    expect(started(["pinned-1", "pinned-2", "pinned-3"])).toHaveLength(2);
+    expect(h.task("pinned-3").status).toBe("todo");
+  });
+
+  // Free cards are moved by the overflow, pinned ones go through the claim's
+  // own read: both have to stop at the machine's seats.
+  for (const pinned of [false, true]) {
+    it(`a PC with 4 seats, 3 runs at rest and a launch under way never has more than 4 at work (${pinned ? "pinned" : "free"} cards)`, async () => {
+      const { h, settle, report, started, atWork } = restingHarness({ pcSlots: 4 });
+      const resting = ["rest-1", "rest-2", "rest-3"];
+      for (const id of resting) h.seed(id);
+      await settle();
+      expect(started(resting)).toHaveLength(3);
+      await report("waiting", ...resting);
+      // A launch under way: claimed (in progress, `starting`) and not yet in the
+      // dispatcher's live slots, which it enters only at `beginRun`.
+      h.seed("launching", { machineId: PC });
+      h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'starting', dispatch_attempts = 1 WHERE id = 'launching'");
+
+      const fresh = ["new-1", "new-2", "new-3", "new-4"];
+      for (const id of fresh) h.seed(id, pinned ? { machineId: PC } : {});
+      await settle();
+      expect(started(fresh)).toHaveLength(3);
+      expect(atWork()).toBe(4);
+    });
+  }
+
+  it("a run that comes back from its wait with no seat free waits in the queue, and takes nothing more", async () => {
+    const { h, settle, report, started, atWork } = restingHarness({ pcSlots: 2 });
+    h.seed("rest-1"); h.seed("rest-2");
+    await settle();
+    await report("waiting", "rest-1", "rest-2");
+    h.seed("new-1"); h.seed("new-2");
+    await settle();
+    expect(started(["new-1", "new-2"])).toHaveLength(2);
+
+    // Its wait is over and the node has no seat: it reports itself queued, it
+    // counts again, and the machine is over its seats.
+    await report("queued", "rest-1");
+    expect(h.task("rest-1").status).toBe("in_progress");
+    expect(atWork()).toBe(3);
+    h.seed("new-3"); h.seed("pinned", { machineId: PC });
+    await settle();
+    expect(started(["new-3", "pinned"])).toEqual([]);
+    expect(h.task("new-3").machineId).not.toBe(PC);
+    expect(h.task("pinned").status).toBe("todo");
+  });
+
+  it("a card waiting in Todo for a silent node keeps its seat", () => {
+    const { h } = restingHarness();
+    h.seed("deferred", { machineId: PC });
+    h.db.run("UPDATE tasks SET dispatch_state = 'waiting', wait_source = 'machine' WHERE id = 'deferred'");
+    h.seed("resting", { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'waiting' WHERE id = 'resting'");
+    // No chip at all is a card at work, not one at rest (NULL never matches IN).
+    h.seed("no-chip", { machineId: PC });
+    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = NULL, node_run_open = 1 WHERE id = 'no-chip'");
+    expect(h.svc.countOnMachine(PC)).toBe(2);
+    expect(h.svc.countRunningOnMachine(PC)).toBe(1);
+    expect(h.svc.restingOnMachine(PC)).toEqual(["resting"]);
   });
 });

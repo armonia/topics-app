@@ -13,7 +13,7 @@
  *      `public/` is never left half empty;
  *   3. the isolated test server (`start-test-server.sh`: its own DATA_DIR,
  *      HOME, sockets and CLI stubs) on `$PORT`, serving that bundle;
- *   4. a made-up project and topic with a couple of messages, created through
+ *   4. a made-up, standalone topic with a couple of messages, created through
  *      the server's own API, so the shot shows a chat instead of the first-run
  *      screen. Nothing real goes in.
  *
@@ -24,6 +24,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { previewServerEnv } from "./preview-env";
+import { seedPreviewData } from "./preview-seed";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const port = Number(process.env.PORT);
@@ -95,23 +96,17 @@ async function waitForServer(timeoutMs: number): Promise<boolean> {
   return false;
 }
 
-/** Example data, all invented. A failed seed is reported and ignored: the preview still serves. */
+/**
+ * Example data, all invented, and the page to photograph. The order of the
+ * steps lives in `preview-seed.ts`, which is tested without a server: a failed
+ * seed is reported and ignored, the preview still serves.
+ */
 async function seed(): Promise<void> {
-  const projectDir = join(root, "example-project");
-  mkdirSync(projectDir, { recursive: true });
-  await api("PUT", "/api/app-settings", { firstRunDoneAt: new Date().toISOString() });
-  await api("POST", "/api/projects", { name: "Example project", path: projectDir });
-  const created = await api("POST", "/api/topics", { name: "Example topic", type: "chat", projectPath: projectDir });
-  const id = created?.topic?.id ?? created?.id;
-  if (!id) throw new Error("topic id missing in the answer");
-  const messages = [
-    "Here is a **short summary** of the example topic.\n\n- First point\n- Second point",
-    "A follow-up with `inline code` and a link: [example](https://example.com).",
-  ];
-  for (const content of messages) await api("POST", `/api/topics/${id}/system-message`, { content });
-  console.log(`▸ example data seeded (topic ${id})`);
-  // `?topic=` opens exactly that topic, without the sidebar: the chat is what the shot shows.
-  if (deepLinkFile) writeFileSync(deepLinkFile, `/?topic=${id}`);
+  await seedPreviewData({
+    api,
+    // `?topic=` opens exactly that topic, without the sidebar: the chat is what the shot shows.
+    announce: (deepLink) => { if (deepLinkFile) writeFileSync(deepLinkFile, deepLink); },
+  });
 }
 
 if (await waitForServer(120_000)) {

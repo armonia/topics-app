@@ -31,7 +31,7 @@ import type { ComponentType } from 'react';
 import {
   TRAFFIC_LIGHTS_WIDTH_PX, TRAFFIC_LIGHT_DOT_PX, TRAFFIC_LIGHT_GAP_PX, WINDOW_CONTROLS_INSET_PX, CONTENT_CHROME_INSET_PX, CONTENT_CHROME_INSET_PROPERTY,
 } from '../../lib/shell/windowControlsGeometry';
-import { ROW_INSET } from '../../lib/selectionStyles';
+import { CHROME_BAR_H, CHROME_ROW_SIDE_PX, ROW_INSET } from '../../lib/selectionStyles';
 
 // ONE EXPORT IS OVERRIDDEN, and the rest of the facade is left ALONE. Faking the
 // host is not enough: `isTauriWindows` is a module CONSTANT, computed the first
@@ -161,6 +161,22 @@ describe('the reserved room', () => {
     const rs = readTauriShellSource();
     expect(rs).toContain(`const LEFT_INSET: f64 = ${WINDOW_CONTROLS_INSET_PX}.0;`);
     expect(rs).toContain(`const PITCH: f64 = ${TRAFFIC_LIGHT_DOT_PX + TRAFFIC_LIGHT_GAP_PX}.0;`);
+  });
+
+  // The lights centre on the client's top row, whose height the client sends
+  // (`setTrafficLightsRow`). The shell's default is the row a client that
+  // predates the argument draws, and both rows the client sends must pass the
+  // shell's range check, or the lights stay on the wrong row with no error.
+  test('the Rust shell centres on the rows the client draws', () => {
+    const rs = readTauriShellSource();
+    expect(rs).toContain(`static TRAFFIC_LIGHTS_ROW_PX: AtomicU32 = AtomicU32::new(${CHROME_BAR_H});`);
+    expect(rs).toContain(`const TRAFFIC_LIGHT_DOT: f64 = ${TRAFFIC_LIGHT_DOT_PX}.0;`);
+    const range = rs.match(/row\.filter\(\|px\| \((\d+)\.\.=(\d+)\)\.contains\(px\)\)/);
+    expect(range).not.toBeNull();
+    for (const row of [CHROME_BAR_H, CHROME_ROW_SIDE_PX]) {
+      expect(row).toBeGreaterThanOrEqual(Number(range![1]));
+      expect(row).toBeLessThanOrEqual(Number(range![2]));
+    }
   });
 
 

@@ -49,7 +49,7 @@ import { usePresenceSummary } from '@/hooks/usePresenceSummary';
 import { presenceSummary } from '../../../../shared/presence-phrase';
 import { openPersonProfile } from '@/state/profileTarget';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET } from '@/lib/selectionStyles';
-import { chipClass } from './identityChip';
+import { chipClass, meRowClass } from './identityChip';
 import { PALLINO_OK, SEGNALE_ATTESA } from './chromeSignals';
 import type { SidebarCommands } from './ProfileMenu';
 import { ProfileMenu, prefetchProfileMenu } from './profileMenuLazy';
@@ -83,7 +83,9 @@ export function IdentityBlock({ commands, alarm = false }: {
     // here so nothing can add a second one on top of it.
     <div
       data-testid="identity-block"
-      className="flex flex-col gap-1 text-mini"
+      // No gap: every child carries the column's half step (3px) itself, so
+      // Sistema to chips and chips to card are both 6px, as between rows.
+      className="flex flex-col text-mini"
       style={{ paddingInline: ROW_INSET, paddingBottom: ROW_INSET }}
     >
       <FriendChipsRow chips={chips} />
@@ -121,7 +123,7 @@ function FriendChipsRow({ chips }: { chips: ReturnType<typeof friendChips> }) {
       // `overflow-x-auto` with `scrollbar-hide`: the bar itself would be a
       // permanent grey line under the last row of the column, and the content
       // it would describe is faces that are already cut in half at the edge.
-      className="flex flex-nowrap items-center gap-1 overflow-x-auto scrollbar-hide"
+      className="flex flex-nowrap items-center gap-1 my-half overflow-x-auto scrollbar-hide"
     >
       {chips.map((c) => (
         <button
@@ -267,8 +269,8 @@ function UserCard({ identity, commands, alarm }: {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={who.nome}
-        // Always FULL: if this card is drawn at all you are paired.
-        className={`${chipClass(true)} w-full min-w-0 text-left`}
+        // A row, not a chip: see `meRowClass`.
+        className={`${meRowClass(open)} w-full min-w-0 text-left`}
         title={[`${who.nome}${who.dettaglio ? ` \u00b7 ${who.dettaglio}` : ''}`, summary ?? '', hot?.title ?? '', ...waiting].filter(Boolean).join('\n')}
       >
         {/* THE FACE, and only when there is a person: a disc holding the

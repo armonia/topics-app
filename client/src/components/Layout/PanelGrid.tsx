@@ -45,7 +45,7 @@ import { paneZoomActions, usePaneZoomStore } from '../../state/paneZoom';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-import { ROW_INSET } from '../../lib/selectionStyles';
+import { CHROME_ROW_SIDE_PX, ROW_INSET } from '../../lib/selectionStyles';
 import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey, remapTopicInCells, reorderCellPreservingPrimary } from './soloCells';
 import { recordSoloTombstones, restoreFromSoloTombstones, type SoloCellTombstone } from './soloCellTombstones';
@@ -312,6 +312,9 @@ export function PanelGrid({
   // Mobile detection for single-column layout: the shared layout predicate,
   // so that «are there splits here?» has one answer and not one per file.
   const isMobile = useLayoutMobile();
+  // The first row's chrome bar, which the top drop strip clears: 46 on the
+  // title row (tabs at the side, desktop), 40 with the strip or on the phone.
+  const firstBarH = !isMobile && !tabStrip ? CHROME_ROW_SIDE_PX : TAB_BAR_H;
 
   // Only whether anything is unsent: the band itself reads the queue, and
   // stays out of the eager bundle until there is something to show.
@@ -1500,9 +1503,9 @@ export function PanelGrid({
       atContainerBottom: rowIdx === rows.length - 1,
       gapBandBelow: rowIdx < rows.length - 1,
       extremeStrips: rows.some((r) => r.itemKeys.length > 1),
-      topStripOffset: TAB_BAR_H,
+      topStripOffset: firstBarH,
     });
-  }, [gridRowsRef]);
+  }, [gridRowsRef, firstBarH]);
 
   // Capture phase: fires BEFORE children, so we can intercept edge drags
   // even when StandaloneChatGroup/GroupLayout consume bubble-phase events
@@ -2691,7 +2694,7 @@ export function PanelGrid({
             // Clear the first row's tab bar, exactly like the project layout:
             // a strip laid over that bar takes the drops meant for it, so
             // moving a tab into the first row's group was unreachable.
-            edgeOffset={side === 'top' ? TAB_BAR_H : 0}
+            edgeOffset={side === 'top' ? firstBarH : 0}
             onDragOver={handleFullRowDragOver(side)}
             onDragLeave={handleFullRowDragLeave}
             onDrop={handleFullRowDrop(side)}
@@ -2925,7 +2928,7 @@ export function PanelGrid({
           the inset on the left, the same one a cell's own bar uses. */}
       {isZoomed && onToggleSidebar && (
         <div
-          className="absolute z-10 flex items-center app-no-drag"
+          className="column-toggle absolute z-10 flex items-center app-no-drag"
           data-testid="pane-zoom-sidebar-toggle"
           style={{
             top: 0,

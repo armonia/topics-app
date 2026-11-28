@@ -626,6 +626,11 @@ describe("handleMessage", () => {
       "comment_task",
       "send_mail",
       "google_call",
+      "create_scheduled_job",
+      "list_scheduled_jobs",
+      "run_scheduled_job",
+      "pause_scheduled_job",
+      "delete_scheduled_job",
       "ask_user_question",
       "show_view", // GENUI-01: a designed view in the chat
       // Il canale di permesso: pubblicato sempre. Lo designa
@@ -695,7 +700,7 @@ describe("handleMessage", () => {
       // Aspettare la fine di un processo non lo tocca: è una lettura che dura.
       "wait_for_process",
       "list_tasks", "get_task", "get_goal", "read_agent", "list_agents",
-      "list_global_tasks", "get_global_task",
+      "list_global_tasks", "get_global_task", "list_scheduled_jobs",
       "read_chat_messages", "resolve_tab",
       // Chiedere a una persona non cambia niente: è la lettura più pura che ci sia.
       "ask_user_question", "approval_prompt",
@@ -712,6 +717,7 @@ describe("handleMessage", () => {
       // It reloads or navigates the page before it reads it.
       "browser_verify",
       "run_script", "run_command", "stop_process",
+      "create_scheduled_job", "run_scheduled_job", "pause_scheduled_job", "delete_scheduled_job",
       "create_task", "update_task", "close_goal", "set_goal", "update_goal_steps",
       "comment_task", "label_task", "wait_for_condition",
       "create_global_task", "update_global_task", "comment_global_task",
@@ -1628,6 +1634,20 @@ describe("callUpdateTask", () => {
     expect(seen.init?.body).toBe(JSON.stringify({ output_url: "" }));
   });
 
+  // Same gap as `callCreateTask`: the kickoff also teaches
+  // `update_task(task_id=<the later card>, blockedByTaskId="…")`.
+  test("blockedByTaskId arriva al corpo della PATCH, empty string lo pulisce", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "todo" }), { status: 200 });
+    });
+    await callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", blockedByTaskId: "parent-1" }, fetchImpl);
+    expect(seen.init?.body).toBe(JSON.stringify({ blockedByTaskId: "parent-1" }));
+    await callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", blocked_by_task_id: "" }, fetchImpl);
+    expect(seen.init?.body).toBe(JSON.stringify({ blockedByTaskId: null }));
+  });
+
   test("throws when task_id missing or no patch given", async () => {
     const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
     await expect(
@@ -1701,6 +1721,38 @@ describe("callCreateTask", () => {
     });
     await callCreateTask({ baseUrl: "http://x", sessionKey: "s" }, { text: "una card nuova" }, fetchImpl);
     expect(JSON.parse(String(seen.init?.body))).toEqual({ text: "una card nuova" });
+  });
+
+  // Review feedback 26/11, point 4: the kickoff teaches
+  // `create_task(text=<step>, blockedByTaskId="…")` (task-dispatcher-kickoff.ts),
+  // but the tool was silently dropping the field: the card was born with no
+  // link and no error. Red if the forwarding below is removed.
+  test("blockedByTaskId arriva al corpo della richiesta REST", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t9", status: "backlog" }), { status: 201 });
+    });
+    await callCreateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { text: "step futuro", blockedByTaskId: "parent-1" },
+      fetchImpl,
+    );
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ text: "step futuro", blockedByTaskId: "parent-1" });
+  });
+
+  test("blocked_by_task_id (snake_case) è un alias accettato", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t9", status: "backlog" }), { status: 201 });
+    });
+    await callCreateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { text: "step futuro", blocked_by_task_id: "parent-1" },
+      fetchImpl,
+    );
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ text: "step futuro", blockedByTaskId: "parent-1" });
   });
 
   test("il 409 dice all'agente QUALE card esiste già, con l'id", async () => {

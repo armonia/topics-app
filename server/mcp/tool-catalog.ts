@@ -4,6 +4,7 @@ import { PREVIEW_RULE, RECOMMENDED_OPTION_RULE, REVIEW_CARD_RULE, TASK_STATUSES 
 import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { OUTBOUND_TOOLS } from "./outbound-tools";
 import { COMMAND_TOOLS } from "./command-tools";
+import { SCHEDULE_TOOLS } from "./schedule-tools";
 import { BIND_LOOPBACK_NOTE, runScriptBindNote } from "../../shared/background-work";
 import { SHOW_VIEW_TOOL } from "./view-tools";
 
@@ -259,6 +260,7 @@ export const TOOLS = [
         parent_task_id: { type: "string", description: "Optional parent task id — nests this task as its subtask." },
         bar: { type: "string", description: "Executable acceptance bar: the check that says the work is done (a command or a test). A card without it is flagged incomplete." },
         allow_duplicate: { type: "boolean", description: "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job." },
+        blocked_by_task_id: { type: "string", description: "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked on the board until the one named here is `done` or archived. `blockedByTaskId` is accepted too." },
       },
       required: ["text"],
     },
@@ -364,6 +366,7 @@ export const TOOLS = [
           description:
             "WITH a delivery (status='review'): the question the PERSON has to answer or the thing they have to see. Leave it out when there is nothing to decide.",
         },
+        blocked_by_task_id: { type: "string", description: "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked until the one named here is `done` or archived. Empty string clears it. `blockedByTaskId` is accepted too." },
       },
       required: ["task_id"],
     },
@@ -508,6 +511,7 @@ export const TOOLS = [
     annotations: MODIFICA,
   },
   ...OUTBOUND_TOOLS,
+  ...SCHEDULE_TOOLS,
   {
     name: "ask_user_question",
     description:

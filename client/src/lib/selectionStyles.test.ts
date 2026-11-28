@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  SIDEBAR_INDENT_STEP, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, SECTION_H, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sidebarRowCard,
+  SIDEBAR_INDENT_STEP, SIDEBAR_HOVER, RESTING_SURFACE, TAB_BUTTON, TAB_BUTTON_SQUARE, TAB_BUTTON_H, TAB_BUTTON_PX, tabButton, CHROME_BAR, CHROME_BAR_H, CHROME_BAR_SIDE, CHROME_BAR_SIDE_STYLE, CHROME_ROW_SIDE_PX, CHROME_ROW_TAB_RESERVE_LEFT, chromeRowPx, trafficLightsRowPx, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sectionCard, sectionIsland, sidebarRowCard,
 } from './selectionStyles';
 
 /**
@@ -85,6 +85,43 @@ describe('la riga di chrome e il comando in coda', () => {
 });
 
 /**
+ * THE ROW WITH THE TABS AT THE SIDE (26/11): one step on all four sides.
+ * «non hanno spaziature fra di loro e ai lati coerenti su tutti e 4 i lati»:
+ * the row was the strip's 40 around 34 tall buttons, 3 above and below against
+ * 6 at the sides. These recompute the row from the button and the step.
+ */
+describe('the title row is a tab and one step above and below', () => {
+  test('the lights get the row the window draws: 46 at the side, 40 with the strip or on the phone', () => {
+    expect(trafficLightsRowPx(false, false)).toBe(CHROME_ROW_SIDE_PX);
+    expect(trafficLightsRowPx(false, true)).toBe(CHROME_BAR_H);
+    expect(trafficLightsRowPx(true, false)).toBe(CHROME_BAR_H);
+    expect(trafficLightsRowPx(true, true)).toBe(CHROME_BAR_H);
+  });
+
+  test('the number is the box plus a step on each side', () => {
+    expect(risolvi(TAB_BUTTON_H, 'h').wide).toBe(TAB_BUTTON_PX);
+    expect(CHROME_ROW_SIDE_PX).toBe(TAB_BUTTON_PX + 2 * ROW_INSET);
+    expect(chromeRowPx(false)).toBe(CHROME_ROW_SIDE_PX);
+    expect(chromeRowPx(true)).toBe(CHROME_BAR_H);
+  });
+
+  test('the bar and its variable say the same number, the strip keeps 40', () => {
+    expect(risolvi(CHROME_BAR_SIDE, 'h').wide).toBe(CHROME_ROW_SIDE_PX);
+    expect((CHROME_BAR_SIDE_STYLE as Record<string, string>)['--chrome-bar-h']).toBe(`${CHROME_ROW_SIDE_PX}px`);
+    expect(risolvi(CHROME_BAR, 'h').wide).toBe(CHROME_BAR_H);
+    // Below 768 the row is the phone's 40 in both.
+    expect(risolvi(CHROME_BAR_SIDE, 'h').compact).toBe(CHROME_BAR_H);
+  });
+
+  test("the room for the column's toggle is step + tab button + step", () => {
+    const box = { wide: risolvi(TAB_BUTTON_SQUARE, 'w').wide, compact: risolvi(TAB_BUTTON_SQUARE, 'w').compact };
+    const pl = risolvi(CHROME_ROW_TAB_RESERVE_LEFT, 'pl');
+    expect(pl.wide).toBe(ROW_INSET + box.wide + ROW_INSET);
+    expect(pl.compact).toBe(ROW_INSET + box.compact + ROW_INSET);
+  });
+});
+
+/**
  * IL PASSO DELLA COLONNA, PER LO STESSO MOTIVO DI SOPRA.
  *
  * `COLUMN_GAP` è un numero, ma la metà che tocca alle card è scritta come
@@ -159,20 +196,58 @@ describe('le due famiglie di altezza, e le tre misure interne', () => {
     // usavano `gap-2`: la costante era in minoranza rispetto ai suoi clienti.
     expect(risolvi(ROW_GAP, 'gap')).toEqual({ wide: 8, compact: 8 });
     expect(SECTION_CARD).toContain(ROW_GAP);
-    expect(SECTION_CARD).toContain(SECTION_H);
+    expect(SECTION_CARD).toContain(ROW_H);
     expect(SECTION_CARD).toContain(ROW_PX);
   });
 
-  test("l'intestazione di sezione prende un numero da ciascuna famiglia", () => {
-    // E i due vengono da due VINCOLI diversi, non da due gusti (vedi SECTION_H):
-    //  · col mouse è una card a una riga sola → la misura di CARD_H;
-    //  · col dito è un bersaglio in una colonna → la misura di ROW_H, cioè i
-    //    44px del minimo iOS. `SECTION_CARD` stava a 36: otto sotto la soglia,
-    //    ed era l'unica cosa premibile in quella colonna a esserlo.
-    const sezione = risolvi(SECTION_H, 'h');
-    expect(sezione.wide).toBe(risolvi(CARD_H, 'h').wide);
-    expect(sezione.compact).toBe(risolvi(ROW_H, 'h').compact);
-    expect(sezione.compact).toBe(44);
+  test("a section's header is as tall as a row, the touch floor included", () => {
+    // 25/11: the island headers with the tabs' heights and spacings. They used
+    // to take 28 with the mouse from CARD_H; facing the column's rows at 34,
+    // the same column read as two measures.
+    const heights = SECTION_CARD.split(/\s+/).filter((c) => /^(?:md:|coarse:)?h-/.test(c));
+    expect(heights.join(' ')).toBe(ROW_H);
+    expect(heights).toContain('coarse:h-11');
+    // No margin of its own: the island carries the inset, a row's 6px.
+    expect(SECTION_CARD).not.toMatch(/(?:^|\s)m-\d/);
+  });
+
+  test('no ground at rest: a closed section and a row that is not a tab paint nothing', () => {
+    // 25/11: "if not active in some way, no background, as the tabs should
+    // already do". A class that paints at rest starts with `bg-` or carries a
+    // width variant of it (`max-md:bg-`); hover and dark variants are not rest.
+    const atRest = (cls: string) => cls.split(/\s+/).filter((c) => /^(?:max-md:|md:)?bg-/.test(c));
+    expect(atRest(sectionCard(false))).toEqual([]);
+    expect(atRest(sectionIsland(false))).toEqual([]);
+    expect(sectionIsland(false)).not.toContain('edge-lit');
+    expect(atRest(sidebarRowCard({}))).toEqual([]);
+    expect(atRest(sidebarRowCard({ tab: 'closed' }))).toEqual([]);
+    // Open, the island is the card, with the open tabs' resting ground.
+    expect(atRest(sectionIsland(true))).toEqual(['bg-black/[0.05]']);
+    expect(sectionIsland(true)).toContain('edge-lit');
+    // The pointer: every tab takes the rows' hover ground, a closed one too
+    // (25/11: "shouldn't the hover background appear for all of them?").
+    for (const cls of [sectionCard(false), sectionCard(true), sidebarRowCard({ tab: 'closed' }), sidebarRowCard({})]) {
+      expect(cls).toContain(SIDEBAR_HOVER);
+    }
+  });
+
+  test('a button beside the tabs is a tab: a row tall, no ground at rest, an open tab while open', () => {
+    // 25/11: "all the notification and sidebar buttons [must] have the tabs'
+    // behaviour, size and colours".
+    const heights = TAB_BUTTON.split(/\s+/).filter((c) => /^(?:md:|coarse:)?h-/.test(c));
+    expect(heights.join(' ')).toBe(TAB_BUTTON_H);
+    // A row's height without its touch step: the rows these buttons sit in
+    // are 40px from 768px up for every pointer.
+    expect(ROW_H.startsWith(TAB_BUTTON_H)).toBe(true);
+    expect(`${TAB_BUTTON} ${TAB_BUTTON_SQUARE}`).not.toContain('coarse:');
+    const atRest = (cls: string) => cls.split(/\s+/).filter((c) => /^(?:max-md:|md:)?bg-/.test(c));
+    expect(atRest(tabButton(false))).toEqual([]);
+    expect(tabButton(false)).not.toContain('edge-lit');
+    expect(tabButton(false)).toContain(SIDEBAR_HOVER);
+    expect(tabButton(true)).toContain(RESTING_SURFACE);
+    expect(tabButton(true)).toContain('edge-lit');
+    // Square, as wide as a row is tall at every width.
+    expect(TAB_BUTTON_SQUARE.replace(/w-/g, 'h-')).toBe(TAB_BUTTON_H);
   });
 
   test("l'aria DENTRO non è quella FRA: due domande, due numeri", () => {

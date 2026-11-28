@@ -28,8 +28,10 @@
  * server, and its sweep only has to spare the leases of its own process.
  */
 import { readdirSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { ASIDE_MARK, discardWorktree, worktreeRepoOf, type DiscardDeps, type DiscardGit } from "../lib/worktree-discard";
+import { installWorktreeDeps } from "../lib/worktree-install-deps";
 import { scratchDir } from "./worktree-scratch";
 import type { NodeDeliveryCheckout } from "./node-delivery-meter";
 
@@ -37,11 +39,13 @@ export interface NodeCheckWorktreeInput {
   git: DiscardGit;
   repoPath: string;
   branch: string;
-  /** Folder holding one checkout per card (`nodeCheckRoot()`). */
+  /** Folder holding one checkout per run (`nodeCheckRoot()`). */
   root: string;
   taskId: string;
   resolveHead: (cwd: string) => Promise<string | null>;
   discard?: DiscardDeps;
+  /** The run's own id (injectable for tests); a fresh one is drawn when omitted. */
+  runId?: string;
 }
 
 /**
@@ -54,15 +58,25 @@ export function nodeCheckRoot(root?: string): string {
   return scratchDir("node-checks", root);
 }
 
-function checkPath(root: string, taskId: string): string {
-  return join(root, taskId.slice(0, 8));
+/**
+ * One folder per RUN, not per card: the card id is only a human-readable
+ * prefix. Two overlapping runs of the same card (a retry, a second check
+ * queued behind the first) get different paths, so neither one's pre-add
+ * discard can delete the folder the other is still working in.
+ */
+function checkPath(root: string, taskId: string, runId: string): string {
+  return join(root, `${taskId.slice(0, 8)}-${runId}`);
 }
 
 export async function openNodeCheckWorktree(input: NodeCheckWorktreeInput): Promise<NodeDeliveryCheckout | null> {
   const { git, repoPath, branch } = input;
-  const path = checkPath(input.root, input.taskId);
+  const runId = input.runId ?? randomBytes(4).toString("hex");
+  const path = checkPath(input.root, input.taskId, runId);
   await discardWorktree(git, repoPath, path, input.discard);
-  const added = await git(repoPath, ["worktree", "add", path, branch]);
+  // `--force`: a second run of the same card checks out the same branch at
+  // its own path while the first one's checkout is still alive, and git's
+  // own "already used by worktree" safeguard would otherwise refuse it.
+  const added = await git(repoPath, ["worktree", "add", "--force", path, branch]);
   if (added.code !== 0) {
     // An add that fails or hits its deadline half-way leaves its partial tree
     // (and, killed by SIGKILL, a locked registration): it goes now, not at the
@@ -70,6 +84,11 @@ export async function openNodeCheckWorktree(input: NodeCheckWorktreeInput): Prom
     await discardWorktree(git, repoPath, path, input.discard);
     return null;
   }
+  // A LOCAL CHECK (typecheck, lint, unit tests) needs `node_modules`, which
+  // `git worktree add` never materialises (shared with the agent worktrees,
+  // `worktree-manager.ts`). Best-effort: a failed install must not stop the
+  // measure, the gate the install was for goes red on its own instead.
+  await installWorktreeDeps(path).catch((err) => console.warn(`[node-check-worktree] deps not installed in ${path}:`, err));
   return {
     cwd: path,
     head: () => input.resolveHead(path),
@@ -84,18 +103,23 @@ export interface NodeCheckWorktrees {
 }
 
 /** The checkouts of one server: it opens them and knows which are leased, so its boot sweep spares them. */
-export function createNodeCheckWorktrees(deps: Omit<NodeCheckWorktreeInput, "repoPath" | "branch" | "taskId">): NodeCheckWorktrees {
+export function createNodeCheckWorktrees(deps: Omit<NodeCheckWorktreeInput, "repoPath" | "branch" | "taskId" | "runId">): NodeCheckWorktrees {
+  // A path is unique per call (its own run id), so two opens of the same card
+  // never share a key here: one's release can never drop the other's entry.
   const leased = new Set<string>();
   let sweeping: Promise<unknown> = Promise.resolve();
 
   async function open(input: { repoPath: string; branch: string; taskId: string }): Promise<NodeDeliveryCheckout | null> {
-    const path = checkPath(deps.root, input.taskId);
+    // Its own run id, drawn fresh on every call: never `deps.runId` (that one is
+    // only for the bare `openNodeCheckWorktree` a test calls directly).
+    const runId = randomBytes(4).toString("hex");
+    const path = checkPath(deps.root, input.taskId, runId);
     // Marked before the first await: the sweep checks it in the same synchronous step as its rename.
     leased.add(path);
     // A sweep's `worktree prune` running beside this `worktree add` can make the
     // add fail (git drops the empty `.git/worktrees` under it): the add waits.
     await sweeping.catch(() => undefined);
-    const lease = await openNodeCheckWorktree({ ...deps, ...input }).catch(() => null);
+    const lease = await openNodeCheckWorktree({ ...deps, ...input, runId }).catch(() => null);
     if (!lease) { leased.delete(path); return null; }
     return {
       ...lease,

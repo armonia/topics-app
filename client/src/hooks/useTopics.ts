@@ -21,6 +21,7 @@ import {
 } from './topicBuckets';
 import { hydrateTopicPreviews } from '../state/topicPreviews';
 import { shouldRetryTopicsLoad, topicsRetryDelayMs } from './topicsRetry';
+import { markRowLeaving, topicRowExitKey } from '../lib/rowExit';
 
 /**
  * The caches of this hook go through a throttled writer, and it is not a
@@ -319,6 +320,9 @@ export function useTopics() {
     };
     try {
       setError(null);
+      // The row leaves the column with this flip: its exit is recorded first,
+      // while it is still on screen (lib/rowExit).
+      if (archived) markRowLeaving(topicRowExitKey(id));
       // Optimistic update: immediately set archived flag to prevent count flash
       setBuckets(prev => flip(prev, archived));
       const topic = await topicsApi.archive(id, archived);

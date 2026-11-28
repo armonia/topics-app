@@ -266,6 +266,7 @@ export interface AppBehaviorSettings {
   firstRunDoneAt: string | null;
   securityAlertsProjectId: string | null;
   topicsCheck: string | null;
+  scheduledDelivery: string | null;
   /** Folder every worktree is created in. `null` = `<Topics home>/worktrees`. */
   worktreeRoot: string | null;
   /** Worktrees one project may keep before cleanup starts. `null` = 20. */

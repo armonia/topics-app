@@ -65,7 +65,7 @@ import { ownerLabel } from './ownerChip';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
-import { resolveProjectRefs, useBoardFamilies, useBoardProjectLabels } from '../../lib/boardProjectsStore';
+import { projectNamesForBoard, useBoardFamilies, useBoardProjectLabels } from '../../lib/boardProjectsStore';
 import { mergedParentMap } from '../../../../shared/project-family';
 import { MergedBoardsContext } from './mergedBoards';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
@@ -848,8 +848,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   );
   const groupSource = useMemo(() => shownColumns.flatMap((c) => byColumn.get(c.id) ?? []), [shownColumns, byColumn]);
   const projectNameById = useMemo(
-    () => new Map<string, string>(resolveProjectRefs([...new Set(tasks.map((t) => t.projectId))], projectIndex).map((p) => [p.projectId, p.name])),
-    [tasks, projectIndex],
+    () => projectNamesForBoard(tasks.map((t) => t.projectId), projectParent.values(), projectIndex),
+    [tasks, projectIndex, projectParent],
   );
   // Where the composer's ghost sits: in its project's group when the first level is the project, above the groups otherwise.
   const draftPlacement = useMemo(

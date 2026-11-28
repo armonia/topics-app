@@ -15,7 +15,7 @@ import { findDuplicateGroups } from "../../shared/task-similarity";
 import { landedOnMain } from "./tasks-ci-phase";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { answerRoutedAsk, pendingRoutedAsk, DEAD_QUESTION_LINE, type AskRoutingDeps } from "../services/board-ask-routing";
-import { isLandActionLabel, isPublishActionLabel, projectIdForPath, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
+import { isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import type { TaskDispatcher } from "../services/task-dispatcher";
@@ -32,7 +32,7 @@ import { staleTaskModelError, isStaleModelChange, taskModelIsCurrent } from "../
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
 import { readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
-import { CI_PHASE_MODES, MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_COLUMNS, parseCiPhase, parsePersonPaths } from "../../shared/workflow";
+import { CI_PHASE_MODES, MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_COLUMNS, parseCiPhase, parsePersonPaths, parseReviewerModels, parseScheduledReviewMinutes, type ReviewerModels } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -328,23 +328,31 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         catch (e) { return fail(e); }
       }
       if (method === "PUT") {
-        const body = ((await readJSON(req)) ?? {}) as { preset?: unknown; ciPhase?: unknown; personPaths?: unknown };
+        const body = ((await readJSON(req)) ?? {}) as { preset?: unknown; ciPhase?: unknown; personPaths?: unknown; scheduledReviewMinutes?: unknown; reviewerModels?: unknown };
         const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
-        if (!has("preset") && !has("ciPhase") && !has("personPaths")) {
+        if (!has("preset") && !has("ciPhase") && !has("personPaths") && !has("scheduledReviewMinutes") && !has("reviewerModels")) {
           return json({ error: "nothing to write: send ciPhase or personPaths", code: "invalid_input" }, 400);
         }
         if (has("ciPhase") && body.ciPhase !== null && parseCiPhase(body.ciPhase) === null) {
           return json({ error: `ciPhase must be one of ${CI_PHASE_MODES.join(", ")}, true, false or null`, code: "invalid_input" }, 400);
+        }
+        if (has("scheduledReviewMinutes") && body.scheduledReviewMinutes !== null && parseScheduledReviewMinutes(body.scheduledReviewMinutes) === null) {
+          return json({ error: "scheduledReviewMinutes must be 0 (off), a whole number from 10 to 1440, or null", code: "invalid_input" }, 400);
+        }
+        if (has("reviewerModels") && body.reviewerModels !== null && parseReviewerModels(body.reviewerModels) === null) {
+          return json({ error: "reviewerModels must be { primary?, fallback? } with plain model ids, or null", code: "invalid_input" }, 400);
         }
         const personPaths = has("personPaths") && body.personPaths !== null ? parsePersonPaths(body.personPaths) : null;
         if (has("personPaths") && body.personPaths !== null && personPaths === null) {
           return json({ error: `personPaths must be a list of at most ${MAX_PERSON_PATHS} { pattern, why }`, code: "invalid_input" }, 400);
         }
         try {
-          if (has("ciPhase") || has("personPaths")) {
+          if (has("ciPhase") || has("personPaths") || has("scheduledReviewMinutes") || has("reviewerModels")) {
             writeWorkflowRules(ctx.db, scope, {
               ...(has("ciPhase") ? { ciPhase: parseCiPhase(body.ciPhase) } : {}),
               ...(has("personPaths") ? { personPaths } : {}),
+              ...(has("scheduledReviewMinutes") ? { scheduledReviewMinutes: body.scheduledReviewMinutes as number | null } : {}),
+              ...(has("reviewerModels") ? { reviewerModels: body.reviewerModels as ReviewerModels | null } : {}),
             }, new Date().toISOString());
           }
           return json(view());
@@ -443,6 +451,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             // The overflow's switch and the board-wide "this Mac only" mark.
             dispatchOverflow: typeof body?.dispatchOverflow === "boolean" ? body.dispatchOverflow : undefined,
             dispatchStayLocal: typeof body?.dispatchStayLocal === "boolean" ? body.dispatchStayLocal : undefined,
+            backlogTriage: typeof body?.backlogTriage === "boolean" ? body.backlogTriage : undefined,
             dispatchFanOut: typeof body?.dispatchFanOut === "number" ? body.dispatchFanOut : undefined,
             // I QUATTRO CHE LA ROTTA NON INOLTRAVA. Esistono nel servizio, nella
             // tabella e nel tipo, e due di loro li LEGGE il dispatcher a ogni
@@ -757,6 +766,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     if (bMove && method === "POST") {
       const body = (await readJSON(req)) as any;
       try {
+        // A card that is only queued drops its queue entry (grace timer, chip) before
+        // leaving; it re-enters todo on the new board below.
+        if (dispatcher && svc.get(bMove.taskId)?.task?.dispatchState === "queued") dispatcher.onLeaveTodo(bMove.taskId);
         const task = svc.moveToProject({
           taskId: bMove.taskId,
           projectId: bMove.projectId,
@@ -1549,12 +1561,40 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       }
       if (method === "DELETE") {
         try {
+          // A card still the live blocker (blockedByTaskId) of an unfinished
+          // dependent is refused BEFORE anything else: `archive()` throws the
+          // same `blocks_live_dependent`, but by then the live agent below was
+          // already killed and the open children already detached — a 409
+          // that still left the damage behind (review feedback, 26/11).
+          // Without `?withChildren=1` the open direct children are unhooked
+          // below and stay on the board, so the precheck must not count a
+          // dependent of theirs: it would make this card impossible to archive
+          // for a blocker that is not going anywhere (review feedback, 26/11).
+          const takesChildrenDown = new URL(req.url).searchParams.get("withChildren") === "1";
+          const cause = stopCauseOf(req, req.headers.get(STOP_CAUSE_HEADER));
+          try {
+            svc.assertArchivable({ taskId, projectId, detachingOpenChildren: !takesChildrenDown });
+          } catch (e) {
+            // The kickoff tells every agent to self-link its next step with
+            // `blockedByTaskId` (KANBAN-124), so a card in review almost
+            // always still "blocks a live dependent" — and this same route is
+            // how another machine's revoke or resend reaches us (C9, see
+            // `deleteDelegatedBoardTask`). KANBAN-123's guarantee must hold
+            // (the dependent keeps waiting, nothing here is archived), but a
+            // MACHINE cause means revoked is a fact, not a request: the agent
+            // still has to actually stop, or it keeps working for an origin
+            // that already cancelled it (review feedback, 26/11, point 4).
+            if (e instanceof TaskServiceError && e.code === "blocks_live_dependent" && cause !== "user") {
+              const stuck = svc.get(taskId, { projectId });
+              if (stuck && stuck.task.status !== "done") detachLiveAgent(stuck.task, NOTE_ARCHIVED_BY_HUMAN, cause);
+            }
+            throw e;
+          }
           // Un task che sparisce dalla board si porta dietro il suo agente:
           // archiviare senza tagliare il turno lascia un agente che lavora per
           // nessuno (vedi `detachLiveAgent`). Prima di archiviare, quindi.
           const got = svc.get(taskId, { projectId });
           if (got) {
-            const cause = stopCauseOf(req, req.headers.get(STOP_CAUSE_HEADER));
             if (got.task.status === "done") {
               // A done card is never parked: `release` would reopen it in
               // backlog with a false comment (card 47b63de2). A stream still
@@ -1575,7 +1615,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // names them. Detach, not 409: both client callers (card menu, the
           // «drop» choice) only read `ok` and have no UI to answer a refusal.
           // `?withChildren=1` keeps the old cascade for whoever really means it.
-          const detachedTaskIds = new URL(req.url).searchParams.get("withChildren") === "1"
+          const detachedTaskIds = takesChildrenDown
             ? []
             : svc.detachOpenChildren({ taskId, projectId });
           const archivedTaskIds = cardTreeIds(taskId);

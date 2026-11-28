@@ -1,19 +1,1552 @@
 [
   {
-    "version": "2.4.110",
+    "version": "2.5.27",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Remove on-demand node-pool slots, keep the permanent node only",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview seed: correct the proven cause and lock it with tests",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.25",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Make the walkFileTree yield test load-independent",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Trace the systemd-temp-entries test to GATE-13 so check:untraced-tests passes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview photo: the announced page is the contract, not the bare home",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.24",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "node-pool: realign the permanent node without draining slots",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cut-run test falls back to lsof on macOS and always kills the runner group",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "node-pool: AI bridge on the nodes and a cap on new cards when behind",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.22",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a null attachment is gone for good, not a hiccup to retry forever",
+          "en": "",
+          "scope": "node-mirror",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "archive tetto-contesto-agenti; CHAT-COMPACT-06 joins the chat spec",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "Catch a land denial with no sha, and reorder a misplaced docblock",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.21",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "the agent's ceiling is checked when a turn starts; a lightened argument stays as it was",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "an agent's ceiling never clips fresh tool results; token-audit bounds the markers too",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "an agent's ceiling applies only on a turn a person opened; a resume keeps its request",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "the ceiling skips a continuation, not every turn nobody typed in the composer",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "a wake is a continuation too; one list of machine marks for continuation and sentByPerson",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "close the race between retiring the orphan guard and re-arming it",
+          "en": "",
+          "scope": "tests",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Trace the main-claim review check to KANBAN-11, not a card id",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tetto-contesto-agenti, the ceiling at turn start and its three new scenarios",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "node-pool: repo copy gets the drain fix (needs_input and waiting cards do not count), with a regression test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "tetto-contesto-agenti, the ceiling skips continuations; a Discord message from Jarvis's channel gets it",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "picker keeps projects under ~/.claude, a queued card can move boards, merged parent header shows its name",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Declare coverage of the merged-parent name test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tetto-contesto-agenti, wakes are continuations",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "secret-store: fix three more ways to lose a secret",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "node-pool: permanent node gets ci-governor files again (shared PERMANENT_FILES list), with a test",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.20",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [
+        {
+          "it": "an agent's chats compact at an absolute token ceiling",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "move the spawn allowlist entry to where the install call now lives",
+          "en": "",
+          "scope": "node-delivery",
+          "breaking": false
+        },
+        {
+          "it": "the two-server test's roots outlive a normal run",
+          "en": "",
+          "scope": "tests",
+          "breaking": false
+        },
+        {
+          "it": "retire the orphan guard right after the shared helper's server stops",
+          "en": "",
+          "scope": "tests",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "secret-store: mutex per file, derived recipient, Keychain limit and read-back, no env identity, secrets dir, CI age retry",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview seed: make the example topic standalone, not project-bound",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cloud node: install WebKit so a card there can get a live preview screenshot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "review-checks brakes: load gets its own budget clock, only the load reason is released by it (card 9fecea98)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "review-checks brakes test: complete the spent clocks literal (card 9fecea98)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "age is a spawned test binary, not dead code",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Prove \"already on main\" before writing it, and warn review of a false claim",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview seed test: declare the requirement it covers (KANBAN-126)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Exclude systemd PrivateTmp entries from the real-tmp-folder check",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the ceiling reaches the loop inside the turn's own process",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "tetto-contesto-agenti, CHAT-COMPACT-06 and its bar; token-audit measures an agent's calls",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "no machine path in the proposal",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.19",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "record task-dispatcher-remote-node.test.ts growth with a live exception",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "drop unused nodeTokenPath re-export flagged by deadcode-prod",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the cut-run mutation is caught at the registration contract",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Card legata a un nodo pieno: il pavimento di memoria del Mac non la nasconde al controllo delle card ferme",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Card ferme: per una card legata a un nodo cade solo il pavimento di memoria del Mac, il disco pieno e la spesa restano un motivo (fermano anche la corsia remota)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revert \"chore(release):",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.18",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "declare untraced test coverage, split node-client under bloat threshold",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Test della scala del bundle: un'identità git sua, il runner della CI non ne ha una globale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test della scala del bundle: main esplicito, senza config globale init crea master e set-head -a non trova la HEAD",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "primary-role test: drop duplicated worktree opt-out after merge (card 9fecea98)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "name E2E-GATE-15 for the orphan-guard cut-run test",
+          "en": "",
+          "scope": "spec",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.17",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "split node-client.ts under the bloat threshold, name the reason for a declined remote claim",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "widen the install-call slice after the checkout revert's extra comments",
+          "en": "",
+          "scope": "node-delivery",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Nodo senza origin: il bundle del ramo si allarga quando il nodo dice che gli mancano i commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test della scala del bundle: il margine viene prima della storia intera, e «whole» non taglia mai",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.16",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "pack refuses to write when the secrets file exists but did not decrypt",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "read and unpack swallow only the decryption failure",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "native child ignores card reserve; mutation-killing tests for reservedMemGB",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "Node reruns: the system's red/conflict send-back reaches the node brief",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "check-bloat: record the overflow test growth of the CI-red bounce cards",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "check-bloat: exception for the overflow test grown by the CI-red bounce cards",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-27 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Impianto dei test di overflow in un modulo a parte: main torna sotto il tetto di check:bloat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Node brief: scheduled-review send-backs and reviewer answers reach the node like the red bounce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "check-bloat: overflow test ceiling follows main down to 1631",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.15",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "DESIGN.md: approvata la prima riga del telefono sotto il titolo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rimbalzo per CI rossa vale solo finché main è rossa; il testo all'agente dice di verificare il passo rosso",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.14",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "reserve per card net of its own measured tree, no double count in the memory brake",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card rimandata dalla CI rossa su main dopo il land non si chiude come già in main",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.13",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "secret-store: timeout sui comandi e voce nell'elenco degli spawn sincroni",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.12",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Revert the detached node-check worktree: CI rows can no longer read a branch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "secret-store test: salta la suite age se i binari mancano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revert \"secret-store test: salta la suite age se i binari mancano\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "installa age nel job unit per i test del deposito segreti",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.11",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "fall back to the planted branch when the delivered commit is not resolvable yet",
+          "en": "",
+          "scope": "node-meter",
+          "breaking": false
+        },
+        {
+          "it": "long timeout for createRun, dedupe the silent remote-claim log line",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Fix queue order drift and false queue notes in the review sweep",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "split the mac-only isMacOnlyDiff coverage into its own file",
+          "en": "",
+          "scope": "review-checks",
+          "breaking": false
+        },
+        {
+          "it": "Drop the queue note and free a node delivery's local slot early",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.10",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "block a manual land while the bar is still running",
+          "en": "",
+          "scope": "land",
+          "breaking": false
+        },
+        {
+          "it": "age store filters unpack/read by the current allowlist",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "age store keeps the whole file map, filters only its outputs, and never rewrites for refused names",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "a branch origin is only ahead on is already there",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "originContains fetches without tags, like fetchRemoteBase",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the resting-seat tests fit under the file's bloat ceiling",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "Prioritize human-confirmed lands in the review remeasure sweep",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "rerun the touched-test check after a load-induced relay flake",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "retry tsc file listing once under load before judging the program",
+          "en": "",
+          "scope": "relay",
+          "breaking": false
+        },
+        {
+          "it": "Revert \"test(relay): retry tsc file listing once under load before judging the program\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "rerun the review check",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.9",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a template's chunks end at its backtick, not 400 bytes later",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "free a node seat a waiting run holds forever, log the silent remote claim, cap node calls with a deadline",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "templateChunks back inside ui-language-scan.ts's 800-line budget",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "resolve the installed playwright-core entry from its own manifest",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "DESIGN.md: round 3 di tab e sidebar approvato (27/11)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cover isMacOnlyDiff and the swap-exhausted mac-only branch",
+          "en": "",
+          "scope": "review-checks",
+          "breaking": false
+        },
+        {
+          "it": "a riposo la prima riga della colonna sta sotto il titolo",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.8",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [
+        {
+          "it": "Windows node scripts move into deploy/windows-node, single node-tools list, no personal paths",
+          "en": "",
+          "scope": "deploy",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "retry failed attachments, test previewImage, extract delivery mainRef wiring",
+          "en": "",
+          "scope": "nodes",
+          "breaking": false
+        },
+        {
+          "it": "read the clock once per render in the load gauge",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "close the review's 5 blocking gaps on archive/revoke/dedupe",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "close a card whose delivery already reached main",
+          "en": "",
+          "scope": "land",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Revisione del round 3: cancelli statici verdi, colonna che riapre l'isola giusta, semafori dalla sola finestra principale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riga archiviata in due tempi: prima esce, poi le righe sotto risalgono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tolto l'aggancio di test che nessun test usa",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "pin the patch/minor/major case to a 0.x version",
+          "en": "",
+          "scope": "bump",
+          "breaking": false
+        },
+        {
+          "it": "Uscita in due tempi anche per le righe che non sono treeitem, semafori solo dalla finestra principale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del bump non presume che la versione di partenza sia diversa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CI della PR: tetto del bundle sulla misura, test di bump senza la bomba del 2.5.7",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "drop the packages.microsoft.com apt source before installing Playwright",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il deposito dei segreti ha il suo requisito, MACHINE-06, e il test lo dichiara",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il deposito dei segreti è dichiarato in attesa del suo primo chiamante",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.7",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a card at work with no chip keeps its seat (NULL never matches IN)",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "node deliveries with a null checks_state are measured again, and every mute exit of the meter says why",
+          "en": "",
+          "scope": "land",
+          "breaking": false
+        },
+        {
+          "it": "give isMacOnlyDiff's git read a deadline and list it",
+          "en": "",
+          "scope": "review-checks",
+          "breaking": false
+        },
+        {
+          "it": "pin playwright-core to the exact locked version, install with integrity and a deadline",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "ci-impact fixtures no longer read as the file's own @covers",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "say why on the card, and lock the install call with a test",
+          "en": "",
+          "scope": "node-delivery",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "bloat baseline raises only tasks-land.ts, the one file the scheduled review pushes over its ceiling",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "Evict idle hidden browser panes beyond the 2 most recent after 10 min, swap or not",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-26 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "a detached watchdog closes the servers and folders a cut run leaves behind",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "trace the new archive and blockedByTaskId tests to KANBAN-123/124",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Tetto di spesa: la striscia resta sotto i 768 px; GAUGE-10 con istante relativo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Remeasure review cards stuck with a null checks verdict, realigned on main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tab di lato: un passo sui quattro lati, isole che chiudono la colonna, riga archiviata che esce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix the moved-aside-copy test: sweep the leftover, don't rely on path reuse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board settings: backlog triage row gets its icon like the rows above",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cover installed-Chromium fallback and frozen lockfile install; silence install output",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.6",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a remote run resting on a wait or a question gives its machine seat back",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "scheduled review tests declare the requirement they cover; bloat baseline records the land growth",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "ci-changes test: teach the evaluator needs.prepare-e2e.outputs.shards (PR value and none)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "G5 conta solo cio' che Topics produce; backup e db-backups tengono le ultime N copie (TOPICS_BACKUP_KEEP)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La potatura dei backup tocca solo le copie automatiche di db-backups",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Disk budget: ogni cartella nel rapporto con tetti di default e crescita al giorno; potatura db-backups per data nel nome, verso il cestino",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "backup-retention test: neutral name for the named-copy fixture",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Bloat baseline: task-dispatcher-overflow.test.ts at 1715 after two cards land together",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Backlog triage test: declares KANBAN-123 and runs git with the isolated env",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "give the full-repo baseline check a 120s timeout",
+          "en": "",
+          "scope": "bloat",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.5",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "sibling-worktree merge is not live; tests assert landedNotLive/checkoutBranch/dirty-checkout",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "pty-bridge test: attach the probe's error handler before connecting, so an older Bun does not surface the refusal as uncaught (card 9fecea98)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "primary-role test: let the child server open its tunnel port from a worktree (card 9fecea98)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "late-scan test: give the row 90 s to close, the run takes ~60 s on a loaded Mac (card 9fecea98)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "late-scan test: wider waits for a shard-loaded Mac (card 9fecea98)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "late-scan test: short socket root and a 90 s row wait, so the unit runner's long scratch dir no longer kills the bridge (card 9fecea98)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-measure: the two reds of the last run pass alone under the unit runner (card 9fecea98)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la nota vocale si ferma solo dopo il primo secondo di registrazione",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "late-scan test: take the short root from the tracked helper so the leak check sees it cleaned (card 9fecea98)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the owner approved the title tab, the row grammar and the column header",
+          "en": "",
+          "scope": "design",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.4",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "una card ripresa dopo un land non risulta atterrata per il merge del giro prima (#1703)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Follow a symlinked project tab to its real path in pane-store (moved folder, card 6d04b342)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Integration test: let the spawned server keep its tunnel ports when run from a worktree",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.3",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a spawnError is unmeasured, not a red bounce",
+          "en": "",
+          "scope": "checks",
+          "breaking": false
+        },
+        {
+          "it": "count a node seat only by a run the primary still believes open",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "drop the unused afterAll import in the swap-exhausted check test",
+          "en": "",
+          "scope": "lint",
+          "breaking": false
+        },
+        {
+          "it": "the new board requirements are in the spec, and the person-owned word list carries its language marker",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "give each run its own checkout folder",
+          "en": "",
+          "scope": "node-checks",
+          "breaking": false
+        },
+        {
+          "it": "measure node deliveries whose bar mixes CI and local checks",
+          "en": "",
+          "scope": "node-delivery",
+          "breaking": false
+        },
+        {
+          "it": "stop two-server test fully, loopback-only",
+          "en": "",
+          "scope": "tests",
+          "breaking": false
+        },
+        {
+          "it": "carry node attachments to the primary, read delivery commits against origin/main",
+          "en": "",
+          "scope": "nodes",
+          "breaking": false
+        },
+        {
+          "it": "the two-server test's cut-run cleanup never ran under bun test",
+          "en": "",
+          "scope": "tests",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "close the remaining 26/11 review gaps on archive() and blockedByTaskId",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Auto-land: a land waiting on the pull request's CI forgets the offer so the sweep asks again at the verdict",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the refusal to archive names the card, and stops refusing for a blocker that stays",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "no new command starts while the Mac load is over 2 per core (card 9fecea98)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.2",
+    "date": "2026-11-26",
+    "sections": {
+      "new": [
+        {
+          "it": "scheduled review reuses the land verdict, judges sense, isolated test env",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "add a single secret-store interface for Mac and Linux",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "a request that repeats an open card is absorbed by it instead of opening a twin",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "scheduled review reads one nonce-bound verdict, no tools, bounded retries, board-set models",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "a card stuck for an hour without a reason gets one service note, and leaves a machine that does not answer",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "a card that spent its attempts with no outcome stays visible in todo with the reason, instead of moving to backlog",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "the question a delivery carries goes back to the chat that opened the card",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "check mode compares the baseline with origin/main; drop duplicate entry, total 153",
+          "en": "",
+          "scope": "bloat",
+          "breaking": false
+        },
+        {
+          "it": "scheduled review gate in the CI phase, fetch before 'already on main', closes on proof, keeps the agent's question until answered",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "drop a stray backspace from the merge-tree conflict regex",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "run touched tests after CI is green, fall back to its verdict after 2 swap stops",
+          "en": "",
+          "scope": "review-checks",
+          "breaking": false
+        },
+        {
+          "it": "stdin secrets, in-memory identity, configurable allowlist",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "keychain write uses -X hex, closing the newline injection in -i stdin",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "the sidebar's buttons are tabs, and every tab lights under the pointer",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "don't let an older comment outrank the newest one when carrying a node's thread",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "keychain stores printable b64 payload, so read never gets hex back",
+          "en": "",
+          "scope": "secrets",
+          "breaking": false
+        },
+        {
+          "it": "the stuck-card sweep leaves an in-progress card its dispatch chip explains",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "protect every comment of a resend's round, not two rows by position, in node run briefs",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "trace the playwright loader test to BROWSER-NODE-DEPS-01",
+          "en": "",
+          "scope": "spec",
+          "breaking": false
+        },
+        {
+          "it": "ci-impact: whole-tree guard tests always ride in a reduced unit plan (replay: any-budget was missed)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Backlog triage: asks with the system signature, keeps subtasks of live parents, no done without a second model",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land via PR: auto-merge off on every failed exit, re-read at the deadline, probe failure is a refusal, moved base reported, gh missing falls back to the local merge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix the gh-unavailable pattern word boundary",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "never requeue an empty run or bounce a landed card without checking against this Mac's own main",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Backlog triage: system actor for closes, asks and moves through the service, base from origin like the land, subtasks keep their parent",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land via PR: a GitHub refusal falls back to the local merge, running checks release the queue, settle wait cut to 2 min",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "archiving a live blocker no longer silently unblocks its dependents",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "board-avanza-da-sola, the seven rules with their bar",
+          "en": "",
+          "scope": "openspec",
+          "breaking": false
+        },
+        {
+          "it": "close the three gaps left in archive() by the 26/11 review",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the narrowest column is 248, and the word hides beside the Windows cluster",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "a rimando after a land is not a closed card, and a job-level red is not always a preexisting one",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.1",
     "date": "2026-11-25",
     "sections": {
       "new": [],
       "fixes": [
         {
-          "it": "a pop-out window is dressed on the main thread, not on a tokio worker",
+          "it": "fall back to an installed Chromium-family browser when no Playwright Chromium is found",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Land via PR only on the current origin/main base, switch auto-merge off when the state is unreadable, treat any hook failure as a refusal",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-impact: untraceable files run the whole tier, a failed estimate leaves no judged mark, replay includes --only-changed",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix ci-governor selftest race on SIGSTOP/SIGCONT delivery under load",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-impact-measure: drop the node_modules junction, its removal followed the link",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Read transcripts by bytes so a cut multi-byte character keeps its line, cap the parsed cache in bytes",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.0",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "one row grammar in the sidebar, and no ground at rest",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "the reused browser view passes the island flag too",
           "en": "",
           "scope": "tauri",
           "breaking": false
         }
       ],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "the new comments quote the report in English",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "ci-impact-measure: an unreadable rerun list no longer aborts the replay",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the browser tab in the title row is a portal in flow, not a floating surface",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "Backlog triage: sorts subtasks (detach, then todo) and cards whose blocker is done",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.110",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [
+        {
+          "it": "scheduled review of technical cards in review (rule off by default)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "install playwright-core on first use when the server cannot resolve it",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "a pop-out window is dressed on the main thread, not on a tokio worker",
+          "en": "",
+          "scope": "tauri",
+          "breaking": false
+        },
+        {
+          "it": "a project's browser in front is the title, and its page is an island",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "corner_plan is macOS-only outside tests, like its neighbours",
+          "en": "",
+          "scope": "tauri",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "pull requests run the e2e specs and unit tests their diff reaches, main runs everything",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "ci-impact: replay reads the commit's own worktree",
+          "en": "",
+          "scope": null
+        }
+      ]
     }
   },
   {
@@ -74,6 +1607,16 @@
           "breaking": false
         },
         {
+          "it": "Parse transcripts once and append: the usage meters no longer re-read gigabytes of transcripts into the server heap",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Keep the parsed transcripts of a whole week, not 600 files",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "spec-flow D20 design system gate with the recorded debt as baseline",
           "en": "",
           "scope": null,
@@ -86,10 +1629,45 @@
           "breaking": false
         },
         {
+          "it": "Declare what the wait-keeps-branch test covers",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare the pull request land requirement and the test that covers it",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "aggiorna durate shard dal nightly del 2026-11-25 [skip ci]",
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Backlog triage: a per-board twice-daily sort of the backlog, off by default",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Write in English the two comments main brought in Italian",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Regenerate the migrations manifest",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "List the wait path's git read in the sync-spawn scan with its reason",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Run the quota route test on an empty home, not on this machine's gigabytes of transcripts",
+          "en": "",
+          "scope": null
         },
         {
           "it": "la cura dei contenitori torna d'accordo con i suoi test e con il piano",
@@ -126,6 +1704,11 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Give the quota route test the room a loaded machine needs",
+          "en": "",
+          "scope": null
         },
         {
           "it": "the parked-children question starts from a step that was being worked",
@@ -198,6 +1781,11 @@
           "scope": null
         },
         {
+          "it": "Ask the pre-push hook about the merge message before GitHub writes it, and cover the pull request land wiring",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il test dell'adozione passa dal percorso vero: la figlia rilancia, viene archiviata, il servizio del genitore resta vivo",
           "en": "",
           "scope": null
@@ -249,6 +1837,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Land through the pull request only when local main can follow it, and turn auto-merge off on give-up",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio",
           "en": "",
           "scope": null
@@ -298,6 +1891,11 @@
         },
         {
           "it": "Un figlio che rilancia senza wake il servizio fermato del genitore lo lascia al genitore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "bloat baseline: record chat-handler as an exception after realign",
           "en": "",
           "scope": null
         },
@@ -362,6 +1960,16 @@
           "scope": null
         },
         {
+          "it": "mem-report: define G4 (device + server, agents excluded) and print it against the 1200 MB bar",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land a card by reusing its pull request's own GitHub auto-merge",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Land also refuses a delivery whose bar was measured only in part",
           "en": "",
           "scope": null
@@ -376,6 +1984,16 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Allow shared-task-mapping.ts in the topicsRouting passage list after the shared.ts split",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lock the lower duplication count in the bloat baseline",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290",
@@ -408,6 +2026,12 @@
           "scope": null
         },
         {
+          "it": "merge main inside a sibling worktree that already has it open",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13",
           "en": "",
           "scope": null
@@ -419,7 +2043,22 @@
           "breaking": false
         },
         {
+          "it": "Drop unused imports from tasks/shared-constants.ts (lint red on main)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land through the pull request only when its head is the commit to land",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Main verde dopo lo split di tasks/shared.ts: import rimasti e test che leggevano il file vecchio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Point the preview-rule test at shared-previews.ts after the split",
           "en": "",
           "scope": null
         }
@@ -443,6 +2082,29 @@
           "it": "Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "bloat: the baseline only goes down; new or bigger entries need a written exception with expiry, total of offenders capped",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "bloat ratchet test: declare coverage and isolate git env",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "check-bloat tests: fixtures carry the exceptions the ratchet now requires",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "bloat: fix type guard, declare BLOAT-RATCHET-01 in the spec",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Claude CLI usage-limit sentence: read as a rate-limit and hold until the declared reset, so the resume sweep resends the turn by itself",
@@ -975,6 +2637,11 @@
         },
         {
           "it": "Share the CLI binary resolver across claude, codex, kimi and muse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tetto di spesa: lo dice solo il gauge di In progress",
           "en": "",
           "scope": null
         },
@@ -5000,6 +6667,11 @@
           "en": "",
           "scope": "browser",
           "breaking": false
+        },
+        {
+          "it": "Publish --mobile-chrome-h before first paint so the scroll spacer does not shift on pane return",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Il test del refresh a server giù non trovava le tab perché non trovava la pagina: il banco bloccava il service worker (#1172)",

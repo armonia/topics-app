@@ -864,6 +864,10 @@
             "allow_duplicate": {
               "type": "boolean",
               "description": "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked on the board until the one named here is `done` or archived. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -1069,6 +1073,10 @@
             "human_ask": {
               "type": "string",
               "description": "WITH a delivery (status='review'): the question the PERSON has to answer or the thing they have to see. Leave it out when there is nothing to decide."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked until the one named here is `done` or archived. Empty string clears it. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -1282,6 +1290,151 @@
           "idempotentHint": false,
           "openWorldHint": true,
           "title": "Chiama Google (scritture con conferma)"
+        }
+      },
+      {
+        "name": "create_scheduled_job",
+        "description": "Create a scheduled job: a command that Topics runs on a schedule and whose output can be delivered to the person outside the app. THE JOB IS BORN PAUSED when it has a `deliver` block, and also whenever the app setting asks for confirmation (the default): the person turns it on, you cannot. `schedule` is one of {kind:'cron', expr:'0 9 * * *', tz:'UTC'}, {kind:'every', minutes:30} or {kind:'at', at:'<ISO instant in the future>'}. `command` is an argv (a list of strings, no shell). `deliver` is {to:'owner'} (the destination the person configured) and is optional: with none the outcome stays in Topics. Returns the job with its id.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "What the job does, in a few words, as the person will read it."
+            },
+            "schedule": {
+              "type": "object",
+              "description": "cron {kind, expr, tz} | every {kind, minutes} | at {kind, at}."
+            },
+            "command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The argv to run, for example ['bun','run','report']. No shell is involved."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Absolute directory to run in. Omit when project_id is given."
+            },
+            "project_id": {
+              "type": "string",
+              "description": "The project the job belongs to; its directory is the default cwd."
+            },
+            "stdin": {
+              "type": "string",
+              "description": "Optional text for the command's stdin."
+            },
+            "timeout_sec": {
+              "type": "number",
+              "description": "Time limit in seconds. Default 3600."
+            },
+            "deliver": {
+              "type": "object",
+              "description": "Optional {to:'owner'}: send the command's output to the destination the person configured."
+            }
+          },
+          "required": [
+            "name",
+            "schedule",
+            "command"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Crea un lavoro programmato"
+        }
+      },
+      {
+        "name": "list_scheduled_jobs",
+        "description": "List the scheduled jobs with their schedule, whether they are on, the next run and the last run's outcome.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "description": "Only the jobs of this project."
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Elenca i lavori programmati"
+        }
+      },
+      {
+        "name": "run_scheduled_job",
+        "description": "Run a scheduled job now, outside its schedule. It does not move the next scheduled run. Returns the run.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Esegui un lavoro programmato ora"
+        }
+      },
+      {
+        "name": "pause_scheduled_job",
+        "description": "Pause a scheduled job: it stops running until the person turns it on again. There is no tool to turn a job on.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Metti in pausa un lavoro programmato"
+        }
+      },
+      {
+        "name": "delete_scheduled_job",
+        "description": "Delete a scheduled job. A run in flight is stopped and nothing is delivered for it; its history is kept.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Cancella un lavoro programmato"
         }
       },
       {
@@ -2982,6 +3135,10 @@
             "allow_duplicate": {
               "type": "boolean",
               "description": "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked on the board until the one named here is `done` or archived. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -3187,6 +3344,10 @@
             "human_ask": {
               "type": "string",
               "description": "WITH a delivery (status='review'): the question the PERSON has to answer or the thing they have to see. Leave it out when there is nothing to decide."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked until the one named here is `done` or archived. Empty string clears it. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -3400,6 +3561,151 @@
           "idempotentHint": false,
           "openWorldHint": true,
           "title": "Chiama Google (scritture con conferma)"
+        }
+      },
+      {
+        "name": "create_scheduled_job",
+        "description": "Create a scheduled job: a command that Topics runs on a schedule and whose output can be delivered to the person outside the app. THE JOB IS BORN PAUSED when it has a `deliver` block, and also whenever the app setting asks for confirmation (the default): the person turns it on, you cannot. `schedule` is one of {kind:'cron', expr:'0 9 * * *', tz:'UTC'}, {kind:'every', minutes:30} or {kind:'at', at:'<ISO instant in the future>'}. `command` is an argv (a list of strings, no shell). `deliver` is {to:'owner'} (the destination the person configured) and is optional: with none the outcome stays in Topics. Returns the job with its id.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "What the job does, in a few words, as the person will read it."
+            },
+            "schedule": {
+              "type": "object",
+              "description": "cron {kind, expr, tz} | every {kind, minutes} | at {kind, at}."
+            },
+            "command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The argv to run, for example ['bun','run','report']. No shell is involved."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Absolute directory to run in. Omit when project_id is given."
+            },
+            "project_id": {
+              "type": "string",
+              "description": "The project the job belongs to; its directory is the default cwd."
+            },
+            "stdin": {
+              "type": "string",
+              "description": "Optional text for the command's stdin."
+            },
+            "timeout_sec": {
+              "type": "number",
+              "description": "Time limit in seconds. Default 3600."
+            },
+            "deliver": {
+              "type": "object",
+              "description": "Optional {to:'owner'}: send the command's output to the destination the person configured."
+            }
+          },
+          "required": [
+            "name",
+            "schedule",
+            "command"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Crea un lavoro programmato"
+        }
+      },
+      {
+        "name": "list_scheduled_jobs",
+        "description": "List the scheduled jobs with their schedule, whether they are on, the next run and the last run's outcome.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "description": "Only the jobs of this project."
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Elenca i lavori programmati"
+        }
+      },
+      {
+        "name": "run_scheduled_job",
+        "description": "Run a scheduled job now, outside its schedule. It does not move the next scheduled run. Returns the run.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Esegui un lavoro programmato ora"
+        }
+      },
+      {
+        "name": "pause_scheduled_job",
+        "description": "Pause a scheduled job: it stops running until the person turns it on again. There is no tool to turn a job on.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Metti in pausa un lavoro programmato"
+        }
+      },
+      {
+        "name": "delete_scheduled_job",
+        "description": "Delete a scheduled job. A run in flight is stopped and nothing is delivered for it; its history is kept.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Cancella un lavoro programmato"
         }
       },
       {
@@ -5097,6 +5403,10 @@
             "allow_duplicate": {
               "type": "boolean",
               "description": "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked on the board until the one named here is `done` or archived. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -5192,6 +5502,10 @@
             "human_ask": {
               "type": "string",
               "description": "WITH a delivery (status='review'): the question the PERSON has to answer or the thing they have to see. Leave it out when there is nothing to decide."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked until the one named here is `done` or archived. Empty string clears it. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -5405,6 +5719,151 @@
           "idempotentHint": false,
           "openWorldHint": true,
           "title": "Chiama Google (scritture con conferma)"
+        }
+      },
+      {
+        "name": "create_scheduled_job",
+        "description": "Create a scheduled job: a command that Topics runs on a schedule and whose output can be delivered to the person outside the app. THE JOB IS BORN PAUSED when it has a `deliver` block, and also whenever the app setting asks for confirmation (the default): the person turns it on, you cannot. `schedule` is one of {kind:'cron', expr:'0 9 * * *', tz:'UTC'}, {kind:'every', minutes:30} or {kind:'at', at:'<ISO instant in the future>'}. `command` is an argv (a list of strings, no shell). `deliver` is {to:'owner'} (the destination the person configured) and is optional: with none the outcome stays in Topics. Returns the job with its id.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "What the job does, in a few words, as the person will read it."
+            },
+            "schedule": {
+              "type": "object",
+              "description": "cron {kind, expr, tz} | every {kind, minutes} | at {kind, at}."
+            },
+            "command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The argv to run, for example ['bun','run','report']. No shell is involved."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Absolute directory to run in. Omit when project_id is given."
+            },
+            "project_id": {
+              "type": "string",
+              "description": "The project the job belongs to; its directory is the default cwd."
+            },
+            "stdin": {
+              "type": "string",
+              "description": "Optional text for the command's stdin."
+            },
+            "timeout_sec": {
+              "type": "number",
+              "description": "Time limit in seconds. Default 3600."
+            },
+            "deliver": {
+              "type": "object",
+              "description": "Optional {to:'owner'}: send the command's output to the destination the person configured."
+            }
+          },
+          "required": [
+            "name",
+            "schedule",
+            "command"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Crea un lavoro programmato"
+        }
+      },
+      {
+        "name": "list_scheduled_jobs",
+        "description": "List the scheduled jobs with their schedule, whether they are on, the next run and the last run's outcome.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "description": "Only the jobs of this project."
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Elenca i lavori programmati"
+        }
+      },
+      {
+        "name": "run_scheduled_job",
+        "description": "Run a scheduled job now, outside its schedule. It does not move the next scheduled run. Returns the run.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Esegui un lavoro programmato ora"
+        }
+      },
+      {
+        "name": "pause_scheduled_job",
+        "description": "Pause a scheduled job: it stops running until the person turns it on again. There is no tool to turn a job on.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Metti in pausa un lavoro programmato"
+        }
+      },
+      {
+        "name": "delete_scheduled_job",
+        "description": "Delete a scheduled job. A run in flight is stopped and nothing is delivered for it; its history is kept.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Cancella un lavoro programmato"
         }
       },
       {
@@ -6913,6 +7372,10 @@
             "allow_duplicate": {
               "type": "boolean",
               "description": "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked on the board until the one named here is `done` or archived. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -7008,6 +7471,10 @@
             "human_ask": {
               "type": "string",
               "description": "WITH a delivery (status='review'): the question the PERSON has to answer or the thing they have to see. Leave it out when there is nothing to decide."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked until the one named here is `done` or archived. Empty string clears it. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -7221,6 +7688,151 @@
           "idempotentHint": false,
           "openWorldHint": true,
           "title": "Chiama Google (scritture con conferma)"
+        }
+      },
+      {
+        "name": "create_scheduled_job",
+        "description": "Create a scheduled job: a command that Topics runs on a schedule and whose output can be delivered to the person outside the app. THE JOB IS BORN PAUSED when it has a `deliver` block, and also whenever the app setting asks for confirmation (the default): the person turns it on, you cannot. `schedule` is one of {kind:'cron', expr:'0 9 * * *', tz:'UTC'}, {kind:'every', minutes:30} or {kind:'at', at:'<ISO instant in the future>'}. `command` is an argv (a list of strings, no shell). `deliver` is {to:'owner'} (the destination the person configured) and is optional: with none the outcome stays in Topics. Returns the job with its id.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "What the job does, in a few words, as the person will read it."
+            },
+            "schedule": {
+              "type": "object",
+              "description": "cron {kind, expr, tz} | every {kind, minutes} | at {kind, at}."
+            },
+            "command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The argv to run, for example ['bun','run','report']. No shell is involved."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Absolute directory to run in. Omit when project_id is given."
+            },
+            "project_id": {
+              "type": "string",
+              "description": "The project the job belongs to; its directory is the default cwd."
+            },
+            "stdin": {
+              "type": "string",
+              "description": "Optional text for the command's stdin."
+            },
+            "timeout_sec": {
+              "type": "number",
+              "description": "Time limit in seconds. Default 3600."
+            },
+            "deliver": {
+              "type": "object",
+              "description": "Optional {to:'owner'}: send the command's output to the destination the person configured."
+            }
+          },
+          "required": [
+            "name",
+            "schedule",
+            "command"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Crea un lavoro programmato"
+        }
+      },
+      {
+        "name": "list_scheduled_jobs",
+        "description": "List the scheduled jobs with their schedule, whether they are on, the next run and the last run's outcome.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "description": "Only the jobs of this project."
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Elenca i lavori programmati"
+        }
+      },
+      {
+        "name": "run_scheduled_job",
+        "description": "Run a scheduled job now, outside its schedule. It does not move the next scheduled run. Returns the run.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Esegui un lavoro programmato ora"
+        }
+      },
+      {
+        "name": "pause_scheduled_job",
+        "description": "Pause a scheduled job: it stops running until the person turns it on again. There is no tool to turn a job on.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Metti in pausa un lavoro programmato"
+        }
+      },
+      {
+        "name": "delete_scheduled_job",
+        "description": "Delete a scheduled job. A run in flight is stopped and nothing is delivered for it; its history is kept.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Cancella un lavoro programmato"
         }
       },
       {
@@ -8767,6 +9379,10 @@
             "allow_duplicate": {
               "type": "boolean",
               "description": "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked on the board until the one named here is `done` or archived. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -8862,6 +9478,10 @@
             "human_ask": {
               "type": "string",
               "description": "WITH a delivery (status='review'): the question the PERSON has to answer or the thing they have to see. Leave it out when there is nothing to decide."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked until the one named here is `done` or archived. Empty string clears it. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -9075,6 +9695,151 @@
           "idempotentHint": false,
           "openWorldHint": true,
           "title": "Chiama Google (scritture con conferma)"
+        }
+      },
+      {
+        "name": "create_scheduled_job",
+        "description": "Create a scheduled job: a command that Topics runs on a schedule and whose output can be delivered to the person outside the app. THE JOB IS BORN PAUSED when it has a `deliver` block, and also whenever the app setting asks for confirmation (the default): the person turns it on, you cannot. `schedule` is one of {kind:'cron', expr:'0 9 * * *', tz:'UTC'}, {kind:'every', minutes:30} or {kind:'at', at:'<ISO instant in the future>'}. `command` is an argv (a list of strings, no shell). `deliver` is {to:'owner'} (the destination the person configured) and is optional: with none the outcome stays in Topics. Returns the job with its id.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "What the job does, in a few words, as the person will read it."
+            },
+            "schedule": {
+              "type": "object",
+              "description": "cron {kind, expr, tz} | every {kind, minutes} | at {kind, at}."
+            },
+            "command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The argv to run, for example ['bun','run','report']. No shell is involved."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Absolute directory to run in. Omit when project_id is given."
+            },
+            "project_id": {
+              "type": "string",
+              "description": "The project the job belongs to; its directory is the default cwd."
+            },
+            "stdin": {
+              "type": "string",
+              "description": "Optional text for the command's stdin."
+            },
+            "timeout_sec": {
+              "type": "number",
+              "description": "Time limit in seconds. Default 3600."
+            },
+            "deliver": {
+              "type": "object",
+              "description": "Optional {to:'owner'}: send the command's output to the destination the person configured."
+            }
+          },
+          "required": [
+            "name",
+            "schedule",
+            "command"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Crea un lavoro programmato"
+        }
+      },
+      {
+        "name": "list_scheduled_jobs",
+        "description": "List the scheduled jobs with their schedule, whether they are on, the next run and the last run's outcome.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "description": "Only the jobs of this project."
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Elenca i lavori programmati"
+        }
+      },
+      {
+        "name": "run_scheduled_job",
+        "description": "Run a scheduled job now, outside its schedule. It does not move the next scheduled run. Returns the run.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Esegui un lavoro programmato ora"
+        }
+      },
+      {
+        "name": "pause_scheduled_job",
+        "description": "Pause a scheduled job: it stops running until the person turns it on again. There is no tool to turn a job on.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Metti in pausa un lavoro programmato"
+        }
+      },
+      {
+        "name": "delete_scheduled_job",
+        "description": "Delete a scheduled job. A run in flight is stopped and nothing is delivered for it; its history is kept.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Cancella un lavoro programmato"
         }
       },
       {
@@ -10507,6 +11272,10 @@
             "allow_duplicate": {
               "type": "boolean",
               "description": "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked on the board until the one named here is `done` or archived. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -10602,6 +11371,10 @@
             "human_ask": {
               "type": "string",
               "description": "WITH a delivery (status='review'): the question the PERSON has to answer or the thing they have to see. Leave it out when there is nothing to decide."
+            },
+            "blocked_by_task_id": {
+              "type": "string",
+              "description": "A FUTURE STEP IS A CARD WITH THIS SET, NEVER A PROMISE IN A COMMENT: this card stays blocked until the one named here is `done` or archived. Empty string clears it. `blockedByTaskId` is accepted too."
             }
           },
           "required": [
@@ -10815,6 +11588,151 @@
           "idempotentHint": false,
           "openWorldHint": true,
           "title": "Chiama Google (scritture con conferma)"
+        }
+      },
+      {
+        "name": "create_scheduled_job",
+        "description": "Create a scheduled job: a command that Topics runs on a schedule and whose output can be delivered to the person outside the app. THE JOB IS BORN PAUSED when it has a `deliver` block, and also whenever the app setting asks for confirmation (the default): the person turns it on, you cannot. `schedule` is one of {kind:'cron', expr:'0 9 * * *', tz:'UTC'}, {kind:'every', minutes:30} or {kind:'at', at:'<ISO instant in the future>'}. `command` is an argv (a list of strings, no shell). `deliver` is {to:'owner'} (the destination the person configured) and is optional: with none the outcome stays in Topics. Returns the job with its id.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "What the job does, in a few words, as the person will read it."
+            },
+            "schedule": {
+              "type": "object",
+              "description": "cron {kind, expr, tz} | every {kind, minutes} | at {kind, at}."
+            },
+            "command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The argv to run, for example ['bun','run','report']. No shell is involved."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Absolute directory to run in. Omit when project_id is given."
+            },
+            "project_id": {
+              "type": "string",
+              "description": "The project the job belongs to; its directory is the default cwd."
+            },
+            "stdin": {
+              "type": "string",
+              "description": "Optional text for the command's stdin."
+            },
+            "timeout_sec": {
+              "type": "number",
+              "description": "Time limit in seconds. Default 3600."
+            },
+            "deliver": {
+              "type": "object",
+              "description": "Optional {to:'owner'}: send the command's output to the destination the person configured."
+            }
+          },
+          "required": [
+            "name",
+            "schedule",
+            "command"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Crea un lavoro programmato"
+        }
+      },
+      {
+        "name": "list_scheduled_jobs",
+        "description": "List the scheduled jobs with their schedule, whether they are on, the next run and the last run's outcome.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "description": "Only the jobs of this project."
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Elenca i lavori programmati"
+        }
+      },
+      {
+        "name": "run_scheduled_job",
+        "description": "Run a scheduled job now, outside its schedule. It does not move the next scheduled run. Returns the run.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "title": "Esegui un lavoro programmato ora"
+        }
+      },
+      {
+        "name": "pause_scheduled_job",
+        "description": "Pause a scheduled job: it stops running until the person turns it on again. There is no tool to turn a job on.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Metti in pausa un lavoro programmato"
+        }
+      },
+      {
+        "name": "delete_scheduled_job",
+        "description": "Delete a scheduled job. A run in flight is stopped and nothing is delivered for it; its history is kept.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id from list_scheduled_jobs."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "title": "Cancella un lavoro programmato"
         }
       },
       {
@@ -11888,7 +12806,9 @@
     "comment_task",
     "create_global_task",
     "create_project",
+    "create_scheduled_job",
     "create_task",
+    "delete_scheduled_job",
     "get_global_task",
     "get_goal",
     "get_task",
@@ -11898,17 +12818,20 @@
     "list_agents",
     "list_global_tasks",
     "list_processes",
+    "list_scheduled_jobs",
     "list_tasks",
     "move_session_to_project",
     "new_topic",
     "open_browser_pane",
     "open_project",
+    "pause_scheduled_job",
     "read_agent",
     "read_chat_messages",
     "read_process_output",
     "request_login",
     "resolve_tab",
     "run_command",
+    "run_scheduled_job",
     "run_script",
     "send_chat_message",
     "send_mail",
@@ -11949,7 +12872,9 @@
       "close_goal",
       "comment_task",
       "create_project",
+      "create_scheduled_job",
       "create_task",
+      "delete_scheduled_job",
       "get_goal",
       "get_task",
       "google_call",
@@ -11957,17 +12882,20 @@
       "label_task",
       "list_agents",
       "list_processes",
+      "list_scheduled_jobs",
       "list_tasks",
       "move_session_to_project",
       "new_topic",
       "open_browser_pane",
       "open_project",
+      "pause_scheduled_job",
       "read_agent",
       "read_chat_messages",
       "read_process_output",
       "request_login",
       "resolve_tab",
       "run_command",
+      "run_scheduled_job",
       "run_script",
       "send_chat_message",
       "send_mail",
@@ -12004,19 +12932,24 @@
       "browser_verify",
       "close_browser_pane",
       "comment_task",
+      "create_scheduled_job",
       "create_task",
+      "delete_scheduled_job",
       "get_task",
       "google_call",
       "label_task",
       "list_processes",
+      "list_scheduled_jobs",
       "list_tasks",
       "open_browser_pane",
+      "pause_scheduled_job",
       "read_agent",
       "read_chat_messages",
       "read_process_output",
       "request_login",
       "resolve_tab",
       "run_command",
+      "run_scheduled_job",
       "run_script",
       "send_mail",
       "send_to_agent",
@@ -12049,19 +12982,24 @@
       "browser_verify",
       "close_browser_pane",
       "comment_task",
+      "create_scheduled_job",
       "create_task",
+      "delete_scheduled_job",
       "get_task",
       "google_call",
       "label_task",
       "list_processes",
+      "list_scheduled_jobs",
       "list_tasks",
       "open_browser_pane",
+      "pause_scheduled_job",
       "read_agent",
       "read_chat_messages",
       "read_process_output",
       "request_login",
       "resolve_tab",
       "run_command",
+      "run_scheduled_job",
       "run_script",
       "send_mail",
       "send_to_agent",

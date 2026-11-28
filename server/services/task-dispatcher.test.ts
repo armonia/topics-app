@@ -1,5 +1,6 @@
 /**
  * @covers KANBAN-10
+ * @covers KANBAN-124
  *
  * Dispatch resumption after a server restart: this file and
  * task-dispatcher-interrupted.test.ts are where that requirement is exercised.
@@ -217,6 +218,20 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(true);
     const comments = h.svc.get("t1")!.comments;
     expect(comments.some((comment) => comment.content.includes("Setup fallito (exit 7)") && comment.content.includes("config non valido"))).toBe(true);
+  });
+
+  it("the kickoff says a future step is a card linked with blockedByTaskId, never a promise in a comment", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0].content).toContain("A FUTURE STEP IS A CARD, NEVER A PROMISE IN A COMMENT");
+    expect(h.turns[0].content).toContain('create_task(text=<step>, blockedByTaskId="t1")');
+    h.dispatcher.shutdown();
   });
 
   it("una domanda a META' TURNO porta il chip a needs_input, e il rilascio lo riporta a working", async () => {
@@ -3600,10 +3615,10 @@ describe("la coda deve dire il vero", () => {
     await h.dispatcher.tick(PID);
     await flush();
     const t = h.task("t1")!;
-    expect(t.status).toBe("backlog");        // fuori dalla coda
+    expect(t.status).toBe("todo");           // resta visibile, mai in backlog
     expect(t.dispatchState).toBe("failed");  // e lo dice
     const riga = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
-    expect(riga).toContain("Budget dei tentativi finito");
+    expect(riga).toContain("2 tentativi senza esito");
     // La riga dice cosa è successo e cosa fare. NON manda a cercare un guasto:
     // «guarda cosa lo fa fallire» presumeva un difetto da trovare, e ci finiva
     // dentro anche chi aveva soltanto dichiarato due attese.
@@ -3611,6 +3626,23 @@ describe("la coda deve dire il vero", () => {
     expect(riga).toContain("Rimettilo in Todo");
     expect(riga).not.toContain("guarda cosa lo fa fallire");
     expect(h.turns.length).toBe(0);          // nessun turno sprecato
+  });
+
+  it("tre giri a vuoto: la card esce dalla coda con il motivo, resta in Todo, e la nota è una sola", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 3 });
+    await h.dispatcher.tick(PID);
+    await flush();
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");
+    expect(t.dispatchState).toBe("failed");
+    expect(t.dispatchError).toContain("3 tentativi senza esito");
+    const notes = h.svc.get("t1")!.comments.filter((c) => c.content.includes("3 tentativi senza esito"));
+    expect(notes).toHaveLength(1);
+    expect(h.turns.length).toBe(0);
   });
 
   it("…ma chi ASPETTA non è esaurito: la finestra scorre, il parcheggio no", async () => {
@@ -3692,7 +3724,7 @@ describe("la coda deve dire il vero", () => {
 
 describe("cancello: non si ridispaccia lavoro già su main", () => {
   /** Banco di prova con la sonda del commit di consegna sotto controllo. */
-  function withProbe(risposta: boolean | null | (() => Promise<never>)) {
+  function withProbe(risposta: boolean | null | (() => Promise<never>), mainIsRed?: boolean) {
     const chieste: Array<{ repoPath: string; commit: string }> = [];
     const h = harness({
       deliveryLanded: async (repoPath, commit) => {
@@ -3700,6 +3732,7 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
         if (typeof risposta === "function") return risposta();
         return risposta;
       },
+      ...(mainIsRed === undefined ? {} : { mainIsRed: async () => mainIsRed }),
     });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     h.svc.setGlobalCap({ auto: false, max: 2 });
@@ -3734,6 +3767,32 @@ describe("cancello: non si ridispaccia lavoro già su main", () => {
     const storico = h.svc.get("t1")!.comments.filter((c) => c.kind === "status").map((c) => c.content).join("\n");
     expect(storico).toContain("c2d20879");
     expect(storico).toContain("già dentro main");
+    h.dispatcher.shutdown();
+  });
+
+  it("riaperta dalla CI rossa su main dopo il land: NON si chiude, riparte l'agente (26/11)", async () => {
+    const { h } = withProbe(true);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryBranch: "topics/ardent-grouse", deliveryCommit: "c2d20879ffffffffffffffffffffffffffffffff" });
+    h.db.run("UPDATE tasks SET reopened_actor = 'system', reopened_by = 'system' WHERE id = 't1'");
+    h.svc.addComment({ taskId: "t1", author: "system", content: "La CI su main è rossa dopo il land: check:spec-coverage" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).not.toBe("done");
+    h.dispatcher.shutdown();
+  });
+
+  it("riaperta dalla CI rossa ma main è tornata verde (riparata altrove): si chiude come già su main", async () => {
+    const { h } = withProbe(true, false);
+    seedTask(h.db, { id: "t1", status: "todo", deliveryBranch: "topics/ardent-grouse", deliveryCommit: "c2d20879ffffffffffffffffffffffffffffffff" });
+    h.db.run("UPDATE tasks SET reopened_actor = 'system', reopened_by = 'system' WHERE id = 't1'");
+    h.svc.addComment({ taskId: "t1", author: "system", content: "La CI su main è rossa dopo il land: check:spec-coverage" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("done");
     h.dispatcher.shutdown();
   });
 
