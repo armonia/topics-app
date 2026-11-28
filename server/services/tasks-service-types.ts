@@ -889,6 +889,8 @@ export interface TaskService {
   getSpendCaps(): { perTaskCents: number; perDayCents: number };
   /** Write the caps (a PERSON does this, from the settings). Zero clears one. */
   setSpendCaps(patch: { perTaskCents?: number; perDayCents?: number }): { perTaskCents: number; perDayCents: number };
+  /** Whether the project is paused by its quota brake (USAGE-29): one indexed row read, fail-open, never a recomputation on the dispatcher tick. */
+  projectPaused(projectId: string | null): boolean;
   /**
    * HOW MUCH FREE MEMORY A NEW CHECK COMMAND NEEDS, in whole GB, from the same
    * reserved row '*'. It used to be a constant borrowed from the agent admission

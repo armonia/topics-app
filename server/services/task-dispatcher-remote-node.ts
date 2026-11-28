@@ -707,6 +707,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           model: policy?.model ?? task.model ?? settings.model ?? null,
           effort: policy ? settings.effort : (settings.effort && settings.effort !== "auto" ? settings.effort : null),
           ...(baseBranch ? { baseBranch } : {}),
+          // The origin's pause travels with the launch: the claim gate already
+          // holds a paused card, this covers a pause that closed in between.
+          ...(svc.projectPaused(task.projectId) ? { originPaused: true } : {}),
         },
       };
       let created: { runId: string };
@@ -841,6 +844,14 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           `Il nodo «${name}» ha rifiutato la card perché troppo grande: ${why}. ` +
             "Accorcia la descrizione o il thread della card, oppure togli la macchina dalla card.",
         );
+        return;
+      }
+      // The project is paused (here, or on the node): nothing started there. Back to the
+      // queue with the attempt refunded and the machine kept; the claim gate then says
+      // «in pausa» and the card goes out again after "Continua".
+      if (nodeFailureReason(err) === "paused") {
+        try { releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true }); }
+        catch (e) { log(`nodo: la card ${task.id} non è tornata in coda dopo la pausa`, e); }
         return;
       }
       // The node does not run this card's model: another machine may. The card

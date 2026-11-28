@@ -5,11 +5,11 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createProjectsRouter } from "./projects";
+import { PROJECT_QUOTA_SCHEMA } from "../../tests/helpers/project-quota-schema";
 
-const MIGRATION = await Bun.file(join(import.meta.dir, "../db/migrations/20261119000000-project-quota.sql")).text();
+const MIGRATION = PROJECT_QUOTA_SCHEMA;
 
 function matchRoute(pathname: string, pattern: string): Record<string, string> | null {
   const pp = pattern.split("/"), xp = pathname.split("/");
@@ -53,9 +53,9 @@ beforeEach(() => {
 afterEach(() => { db.close(); });
 
 describe("GET /api/projects/quota-limit", () => {
-  test("a project never configured reads the default (10)", async () => {
+  test("a project never configured reads no limit (until 64b1f052)", async () => {
     const res = await get("/proj/a");
-    expect(await res!.json()).toEqual({ limit: 10 });
+    expect(await res!.json()).toEqual({ limit: null });
   });
 });
 

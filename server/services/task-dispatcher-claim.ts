@@ -35,7 +35,7 @@ function remoteDeclineReason(t: Task, delegated: unknown): string {
 }
 
 export function createClaim(ctx: DispatcherCtx) {
-  const { capHeldNoted, clock, delegatedPolicy, deps, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceTimers, heavyHeldNoted, heavyHoldSince, inFlight, log, noCheckExemptions, remoteClaimDeclinedNoted, spendHeldNoted, shared } = ctx.core;
+  const { capHeldNoted, clock, delegatedPolicy, deps, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceTimers, heavyHeldNoted, heavyHoldSince, inFlight, log, noCheckExemptions, projectPauseHeldNoted, remoteClaimDeclinedNoted, spendHeldNoted, shared } = ctx.core;
 
   async function claimPass(projectId: string, pass: TickPlan): Promise<void> {
     const { aliveAgents, capScope, caps, daySpendBlock, effectiveCap, fanOut, fanOutBlocked, floorBlock, floorNote, floorNoteKey, floorNow, floorSent, gateRuns, heavyBusy, heavyCall, heldForLoad, heldForMs, intruders, loadGate, memoryFloorHolds, noCheckReservationAtRead, noteCapFull, overflowRound, overflowRoundNo, pressure, rampActive, remoteCard, remoteIds, resolved, resourceFloor, settings, todos, wantFanOut } = pass;
@@ -59,6 +59,13 @@ export function createClaim(ctx: DispatcherCtx) {
       // says how much and which cap, because the wait does not dissolve by itself.
       if (caps.perTaskCents > 0 && overTaskSpendCap(t.agentCostCents, caps.perTaskCents)) {
         ctx.admission.noteSpendHold(t, caps.perTaskCents);
+        continue;
+      }
+      // PROJECT QUOTA BRAKE (limiti-consumo-progetto, USAGE-29): one indexed // allow-italian: openspec change name
+      // row read (`projectPaused`), never a quota recomputation on this tick.
+      // Fail-open inside the method itself, so a read error never holds a card.
+      if (deps.svc.projectPaused(t.projectId)) {
+        ctx.admission.notePauseHold(t);
         continue;
       }
       // A card pinned to a forbidden machine (drained, or offline with no way to
@@ -499,6 +506,9 @@ export function createClaim(ctx: DispatcherCtx) {
       // Same for the spend brake: this card started, so the episode is closed. If
       // it goes through the cap again tomorrow, it says so again.
       spendHeldNoted.delete(t.id);
+      // Same for the project quota brake: this card started, so the episode is
+      // closed. A re-opened pause will note it again on its own.
+      projectPauseHeldNoted.delete(t.id);
       remoteClaimDeclinedNoted.delete(t.id);
       if (forced) {
         const atteso = Math.round(heldForMs(t) / 60_000);

@@ -228,7 +228,7 @@ export const RESUME_WAIT_OPENINGS: readonly string[] = [
   "Memoria quasi finita:", "Memoria in risalita:", "Memoria: la sto misurando", "Memoria oltre la soglia", // allow-italian: sentence openings
   "Disco quasi pieno:", "Tetto di spesa giornaliero raggiunto", "Tetto di spesa per card raggiunto:", // allow-italian: sentence openings
   "Topics usa ", "Topics è al tetto di memoria", "Non c'è memoria per un altro agent:", // allow-italian: sentence openings
-  "Riavvio del server in arrivo (", "In attesa di uno slot:", // allow-italian: sentence openings
+  "Riavvio del server in arrivo (", "In attesa di uno slot:", "In pausa:", // allow-italian: sentence openings
   `${providerHoldLabel("claude")}: `, `${providerHoldLabel("codex")}: `,
 ];
 

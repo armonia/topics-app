@@ -1,0 +1,62 @@
+[
+  {
+    "component": "client/src/app/BootDeepLinkResolver.tsx",
+    "widths": {
+      "375": "visual-proof/w375.jpg",
+      "768": "visual-proof/w768.jpg",
+      "1440": "visual-proof/w1440.jpg",
+      "3440": "visual-proof/w3440.jpg"
+    },
+    "reference": "The project pause strip above the composer (CHAT_STRIP), same family as board-archived-banner; paused project, chat open."
+  },
+  {
+    "component": "client/src/components/Board/KanbanBoardPane.tsx",
+    "widths": {
+      "375": "visual-proof/w375.jpg",
+      "768": "visual-proof/w768.jpg",
+      "1440": "visual-proof/w1440.jpg",
+      "3440": "visual-proof/w3440.jpg"
+    },
+    "reference": "The project pause strip above the composer (CHAT_STRIP), same family as board-archived-banner; paused project, chat open."
+  },
+  {
+    "component": "client/src/components/Chat/ChatInput.tsx",
+    "widths": {
+      "375": "visual-proof/w375.jpg",
+      "768": "visual-proof/w768.jpg",
+      "1440": "visual-proof/w1440.jpg",
+      "3440": "visual-proof/w3440.jpg"
+    },
+    "reference": "The project pause strip above the composer (CHAT_STRIP), same family as board-archived-banner; paused project, chat open."
+  },
+  {
+    "component": "client/src/components/Shared/ProjectPauseStrip.tsx",
+    "widths": {
+      "375": "visual-proof/w375.jpg",
+      "768": "visual-proof/w768.jpg",
+      "1440": "visual-proof/w1440.jpg",
+      "3440": "visual-proof/w3440.jpg"
+    },
+    "reference": "The project pause strip above the composer (CHAT_STRIP), same family as board-archived-banner; paused project, chat open."
+  },
+  {
+    "component": "client/src/components/Sidebar/ProjectQuotaMeter.tsx",
+    "widths": {
+      "375": "visual-proof/w375.jpg",
+      "768": "visual-proof/w768.jpg",
+      "1440": "visual-proof/w1440.jpg",
+      "3440": "visual-proof/w3440.jpg"
+    },
+    "reference": "The project pause strip above the composer (CHAT_STRIP), same family as board-archived-banner; paused project, chat open."
+  },
+  {
+    "component": "client/src/components/Sidebar/ProjectQuotaTable.tsx",
+    "widths": {
+      "375": "visual-proof/w375.jpg",
+      "768": "visual-proof/w768.jpg",
+      "1440": "visual-proof/w1440.jpg",
+      "3440": "visual-proof/w3440.jpg"
+    },
+    "reference": "The project pause strip above the composer (CHAT_STRIP), same family as board-archived-banner; paused project, chat open."
+  }
+]

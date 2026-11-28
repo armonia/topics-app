@@ -106,6 +106,7 @@ const UPSTREAM_STATUS: Record<NodeFailureReason, number> = {
   payload_too_large: 502,
   rejected: 502,
   model_rejected: 502,
+  paused: 409,
   not_found: 502,
   server_error: 502,
 };

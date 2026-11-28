@@ -13,11 +13,11 @@
 - **GIVEN** nessun file di storia
 - **THEN** la risposta SHALL dire `quotaHistory: false` e dare i token pesati, senza punti
 
-### Requirement: USAGE-29 — Ogni progetto ha un limite di default, e superarlo chiede una conferma esplicita
+### Requirement: USAGE-29 — Ogni progetto può avere un limite, e superarlo chiede una conferma esplicita
 
-Il limite (10 punti nelle 24 ore, cambiabile per progetto dal suo menu, «Nessuno» per toglierlo) è della consegna 1 e si legge nel misuratore; la pausa che ne segue è della consegna 2.
+Il limite (nessuno per un progetto non configurato finché non arriva la formula della card 64b1f052; cambiabile per progetto dal suo menu, «Nessuno» per toglierlo) è della consegna 1 e si legge nel misuratore; la pausa che ne segue è della consegna 2.
 
-Ogni progetto SHALL avere un limite di 10 punti nelle ultime 24 ore, di default e senza configurare niente (cambiabile per progetto dal suo menu, «Nessuno» per toglierlo). Superato il limite, il progetto SHALL entrare in pausa: il dispatcher NON SHALL avviare card del progetto (restano in Todo con «In pausa: limite del progetto»), `spawn_agent` in una sessione del progetto SHALL rispondere col motivo invece di far nascere un figlio, la spinta d'obiettivo NON SHALL ripartire da sola. Il messaggio scritto da una persona SHALL partire sempre e un turno in corso SHALL finire. Un errore di lettura SHALL lasciar passare (fail-open).
+Ogni progetto SHALL poter avere un limite in punti nelle ultime 24 ore (scelto dal suo menu, «Nessuno» per toglierlo); finché la card 64b1f052 non ne fissa il valore di partenza, un progetto non configurato non ha limite. Superato il limite, il progetto SHALL entrare in pausa: il dispatcher NON SHALL avviare card del progetto (restano in Todo con «In pausa: limite del progetto»), `spawn_agent` in una sessione del progetto SHALL rispondere col motivo invece di far nascere un figlio, la spinta d'obiettivo NON SHALL ripartire da sola. Il messaggio scritto da una persona SHALL partire sempre e un turno in corso SHALL finire. Un errore di lettura SHALL lasciar passare (fail-open).
 
 #### Scenario: limite superato
 - **GIVEN** un progetto senza impostazioni a 10,4 punti nelle 24 ore, con una card in Todo e una chat viva

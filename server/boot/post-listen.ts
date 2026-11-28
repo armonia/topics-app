@@ -12,6 +12,7 @@ import { startBacklogTriage } from "../services/backlog-triage";
 import { startQuotaSampler } from "../usage/quota-sampler";
 import { createOrphanCensusRunner } from "../services/orphan-census";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
+import { startProjectQuotaSweep } from "./project-quota-sweep-start";
 import type { AfterRelay } from "./scope";
 
 export function bootPostListen(scope: AfterRelay) {
@@ -158,6 +159,9 @@ export function bootPostListen(scope: AfterRelay) {
     runPlannerStats();
     setInterval(runPlannerStats, 24 * 60 * 60_000).unref?.();
   }, 60_000).unref?.();
+
+  // Project daily limits: opens pauses and tells every window, the bell and the owner channel.
+  startProjectQuotaSweep(ctx, `${proto}://localhost:${server.port ?? PORT}`);
 
   // Machines' health for the tray: security probes, CPU and memory, cards of today.
   startMachineHealth(ctx);

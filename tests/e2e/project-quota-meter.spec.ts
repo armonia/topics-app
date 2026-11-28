@@ -39,9 +39,9 @@ function surfaces(day: Partial<Record<QuotaSurface, number>>): ProjectQuotaRow["
   return Object.fromEntries(QUOTA_SURFACES.map((s) => [s, { points24h: day[s] ?? 0, points7d: (day[s] ?? 0) * 3 }])) as ProjectQuotaRow["surfaces"];
 }
 
-function row(path: string, points24h: number, day: Partial<Record<QuotaSurface, number>>): ProjectQuotaRow {
+function row(path: string, points24h: number, day: Partial<Record<QuotaSurface, number>>, limit: number | null = 10): ProjectQuotaRow {
   return {
-    projectId: projectIdForPath(path), projectPath: path, points24h, points7d: points24h * 3, weighted24h: 1, weighted7d: 3, limit: 10,
+    projectId: projectIdForPath(path), projectPath: path, points24h, points7d: points24h * 3, weighted24h: 1, weighted7d: 3, limit,
     surfaces: surfaces(day),
     topChats: [{ topicId: "chat-1", title: "Checkout review", surface: "chat", points24h: points24h / 2, points7d: points24h * 1.5 }],
   };
@@ -53,14 +53,16 @@ test.describe("project quota meter", () => {
   let scene: Scene | null = null;
   // What the seeded endpoint answers; a test changes it and reloads.
   let points = { acme: 7, studio: 8 };
+  // A project nobody configured has no limit; the meter still shows its spend.
+  let limit: number | null = 10;
 
   async function seedQuota(page: Page): Promise<void> {
     await page.route("**/api/usage/projects/quota", async (route) => {
       const body: ProjectQuotaResponse = {
         cachedAt: new Date().toISOString(), quotaHistory: true,
         projects: [
-          row(scene!.dirOf("acme-web"), points.acme, { chat: points.acme - 2, cardSubagent: 2 }),
-          row(scene!.dirOf("studio-x"), points.studio, { card: points.studio }),
+          row(scene!.dirOf("acme-web"), points.acme, { chat: points.acme - 2, cardSubagent: 2 }, limit),
+          row(scene!.dirOf("studio-x"), points.studio, { card: points.studio }, limit),
         ],
       };
       await route.fulfill({ json: body });
@@ -103,6 +105,19 @@ test.describe("project quota meter", () => {
     const red = await colorOf(over);
     expect(red).not.toBe(amber);
     expect(red).not.toBe(calm);
+  });
+
+  test("a project with spend and no limit shows the points alone, neutral, without a slash", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    points = { acme: 35, studio: 21 };
+    limit = null;
+    await seedQuota(page);
+    await goToApp(page);
+    const acme = page.getByTestId("project-quota-meter").filter({ hasText: /^35$/ });
+    await expect(acme).toBeVisible({ timeout: 30_000 });
+    await expect(acme).toHaveAttribute("data-tone", "ok");
+    await expect(page.getByTestId("project-quota-meter").filter({ hasText: "/" })).toHaveCount(0);
+    limit = 10;
   });
 
   test("the Dashboard table carries the same points, the limit, the surfaces and the heaviest chats", async ({ page }) => {

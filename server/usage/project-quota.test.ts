@@ -15,8 +15,9 @@ import { createUsageRouter } from "../routes/usage";
 import { callWeight, listTranscripts } from "./project-calls";
 import { pointsPerHour, type QuotaHistorySample } from "./person-usage";
 import { projectQuota } from "./project-quota";
+import { PROJECT_QUOTA_SCHEMA } from "../../tests/helpers/project-quota-schema";
 
-const QUOTA_MIGRATION = await Bun.file(new URL("../db/migrations/20261119000000-project-quota.sql", import.meta.url)).text();
+const QUOTA_MIGRATION = PROJECT_QUOTA_SCHEMA;
 
 const scratch = mkdtempSync(join(tmpdir(), "project-quota-test-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -293,12 +294,12 @@ describe("surfaces, chats and limits", () => {
     expect(a.topChats.map((c) => [c.topicId, c.surface, c.points7d]).sort()).toEqual([["tCard", "card", 4], ["tChat", "chat", 4]]);
   });
 
-  test("a project's row carries its limit: the default, a chosen one, and none", () => {
+  test("a project's row carries its limit: no row (no limit yet), a chosen one, and none", () => {
     const db = makeDb();
     const [, idB, idC] = ["/proj/A", "/proj/B", "/proj/C"].map((p) => project(db, p));
     db.run("INSERT INTO project_quota (project_id, limit_24h_pct, updated_at) VALUES (?, 20, 'x'), (?, NULL, 'x')", [idB!, idC!]);
     const result = projectQuota(db, { now: NOW, historyFile: NO_HISTORY, listTranscripts: NONE });
-    expect(["/proj/A", "/proj/B", "/proj/C"].map((p) => row(result.projects, p)!.limit)).toEqual([10, 20, null]);
+    expect(["/proj/A", "/proj/B", "/proj/C"].map((p) => row(result.projects, p)!.limit)).toEqual([null, 20, null]);
   });
 
   test("without quota history points are null and only the weighted spend is real", () => {
@@ -345,7 +346,7 @@ describe("GET /api/usage/projects/quota", () => {
     expect(res!.status).toBe(200);
     const body = await res!.json() as { cachedAt: string; projects: Array<{ projectPath: string | null; limit: number | null }> };
     expect(typeof body.cachedAt).toBe("string");
-    expect(body.projects.find((p) => p.projectPath === "/proj/A")?.limit).toBe(10);
+    expect(body.projects.find((p) => p.projectPath === "/proj/A")?.limit).toBeNull();
   }, 30_000);
 });
 

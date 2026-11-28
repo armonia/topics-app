@@ -86,6 +86,9 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // ubuntu, aws, pem: product and format names used as test fixture identifiers
+  // (`server/lib/machine-security-ssh.test.ts`, `server/lib/secret-redaction.test.ts`).
+  "ubuntu", "aws", "pem",
   // gws: the Google Workspace CLI the reference Gmail mailbox adapter calls (`server/mail/inbox/gmail-adapter.ts`); it is a command name, not a word.
   "gws",
   // unsubscribe: the name every subscribe/unsubscribe pair in the client stores uses (`client/src/lib/keyedListeners.ts`); the dictionary lacks it.

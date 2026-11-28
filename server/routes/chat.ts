@@ -42,6 +42,8 @@ import { autoreDaIdentita } from "../lib/message-author";
 import type { BrowserService } from "../browser-service";
 import { decodeCol } from "../../shared/message-blob";
 import { isInternalRequest } from "../lib/abort-cause";
+import { chatTurnOrigin } from "../lib/chat-turn-origin";
+import { holdUntilResumed, projectIdOfTopic, turnGate } from "../services/turn-gate";
 import { agentAuthOk } from "../lib/agent-auth";
 import { getSubagentBySessionKey } from "../lib/subagent-store";
 import { stopTurnBodyOf } from "../lib/turn-body-flush";
@@ -86,6 +88,9 @@ import { authorForSender, parseSender, senderAllowed } from "../lib/person-ident
  * the table is asked next: the key is on the row (`lib/client-message-key.ts`).
  */
 const chatIdempotency = createIdempotencyCache({ ttlMs: 30 * 60_000 });
+/** A held turn sent on resume meets a chat that is still answering: how many times, how far apart. */
+const HELD_CHAT_TRIES = 6;
+const HELD_CHAT_RETRY_MS = 5_000;
 
 /**
  * Closure-local helpers from createTopicsRouter that the /api/chat block needs,
@@ -479,6 +484,34 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
   }
 
   /**
+   * A turn the project pause held, sent again when the project runs. It goes
+   * through this same route (the gate asks again: a project paused once more
+   * parks it again). A turn already in flight on the chat waits for its end:
+   * the same patience as a returned steer, with a shorter list of tries.
+   */
+  async function resendHeldChat(sessionKey: string, payload: string): Promise<void> {
+    for (let attempt = 0; attempt < HELD_CHAT_TRIES; attempt++) {
+      const url = new URL("http://localhost/api/chat");
+      const resp = await chatRouter(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: payload }), url, "/api/chat", "POST");
+      if (!resp) return;
+      if (resp.status === 409) {
+        const answer = (await resp.json().catch(() => null)) as { code?: unknown } | null;
+        // Busy: the turn in flight ends by itself. Any other 409 (the message was already taken) is an answer.
+        if (answer?.code !== "stream_in_flight") return;
+        await new Promise((r) => setTimeout(r, HELD_CHAT_RETRY_MS));
+        continue;
+      }
+      if (!resp.ok) { console.warn(`[chat] held turn of ${sessionKey} refused on resume: HTTP ${resp.status}`); return; }
+      // Parked once more (the project was paused again): nothing runs, nothing to read.
+      if (resp.status === 202) return;
+      const reader = resp.body?.getReader();
+      if (reader) while (!(await reader.read()).done) { /* drain, so the turn runs to its end */ }
+      return;
+    }
+    console.warn(`[chat] held turn of ${sessionKey}: the chat stayed busy, not delivered`);
+  }
+
+  /**
    * The ordinary turn of a steered message the running turn did not take.
    * Sent when the session is free: a turn end is the signal, as for the
    * answer relay, and a timer backs it up for a refusal no turn end follows.
@@ -596,7 +629,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       if (!body) return json({ error: "body required" }, 400);
       // The real sender of a channel turn: only whoever administers the machine may declare it.
       const sender = parseSender(body.sender);
-      if (sender && senderAllowed(ctx.requestIdentity?.(req) ?? null)) {
+      const senderTrusted = !!sender && senderAllowed(ctx.requestIdentity?.(req) ?? null);
+      if (sender && senderTrusted) {
         try { senderAuthors.set(req, authorForSender(ctx.db as never, sender)); }
         catch (err) { console.warn(`[chat] sender not resolved: ${err instanceof Error ? err.message : String(err)}`); }
       }
@@ -834,6 +868,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       turn.isWoken = isWoken;
       const adottaTurnoVivo = isReattach || isWoken;
       turn.adottaTurnoVivo = adottaTurnoVivo;
+      // An agent, not a person: send_chat_message (fromAgent) or an agent credential.
+      // Read from the request's authentication, never trusted from the body alone.
+      const sentByAgent = !isInternalRequest(req) && (body.fromAgent === true || agentAuthOk(req));
       // The machine continuing work the chat already started: a goal or
       // turn-end hook nudge, a wake (a command's end, sub-agent results, a
       // card's outcome), a resume. Such a message brings no request of its
@@ -843,15 +880,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const continuation = !!(body.goalNudge || body.hookNudge || body.processExit || body.subagentResults || body.cardOutcome || resumeAttempt);
       turn.continuation = continuation;
       // Typed by a person, not produced by the machine (the continuations above, a dispatch, a wake).
-      const sentByPerson = !isWoken && !isReattach && !dispatched && !continuation;
+      const sentByPerson = !sentByAgent && !isWoken && !isReattach && !dispatched && !continuation;
       turn.sentByPerson = sentByPerson;
 
       if (!messages || !Array.isArray(messages) || (messages.length === 0 && !adottaTurnoVivo)) {
         return json({ error: "messages array required" }, 400);
       }
-      // An agent, not a person: send_chat_message (fromAgent) or an agent credential.
-      // Read from the request's authentication, never trusted from the body alone.
-      const sentByAgent = !isInternalRequest(req) && (body.fromAgent === true || agentAuthOk(req));
       const subagentOfChat = getSubagentBySessionKey(ctx.db as never, sessionKey);
       // A native sub-agent's chat: whoever writes (a person, the resume,
       // send_to_agent), a message is the child's prompt, never a chat command.
@@ -861,6 +895,26 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // here would open a turn nobody owns and a second result.
       if (sentByAgent && nativeChildChat) {
         return json({ error: `this chat belongs to sub-agent ${subagentOfChat!.id}: its parent writes to it with send_to_agent(agent_id="${subagentOfChat!.id}")`, code: "subagent_chat" }, 409);
+      }
+
+      // PROJECT QUOTA BRAKE: a turn that is not a person's message does not start
+      // while the project of the chat it lands in is paused. It is parked, not
+      // lost: "Continua" sends it again through this same route. A turn that
+      // adopts one already running (reattach, woken) starts nothing.
+      if (!adottaTurnoVivo) {
+        const origin = chatTurnOrigin({ internal: isInternalRequest(req), sentByAgent, channelSender: senderTrusted && sender?.owner !== true, body });
+        const projectId = projectIdOfTopic(ctx.db as never, matchedTopic?.id);
+        if (projectId && !turnGate(ctx.db as never, origin, projectId).allowed) {
+          const last = messages[messages.length - 1];
+          const replayBody = JSON.stringify({
+            ...body,
+            ...(sentByAgent ? { fromAgent: true } : {}),
+            ...(origin.kind === "automation" ? { origin: "automation", originSource: origin.source } : {}),
+          });
+          holdUntilResumed(projectId, `chat:${sessionKey}:${idempotencyKey ?? (typeof last?.content === "string" ? last.content : "")}`, () => resendHeldChat(sessionKey, replayBody));
+          console.log(`[HTTP] POST /api/chat 202 — ${origin.kind === "automation" ? origin.source : "turn"} held on ${sessionKey}: the project is paused`);
+          return json({ held: true, code: "project_paused", projectId }, 202);
+        }
       }
 
       /**
