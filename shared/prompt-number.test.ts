@@ -16,4 +16,13 @@ describe("promptNumbers (server, whole thread)", () => {
     const got = promptNumbers(thread as never, new Set(["e1"]));
     expect([...got]).toEqual([["u1", 1], ["u2", 2]]);
   });
+
+  it("does not count a scheduled job's turn as a person's prompt (R16)", () => {
+    const thread = [
+      { id: "u1", role: "user", content: "prima" },
+      { id: "j1", role: "user", content: "run the job", blocks: [{ kind: "scheduled-job", jobId: "j", runId: "r" }] },
+    ] as const;
+    const got = promptNumbers(thread as never);
+    expect([...got]).toEqual([["u1", 1]]);
+  });
 });
