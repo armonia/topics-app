@@ -115,3 +115,35 @@ describe("a board opened through a link keeps its own cards", () => {
     expect((viaLink.tasks ?? viaLink).map((t: any) => t.text)).toEqual(["own card"]);
   });
 });
+
+describe("both boards hold cards when the alias is registered", () => {
+  let db: Database;
+  let router: ReturnType<typeof createTasksRouter>;
+  const staleId = "shop-aaaaaa";
+  const liveId = "shop-bbbbbb";
+
+  beforeAll(() => {
+    db = freshDb();
+    db.exec(readFileSync(join(import.meta.dir, "../db/migrations/20261120090000-board-aliases.sql"), "utf-8"));
+    router = createTasksRouter(makeCtx(db, [], {}), undefined, { listProjectDirs: () => [] });
+    resetBoardAliasScan();
+  });
+
+  test("a card left under the old id is read and patched through the new id", async () => {
+    const now = Date.now();
+    for (const [id, project] of [["card-old", staleId], ["card-new", liveId]]) {
+      db.run(
+        "INSERT INTO tasks (id, project_id, text, status, priority, kanban_order, created_at, updated_at) VALUES (?, ?, ?, 'backlog', 2, 1, ?, ?)",
+        [id, project, id, now, now],
+      );
+    }
+    db.run("INSERT INTO board_aliases (old_id, new_id, old_path, created_at) VALUES (?, ?, '/old', ?)", [staleId, liveId, now]);
+
+    const read = await call(router, "GET", `/api/boards/${liveId}/tasks/card-old`);
+    expect(read!.status).toBe(200);
+    const patched = await call(router, "PATCH", `/api/boards/${liveId}/tasks/card-old`, { priority: 4 });
+    expect(patched!.status).toBe(200);
+    const row = db.query("SELECT project_id, priority FROM tasks WHERE id = 'card-old'").get() as { project_id: string; priority: number };
+    expect(row).toEqual({ project_id: liveId, priority: 4 });
+  });
+});
