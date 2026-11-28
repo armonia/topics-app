@@ -1254,6 +1254,21 @@ const projectIconSchema = z.looseObject({
   version: z.nullable(z.string()),
 });
 
+/**
+ * `project:quota` (limiti-consumo-progetto, USAGE-30, allow-italian: openspec change name): the project's pause,
+ * the same state in every chat, the board and the bell at once. `paused:
+ * false` is the frame that makes the strip disappear everywhere the instant
+ * "Continua" is pressed anywhere, without a reload.
+ */
+const projectQuotaSchema = z.looseObject({
+  type: z.literal('project:quota'),
+  projectId: z.string(),
+  paused: z.boolean(),
+  reason: z.nullable(z.enum(['limit', 'hold-until-tomorrow'])),
+  limit: z.nullable(z.number()),
+  points24h: z.nullable(z.number()),
+});
+
 // ---- Claude session state + events (highest-traffic live path) ------------
 
 /**
@@ -1609,6 +1624,7 @@ const OUTBOUND_SCHEMAS = {
   // Filesystem del progetto — l'evento che il file-watcher emette.
   'files:changed': filesChangedSchema,
   'project:icon': projectIconSchema,
+  'project:quota': projectQuotaSchema,
   // Claude session state (highest-traffic live path)
   'session:state': sessionStateSchema,
   // Appaiamento dei dispositivi
@@ -1680,6 +1696,7 @@ export const OUTBOUND_FRAME_CLASSES: Record<OutboundType, OutboundFrameClass> = 
   'project:archived': 'project',
   'project:deleted': 'project',
   'project:icon': 'project',
+  'project:quota': 'project',
   'project:new': 'project',
   'project:updated': 'project',
   'provider:hold': 'global',

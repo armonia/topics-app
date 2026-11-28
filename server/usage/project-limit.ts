@@ -12,10 +12,20 @@
 import type { Database } from "bun:sqlite";
 import { DEFAULT_QUOTA_LIMIT } from "../../shared/usage-shapes";
 
+/**
+ * THE one place that turns "what is stored for a project" into the limit the
+ * pause gate, the meter and the menu all use. `stored` is the row's column,
+ * or `undefined` when the project has no row. `null` = no limit. The way the
+ * limit is computed (per project, share of the day's quota) changes only here.
+ */
+export function resolveProjectLimit(_projectId: string, stored: number | null | undefined): number | null {
+  return stored === undefined ? DEFAULT_QUOTA_LIMIT : stored;
+}
+
 /** The limit a project has: its row's value, or the default when it has no row. `null` = no limit. */
 export function readProjectLimit(db: Database, projectId: string): number | null {
   const row = db.query("SELECT limit_24h_pct FROM project_quota WHERE project_id = ?").get(projectId) as { limit_24h_pct: number | null } | null;
-  return row ? row.limit_24h_pct : DEFAULT_QUOTA_LIMIT;
+  return resolveProjectLimit(projectId, row ? row.limit_24h_pct : undefined);
 }
 
 /** Every configured limit by project id; a project missing from the map has the default. */

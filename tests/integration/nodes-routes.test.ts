@@ -858,3 +858,44 @@ describe("nodes routes: ingress of a mirrored card", () => {
     }
   });
 });
+
+// Project pause: a node never starts the run of a paused project, whether the
+// pause is the origin's (it says so in the body) or this node's own.
+describe("nodes routes: a paused project starts no run", () => {
+  const countTasks = (): number => (ctx.db.query("SELECT COUNT(*) AS n FROM tasks").get() as { n: number }).n;
+
+  test("the origin says its project is paused: 409 project_paused and no card is created", async () => {
+    const before = countTasks();
+    const resp = await call("POST", "/api/nodes/runs", {
+      originTaskId: "origin-paused-by-body", originUrl: ORIGIN_HTTPS, text: "paused origin", originPaused: true,
+    });
+    expect(resp.status).toBe(409);
+    expect((await resp.json() as any).code).toBe("project_paused");
+    expect(countTasks()).toBe(before);
+  });
+
+  test("the node's own project is paused: 409 project_paused, and it runs again after Continua", async () => {
+    const { openPauseIfNeeded, continueProject } = await import("../../server/services/project-pause");
+    const before = countTasks();
+    openPauseIfNeeded(ctx.db, boardId, 10.4);
+    try {
+      const resp = await call("POST", "/api/nodes/runs", {
+        originTaskId: "origin-paused-on-node", originUrl: ORIGIN_HTTPS, text: "paused node project",
+      });
+      expect(resp.status).toBe(409);
+      expect((await resp.json() as any).code).toBe("project_paused");
+      expect(countTasks()).toBe(before);
+    } finally {
+      continueProject(ctx.db, boardId, 10.4);
+    }
+    const resumed = await mirror("origin-paused-on-node");
+    expect(resumed.status).toBe(201);
+  });
+
+  test("no pause and originPaused false: 201 as before", async () => {
+    const resp = await call("POST", "/api/nodes/runs", {
+      originTaskId: "origin-not-paused", originUrl: ORIGIN_HTTPS, text: "free", originPaused: false,
+    });
+    expect(resp.status).toBe(201);
+  });
+});

@@ -23,6 +23,9 @@ import { childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngi
 import { FOREGROUND_WAIT_MS, bootChildSweep, childPhase, holdForeground, noteChildSeeded, noteChildSteered, chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, startChildWatch, subagentLimitRefusal, waitForegroundLeg } from "../lib/subagent-runtime";
 import { promptAsPaste } from "../lib/subagent-seed";
 import { boardSpawnRefusal } from "../services/agent-census";
+import { automation, projectIdOfTopic, turnGate } from "../services/turn-gate";
+import { holdChildSend } from "../lib/held-child-send";
+import { projectIdOfFolder } from "../usage/project-folders";
 import { resolveClaudeEffort, topicEffortFor } from "../lib/topics-agent-prompt";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { createAgentWorktree, resolveAgentProject, worktreeReadyMs } from "../services/worktree-for-agent";
@@ -189,6 +192,23 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
     console.log(
       `[Terminal] Parcheggio sessioni ferme attivo: soglia ${Math.round(parkThresholdMs / 60_000)} min.`,
     );
+  }
+
+  /**
+   * The project of whoever LAUNCHES or WRITES (project quota brake): the parent
+   * chat's project, else the folder of the parent's terminal, else `fallbackCwd`.
+   * Never the folder a child is pointed at. Null when nothing resolves: the gate
+   * fails open.
+   */
+  function launcherProjectId(parentKey: string, fallbackCwd?: string | null): string | null {
+    try {
+      const db = getDatabase();
+      const parent = sessions.get(parentKey);
+      const topic = parentKey.startsWith("topic:") ? ctx.getTopicBySessionKey(parentKey) : null;
+      return projectIdOfTopic(db, topic?.id ?? parent?.topicId)
+        ?? (parent?.cwd ? projectIdOfFolder(db, parent.cwd) : null)
+        ?? (fallbackCwd ? projectIdOfFolder(db, fallbackCwd) : null);
+    } catch { return null; }
   }
 
   return async function terminalRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
@@ -706,6 +726,14 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // `$HOME` for every chat: 55 children out of 55 spawned without `cwd`
         // landed there, projects and card worktrees included.
         let cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : (parent?.cwd || topicCwd || process.env.HOME || "/");
+        // PROJECT QUOTA BRAKE (limiti-consumo-progetto, USAGE-29), before any // allow-italian: openspec change name
+        // worktree or process is paid for. The project is the one of whoever
+        // LAUNCHES (the parent chat or tab), never the folder the child is
+        // pointed at: the same work aimed elsewhere would dodge the brake.
+        // Fail-open: a resolution error never blocks a spawn.
+        if (!turnGate(getDatabase(), automation("agent-spawn"), launcherProjectId(parentKey, parent?.cwd ?? topicCwd ?? cwd)).allowed) {
+          return errorResponse(429, "In pausa: limite del progetto");
+        }
         // Model, profile and effort (SUBAGENT-08/09/10), refused BEFORE any
         // process or worktree exists. The profiles are those of the directory
         // the child is asked to start from; an isolated child's worktree is a
@@ -922,6 +950,22 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const agentId = decodeURIComponent(sendM.agentId);
         const body = await readJSON(req).catch(() => ({}));
         const input = typeof body.input === "string" ? body.input : (typeof body.text === "string" ? body.text : "");
+        // PROJECT QUOTA BRAKE: a message wakes or re-seeds a child, a turn no
+        // person typed. In a paused project it is HELD, not lost: it goes out on
+        // "Continua", through this same route. The project is the caller's.
+        // Only a child this caller owns is parked: anything else answers as before.
+        if (input) {
+          const projectId = launcherProjectId(parentKey);
+          const ownsChild = getSubagent(getDatabase(), agentId)?.parentSessionKey === parentKey || !!resolveOwnedChild(parentKey, agentId);
+          if (projectId && ownsChild && !turnGate(getDatabase(), automation("child-send"), projectId).allowed) {
+            const headers = new Headers(req.headers);
+            headers.delete("content-length");
+            holdChildSend(projectId, agentId, input, (joined) => terminalRouter(
+              new Request(url, { method: "POST", headers, body: JSON.stringify({ input: joined }) }), url, pathname, "POST",
+            ));
+            return json({ ok: true, held: true, code: "project_paused", sent: 0 }, 202);
+          }
+        }
         {
           // A native child: the next turn of its chat, whatever its state.
           const row = getSubagent(getDatabase(), agentId);

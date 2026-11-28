@@ -16,6 +16,8 @@ import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { getSubagent, insertSubagent, markSubagentRemote } from "../lib/subagent-store";
 import { SETTLE_TRIES, createRemoteSubagentWiring } from "../lib/subagent-remote-wiring";
 import { bundleBranch } from "../services/branch-on-origin";
+import { openPauseIfNeeded } from "../services/project-pause";
+import { projectIdOfFolder } from "../usage/project-folders";
 import { createTerminalRouter, disconnectBridge } from "./terminal";
 import { _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
 import type { AppContext } from "../types";
@@ -397,6 +399,41 @@ test("a bundle that does not arrive keeps the child running and its work recover
     // Out of tries: the parent hears "failed" (state lost), not "completed" with a branch that does not exist.
     expect(fetches).toBe(SETTLE_TRIES);
     expect(getSubagent(getDatabase(), agentId)?.state).toBe("lost");
+  } finally {
+    try { closeDatabase(); } catch { /* best effort */ }
+  }
+});
+
+test("spawn_agent in a paused project is refused before any worktree or process (limiti-consumo-progetto, USAGE-29)", async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "agent-spawn-paused-"));
+  topicsHome = join(tempRoot, "topics-home");
+  mkdirSync(topicsHome, { recursive: true });
+  writeFileSync(join(topicsHome, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: AGENT_TOKEN, startedAt: "x" }));
+  process.env.TOPICS_HOME = topicsHome;
+  initDatabase(resolve(import.meta.dir, "../.."), tempRoot);
+
+  const childRepo = join(tempRoot, "repo");
+  mkdirSync(childRepo, { recursive: true });
+
+  const projectId = projectIdOfFolder(getDatabase(), childRepo);
+  openPauseIfNeeded(getDatabase(), projectId, 999);
+
+  let created = 0;
+  const ctx = baseCtx(tempRoot, "node-unused", "http://fake-node.test", {
+    machineStore: { list: () => [], get: () => null },
+    nodeClient: { createRun: async () => { created += 1; return { runId: "run-x" }; } },
+  } as unknown as Partial<AppContext>);
+
+  try {
+    const router = createTerminalRouter(ctx);
+    const url = new URL("http://topics.test/api/sessions/pty%3Aparent-paused/agents/spawn");
+    const res = await router(
+      new Request(url, { method: "POST", headers: { "content-type": "application/json", "x-daemon-token": AGENT_TOKEN }, body: JSON.stringify({ cwd: childRepo, prompt: "do something" }) }),
+      url, url.pathname, "POST",
+    );
+    expect(res?.status).toBe(429);
+    expect(await res?.json()).toMatchObject({ error: "In pausa: limite del progetto" });
+    expect(created).toBe(0); // never asked a node, let alone started a local process
   } finally {
     try { closeDatabase(); } catch { /* best effort */ }
   }

@@ -245,6 +245,10 @@ export function createDispatcherCore(deps: DispatcherDeps) {
   // forgotten only when the card really starts again, and in the meantime it is
   // not repeated at every poll.
   const spendHeldNoted = new Set<string>();
+  // Same discipline, for the project quota brake (limiti-consumo-progetto, USAGE-29). allow-italian: openspec change name
+  // The pause is lifted by a person's own choice, not by this process on its
+  // own, so the note stays until the card really starts.
+  const projectPauseHeldNoted = new Set<string>();
   // Tasks already logged "remote claim declined". Same discipline: ONE line per
   // episode, not one per tick. The remote claim is a plain `log`, not a thread
   // comment (it is for an operator reading the server log, not the card), but
@@ -501,5 +505,5 @@ export function createDispatcherCore(deps: DispatcherDeps) {
     reconciling: null as Promise<void> | null,
   };
 
-  return { RECONCILE_GRACE_MS, admissionCountingSince, attemptCap, backoffMs, beginDelegated, capHeldNoted, clock, commandWaits, delegatedPolicy, deps, evaluateNight, externallyHeldNoted, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceMs, graceTimers, heavyHeldNoted, heavyHoldSince, heldOffNoted, heldWritten, inFlight, liveTurns, livenessGraceMs, log, memoryHeldCards, noCheckExemptions, overflowBranch, overflowBranchPending, overflowOrigin, overflowOriginPending, overflowRounds, pendingResume, planHeldNoted, providerErrors, recentlyEnded, recordDelegated, remoteClaimDeclinedNoted, retryWaits, shared, slotWaits, spendHeldNoted, usageLedgers, waitingForSlot };
+  return { RECONCILE_GRACE_MS, admissionCountingSince, attemptCap, backoffMs, beginDelegated, capHeldNoted, clock, commandWaits, delegatedPolicy, deps, evaluateNight, externallyHeldNoted, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceMs, graceTimers, heavyHeldNoted, heavyHoldSince, heldOffNoted, heldWritten, inFlight, liveTurns, livenessGraceMs, log, memoryHeldCards, noCheckExemptions, overflowBranch, overflowBranchPending, overflowOrigin, overflowOriginPending, overflowRounds, pendingResume, planHeldNoted, projectPauseHeldNoted, providerErrors, recentlyEnded, recordDelegated, remoteClaimDeclinedNoted, retryWaits, shared, slotWaits, spendHeldNoted, usageLedgers, waitingForSlot };
 }

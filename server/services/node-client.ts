@@ -40,6 +40,7 @@ export type NodeFailureReason =
   | "payload_too_large"
   | "rejected"
   | "model_rejected"
+  | "paused"
   | "not_found"
   | "server_error";
 
@@ -148,6 +149,8 @@ export interface CreateRunBody {
    * way `BundleResult` brings the delivery back.
    */
   branchBundle?: string;
+  /** The ORIGIN project is paused by its quota limit: the node starts nothing for it. */
+  originPaused?: boolean;
 }
 
 /** Immutable authority envelope for the confined delegated-node path. */
@@ -387,6 +390,8 @@ async function nodeErrorFromResponse(res: Response, what: string): Promise<NodeE
   // The node read the request and refused its content (a model outside its
   // catalog, an invalid field): the same body is refused every time, so this is
   // a verdict, not a silence.
+  // The origin project (or the node's own) is paused: nothing started, the card waits for "Continua".
+  if (body.code === "project_paused") return new NodeError("paused", msg, res.status);
   if (body.code === "invalid_task_model") return new NodeError("model_rejected", msg, res.status);
   if (res.status === 400 || res.status === 422) return new NodeError("rejected", msg, res.status);
   return new NodeError("server_error", msg, res.status);

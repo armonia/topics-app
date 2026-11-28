@@ -5,6 +5,7 @@
 import type { Database } from "bun:sqlite";
 import type { ServiceOpts } from "../tasks";
 import { DISPATCH_CHIP_QUEUED, isAgentWorking, QUEUE_REASON_UNKNOWN, type QueueReason, WAITING_MEMORY_REASON, deriveQueueReason, readTaskWeight } from "../../../shared/board";
+import { projectIsPaused } from "../project-pause";
 import { readElsewhere } from "../task-elsewhere";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "../dispatch-block-signal";
 import { type Task } from "../task-shapes";
@@ -238,6 +239,8 @@ function queueReasonOf(r: any, b: TaskBatch): QueueReason | null {
           dispatchBlock: inCoda
             ? (r.dispatch_error === WAITING_MEMORY_REASON ? { kind: "resources", reason: WAITING_MEMORY_REASON } : currentDispatchBlock())
             : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
+          // Only a card that waits (the queued chip) pays the one indexed row read.
+          projectPaused: (inCoda || heldResume) && r.dispatch_state === DISPATCH_CHIP_QUEUED && projectIsPaused(db, r.project_id),
           memoryWait: r.dispatch_error === WAITING_MEMORY_REASON ? currentMemoryWait() : null,
           elsewhere: b.elsewhere.get(r.id) ?? null,
           parentStatus: r.parent_task_id ? (b.parentStatus.get(r.parent_task_id) ?? null) : null,

@@ -154,6 +154,19 @@ describe("la card parte sul nodo, non qui", () => {
     expect(t.machineId ?? null).toBeNull();
   });
 
+  it("the node refuses because the project is paused: the card goes back to the queue, attempt refunded, machine kept", async () => {
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error("project paused"), { reason: "paused" })) });
+    h.seed();
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.status).toBe("todo");
+    expect(t.machineId).toBe(MACHINE);
+    expect(t.dispatchAttempts ?? 0).toBe(0);
+    expect(t.dispatchError).not.toBe("node_unreachable");
+  });
+
   it("il cloud non raggiunge il repository: la card torna in coda subito, senza attesa, e dice la causa vera", async () => {
     const words = "L'app GitHub di Claude non ha accesso al repository o/r: il cloud non può clonarlo.";
     const h = harness({ createRun: () => Promise.reject(Object.assign(new Error(words), { reason: "cloud_repo" })) });

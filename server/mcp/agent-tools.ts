@@ -116,7 +116,11 @@ export async function callSendToAgent(
     throw new Error("send_to_agent: 'input' (string) is required");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/agents/${encodeURIComponent(toolArgs.agent_id)}/send`;
-  const res = await httpJson<{ ok?: boolean; dropped?: boolean; resumed?: boolean; wakes?: string }>(args, "POST", path, { input: toolArgs.input }, fetchImpl);
+  const res = await httpJson<{ ok?: boolean; dropped?: boolean; resumed?: boolean; wakes?: string; held?: boolean }>(args, "POST", path, { input: toolArgs.input }, fetchImpl);
+  // The project is paused (quota brake): the server keeps the message and sends it on "Continua".
+  if (res?.held === true) {
+    return `held for ${toolArgs.agent_id}: the project is paused, so the message goes out by itself when it is resumed, do not send it again`;
+  }
   if (res?.ok === false && res.dropped === true) {
     return `not sent to ${toolArgs.agent_id}: the input contained only Ctrl+Z, so nothing was sent and no reply is expected`;
   }

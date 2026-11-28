@@ -244,6 +244,7 @@ describe('outbound registry contract', () => {
       'project:deleted',
       'project:icon',
       'project:new',
+      'project:quota',
       'project:updated',
       'provider:hold',
       'provider:usage',
@@ -449,8 +450,10 @@ describe('outbound registry contract', () => {
   // `server/reasoning-translation/turn.ts`, listener `client/src/hooks/chatStreamEvents.ts`.
   // 109 -> 110: `browser:login-request`, an agent asks for a login tab to be raised
   // (optionally detached). Sender `server/routes/browser-login-request.ts`.
+  // 110 -> 111: `project:quota`, a project's pause opened or closed (USAGE-30);
+  // every window shows or hides the strip. Sender `server/routes/projects.ts`.
   test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(110);
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(111);
   });
 });
 

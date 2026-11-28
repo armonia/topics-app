@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { ChevronRight, FolderGit2 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useProjectQuota } from '../../hooks/useProjectQuota';
+import { useProjectPause } from '../../hooks/useProjectPause';
 import { formatPoints, quotaTone, type QuotaTone } from '../../lib/projectQuotaMeter';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { QUOTA_SURFACES, type ProjectQuotaRow } from '../../../../shared/usage-shapes';
@@ -26,6 +27,14 @@ function projectName(row: ProjectQuotaRow, outside: string): string {
   if (row.projectId === null) return outside;
   const parts = (row.projectPath ?? row.projectId).replace(/[\\/]+$/, '').split(/[\\/]/);
   return parts[parts.length - 1] || row.projectId;
+}
+
+/** "in pausa" next to the points of a paused project (red, same word as the sidebar meter). */
+function PausedTag({ projectId }: { projectId: string | null }) {
+  const tr = useT();
+  const pause = useProjectPause(projectId ?? '');
+  if (!pause.paused) return null;
+  return <span data-testid="project-quota-paused" className={`flex-shrink-0 text-mini ${DANGER_TEXT}`}>{tr('projectPause.meter')}</span>;
 }
 
 export function ProjectQuotaTable() {
@@ -66,6 +75,7 @@ export function ProjectQuotaTable() {
               <ChevronRight size={11} className={`flex-shrink-0 text-app-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`} />
               <FolderGit2 size={11} className="flex-shrink-0 text-app-text-muted" />
               <span className="min-w-0 flex-1 truncate text-app-text">{projectName(p, tr('projectQuota.outside'))}</span>
+              <PausedTag projectId={p.projectId} />
               <span data-testid="project-quota-day" className={`w-14 flex-shrink-0 text-right tabular-nums ${TONE_INK[tone]}`}>{points(p.points24h)}</span>
               <span className="w-12 flex-shrink-0 text-right tabular-nums text-app-text-secondary">{points(p.points7d)}</span>
               <span className="w-12 flex-shrink-0 text-right tabular-nums text-app-text-secondary">{p.limit === null ? tr('projectQuota.noLimit') : p.limit}</span>

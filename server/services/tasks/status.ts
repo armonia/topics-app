@@ -12,6 +12,7 @@ import { agentWaitWindowMinutes } from "../../../shared/agent-wait-cap";
 import { PARKED_CHILDREN_CANDIDATES_SQL, PARKED_IN_SERIES_SQL, UNOWNED_BACKLOG_SQL, QUEUED_ROOT_BOARDS_SQL } from "../../lib/task-timer-reads";
 import { UNOWNED_BACKLOG_MS } from "../../../shared/created-by";
 import { readGlobalCap, readSpendCaps, readChecksMemFloorGB } from "../dispatch-capacity";
+import { projectIsPaused } from "../project-pause";
 import { isNodeChildRun } from "../node-child-run";
 import { checksMemFloorGB } from "../../../shared/checks-memory-floor";
 
@@ -23,7 +24,7 @@ import { checksMemFloorGB } from "../../../shared/checks-memory-floor";
  */
 const RESTING_RUN_SQL = "(status = 'in_progress' AND COALESCE(dispatch_state, '') IN ('waiting', 'needs_input'))";
 
-export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "countRunningOnMachine" | "restingOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend" | "agentSpendClearsAt"> {
+export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "countRunningOnMachine" | "restingOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "projectPaused" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend" | "agentSpendClearsAt"> {
   const {
     agentAskOnThread,
     annotateDeliveryClaims,
@@ -1851,6 +1852,11 @@ getSpendCaps(): { perTaskCents: number; perDayCents: number } {
       // (and NULL, on a db that does not have the column yet) = unlimited, which
       // is the state a fresh install is born in.
       return readSpendCaps(db);
+    },
+
+projectPaused(projectId: string | null): boolean {
+      // One indexed row read, never a quota recomputation (project quota brake).
+      return projectIsPaused(db, projectId);
     },
 
 setSpendCaps(patch: { perTaskCents?: number; perDayCents?: number }): { perTaskCents: number; perDayCents: number } {
