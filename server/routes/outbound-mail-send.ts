@@ -264,7 +264,7 @@ export function createMailSend(deps: MailSendDeps) {
     return true;
   };
   registerPendingMailAnswer((askId, answer) => answerPending(ledger.pendingByAsk(askId), answer));
-  registerPendingMailChatAnswer((sessionKey, toolCallId, answer) => answerPending(ledger.pendingByToolCall(sessionKey, toolCallId), answer));
+  registerPendingMailChatAnswer((sessionKey, toolCallId, answer) => answerPending(ledger.pendingByToolCall(sessionKey, toolCallId), answer), (sessionKey, toolCallId) => ledger.settledByToolCall(sessionKey, toolCallId));
 
   return { ledger, answerKnown, sendConfirmed };
 }

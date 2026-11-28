@@ -3,10 +3,10 @@ import { patchLiveTool } from "../lib/turn-body-flush";
 import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
 import { type AIProvider } from "../providers";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
-import { deliverAnswer, hasPendingAsk, openAskIdentity, ASK_NOT_CURRENT_LINE } from "../lib/ask-user-bridge";
+import { askStillPolled, deliverAnswer, hasPendingAsk, openAskIdentity, ASK_NOT_CURRENT_LINE } from "../lib/ask-user-bridge";
 import { storedToolCall, routeAnswer, liveQuestionCallId, questionTexts, answerAsNextMessage, type StoredQuestionCall } from "../lib/question-outlives-asker";
 import { type AnswerRelay } from "../lib/answer-relay";
-import { answerPendingMailFromChat } from "../lib/outbound-mail-ledger";
+import { answerPendingMailFromChat, mailChatAlreadySettled } from "../lib/outbound-mail-ledger";
 import { markAnswerOwed } from "../lib/owed-answers";
 import { isPlanApprovalAnswer } from "../lib/plan-approval";
 import { decodeCol } from "../../shared/message-blob";
@@ -115,7 +115,13 @@ export function createToolResponseRoutes(
       // kept the message and the chat row it was painted on; with no live leg
       // to collect the yes, the server sends from the row, as the card's
       // `answerTo` road does. A live leg still takes the answer first.
-      if (response.kind === 'questions' && toolRowId && !hasPendingAsk(sessionKey)) {
+      if (response.kind === 'questions' && toolRowId && !askStillPolled(sessionKey)) {
+        // A second click (an old tab) on a message the register already settled
+        // answers as done and writes nothing: the provider path would fail and
+        // paint `error` on a mail that left.
+        if (mailChatAlreadySettled(sessionKey, toolCallId)) {
+          return json({ ok: true, deliveredAs: 'register' });
+        }
         const said = Object.values((response.answers || {}) as Record<string, unknown>).find((v): v is string => typeof v === 'string');
         if (said !== undefined && answerPendingMailFromChat(sessionKey, toolCallId, said)) {
           const submittedAt = new Date().toISOString();

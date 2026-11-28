@@ -84,6 +84,8 @@ export interface MailLedger {
   pendingByAsk(askId: string): string | null;
   /** The `pending` row whose question is painted on the chat row `toolCallId` of this session, if any. */
   pendingByToolCall(sessionKey: string, toolCallId: string): string | null;
+  /** True when a row for that chat row exists in any state but `pending`: the message was already settled. */
+  settledByToolCall(sessionKey: string, toolCallId: string): boolean;
   /**
    * Boot, for the mail rows: what was mid-send becomes `unknown` (the same rule
    * the register applies), and every `unknown` mail the card was not told about
@@ -105,6 +107,11 @@ export function createMailLedger(db: Database, now: () => Date = () => new Date(
       const row = db.query("SELECT key FROM deliveries WHERE kind = ? AND state = 'pending' AND json_extract(payload_json, '$.toolCallId') = ? AND json_extract(payload_json, '$.sessionKey') = ? LIMIT 1")
         .get(MAIL_DELIVERY_KIND, toolCallId, sessionKey) as { key: string } | null;
       return row?.key ?? null;
+    },
+    settledByToolCall(sessionKey, toolCallId) {
+      const row = db.query("SELECT key FROM deliveries WHERE kind = ? AND state != 'pending' AND json_extract(payload_json, '$.toolCallId') = ? AND json_extract(payload_json, '$.sessionKey') = ? LIMIT 1")
+        .get(MAIL_DELIVERY_KIND, toolCallId, sessionKey) as { key: string } | null;
+      return row !== null;
     },
     recoverAtBoot() {
       // Order free with the engine's own boot step: whichever runs first turns
@@ -150,9 +157,21 @@ export function answerPendingMailFromThread(askId: string | undefined, text: str
 /** Same as the thread answer, for the chat panel: the click names the row it was painted on. */
 type PendingMailChatAnswer = (sessionKey: string, toolCallId: string, text: string) => boolean;
 let pendingMailChatAnswer: PendingMailChatAnswer | null = null;
+let settledMailChatLookup: ((sessionKey: string, toolCallId: string) => boolean) | null = null;
 
-export function registerPendingMailChatAnswer(handler: PendingMailChatAnswer | null): void {
+export function registerPendingMailChatAnswer(handler: PendingMailChatAnswer | null, settled: ((sessionKey: string, toolCallId: string) => boolean) | null = null): void {
   pendingMailChatAnswer = handler;
+  settledMailChatLookup = settled;
+}
+
+/** True when the panel's message already left the `pending` state (sent, refused, failed): a late click must touch nothing. */
+export function mailChatAlreadySettled(sessionKey: string, toolCallId: string): boolean {
+  if (!settledMailChatLookup) return false;
+  try {
+    return settledMailChatLookup(sessionKey, toolCallId);
+  } catch {
+    return false;
+  }
 }
 
 /** True when the click was about a mail still waiting: the route must not queue it as a message. */

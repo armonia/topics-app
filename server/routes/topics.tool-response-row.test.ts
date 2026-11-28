@@ -22,6 +22,7 @@ import { beginAsk, cancelAsk } from "../lib/ask-user-bridge";
 import { registerProvider, removeProvider } from "../providers";
 import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL } from "../../shared/plan-decision";
 import type { AnswerRelay } from "../lib/answer-relay";
+import { registerPendingMailChatAnswer } from "../lib/outbound-mail-ledger";
 
 // A REAL provider in the registry, as the route resolves it (`topic.provider`).
 // Its two answers to a resume are switched per test on the instance, so no
@@ -163,6 +164,66 @@ describe("POST /api/chat/tool-response: the answer goes where the question is", 
       expect(h.writes).toEqual([{ toolCallId: "toolu_send", status: "running", opts: { rowId: "turn-row" } }]);
     } finally {
       cancelAsk(sk);
+    }
+  });
+
+  test("a second click on a panel the register already settled sends nothing and writes nothing", async () => {
+    // After a restart the first click sends from the register row. An old tab
+    // clicks again: the row is no longer `pending`, so the route answers as
+    // done and never reaches the provider, which would paint `error` on a mail
+    // that left.
+    const sk = "topic:send-second-click";
+    const h = harness([NOTICE, toolRow("toolu_send2", "mcp__topics__send_mail")]);
+    let state: "pending" | "settled" = "pending";
+    let sends = 0;
+    // Registered AFTER harness(): the router wiring would overwrite it.
+    registerPendingMailChatAnswer(
+      (_s, _t, said) => {
+        if (state !== "pending") return false;
+        state = "settled";
+        if (said === "Conferma") sends++;
+        return true;
+      },
+      () => state === "settled",
+    );
+    try {
+      const yes = { kind: "questions", answers: { "Confermi? (abcd1234)": "Conferma" } };
+      expect((await h.answer(sk, "toolu_send2", yes)).status).toBe(200);
+      const writesAfterFirst = h.writes.length;
+      const second = await h.answer(sk, "toolu_send2", yes);
+      expect(second.status).toBe(200);
+      expect(h.writes.length).toBe(writesAfterFirst);
+      expect(h.writes.some((w) => w.status === "error")).toBe(false);
+      expect(sends).toBe(1);
+    } finally {
+      registerPendingMailChatAnswer(null);
+    }
+  });
+
+  test("a click after a no leaves the closed row alone", async () => {
+    const sk = "topic:send-click-after-no";
+    const h = harness([NOTICE, toolRow("toolu_send3", "mcp__topics__send_mail")]);
+    let state: "pending" | "settled" = "pending";
+    let sends = 0;
+    registerPendingMailChatAnswer(
+      (_s, _t, said) => {
+        if (state !== "pending") return false;
+        state = "settled";
+        if (said === "Conferma") sends++;
+        return true;
+      },
+      () => state === "settled",
+    );
+    try {
+      await h.answer(sk, "toolu_send3", { kind: "questions", answers: { "Confermi? (abcd1234)": "Annulla" } });
+      const writesAfterNo = h.writes.length;
+      const late = await h.answer(sk, "toolu_send3", { kind: "questions", answers: { "Confermi? (abcd1234)": "Conferma" } });
+      expect(late.status).toBe(200);
+      expect(h.writes.length).toBe(writesAfterNo);
+      expect(h.writes.some((w) => w.status === "error")).toBe(false);
+      expect(sends).toBe(0);
+    } finally {
+      registerPendingMailChatAnswer(null);
     }
   });
 
