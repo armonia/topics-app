@@ -3,8 +3,10 @@
  *
  * Two keys, each with a single owner:
  *   - `pane-store-v2`        : full snapshot (panes/groups/closedStack).
- *                              Written debounced (100 ms) on `lastSeq` change,
- *                              cross-tab broadcast via the `storage` event.
+ *                              Written debounced (100 ms) on `lastSeq`
+ *                              change, skipped when its content is identical
+ *                              to the last write, cross-tab broadcast via the
+ *                              `storage` event.
  *                              `focusedPaneId` is intentionally NOT here —
  *                              sanitizeSnapshot strips it on inbound (it's
  *                              per-device, not per-account).
@@ -54,9 +56,23 @@ const DEBOUNCE_MS = 100;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 
+/** Serialized content of the last snapshot written, without the volatile
+ *  `savedAt` stamp, so an identical state is not written twice. */
+let lastWrittenContent: string | null = null;
+
 function writeSnapshotNow(): void {
   try {
     const state = usePaneStore.getState();
+    // `lastSeq` rides inside the snapshot and ticks on every action: it is the
+    // counter, not content, so it stays out of the comparison.
+    const { lastSeq: _tick, ...body } = selectLocalSnapshot(state);
+    const content = JSON.stringify({ ...body, server_seq: state.lastServerSeq });
+    // A device-local action (focus, active space) and a no-op remote echo tick
+    // the sequence without changing anything this snapshot holds: rewriting
+    // it on every tab switch was a write storm into a WAL WebKit never
+    // checkpoints, inflating the renderer's resident memory.
+    if (content === lastWrittenContent) return;
+    lastWrittenContent = content;
     const snap = {
       ...selectLocalSnapshot(state),
       // LWW key for the warm-boot hydrate and the cross-tab gate: the highest
@@ -194,7 +210,9 @@ export function initLocalPersistence(): void {
   // (syncCrossTab) and open the same tab there. Nothing is subscribed.
   if (isNestedInTopicsPane()) return;
 
-  // Full snapshot: debounced.
+  // Full snapshot: debounced, triggered by every sequence tick (remote updates
+  // too, which do not move `localSeq` but must reach localStorage) and
+  // de-duplicated by content in `writeSnapshotNow`.
   usePaneStore.subscribe(
     (s: PaneStore) => s.lastSeq,
     () => {

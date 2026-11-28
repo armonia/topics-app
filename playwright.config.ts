@@ -35,6 +35,15 @@ const NIGHTLY_ONLY_SPECS = [
   // when the machine is busy teaches people to re-run it rather than to read
   // it. Nightly it runs alone, where the number means what it says.
   "pane-return-cls",
+  // Reads the OS-level RSS of every `WebKitWebProcess` via `/proc` (pgrep,
+  // `/proc/<pid>/status`) across several candidate churn loops — a diagnostic
+  // for card "Perdita di memoria nel renderer WebContent di Topics", not a
+  // repeatable contract: the limit is a loose proxy (RSS counts pages the
+  // kernel could still reclaim, `footprint` on macOS does not) and the
+  // measurement itself depends on `/proc` and `pgrep` existing, which is not
+  // guaranteed on every CI runner. Nightly, where a flake reads as a flake
+  // instead of blocking every PR on a Linux-only process census.
+  "renderer-rss-growth",
   "browser-ws-streaming",
   "chat-scroll",
   "browser-agent-control",
@@ -874,6 +883,9 @@ export default defineConfig({
         "**/board-dispatch-dashboard.spec.ts",
         // The drawer's ground in a narrow window: WKWebView is where it was seen.
         "**/board-drawer-opaque-narrow.spec.ts",
+        // Reads the OS RSS of the real `WebKitWebProcess` this project launches:
+        // only exists on this engine, so it can only run here.
+        "**/renderer-rss-growth.spec.ts",
       ],
       use: {
         browserName: "webkit",
