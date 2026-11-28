@@ -373,6 +373,26 @@ describe("node-client · corse", () => {
     expect(calls[0].url).toBe(`${BASE}/api/nodes/runs/run-9/bundle`);
     expect(headerOf(calls[1], "cookie")).toBe(`topics_device=${TOKEN}`);
   });
+
+  test("fetchMedia: 200 torna i byte, 403/404 tornano null senza lanciare, un altro errore lancia NodeError", async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    const { fetch, calls } = fakeFetch([
+      new Response(bytes, { status: 200, headers: { "content-type": "image/png" } }),
+      jsonResponse({ error: "not attached to this run", code: "forbidden" }, 403),
+      jsonResponse({ error: "not found", code: "not_found" }, 404),
+      jsonResponse({ error: "boom" }, 500),
+    ]);
+    const c = client(fetch);
+    const path = "/home/node-user/.topics/media/shot.png";
+    const ok = await c.fetchMedia({ baseUrl: BASE, token: TOKEN, runId: "run-9", path });
+    expect(ok ? Array.from(ok) : ok).toEqual(Array.from(bytes));
+    expect(calls[0].url).toBe(`${BASE}/api/nodes/runs/run-9/media?path=${encodeURIComponent(path)}`);
+    expect(headerOf(calls[0], "cookie")).toBe(`topics_device=${TOKEN}`);
+
+    expect(await c.fetchMedia({ baseUrl: BASE, token: TOKEN, runId: "run-9", path })).toBeNull();
+    expect(await c.fetchMedia({ baseUrl: BASE, token: TOKEN, runId: "run-9", path })).toBeNull();
+    await expect(c.fetchMedia({ baseUrl: BASE, token: TOKEN, runId: "run-9", path })).rejects.toThrow();
+  });
 });
 
 describe("node-client · un nodo che accetta la connessione e non risponde mai", () => {
