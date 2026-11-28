@@ -64,7 +64,7 @@ function fakeGit(responses: Record<string, Partial<GitRunResult>>) {
     const key = sub.slice(0, 2).join(" ");
     // `diff --quiet` defaults to "differs" (exit 1): an all-zero fake would claim
     // every branch's content is already on main (squash check in the land).
-    const r = responses[key] ?? responses[sub[0]] ?? (key === "diff --quiet" ? { code: 1 } : {});
+    const r = responses[sub.slice(0, 3).join(" ")] ?? responses[key] ?? responses[sub[0]] ?? (key === "diff --quiet" ? { code: 1 } : {});
     return { code: r.code ?? 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
   };
   return { run, calls };
@@ -101,11 +101,10 @@ describe("task-automerge", () => {
     expect(git.calls.some((c) => c[0] === "merge" && c.includes("--abort"))).toBe(true);
   });
 
-  test("on main but dirty working tree → 'skipped', never merges", async () => {
+  test("on main with staged files → 'skipped', never merges", async () => {
     const git = fakeGit({
-      "symbolic-ref --short": { stdout: "main\n" },
-      "rev-list --count": { stdout: "3\n" },
-      "status --porcelain": { stdout: " M src/foo.ts\n" },
+      ...CLEAN_PRECONDITIONS,
+      "diff --cached": { stdout: "src/foo.ts\n" },
     });
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
     const res = await am.tryMerge("t1", "x");
@@ -129,9 +128,8 @@ describe("task-automerge", () => {
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
     const res = await am.tryMerge("t1", "x");
     expect(res.status).toBe("merged");
-    const status = git.calls.find((c) => c[0] === "status");
-    expect(status).toBeDefined();
-    expect(status).toContain("--untracked-files=no");
+    // The guard only reads tracked diffs, so untracked files never enter it.
+    expect(git.calls.some((c) => c[0] === "status")).toBe(false);
   });
 
   test("shared checkout on a dev branch → lands via a throwaway main worktree, landedNotLive", async () => {
@@ -141,7 +139,7 @@ describe("task-automerge", () => {
       "worktree add": { code: 0 },
       "merge --no-ff": { code: 0 },
       "rev-parse --short": { stdout: "abc1234\n" },
-      "diff --name-only": { stdout: "server/foo.ts\n" },
+      "diff --name-only HEAD^1": { stdout: "server/foo.ts\n" },
     });
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
     const res = await am.tryMerge("t1", "x");
@@ -740,7 +738,7 @@ describe("task-automerge", () => {
       ...CLEAN_PRECONDITIONS,
       "merge --no-ff": { code: 0 },
       "rev-parse --short": { stdout: "abc1234\n" },
-      "diff --name-only": { stdout: "client/src/App.tsx\nserver/foo.ts\n" },
+      "diff --name-only HEAD^1": { stdout: "client/src/App.tsx\nserver/foo.ts\n" },
     });
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
     const res = await am.tryMerge("t1", "x");
@@ -756,7 +754,7 @@ describe("task-automerge", () => {
       ...CLEAN_PRECONDITIONS,
       "merge --no-ff": { code: 0 },
       "rev-parse --short": { stdout: "abc1234\n" },
-      "diff --name-only": { stdout: "server.ts\ndesktop-tauri/src-tauri/src/lib.rs\nREADME.md\n" },
+      "diff --name-only HEAD^1": { stdout: "server.ts\ndesktop-tauri/src-tauri/src/lib.rs\nREADME.md\n" },
     });
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
     const res = await am.tryMerge("t1", "x");
@@ -769,7 +767,7 @@ describe("task-automerge", () => {
       ...CLEAN_PRECONDITIONS,
       "merge --no-ff": { code: 0 },
       "rev-parse --short": { stdout: "abc1234\n" },
-      "diff --name-only": { stdout: "serverless.md\nclient/src/App.tsx\n" },
+      "diff --name-only HEAD^1": { stdout: "serverless.md\nclient/src/App.tsx\n" },
     });
     const am2 = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git2.run });
     const res2 = await am2.tryMerge("t1", "x");
@@ -807,7 +805,7 @@ describe("task-automerge", () => {
       ...CLEAN_PRECONDITIONS,
       "merge --no-ff": { code: 0 },
       "rev-parse --short": { stdout: "abc1234\n" },
-      "diff --name-only": { stdout: "server/foo.ts\nREADME.md\n" },
+      "diff --name-only HEAD^1": { stdout: "server/foo.ts\nREADME.md\n" },
     });
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
     const res = await am.tryMerge("t1", "x");
