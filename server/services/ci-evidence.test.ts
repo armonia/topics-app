@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { E2E_CI_CHECK, isCiEvidenceCheck, UNIT_CI_CHECK } from "../../shared/board";
+import { ciEvidenceJobName, ciEvidenceWorkflow, E2E_CI_CHECK, isCiEvidenceCheck, NOT_MEASURED_EXIT, UNIT_CI_CHECK } from "../../shared/board";
 import {
   CI_BASE_BRANCH,
   CI_E2E_DEADLINE_MS,
@@ -98,6 +98,34 @@ describe("readE2eEvidence", () => {
     expect(repoFromRemote("git@github.com:armonia/topics-app.git")).toBe("armonia/topics-app");
     expect(repoFromRemote("https://github.com/armonia/topics-app")).toBe("armonia/topics-app");
     expect(repoFromRemote("git@gitlab.com:a/b.git")).toBeNull();
+  });
+});
+
+describe("a board whose CI is not in ci.yml", () => {
+  const CHAIN = { name: "chain-ci", cmd: "github-ci:chain.yml/build" };
+  const chainRun = (over = {}) => run({ id: 77, path: ".github/workflows/chain.yml", ...over });
+  const portFor = (conclusion: string) => fakePort({
+    runs: async () => ({ ok: true, value: [chainRun({ conclusion })] }),
+    jobs: async (_repo, runId) => ({ ok: true, value: runId === 77 ? [job("build", conclusion)] : [] }),
+  }).port;
+  const wait = (port: ReturnType<typeof portFor>) =>
+    awaitCiEvidence({ ...input, checks: [CHAIN] }, { port, ...fakeClock(), stopping: () => false }).then((r) => r[0]!);
+
+  test("the declaration names the workflow file and the job", () => {
+    expect(ciEvidenceJobName(CHAIN)).toBe("build");
+    expect(ciEvidenceWorkflow(CHAIN)).toBe("chain.yml");
+    expect(ciEvidenceWorkflow({ cmd: "github-ci:build" })).toBeNull();
+  });
+
+  test("the job green in that workflow is a pass, red is a fail (not pending)", async () => {
+    expect((await wait(portFor("success"))).ok).toBe(true);
+    const red = await wait(portFor("failure"));
+    expect(red.ok).toBe(false);
+    expect(red.code).not.toBe(NOT_MEASURED_EXIT);
+  });
+
+  test("a run of ci.yml alone does not answer for another workflow", () => {
+    expect(readCiEvidence(CHAIN, SHA, [run()], [job("build", "success")]).kind).toBe("pending");
   });
 });
 

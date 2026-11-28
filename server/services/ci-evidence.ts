@@ -65,7 +65,7 @@
  * never throws.
  */
 import { spawn } from "node:child_process";
-import { ciEvidenceJobName, E2E_CI_CHECK, GATES_CI_CHECK, NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
+import { ciEvidenceJobName, ciEvidenceWorkflow, E2E_CI_CHECK, GATES_CI_CHECK, NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
 import { lowPriorityArgv } from "../lib/low-priority";
 import { ChecksInterruptedError } from "./checks-gate";
 import { cardTag, supersedePreviousDelivery } from "./ci-supersede";
@@ -185,9 +185,10 @@ export const runAttempt = (run: GithubRun): number => {
 };
 
 /** The run whose verdict counts: ci.yml, `pull_request`, this very commit, highest id. */
-export function latestCiRun(sha: string, runs: GithubRun[]): GithubRun | null {
+export function latestCiRun(sha: string, runs: GithubRun[], workflowFile?: string | null): GithubRun | null {
+  const config = workflowFile ? `.github/workflows/${workflowFile}` : CI_CONFIG_PATH;
   const mine = runs.filter((r) => r.head_sha === sha && r.event === "pull_request"
-    && (r.path === CI_CONFIG_PATH || r.path.startsWith(`${CI_CONFIG_PATH}@`)));
+    && (r.path === config || r.path.startsWith(`${config}@`)));
   return mine.reduce<GithubRun | null>((best, r) => (!best || r.id > best.id ? r : best), null);
 }
 
@@ -369,8 +370,12 @@ const isGatesRow = (check: ReviewCheck): boolean => check.cmd.trim() === GATES_C
  * special readers above on purpose: it has no step of its own to look inside,
  * only `job.conclusion`.
  */
-export function readGenericJobEvidence(jobName: string, sha: string, runs: GithubRun[], jobs: GithubJob[]): CiEvidence {
-  const run = latestCiRun(sha, runs);
+export function readGenericJobEvidence(
+  jobName: string, sha: string, runs: GithubRun[], jobs: GithubJob[],
+  workflow: string | null = null, jobsOfRun: Map<number, GithubJob[]> = new Map(),
+): CiEvidence {
+  const run = latestCiRun(sha, runs, workflow);
+  if (run && workflow) jobs = jobsOfRun.get(run.id) ?? [];
   if (!run) return { kind: "pending", run: null };
   if (run.status === "completed" && run.conclusion === "cancelled") {
     return { kind: "notMeasured", run, reason: "the latest CI run for this commit was cancelled or superseded" };
@@ -388,11 +393,11 @@ export function readGenericJobEvidence(jobName: string, sha: string, runs: Githu
 }
 
 /** The outcome a declared CI row reads from the same run. */
-export function readCiEvidence(check: ReviewCheck, sha: string, runs: GithubRun[], jobs: GithubJob[]): CiEvidence {
+export function readCiEvidence(check: ReviewCheck, sha: string, runs: GithubRun[], jobs: GithubJob[], jobsOfRun?: Map<number, GithubJob[]>): CiEvidence {
   if (isUnitRow(check)) return readUnitEvidence(sha, runs, jobs);
   if (isGatesRow(check)) return readGatesEvidence(sha, runs, jobs);
   const genericJob = check.cmd.trim() === E2E_CI_CHECK.cmd ? null : ciEvidenceJobName(check);
-  if (genericJob) return readGenericJobEvidence(genericJob, sha, runs, jobs);
+  if (genericJob) return readGenericJobEvidence(genericJob, sha, runs, jobs, ciEvidenceWorkflow(check), jobsOfRun);
   return readE2eEvidence(sha, runs, jobs);
 }
 
@@ -857,16 +862,26 @@ export async function awaitCiEvidence(
   for (;;) {
     halt();
     const runs = await port.runs(repo.value, sha);
-    let read: { runs: GithubRun[]; jobs: GithubJob[] } | null = null;
+    let read: { runs: GithubRun[]; jobs: GithubJob[]; extra: Map<number, GithubJob[]> } | null = null;
     if (runs.ok) {
       const run = latestCiRun(sha, runs.value);
       const jobs = run ? await port.jobs(repo.value, run.id) : { ok: true as const, value: [] };
-      if (jobs.ok) {
+      // Rows that name another workflow file read the jobs of THAT run.
+      const extra = new Map<number, GithubJob[]>();
+      let extraError: string | null = null;
+      for (const file of new Set(checks.map(ciEvidenceWorkflow).filter((f): f is string => !!f))) {
+        const other = latestCiRun(sha, runs.value, file);
+        if (!other) continue;
+        const got = await port.jobs(repo.value, other.id);
+        if (got.ok) extra.set(other.id, got.value);
+        else extraError = got.error;
+      }
+      if (jobs.ok && !extraError) {
         errors = 0;
-        read = { runs: runs.value, jobs: jobs.value };
+        read = { runs: runs.value, jobs: jobs.value, extra };
       } else {
         errors += 1;
-        lastError = jobs.error;
+        lastError = jobs.ok ? (extraError ?? "") : jobs.error;
       }
     } else {
       errors += 1;
@@ -889,7 +904,7 @@ export async function awaitCiEvidence(
       else rerunAwaitedAttempt = 0; // the grace is spent: read the run as it is
     }
     if (page && rerunAwaitedAttempt === 0) {
-      const readNow = (check: ReviewCheck) => readCiEvidence(check, sha, page.runs, page.jobs);
+      const readNow = (check: ReviewCheck) => readCiEvidence(check, sha, page.runs, page.jobs, page.extra);
       // Rows with no verdict on this run, the ones already closed included: a
       // row read as not measured while the run was still going (a `prepare-e2e`
       // that failed, a `check` job that died before its unit step) used to be
