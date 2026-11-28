@@ -108,7 +108,7 @@ test.describe("Rimanda a · menu della card", () => {
     await page.screenshot({ path: "test-results/evidence/card-snooze-menu-1440.png" });
     await snoozeMenuItem.click();
 
-    const promptInput = page.locator('input[id^="snooze-"]');
+    const promptInput = page.locator('input[type="datetime-local"]');
     await expect(promptInput).toBeVisible({ timeout: 5000 });
     const future = new Date(Date.now() + 24 * 3600 * 1000);
     const pad = (n: number) => String(n).padStart(2, "0");

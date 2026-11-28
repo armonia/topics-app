@@ -11,6 +11,8 @@ import { useIsMergedHere } from './mergedBoards';
 import { useToast } from '../Shared/Toast';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
+import { Button } from '../../ui/primitives/Button';
+import { TextField } from '../../ui/primitives/Field';
 import { STATUS_GLYPH_PX, STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, dueDateChip, scheduledChip, wakeChip, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardSettings, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
 import { recallColumnPages, rememberColumnPages } from '../../lib/columnPages';
@@ -2401,18 +2403,17 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
             onClick={(e) => e.stopPropagation()}
             onSubmit={(e) => { e.preventDefault(); setSnoozeAt(null); void snooze(snoozeAt.value); }}
           >
-            <label className="text-compact text-app-text-secondary" htmlFor={`snooze-${task.id}`}>{tr('board.task.snoozePrompt')}</label>
-            <input
-              id={`snooze-${task.id}`}
+            <TextField
               type="datetime-local"
+              label={tr('board.task.snoozePrompt')}
               autoFocus
               value={snoozeAt.value}
-              onChange={(e) => setSnoozeAt({ ...snoozeAt, value: e.target.value })}
-              className="rounded border border-app-border bg-transparent px-1.5 py-1 text-compact"
+              onChange={(value) => setSnoozeAt({ ...snoozeAt, value })}
+              onEnter={() => { const v = snoozeAt.value; if (v) { setSnoozeAt(null); void snooze(v); } }}
             />
-            <button type="submit" className={`${POPOVER_ITEM} justify-center`} disabled={!snoozeAt.value}>
+            <Button variant="primary" onClick={snoozeAt.value ? () => { const v = snoozeAt.value; setSnoozeAt(null); void snooze(v); } : false}>
               {tr('board.task.snooze')}
-            </button>
+            </Button>
           </form>
         </ContextMenuPortal>
       )}

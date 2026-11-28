@@ -7,7 +7,7 @@
 import { test, expect, describe } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { blockedByChip, dueDateChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, hasDeliveryToMerge, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, taskDetailBump, waitingOnThisChip, type BoardTask } from './board';
+import { blockedByChip, dueDateChip, wakeChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, hasDeliveryToMerge, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, taskDetailBump, waitingOnThisChip, type BoardTask } from './board';
 import { deriveQueueReason } from '../../../shared/board';
 import { t } from './i18n';
 
@@ -445,5 +445,29 @@ describe('dueDateChip', () => {
   });
   test('a closed card is never overdue', () => {
     expect(dueDateChip({ dueDate: '2026-01-01', status: 'done' }, tr, now)?.overdue).toBe(false);
+  });
+});
+
+describe('wakeChip', () => {
+  const tr = (_key: string, p?: Record<string, unknown>) => String(p?.date ?? '');
+  const task = { status: 'backlog', wakeAt: '2026-11-27T09:00:00.000Z' } as const;
+
+  test("shows the wake time in the viewer's own zone, not a fixed one", () => {
+    const saved = process.env.TZ;
+    try {
+      process.env.TZ = 'Pacific/Auckland';
+      const eastLabel = wakeChip(task, tr, 'en-GB')?.label;
+      process.env.TZ = 'America/Los_Angeles';
+      const westLabel = wakeChip(task, tr, 'en-GB')?.label;
+      expect(eastLabel).toContain('22:00');
+      expect(westLabel).toContain('01:00');
+    } finally {
+      if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved;
+    }
+  });
+
+  test('is absent outside backlog or without a date', () => {
+    expect(wakeChip({ status: 'todo', wakeAt: task.wakeAt }, tr)).toBeNull();
+    expect(wakeChip({ status: 'backlog' }, tr)).toBeNull();
   });
 });

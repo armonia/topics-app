@@ -454,7 +454,7 @@ export function scheduledChip(
   if (!s?.by) return null;
   const when = s.at ? new Date(s.at) : null;
   const at = when && !Number.isNaN(when.getTime())
-    ? new Intl.DateTimeFormat(locale, { timeZone: 'Europe/Rome', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    ? new Intl.DateTimeFormat(locale, { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
       .format(when).replace(',', '')
     : null;
   const label = at ? `${s.by} · ${at}` : s.by;
@@ -473,7 +473,7 @@ export function wakeChip(
   if (task.status !== 'backlog' || !task.wakeAt) return null;
   const when = new Date(task.wakeAt);
   if (Number.isNaN(when.getTime())) return null;
-  const at = new Intl.DateTimeFormat(locale, { timeZone: 'Europe/Rome', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+  const at = new Intl.DateTimeFormat(locale, { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
     .format(when).replace(',', '');
   return { label: tr('board.card.wakeAt', { date: at }), title: tr('board.card.wakeAtTitle', { date: at }) };
 }
