@@ -924,7 +924,7 @@ function App() {
               content (a visible edge line was rejected as "not right"). The handle
               paints only on hover. */}
           <div className="absolute inset-0 group-hover:bg-primary/25" />
-          <div className="absolute inset-y-0 right-[1px] w-[3px] group-hover:bg-primary" />
+          <div className="absolute inset-y-0 right-0.25 w-0.75 group-hover:bg-primary" />
         </div>
       )}
 
@@ -946,9 +946,7 @@ function App() {
           className="content-chrome-inset absolute z-30 flex items-center gap-1"
           style={{
             [CONTENT_CHROME_INSET_PROPERTY as string]: contentChromeInset,
-            left: isMobile
-              ? `calc(0.5rem + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))`
-              : `calc(${ROW_INSET}px + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))`,
+            left: isMobile ? `calc(0.5rem + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))` : `calc(var(--row-inset) + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))`,
             top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : ROW_INSET,
           }}
         >

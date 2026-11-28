@@ -642,7 +642,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           data-testid={`session-freed-${toolCall.id}`}
           className="ml-5 mb-1 flex items-start gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/5 px-2 py-1 text-mini leading-snug text-amber-600 dark:text-amber-400"
         >
-          <ShieldOff size={11} className="mt-[3px] flex-shrink-0" />
+          <ShieldOff size={11} className="mt-0.75 flex-shrink-0" />
           <span>
             {tr('tool.freeMode.pre')} <strong>{tr('tool.freeMode.name')}</strong>
             {toolCall.permissionOutcome.actor ? tr('tool.freeMode.by', { who: toolCall.permissionOutcome.actor }) : ''}{tr('tool.freeMode.post')}

@@ -95,7 +95,7 @@ export function OriginalSheet({ original, marks, active, onMark, size = 'inline'
       aria-label={original.name}
       className={clsx(
         'mx-auto w-full rounded-[3px] bg-white text-zinc-800 shadow-[0_1px_3px_rgba(0,0,0,0.12),0_8px_24px_rgba(0,0,0,0.08)] ring-1 ring-black/[0.06]',
-        page ? clsx(original.kind === 'screen' ? 'max-w-[1040px]' : 'max-w-[720px]', 'px-10 py-12 max-sm:px-5 max-sm:py-7') : 'px-5 py-5',
+        page ? clsx(original.kind === 'screen' ? 'max-w-260' : 'max-w-180', 'px-10 py-12 max-sm:px-5 max-sm:py-7') : 'px-5 py-5',
       )}
     >
       {original.image && (
@@ -104,7 +104,7 @@ export function OriginalSheet({ original, marks, active, onMark, size = 'inline'
         </figure>
       )}
       {original.kind === 'photo' && !original.image && (
-        <figure className={clsx('mb-4 flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-sm bg-zinc-200 text-zinc-500', page ? 'max-h-[380px]' : 'max-h-[200px]')}>
+        <figure className={clsx('mb-4 flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-sm bg-zinc-200 text-zinc-500', page ? 'max-h-95' : 'max-h-50')}>
           <ImageIcon size={page ? 36 : 26} aria-hidden="true" />
           <figcaption className="font-sans text-mini">{photoLabel}</figcaption>
         </figure>

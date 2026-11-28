@@ -32,7 +32,7 @@ export function TypeList({ groups, selectedId, onSelect, phone, copy }: {
     );
   }
   return (
-    <nav aria-label={copy.dataMore.schema.typesLabel} className="h-full w-[260px] shrink-0 overflow-y-auto border-r border-app-border px-2.5 py-3">
+    <nav aria-label={copy.dataMore.schema.typesLabel} className="h-full w-65 shrink-0 overflow-y-auto border-r border-app-border px-2.5 py-3">
       {groups.map((g, gi) => (
         <div key={g.id} className={gi ? 'mt-4' : undefined}>
           <SectionLabel className="mb-2 px-1">{g.label}</SectionLabel>
@@ -164,7 +164,7 @@ export function TypeLinks({ detail, copy, phone, onSelectType }: {
 }) {
   const t = copy.dataMore.schema;
   return (
-    <aside className={clsx('flex shrink-0 flex-col border-app-border bg-surface', phone ? 'w-full border-t' : 'h-full w-[320px] border-l')}>
+    <aside className={clsx('flex shrink-0 flex-col border-app-border bg-surface', phone ? 'w-full border-t' : 'h-full w-80 border-l')}>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <PanelHeading tag={t.linksTag} title={t.linksTitle(detail.label)} />
         <PanelSection>

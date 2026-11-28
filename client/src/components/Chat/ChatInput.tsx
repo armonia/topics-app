@@ -1512,7 +1512,7 @@ export function ChatInput({
               <div className="px-3 pt-2.5 flex flex-wrap gap-1.5">
                 {pendingImages.map((img, index) => (
                   <div key={`img-${attachmentKey(img)}`} data-testid="composer-attachment" className="relative inline-block reveal-in">
-                    <ZoomableImage src={img.dataUrl} alt={tr('chat.attachment.pastedImage')} className="h-[80px] max-w-[160px] object-cover rounded-lg border border-app-border-light" />
+                    <ZoomableImage src={img.dataUrl} alt={tr('chat.attachment.pastedImage')} className="h-20 max-w-40 object-cover rounded-lg border border-app-border-light" />
                     {/* 20x20 with no accessible name, sitting on the corner of
                         an image that OPENS THE LIGHTBOX when tapped: missing it
                         did not do nothing, it did the other thing.
@@ -1652,7 +1652,7 @@ export function ChatInput({
                 paneFocused={isFocused}
               />
 
-              {/* `min-w-[4rem]` è il pavimento del campo: con `flex-1` la base è
+              {/* `min-w-16` è il pavimento del campo: con `flex-1` la base è
                   0, quindi in una pane strettissima lo schiacciamento cadrebbe
                   tutto qui (campo largo zero) e i tre bottoni resterebbero
                   interi. Con un minimo, la riga sfonda prima di far sparire il
@@ -1973,7 +1973,7 @@ export function ChatInput({
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => pickSlash(item)}
                   onMouseEnter={() => setSlashMenuIndex(idx)}
-                  className={`w-full px-3 ${isMobile ? 'min-h-[44px] py-2' : 'py-1.5'} text-left flex items-center gap-3 transition-colors ${
+                  className={`w-full px-3 ${isMobile ? 'min-h-11 py-2' : 'py-1.5'} text-left flex items-center gap-3 transition-colors ${
                     selected ? 'bg-primary/10' : 'hover:bg-app-hover'
                   }`}
                 >

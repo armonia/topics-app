@@ -40,7 +40,7 @@ export function RemoteMachineSection({ machine: m }: { machine: MachineOverviewR
       <div className={SECTION_HEAD} title={summary || undefined}>
         {m.provider ? <Cloud size={14} className="flex-none text-app-text-secondary" aria-hidden="true" /> : <Server size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />}
         <span className="text-compact font-semibold text-app-text-heading" data-testid="machine-remote-name">{m.name}</span>
-        <span className={`inline-flex flex-none items-center gap-[5px] text-mini ${tone}`} data-testid="machine-remote-state"><span className={`h-[7px] w-[7px] rounded-full ${dot}`} />{tr(m.state === 'live' ? 'processes.remote.stateLive' : m.state === 'stopped' ? 'processes.remote.stateStopped' : 'processes.remote.stateUnreachable')}</span>
+        <span className={`inline-flex flex-none items-center gap-1.25 text-mini ${tone}`} data-testid="machine-remote-state"><span className={`h-1.75 w-1.75 rounded-full ${dot}`} />{tr(m.state === 'live' ? 'processes.remote.stateLive' : m.state === 'stopped' ? 'processes.remote.stateStopped' : 'processes.remote.stateUnreachable')}</span>
         <span className={`min-w-0 flex-1 truncate text-mini tabular-nums ${FAINT}`}>{summary}</span>
       </div>
       {k ? (
@@ -51,7 +51,7 @@ export function RemoteMachineSection({ machine: m }: { machine: MachineOverviewR
           <Gauge label={tr('processes.disk')} value={formatPct(k.diskPct)} share={k.diskPct === null ? null : k.diskPct / 100} warn={(k.diskPct ?? 0) >= 85} testId="machine-remote-disk" />
         </div>
       ) : (
-        <div className={`flex min-h-[38px] items-center gap-2 border-b border-app-border-subtle px-2.5 py-1 text-compact ${m.state === 'stopped' ? FAINT : DANGER_TEXT}`} data-testid="machine-remote-reason" data-reason={m.reason ?? ''}>
+        <div className={`flex min-h-9.5 items-center gap-2 border-b border-app-border-subtle px-2.5 py-1 text-compact ${m.state === 'stopped' ? FAINT : DANGER_TEXT}`} data-testid="machine-remote-reason" data-reason={m.reason ?? ''}>
           <CloudOff size={14} className="flex-none" aria-hidden="true" />
           <span className="min-w-0 flex-1">{reasonText}</span>
         </div>

@@ -43,7 +43,7 @@ export function GroupChart({ bars, copy, onBar }: {
             data-tip={t.showRows(b.label)}
             className={clsx('flex w-full items-center gap-3 rounded-md px-1 py-1 text-left transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.05]', FOCUS_RING)}
           >
-            <span className="w-[170px] shrink-0 truncate text-prose text-app-text max-sm:w-[110px]">{b.label}</span>
+            <span className="w-42.5 shrink-0 truncate text-prose text-app-text max-sm:w-27.5">{b.label}</span>
             <span className="h-5 min-w-0 flex-1 rounded bg-black/[0.04] dark:bg-white/[0.06]">
               <span style={{ width: `${(b.value / max) * 100}%` }} className={clsx('block h-full rounded transition-[width] duration-base', b.glyph ? GLYPH_FILL[b.glyph] : FILL[b.tone])} />
             </span>

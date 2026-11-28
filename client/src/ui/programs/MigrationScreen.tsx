@@ -109,7 +109,7 @@ export function MigrationScreen({
   const body = (
     <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4">
       <div className="mb-4 flex flex-wrap items-end gap-3">
-        <Select label={m.programLabel} value={program} options={programs} onChange={onProgram} className="w-[220px]" />
+        <Select label={m.programLabel} value={program} options={programs} onChange={onProgram} className="w-55" />
         <div className="min-w-0 flex-1" />
         {view !== 'overview' && !redoing && <Button icon={RefreshCw} onClick={onRedo}>{m.redo}</Button>}
       </div>
@@ -184,7 +184,7 @@ export function MigrationScreen({
           </div>
           {model.rows.length <= 1 ? (
             <div className="rounded-lg border border-app-border bg-surface">
-              <EmptyState title={m.noAlternatives} className="min-h-[160px]">{m.noAlternativesBody}</EmptyState>
+              <EmptyState title={m.noAlternatives} className="min-h-40">{m.noAlternativesBody}</EmptyState>
             </div>
           ) : (
             <DataGrid
@@ -233,7 +233,7 @@ export function MigrationScreen({
             <span className="text-prose text-app-text-tertiary">{m.estimateNote}</span>
           </div>
           {model.bars.length === 0 ? (
-            <div className="rounded-lg border border-app-border bg-surface"><EmptyState title={m.planNone} className="min-h-[160px]">{m.changeEffort}</EmptyState></div>
+            <div className="rounded-lg border border-app-border bg-surface"><EmptyState title={m.planNone} className="min-h-40">{m.changeEffort}</EmptyState></div>
           ) : (
             <div className="rounded-lg border border-app-border bg-surface p-4">
               <ol className="space-y-3">

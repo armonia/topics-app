@@ -98,7 +98,7 @@ export function FeaturesPane() {
           <div role="status" data-testid="features-hub-down" className="mt-2.5 flex min-h-7 items-center gap-1.5 rounded bg-app-hover py-1 pl-2.5 pr-1 text-compact text-app-text-secondary">
             <CloudOff size={14} className="flex-none" aria-hidden="true" />
             <span className="min-w-0 flex-1 tabular-nums">{doc.okAt === null ? tr('feat.hubDownNever') : tr('feat.hubDown', { time: fmt.time(doc.okAt) })}</span>
-            <button type="button" className="inline-flex h-[26px] items-center rounded-sm border border-app-border bg-elevated px-2.5 text-mini text-app-text-body hover:bg-app-hover" onClick={() => { void doc.reread(); }}>{tr('feat.retry')}</button>
+            <button type="button" className="inline-flex h-6.5 items-center rounded-sm border border-app-border bg-elevated px-2.5 text-mini text-app-text-body hover:bg-app-hover" onClick={() => { void doc.reread(); }}>{tr('feat.retry')}</button>
           </div>
         )}
         {!view && !down && <p className="mt-4 text-compact text-app-text-secondary">{tr('feat.reading')}</p>}
@@ -107,7 +107,7 @@ export function FeaturesPane() {
             {pyramid && <Pyramid pyramid={pyramid} tr={tr} day={fmt.day} />}
             <Decided view={view} tr={tr} />
             <Ranking view={view} tr={tr} fmt={fmt} />
-            <div className="mt-[18px] flex items-end gap-2 @max-2xl:block">
+            <div className="mt-4.5 flex items-end gap-2 @max-2xl:block">
               <div role="tablist" className="inline-flex flex-wrap gap-0.5 rounded border border-app-border-subtle bg-app-inset p-0.5 @max-2xl:flex @max-2xl:w-full">
                 {FEATURE_FILTERS.map((f) => (
                   <button
@@ -117,14 +117,14 @@ export function FeaturesPane() {
                     aria-selected={filter === f}
                     data-testid={`features-filter-${f}`}
                     onClick={() => setFilter(f)}
-                    className={`inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-sm px-3 text-compact @max-2xl:h-9 @max-2xl:flex-auto @max-2xl:justify-center ${filter === f ? 'bg-elevated text-app-text shadow-[0_0_0_1px_var(--border)]' : 'text-app-text-secondary hover:text-app-text'}`}
+                    className={`inline-flex h-6.5 items-center gap-1.5 whitespace-nowrap rounded-sm px-3 text-compact @max-2xl:h-9 @max-2xl:flex-auto @max-2xl:justify-center ${filter === f ? 'bg-elevated text-app-text shadow-[0_0_0_1px_var(--border)]' : 'text-app-text-secondary hover:text-app-text'}`}
                   >
                     {tr(FILTER_LABEL[f])}
                     <span className="text-mini tabular-nums text-app-text-muted">{counts?.[f] ?? 0}</span>
                   </button>
                 ))}
               </div>
-              <label className="ml-auto inline-flex h-[26px] w-[200px] items-center gap-1.5 rounded-sm border border-app-border-input bg-app-input px-2 text-app-text-muted @max-2xl:mt-2 @max-2xl:h-9 @max-2xl:w-full">
+              <label className="ml-auto inline-flex h-6.5 w-50 items-center gap-1.5 rounded-sm border border-app-border-input bg-app-input px-2 text-app-text-muted @max-2xl:mt-2 @max-2xl:h-9 @max-2xl:w-full">
                 <Search size={13} aria-hidden="true" />
                 <input
                   value={query}
@@ -191,9 +191,9 @@ function Ranking({ view, tr, fmt }: { view: FeaturesView; tr: Tr; fmt: ReturnTyp
         {ranked.map((s) => {
           const ours = s.id === OURS;
           return (
-            <div key={s.id} data-testid="features-system" data-ours={ours} className="flex items-center gap-2 py-[3px] text-compact">
+            <div key={s.id} data-testid="features-system" data-ours={ours} className="flex items-center gap-2 py-0.75 text-compact">
               <span className="w-5 flex-none text-right text-mini tabular-nums text-app-text-muted">{s.rank}</span>
-              <span className={`w-[112px] flex-none truncate ${ours ? 'font-semibold text-app-text' : 'text-app-text-body'}`} title={s.name}>{s.name}</span>
+              <span className={`w-28 flex-none truncate ${ours ? 'font-semibold text-app-text' : 'text-app-text-body'}`} title={s.name}>{s.name}</span>
               <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-app-border">
                 <span className={`block h-full rounded-full ${ours ? 'bg-primary' : 'bg-app-text-faint/60'}`} style={{ width: `${Math.max(2, s.pct ?? 0)}%` }} />
               </span>
@@ -279,14 +279,14 @@ function Leaf({ leaf, tr, fmt, open, onToggle }: { leaf: FeatureLeaf; tr: Tr; fm
           </span>
           {sub && <span className="mt-0.5 block truncate text-mini text-app-text-secondary" title={sub}>{sub}</span>}
         </span>
-        <span className="flex flex-none items-center gap-2.5 @max-2xl:w-full @max-2xl:pl-[23px]">
+        <span className="flex flex-none items-center gap-2.5 @max-2xl:w-full @max-2xl:pl-5.75">
           <span data-testid="features-ours" className={`rounded-xs px-1.5 py-px text-mini font-medium ${STATUS_CHIP[leaf.ours]}`}>{tr('feat.ourStatus')}: {tr(`feat.status.${leaf.ours}`)}</span>
-          <span className="w-[112px] text-mini tabular-nums text-app-text-secondary @max-2xl:w-auto">{tr('feat.have', { n: leaf.have, of: leaf.of })}</span>
-          <span className="w-[68px] text-right text-mini tabular-nums text-app-text-muted @max-2xl:ml-auto @max-2xl:w-auto">{news ?? ''}</span>
+          <span className="w-28 text-mini tabular-nums text-app-text-secondary @max-2xl:w-auto">{tr('feat.have', { n: leaf.have, of: leaf.of })}</span>
+          <span className="w-17 text-right text-mini tabular-nums text-app-text-muted @max-2xl:ml-auto @max-2xl:w-auto">{news ?? ''}</span>
         </span>
       </button>
       {open && (
-        <div data-testid="features-leaf-detail" className="border-t border-app-border-subtle bg-app-inset px-3 py-2.5 pl-[35px] text-mini">
+        <div data-testid="features-leaf-detail" className="border-t border-app-border-subtle bg-app-inset px-3 py-2.5 pl-8.75 text-mini">
           {leaf.desc && <p className="m-0 mb-1.5 text-compact text-app-text-body">{leaf.desc}</p>}
           {leaf.note && <p data-testid="features-note" className="m-0 mb-1"><span className="font-semibold text-app-text-tertiary">{tr('feat.ourNote')}: </span><span className="text-app-text-body">{leaf.note}</span></p>}
           {leaf.plan?.why && <p data-testid="features-decided-why" className="m-0 mb-1"><span className="font-semibold text-app-text-tertiary">{tr('feat.decided')}: </span><span className="text-app-text-body">{leaf.plan.why}</span></p>}
@@ -294,7 +294,7 @@ function Leaf({ leaf, tr, fmt, open, onToggle }: { leaf: FeatureLeaf; tr: Tr; fm
           <div data-testid="features-cells" className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-3 gap-y-1">
             {leaf.cells.map((c) => (
               <span key={c.name} data-testid="features-cell" data-status={c.status} className="flex min-w-0 items-center gap-1.5">
-                <span className={`w-[52px] flex-none truncate rounded-xs px-1 py-px text-center font-medium ${STATUS_CHIP[c.status]}`}>{c.status === 'unknown' ? '?' : tr(`feat.status.${c.status}`)}</span>
+                <span className={`w-13 flex-none truncate rounded-xs px-1 py-px text-center font-medium ${STATUS_CHIP[c.status]}`}>{c.status === 'unknown' ? '?' : tr(`feat.status.${c.status}`)}</span>
                 <span className="truncate text-app-text-body" title={c.name}>{c.name}</span>
               </span>
             ))}
@@ -308,7 +308,7 @@ function Leaf({ leaf, tr, fmt, open, onToggle }: { leaf: FeatureLeaf; tr: Tr; fm
               {leaf.news.slice(0, NEWS_SHOWN).map((n, i) => (
                 <div key={i} data-testid="features-news" className="flex min-w-0 items-baseline gap-2 py-0.5">
                   <span className="w-12 flex-none tabular-nums text-app-text-muted">{n.at !== null ? fmt.day(n.at) : ''}</span>
-                  {n.source && <span data-testid="features-news-source" className="max-w-[96px] flex-none truncate text-app-text-secondary">{n.source}</span>}
+                  {n.source && <span data-testid="features-news-source" className="max-w-24 flex-none truncate text-app-text-secondary">{n.source}</span>}
                   {n.url ? (
                     <a href={n.url} target="_blank" rel="noopener noreferrer" lang="en" className="inline-flex min-w-0 items-center gap-1 text-primary hover:underline">
                       <span className="truncate">{n.title}</span><ExternalLink size={11} className="flex-none" aria-hidden="true" />

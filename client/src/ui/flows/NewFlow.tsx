@@ -65,7 +65,7 @@ export function NewFlowScreen({
     <div className="flex h-full min-h-0 flex-col">
       <PaneHeader crumbs={crumbs} />
       <div className={clsx('min-h-0 flex-1', phone ? 'overflow-y-auto' : 'flex')}>
-        <aside className={clsx('shrink-0 p-5', phone ? 'border-b border-app-border' : 'w-[380px] overflow-y-auto border-r border-app-border')}>
+        <aside className={clsx('shrink-0 p-5', phone ? 'border-b border-app-border' : 'w-95 overflow-y-auto border-r border-app-border')}>
           <h2 className="text-title font-semibold text-app-text">{t.firstSteps}</h2>
           <p className="mt-2 text-prose leading-6 text-app-text-secondary">{t.firstStepsBody}</p>
           <ol className="mt-4 space-y-3">
@@ -117,14 +117,14 @@ export function NewFlowScreen({
               onChange={(e) => onDescribeChange(e.target.value)}
               placeholder={t.describePlaceholder}
               aria-label={t.describePlaceholder}
-              className="h-8 min-w-[200px] flex-1 bg-transparent text-prose text-app-text outline-none placeholder:text-app-placeholder"
+              className="h-8 min-w-50 flex-1 bg-transparent text-prose text-app-text outline-none placeholder:text-app-placeholder"
             />
             <Button variant="primary" icon={Plus} onClick={onDescribe}>{t.createDraft}</Button>
           </form>
 
           <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2">
             <h3 className="text-body-lg font-semibold text-app-text">{t.sectorTemplates}</h3>
-            <Select value={sector} onChange={onSector} options={sectors} title={t.sectorLabel} className="w-[210px]" />
+            <Select value={sector} onChange={onSector} options={sectors} title={t.sectorLabel} className="w-52.5" />
             <span className="text-compact text-app-text-tertiary">{t.sectorHint}</span>
           </div>
           {templates.length === 0 ? (

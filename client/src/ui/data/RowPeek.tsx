@@ -23,7 +23,7 @@ export function RowPeek({ row, copy, phone, onOpen, onOpenLinked }: {
 }) {
   const d = copy.data;
   return (
-    <aside className={clsx('flex shrink-0 flex-col border-app-border bg-surface', phone ? 'w-full border-t' : 'h-full w-[290px] border-l')}>
+    <aside className={clsx('flex shrink-0 flex-col border-app-border bg-surface', phone ? 'w-full border-t' : 'h-full w-72.5 border-l')}>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <PanelHeading tag={row.tag} title={row.title}>{row.badge && <Chip tone="green">{row.badge}</Chip>}</PanelHeading>
         <div className="space-y-3 border-b border-app-border px-4 py-3.5">

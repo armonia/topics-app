@@ -24,8 +24,8 @@ export function GitSectionSkeleton({ fileCount }: { fileCount: number }) {
     <div data-testid="git-section-skeleton" aria-hidden="true" className="flex flex-col min-h-0 animate-pulse">
       {/* The commit row: textarea (16 px line + 2 px padding + border) and the 22 px button. */}
       <div className="border-t border-app-border mx-1.5 px-2 py-1 flex items-end gap-1 flex-shrink-0">
-        <div className="flex-1 min-w-0 px-1.5 py-[2px] text-mini leading-[16px] border border-app-border-input rounded">{NO_BREAK_SPACE}</div>
-        <div className={`w-9 h-[22px] ${BAR}`} />
+        <div className="flex-1 min-w-0 px-1.5 py-0.5 text-mini leading-[16px] border border-app-border-input rounded">{NO_BREAK_SPACE}</div>
+        <div className={`w-9 h-5.5 ${BAR}`} />
       </div>
       {/* One group header ("Changes (n)"). */}
       <div className="flex items-center px-3 py-1">
@@ -34,7 +34,7 @@ export function GitSectionSkeleton({ fileCount }: { fileCount: number }) {
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
         {Array.from({ length: rows }).map((_, i) => (
-          <div key={i} className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px]`}>
+          <div key={i} className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-0.75`}>
             <div className={`w-3.5 h-3.5 flex-shrink-0 ${BAR}`} />
             <span className="text-mini">{NO_BREAK_SPACE}</span>
             <div className={`h-2.5 ${BAR}`} style={{ width: `${PATH_WIDTHS[i % PATH_WIDTHS.length]}%` }} />

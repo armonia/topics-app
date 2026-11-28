@@ -44,7 +44,7 @@ export function FlowPanel({ name, icon: Icon, model, onOpenFull, selected, onSte
       data-flow-panel=""
       className={clsx(
         'z-20 flex flex-col border-l border-app-border bg-surface focus:outline-none',
-        phone ? 'absolute inset-x-0 bottom-0 top-11' : 'relative w-[480px] max-w-[50%] shrink-0',
+        phone ? 'absolute inset-x-0 bottom-0 top-11' : 'relative w-120 max-w-[50%] shrink-0',
       )}
     >
       <header className="flex min-h-11 shrink-0 items-center gap-2 border-b border-app-border-light px-4">

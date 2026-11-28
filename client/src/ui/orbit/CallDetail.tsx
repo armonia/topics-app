@@ -41,7 +41,7 @@ export function CallDetail({ call, copy, onAnswer, onField, onUseSuggestion, onO
           {ringing ? c.statusRinging : call.status === 'live' ? c.statusLive : c.statusEnded(call.when)}
         </Chip>
       </div>
-      <div className="mt-4 flex max-w-[960px] flex-col gap-3">
+      <div className="mt-4 flex max-w-240 flex-col gap-3">
         {ringing ? (
           <Card icon={PhoneIncoming} tone="amber" title={c.incomingTitle}>
             <p className="text-prose leading-6">{c.incomingBody}</p>
@@ -53,7 +53,7 @@ export function CallDetail({ call, copy, onAnswer, onField, onUseSuggestion, onO
               <ol className="space-y-2" aria-label={c.transcript}>
                 {call.lines.map((l) => (
                   <li key={l.id} className="flex gap-2">
-                    <span className={clsx('w-[74px] shrink-0 text-mini font-semibold uppercase tracking-wide', l.who === 'operator' ? 'text-app-text-tertiary' : 'text-primary dark:text-primary-dark')}>
+                    <span className={clsx('w-18.5 shrink-0 text-mini font-semibold uppercase tracking-wide', l.who === 'operator' ? 'text-app-text-tertiary' : 'text-primary dark:text-primary-dark')}>
                       {l.who === 'operator' ? c.operator : c.caller}
                     </span>
                     <span className="min-w-0 flex-1 text-prose leading-5 text-app-text-body">{l.text}</span>

@@ -213,7 +213,7 @@ function AutomationsView() {
                 aria-selected={tab === t}
                 data-testid={`automations-tab-${t}`}
                 onClick={() => setTab(t)}
-                className={`inline-flex h-[26px] items-center gap-1.5 rounded-sm px-3 text-compact @max-2xl:h-9 @max-2xl:flex-1 @max-2xl:justify-center ${tab === t ? 'bg-elevated text-app-text shadow-[0_0_0_1px_var(--border)]' : 'text-app-text-secondary hover:text-app-text'}`}
+                className={`inline-flex h-6.5 items-center gap-1.5 rounded-sm px-3 text-compact @max-2xl:h-9 @max-2xl:flex-1 @max-2xl:justify-center ${tab === t ? 'bg-elevated text-app-text shadow-[0_0_0_1px_var(--border)]' : 'text-app-text-secondary hover:text-app-text'}`}
               >
                 {t === 'list' ? <Workflow size={13} aria-hidden="true" /> : <AlarmClock size={13} aria-hidden="true" />}
                 {tr(t === 'list' ? 'auto.tab.list' : 'auto.tab.calendar')}
@@ -222,7 +222,7 @@ function AutomationsView() {
             ))}
           </div>
           {tab === 'list' && (
-            <label className="ml-auto inline-flex h-[26px] w-[240px] items-center gap-1.5 rounded-sm border border-app-border-input bg-app-input px-2 text-app-text-muted @max-2xl:mt-2 @max-2xl:flex @max-2xl:h-9 @max-2xl:w-full">
+            <label className="ml-auto inline-flex h-6.5 w-60 items-center gap-1.5 rounded-sm border border-app-border-input bg-app-input px-2 text-app-text-muted @max-2xl:mt-2 @max-2xl:flex @max-2xl:h-9 @max-2xl:w-full">
               <Search size={13} aria-hidden="true" />
               <input
                 ref={searchRef}
@@ -289,7 +289,7 @@ function AutomationsView() {
         )}
       </section>
       {detail && side && (
-        <aside className="w-[360px] flex-none overflow-auto border-l border-app-border-subtle bg-surface" data-testid="automation-side">{detail}</aside>
+        <aside className="w-90 flex-none overflow-auto border-l border-app-border-subtle bg-surface" data-testid="automation-side">{detail}</aside>
       )}
       {detail && !side && (
         <div className="absolute inset-0 z-20 flex flex-col justify-end bg-black/40" data-testid="automation-sheet" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
@@ -315,7 +315,7 @@ function HubDownBand({ data, clock }: { data: AutomationsData; clock: Clock }) {
   );
 }
 
-const CHIP = (on: boolean) => `inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-sm border px-2.5 text-mini @max-2xl:h-8 ${on ? 'border-transparent bg-primary/10 text-primary' : 'border-app-border text-app-text-secondary hover:bg-app-hover'}`;
+const CHIP = (on: boolean) => `inline-flex h-6.5 items-center gap-1.5 whitespace-nowrap rounded-sm border px-2.5 text-mini @max-2xl:h-8 ${on ? 'border-transparent bg-primary/10 text-primary' : 'border-app-border text-app-text-secondary hover:bg-app-hover'}`;
 
 /** All / in order / problems, with their counts, as the hub's filter. */
 function StatusChips({ rows, status, onPick }: { rows: AutomationRow[]; status: StatusFilter; onPick(s: StatusFilter): void }) {

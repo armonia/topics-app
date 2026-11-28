@@ -47,7 +47,7 @@ export function ProfileDropdown({ title, onClose, testId, children }: {
       {/* The ceiling is the point: the people list grows with the install, and
           a panel that pushes the figures below the fold turns the profile back
           into a page you have to scroll to read. */}
-      <div className="max-h-[380px] overflow-y-auto px-3 py-3">{children}</div>
+      <div className="max-h-95 overflow-y-auto px-3 py-3">{children}</div>
     </div>
   );
 }
