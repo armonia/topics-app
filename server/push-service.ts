@@ -1,8 +1,9 @@
 import { createECDH } from "crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import { join, dirname } from "path";
+import { dirname } from "path";
 import { getDatabase } from "./db";
 import { resolveStateDir } from "./lib/data-dir";
+import { instanceEntryPath, VAPID_KEYS } from "./lib/instance-files";
 import { DEFAULT_WHEN_OPEN, parseWhenOpen } from "./push-devices";
 import { deliverableSubscriptions } from "./push-recipients";
 import { deliverPush, type VapidDetails } from "./push-delivery";
@@ -21,7 +22,7 @@ export function initVapid(): VapidKeys {
   // Written on first run when absent → must go to a writable dir, not the
   // read-only app bundle (the file is gitignored and NOT staged, so a fresh
   // download always hits the generate+write path).
-  const keysPath = join(resolveStateDir(import.meta.dir), "vapid-keys.json");
+  const keysPath = instanceEntryPath(VAPID_KEYS, { stateDir: resolveStateDir(import.meta.dir) });
 
   if (existsSync(keysPath)) {
     vapidKeys = JSON.parse(readFileSync(keysPath, "utf-8"));

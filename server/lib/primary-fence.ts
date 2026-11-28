@@ -13,8 +13,8 @@ import { homedir } from "node:os";
 import { rmSync } from "node:fs";
 import { resolveAppDataDir, resolveDataDir, resolveSecretsDir, resolveStateDir } from "./data-dir";
 import {
-  applyPendingPrimaryChange, DB_NAME, isRefusedWhenRetired, movedResponse, readRetired, RETIRED_FILE,
-  type RetiredState,
+  applyPendingPrimaryChange, DB_NAME, isRefusedWhenRetired, movedResponse, readRetired, replicaCommandsFromEnv, RETIRED_FILE,
+  type ReplicaCommands, type RetiredState,
 } from "./primary-switch";
 import { fenceInternalWrites, type PrimaryRole } from "./primary-role";
 import { setDatabaseReadOnly, selectRetiredDatabaseFile } from "../db";
@@ -54,6 +54,8 @@ export interface BootPrimaryPaths {
   secretsDir?: string;
   dbPath?: string;
   projectsDir?: string;
+  /** The replica commands; defaults to the instance settings in the environment (empty: no replica managed). */
+  replica?: ReplicaCommands;
 }
 
 /**
@@ -72,6 +74,7 @@ export function bootPrimaryChange(rootDir: string, paths?: BootPrimaryPaths): vo
       dbPath: paths?.dbPath ?? join(resolveDataDir(stateDir), DB_NAME),
       appDataDir,
       projectsDir: paths?.projectsDir ?? join(homedir(), ".claude", "projects"),
+      replica: paths?.replica ?? replicaCommandsFromEnv(),
     });
   } catch (err) {
     console.error(`[primary] the pending primary change could not be applied: ${err instanceof Error ? err.message : String(err)}`);

@@ -5,6 +5,7 @@ import { createLandingQueue } from "../services/landing-queue";
 import { join } from "path";
 import { branchAheadOfMain } from "../services/own-branch";
 import { resolveStateDir } from "../lib/data-dir";
+import { CLAUDE_CLOUD_RUNS, instanceEntryPath } from "../lib/instance-files";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "../services/swap-freeze-ledger";
 import { createMemoryPressureSignal } from "../services/memory-pressure";
 import { readStartTimes } from "../lib/process-snapshot";
@@ -352,7 +353,7 @@ export function bootDispatchPrep(scope: AfterRouters1) {
       const projectId = dispatcherSvc.get(taskId)?.task.projectId;
       return projectId ? projectPathForNode(projectId) ?? null : null;
     },
-    statePath: join(ctx.STATE_DIR, "claude-cloud-runs.json"),
+    statePath: instanceEntryPath(CLAUDE_CLOUD_RUNS, { stateDir: ctx.STATE_DIR }),
     // One notice per cause, in the system notices where the other configuration alerts go.
     notify: (n) => recordSystemNotice({ key: "claude-cloud", cycle: n.key, title: n.title, body: n.body }),
   });

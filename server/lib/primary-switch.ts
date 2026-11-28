@@ -17,14 +17,19 @@
  * The code itself never moves: it lives in git and every machine has its clone.
  */
 import { Database } from "bun:sqlite";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync, closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync,
-  readSync, realpathSync, renameSync, rmSync, statSync, writeSync,
+  readSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeSync,
 } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { writeFileAtomic } from "./atomic-write";
 import { LIVE_DB_NAME, RETIRED_DB_NAME } from "./data-dir";
+import {
+  ID_SEGMENT, INSTANCE_ENTRIES, instanceBaseDir, instanceEntryPath, KEPT_TRANSCRIPTS,
+  MEDIA, UPLOADS, VIEWS, type InstanceDirs, type InstanceEntry, type InstanceKind,
+} from "./instance-files";
 import { findCliTranscript } from "./subagent-migration";
 
 /** The tables whose row counts must be identical before and after the move. */
@@ -42,16 +47,7 @@ export const PRIMARY_STATE_FILE = "primary-state.json";
 export const MOVED_CODE = "primary_moved";
 export const DB_NAME = LIVE_DB_NAME;
 
-/**
- * The state folder entries that follow the primary, relative to the state dir.
- * `installation-id` travels with `license-token` because the licence is
- * verified against it, and it lives in the secrets folder (`resolveSecretsDir`),
- * or in the state root on an installation that never moved it there. Nothing
- * else of the secrets folder moves: provider keys reach a primary through its
- * own store, never through this copy.
- */
-export const STATE_ENTRIES = ["nodes", "license-token"] as const;
-export const INSTALLATION_ID_FILE = "installation-id";
+// The files and folders that follow the primary are listed once, in `instance-files.ts`.
 
 /** Files and folders that carry secrets: owner only, the same modes `writeNodeToken` uses. */
 const SECRET_FILE_MODE = 0o600;
@@ -189,16 +185,26 @@ function walkFiles(root: string): string[] {
 
 const toBundlePath = (p: string) => p.split(sep).join("/");
 
+/** Every folder the files of an instance live under, as the `data-dir.ts` resolvers answer them. */
+export type StateDirs = InstanceDirs & { stateDir: string; secretsDir: string; appDataDir: string };
+
 /**
- * The state files that follow the primary, already filtered through the
- * receiver's closed list: a file the other side would refuse is never shipped.
+ * The instance files that are not attachments (node tokens, licence, the
+ * installation id, topic memory, VAPID keys, ...), read off the list of
+ * `instance-files.ts` and already filtered through the receiver's closed list:
+ * a file the other side would refuse is never shipped.
  */
-export function collectStateFiles(stateDir: string, secretsDir: string): BundleSource[] {
-  const state = STATE_ENTRIES.flatMap((entry) => walkFiles(join(stateDir, entry)))
-    .map((source) => ({ name: `state/${toBundlePath(relative(stateDir, source))}`, source }));
-  const installationId = [join(secretsDir, INSTALLATION_ID_FILE), join(stateDir, INSTALLATION_ID_FILE)].find((p) => existsSync(p));
-  const secrets = installationId ? [{ name: `secrets/${INSTALLATION_ID_FILE}`, source: installationId }] : [];
-  return [...state, ...secrets].filter((f) => bundleTarget(f.name) !== null);
+export function collectStateFiles(dirs: StateDirs): BundleSource[] {
+  const out: BundleSource[] = [];
+  for (const entry of INSTANCE_ENTRIES) {
+    if (entry.kind in ATTACHMENT_ROOTS) continue;
+    // A file lives in one place: the first root that has it wins (the installation id of an old state root).
+    const roots = [entry, ...(entry.fallbackRoot ? [{ ...entry, root: entry.fallbackRoot }] : [])].map((e) => instanceBaseDir(e, dirs));
+    const base = roots.find((r) => existsSync(join(r, entry.path)));
+    if (base === undefined) continue;
+    for (const source of walkFiles(join(base, entry.path))) out.push({ name: `${entry.prefix}/${toBundlePath(relative(base, source))}`, source });
+  }
+  return out.filter((f) => bundleTarget(f.name) !== null);
 }
 
 /**
@@ -233,12 +239,9 @@ export interface AttachmentDirs {
   dataDir: string;
 }
 
-/** Bundle prefix of each attachment kind, and the folder it lands in on the receiver. */
-const ATTACHMENT_ROOTS: Record<AttachmentKind, { prefix: string; dir: (d: AttachmentDirs) => string }> = {
-  media: { prefix: "media", dir: (d) => join(d.appDataDir, "media") },
-  uploads: { prefix: "uploads", dir: (d) => join(d.stateDir, "uploads") },
-  views: { prefix: "views", dir: (d) => join(d.dataDir, "views") },
-  "kept-transcripts": { prefix: "claude-transcripts", dir: (d) => join(d.dataDir, "claude-transcripts") },
+/** The attachment entries by kind: bundle prefix and the folder each one lands in on the receiver. */
+const ATTACHMENT_ROOTS: Partial<Record<InstanceKind, InstanceEntry>> = {
+  media: MEDIA, uploads: UPLOADS, views: VIEWS, "kept-transcripts": KEPT_TRANSCRIPTS,
 };
 
 /**
@@ -254,8 +257,9 @@ const ATTACHMENT_ROOTS: Record<AttachmentKind, { prefix: string; dir: (d: Attach
 export function collectAttachmentFiles(dirs: AttachmentDirs, shipped: readonly BundleSource[] = []): BundleSource[] {
   const shippedTranscriptIds = new Set(shipped.filter((f) => f.name.startsWith("transcripts/")).map((f) => f.name.split("/").pop()));
   const out: BundleSource[] = [];
-  for (const { prefix, dir } of Object.values(ATTACHMENT_ROOTS)) {
-    const root = dir(dirs);
+  for (const entry of Object.values(ATTACHMENT_ROOTS)) {
+    const { prefix } = entry;
+    const root = instanceEntryPath(entry, dirs);
     for (const source of walkFiles(root)) {
       if (prefix === "claude-transcripts" && shippedTranscriptIds.has(relative(root, source))) continue;
       out.push({ name: `${prefix}/${toBundlePath(relative(root, source))}`, source });
@@ -264,43 +268,25 @@ export function collectAttachmentFiles(dirs: AttachmentDirs, shipped: readonly B
   return out.filter((f) => bundleTarget(f.name) !== null);
 }
 
-type AttachmentKind = "media" | "uploads" | "views" | "kept-transcripts";
-
 /** Where a bundle file lands on the receiver. */
 export type BundleTarget =
   | { kind: "db" }
-  | { kind: "state" | "secrets" | "transcripts" | AttachmentKind; path: string[] };
+  | { kind: InstanceKind | "transcripts"; path: string[] };
 
-const ID = "[A-Za-z0-9_-]{1,128}";
 /** One path segment of a transcript folder: no leading dot, so never `.`, `..` or a hidden file. */
 const SEGMENT = "[A-Za-z0-9_@+-][A-Za-z0-9._@+-]{0,200}";
 /**
- * The CLOSED list of what a receiver writes, outside its staging folder. Each
- * shape is the exact file one of the writers creates (`nodeTokenPath`,
- * `delegatedNodeTokenPath`, the model token hash, the licence, the
- * installation id) or a transcript under the CLI projects folder. Anything
- * else (code, `.git/hooks`, provider keys, a settings file) has no name here,
- * so it cannot be overwritten by a bundle.
+ * The CLOSED list of what a receiver writes, outside its staging folder: the
+ * `accept` shapes of every entry of `instance-files.ts` (each is the exact
+ * file one of the writers creates, or a file below an attachment folder) and
+ * the transcripts under the CLI projects folder. Anything else (code,
+ * `.git/hooks`, provider keys, a settings file) has no name here, so it cannot
+ * be overwritten by a bundle.
  */
-/**
- * One path segment of an attachment: any name a person gave a file (spaces,
- * accents) except a separator, a control character or a leading dot, so never
- * `.`, `..` or a hidden file.
- */
-// eslint-disable-next-line no-control-regex -- the control characters are what the class refuses
-const FILE_SEGMENT = /[^/\\\x00-\x1f.][^/\\\x00-\x1f]{0,254}/.source;
 const BUNDLE_SHAPES: ReadonlyArray<[BundleTarget["kind"], RegExp]> = [
-  ["state", new RegExp(`^state/(nodes/${ID}\\.token)$`)],
-  ["state", new RegExp(`^state/(nodes/${ID}\\.model-token\\.sha256)$`)],
-  ["state", new RegExp(`^state/(nodes/delegated/${ID}/${ID}\\.token)$`)],
-  ["state", /^state\/(license-token)$/],
-  ["secrets", /^secrets\/(installation-id)$/],
-  ["transcripts", new RegExp(`^transcripts/(${SEGMENT}/${ID}\\.jsonl)$`)],
-  ["transcripts", new RegExp(`^transcripts/(${SEGMENT}/${ID}(?:/${SEGMENT})+)$`)],
-  ["media", new RegExp(`^media/(${FILE_SEGMENT}(?:/${FILE_SEGMENT})*)$`)],
-  ["uploads", new RegExp(`^uploads/(${FILE_SEGMENT}(?:/${FILE_SEGMENT})*)$`)],
-  ["views", new RegExp(`^views/(${ID}\\.json)$`)],
-  ["kept-transcripts", new RegExp(`^claude-transcripts/(${ID}\\.jsonl)$`)],
+  ...INSTANCE_ENTRIES.flatMap((e) => e.accept.map((a): [BundleTarget["kind"], RegExp] => [e.kind, new RegExp(`^${e.prefix}/(${a})$`)])),
+  ["transcripts", new RegExp(`^transcripts/(${SEGMENT}/${ID_SEGMENT}\\.jsonl)$`)],
+  ["transcripts", new RegExp(`^transcripts/(${SEGMENT}/${ID_SEGMENT}(?:/${SEGMENT})+)$`)],
 ];
 
 export function bundleTarget(name: string): BundleTarget | null {
@@ -355,6 +341,29 @@ export function writeIncomingChunk(stateDir: string, name: string, offset: numbe
   return have + bytes.byteLength;
 }
 
+/**
+ * Room kept free on top of the copies the restore makes: the new DB grows (its
+ * WAL, the first writes of the new primary) and the receiver must not boot onto
+ * a full disk.
+ */
+export const SPACE_MARGIN_BYTES = 256 * 1024 * 1024;
+
+/** Free bytes for an unprivileged writer on the volume holding `dir`. */
+export function freeBytesOf(dir: string): number {
+  const s = statfsSync(dir);
+  return Number(s.bavail) * Number(s.bsize);
+}
+
+/**
+ * What the restore needs on top of what is already staged. The DB is renamed
+ * into place and costs nothing more; every other file is COPIED out of the
+ * staging folder (`copyPrivate`), so it exists twice until the boot drops the
+ * staging folder.
+ */
+export function restoreSpaceNeeded(files: readonly ManifestFile[]): number {
+  return files.filter((f) => f.name !== DB_NAME).reduce((sum, f) => sum + f.size, 0) + SPACE_MARGIN_BYTES;
+}
+
 export type CommitVerdict = { ok: true; counts: RowCounts } | { ok: false; code: string; error: string };
 
 /**
@@ -366,7 +375,7 @@ export type CommitVerdict = { ok: true; counts: RowCounts } | { ok: false; code:
 export async function commitIncoming(
   stateDir: string,
   manifest: SwitchManifest,
-  local: { hostname: string; epoch: number },
+  local: { hostname: string; epoch: number; /** Free bytes on the volume of `dir`; the real `statfs` unless a test says otherwise. */ freeBytes?: (dir: string) => number },
 ): Promise<CommitVerdict> {
   if (manifest?.version !== 1 || !Array.isArray(manifest.files)) return { ok: false, code: "invalid_manifest", error: "unreadable manifest" };
   if (manifest.toHostname !== local.hostname) {
@@ -378,6 +387,18 @@ export async function commitIncoming(
   if (!manifest.files.some((f) => f.name === DB_NAME)) return { ok: false, code: "invalid_manifest", error: "the manifest carries no DB" };
   for (const f of manifest.files) {
     if (!isSafeBundleName(f.name)) return { ok: false, code: "invalid_manifest", error: `refused bundle name: ${f.name}` };
+  }
+  // Before the commit, so a refusal changes nothing: a restore that runs out of space half way is the one that hurts.
+  const needed = restoreSpaceNeeded(manifest.files);
+  let free: number;
+  try {
+    free = (local.freeBytes ?? freeBytesOf)(stateDir);
+  } catch {
+    // No answer from the OS is not a reason to refuse a switch that may well fit.
+    free = Number.POSITIVE_INFINITY;
+  }
+  if (free < needed) return { ok: false, code: "no_space", error: `the restore needs ${needed} free bytes, this computer has ${free}` };
+  for (const f of manifest.files) {
     const path = stagedPath(stateDir, f.name);
     if (!existsSync(path) || statSync(path).size !== f.size) return { ok: false, code: "incomplete", error: `${f.name} is missing or short` };
     if ((await sha256File(path)) !== f.sha256) return { ok: false, code: "hash_mismatch", error: `${f.name} does not match its hash` };
@@ -547,8 +568,39 @@ export interface PendingChangeInputs {
   dbPath: string;
   appDataDir: string;
   projectsDir: string;
+  /** Shell command lines that stop and start the replica of the live DB around its replacement. Empty or absent: no replica is managed. */
+  replica?: ReplicaCommands;
   now?: () => string;
   log?: (line: string) => void;
+}
+
+export interface ReplicaCommands { stop?: string; start?: string }
+
+/** Instance settings, read from the environment: a command line each, default empty (no replica managed). */
+export const REPLICA_STOP_ENV = "TOPICS_REPLICA_STOP_COMMAND";
+export const REPLICA_START_ENV = "TOPICS_REPLICA_START_COMMAND";
+
+export function replicaCommandsFromEnv(env: NodeJS.ProcessEnv = process.env): ReplicaCommands {
+  return { stop: env[REPLICA_STOP_ENV]?.trim() || undefined, start: env[REPLICA_START_ENV]?.trim() || undefined };
+}
+
+/**
+ * Runs one configured replica command through the shell (no arguments of ours,
+ * so nothing secret is on a command line) and logs how it ended. It never
+ * throws and never stops the switch: the commit is already given, and a replica
+ * that did not stop is a thing to read in the log, not a reason to leave the
+ * new primary without its DB.
+ */
+function runReplicaCommand(what: "stop" | "start", command: string | undefined, log: (line: string) => void): void {
+  if (!command) return;
+  const shell = process.platform === "win32" ? ["cmd", "/c", command] : ["sh", "-c", command];
+  try {
+    // stdio ignored: a replica started in the background must not keep a pipe of ours open.
+    const r = spawnSync(shell[0]!, shell.slice(1), { stdio: "ignore", timeout: 60_000 });
+    log(`[primary] replica ${what} command ${r.status === 0 ? "ok" : `failed (${r.error?.message ?? `exit ${r.status}, signal ${r.signal}`})`}`);
+  } catch (err) {
+    log(`[primary] replica ${what} command failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /**
@@ -578,25 +630,17 @@ export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restore
     const refused = manifest.files.find((f) => !bundleTarget(f.name));
     if (refused) throw new Error(`refused bundle name in the manifest: ${refused.name}`);
     mkdirSync(dirname(inputs.dbPath), { recursive: true });
-    // A boot that crashed half way runs this again: the staged DB already moved in, so it is not moved twice.
-    const stagedDb = stagedPath(inputs.stateDir, DB_NAME);
-    const aside = `${inputs.dbPath}.prima-${epoch}`;
-    if (existsSync(stagedDb)) {
-      setDatabaseAside(inputs.dbPath, epoch);
-      // The service DB of an earlier hand-over goes with it: this server is the primary again.
-      setDatabaseAside(join(dirname(inputs.dbPath), RETIRED_DB_NAME), epoch);
-      renameSync(stagedDb, inputs.dbPath);
-    }
-    chmodSync(inputs.dbPath, SECRET_FILE_MODE);
     let transcripts = 0;
     let attachments = 0;
     const dataDir = dirname(inputs.dbPath);
-    const attachmentDirs = { stateDir: inputs.stateDir, appDataDir: inputs.appDataDir, dataDir };
-    const roots: Record<Exclude<BundleTarget["kind"], "db">, string> = {
-      state: inputs.stateDir, secrets: inputs.secretsDir, transcripts: inputs.projectsDir,
-      media: ATTACHMENT_ROOTS.media.dir(attachmentDirs), uploads: ATTACHMENT_ROOTS.uploads.dir(attachmentDirs),
-      views: ATTACHMENT_ROOTS.views.dir(attachmentDirs), "kept-transcripts": ATTACHMENT_ROOTS["kept-transcripts"].dir(attachmentDirs),
-    };
+    const dirs = { stateDir: inputs.stateDir, secretsDir: inputs.secretsDir, appDataDir: inputs.appDataDir, dataDir };
+    const roots = Object.fromEntries(
+      [...INSTANCE_ENTRIES.map((e): [string, string] => [e.kind, instanceBaseDir(e, dirs)]), ["transcripts", inputs.projectsDir]],
+    ) as Record<Exclude<BundleTarget["kind"], "db">, string>;
+    // The files go BEFORE the DB and the role file. A copy that fails (no permission, no space) throws
+    // here with the DB still the receiver's own and no `primary-state.json` written: the manifest stays
+    // staged, every boot tries again, and the receiver never runs as a primary without its files.
+    // A boot that crashed half way runs this again: files already in place are the same bytes and stay.
     for (const f of manifest.files) {
       const target = bundleTarget(f.name)!;
       if (target.kind === "db") continue;
@@ -614,6 +658,22 @@ export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restore
         kind: target.kind, epoch, shippedMtimeMs: f.mtimeMs ?? statSync(from).mtimeMs, tightenFolders: target.kind === "state",
       });
     }
+    const stagedDb = stagedPath(inputs.stateDir, DB_NAME);
+    const aside = `${inputs.dbPath}.prima-${epoch}`;
+    if (existsSync(stagedDb)) {
+      // A replica (Litestream) holds the old DB file open and a swap under it corrupts what it publishes:
+      // it is stopped before the file is replaced and started after, whatever happens in between.
+      runReplicaCommand("stop", inputs.replica?.stop, log);
+      try {
+        setDatabaseAside(inputs.dbPath, epoch);
+        // The service DB of an earlier hand-over goes with it: this server is the primary again.
+        setDatabaseAside(join(dirname(inputs.dbPath), RETIRED_DB_NAME), epoch);
+        renameSync(stagedDb, inputs.dbPath);
+      } finally {
+        runReplicaCommand("start", inputs.replica?.start, log);
+      }
+    }
+    chmodSync(inputs.dbPath, SECRET_FILE_MODE);
     writeFileAtomic(join(inputs.appDataDir, PRIMARY_STATE_FILE), JSON.stringify({
       primaryMachineId: manifest.toMachineId, epoch, since: now(),
     }));
@@ -631,9 +691,13 @@ export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restore
   const retired = readRetired(inputs.appDataDir);
   if (retired?.phase === "pending-set-aside") {
     const aside = setDatabaseAside(inputs.dbPath, retired.epoch);
-    for (const entry of STATE_ENTRIES) setAsideIfPresent(join(inputs.stateDir, entry), retired.epoch);
+    // Everything of the instance list that moved (tokens, licence, memory, VAPID keys, ...) goes aside too.
     // The installation id went with the licence: this server makes a new one of its own.
-    for (const dir of [inputs.secretsDir, inputs.stateDir]) setAsideIfPresent(join(dir, INSTALLATION_ID_FILE), retired.epoch);
+    const dirs = { stateDir: inputs.stateDir, secretsDir: inputs.secretsDir, appDataDir: inputs.appDataDir, dataDir: dirname(inputs.dbPath) };
+    for (const entry of INSTANCE_ENTRIES) {
+      if (entry.kind in ATTACHMENT_ROOTS) continue;
+      for (const root of [entry, ...(entry.fallbackRoot ? [{ ...entry, root: entry.fallbackRoot }] : [])]) setAsideIfPresent(instanceEntryPath(root, dirs), retired.epoch);
+    }
     writeRetired(inputs.appDataDir, { ...retired, phase: "set-aside" });
     log(`[primary] handed over to ${retired.toMachineId} at epoch ${retired.epoch}: the DB is set aside as ${aside} and this server refuses writes`);
     return "set-aside";

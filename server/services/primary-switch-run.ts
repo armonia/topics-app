@@ -185,7 +185,7 @@ export async function runPrimarySwitch(deps: PrimarySwitchDeps): Promise<SwitchR
       { stateDir: deps.stateDir, appDataDir: deps.appDataDir, dataDir: deps.dataDir ?? resolveDataDir(deps.stateDir) },
       transcripts,
     );
-    const sources: BundleSource[] = [{ name: DB_NAME, source: dbCopy }, ...collectStateFiles(deps.stateDir, deps.secretsDir), ...transcripts, ...attachments];
+    const sources: BundleSource[] = [{ name: DB_NAME, source: dbCopy }, ...collectStateFiles({ stateDir: deps.stateDir, secretsDir: deps.secretsDir, appDataDir: deps.appDataDir, dataDir: deps.dataDir ?? resolveDataDir(deps.stateDir) }), ...transcripts, ...attachments];
     const files: SwitchManifest["files"] = [];
     let bytes = 0;
     for (const s of sources) {
