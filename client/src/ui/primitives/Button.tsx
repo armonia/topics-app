@@ -79,7 +79,9 @@ export function Button({ variant = 'secondary', size = 'md', icon: Icon, trailin
   );
 }
 
-/** A round 28px chrome control (search, new, notifications), `raised-control` like the product's. */
+/** A round 28px chrome control (search, new, notifications), `raised-control` like the product's.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
+ */
 export function IconButton({ icon: Icon, label, onClick, pressed, children, className }: {
   icon: LucideIcon;
   label: string;
