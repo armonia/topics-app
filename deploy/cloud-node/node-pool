@@ -87,6 +87,11 @@ CI_RUNNERS = int(os.environ.get("NODE_POOL_CI_RUNNERS", "4"))
 CI_REPO = "armonia/topics-app"
 
 
+# Behind the Mac commit longer than this with no lossless restart: take no NEW cards (slots follow the
+# running ones, never 0 for hours) until the node realigns
+BEHIND_S = int(os.environ.get("NODE_POOL_BEHIND_MIN", "360")) * 60
+
+
 def log(msg):
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
     line = f"{time.strftime('%F %T')} {msg}"
@@ -680,7 +685,7 @@ def ensure_permanent(state, fx):
     r = ssh(ip, "pgrep -c -x Runner.Worker", timeout=20)
     out = (r.stdout or "").split()
     ci_busy = int(out[0]) if out and out[0].isdigit() else 0
-    want = 0 if sl.get("draining") else permanent_slots(ci_busy)
+    want = sl["slots"] if sl.get("capped") and sl.get("slots") is not None else permanent_slots(ci_busy)
     if sl.get("slots") != want and sl.get("machine_id"):
         try:
             mac("PATCH", f"/api/machines/{sl['machine_id']}", {"slots": want})
@@ -728,6 +733,8 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     if not c or sl.get("aligned") == c or sl.get("align_failed") == c:
         sl.pop("behind_since", None)
         sl["draining"] = False
+        if sl.pop("capped", None) and sl.get("machine_id"):
+            set_slots(sl, key, permanent_slots(ci_busy))
         # un fallimento è del commit che non è passato: se il nodo è già a quello del Mac non ce n'è più
         # (la tray lo leggeva per sempre come «riallineamento fallito»)
         if sl.get("aligned") == c:
@@ -740,7 +747,15 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
         sl.pop("drain_until", None)
         set_slots(sl, key, permanent_slots(ci_busy))
     # cards without a turn in flight (waiting on a person) do not hold the restart
-    if slot_busy(sl.get("machine_id"), running_only=True) and not node_lossless(ip):
+    running = slot_busy(sl.get("machine_id"), running_only=True)
+    if running and not node_lossless(ip):
+        if now - sl["behind_since"] >= BEHIND_S and sl.get("machine_id"):
+            # no new cards: the slots follow the running ones down, so the node frees up and realigns
+            if not sl.get("capped"):
+                log(f"posto {key}: nodo indietro da {int((now - sl['behind_since']) / 60)} min, niente card nuove ({running} in corso)")
+            sl["capped"] = True
+            if sl.get("slots") != running:
+                set_slots(sl, key, running)
         return
     # restart only if the checkout succeeded: a commit of the Mac not yet on origin would
     # otherwise restart Topics every minute; a failed commit is not retried until the next one
@@ -756,6 +771,8 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     _REALIGNED = _REALIGNED or a.returncode == 0
     log(f"posto {key}: nodo permanente riallineato a {c[:10]} (exit {a.returncode})")
     sl.pop("behind_since", None)
+    if sl.pop("capped", None):
+        set_slots(sl, key, permanent_slots(ci_busy))
 
 
 # Files copied to the permanent node before ci-runners.sh runs: the runners script and the CI governor.

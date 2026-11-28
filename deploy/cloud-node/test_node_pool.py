@@ -35,8 +35,8 @@ class Realign(unittest.TestCase):
     def restarts(self): return [c for c in self.cmds if "systemctl restart" in c]
 
     def test_busy_and_not_lossless_waits_without_touching_slots(self):
-        for i in range(10):
-            self.run_at(1000 + i * 3600)
+        for i in range(5):
+            self.run_at(1000 + i * 3600)   # 4 h behind, under the cap
         self.assertEqual(self.patches, [])
         self.assertEqual(self.restarts(), [])
 
@@ -79,6 +79,25 @@ class Realign(unittest.TestCase):
         self.sl.update({"aligned": "new", "align_failed": "older"})
         self.run_at(1000)
         self.assertNotIn("align_failed", self.sl)
+
+    def test_continuous_queue_non_lossless_realigns_within_the_cap(self):
+        """43 cards queued, 2 slots that never free together, main moving: new cards stop after the cap."""
+        self.sl["slots"] = 2
+        self.busy = 2
+        realigned_at = None
+        for i in range(0, 60):
+            t = 1000 + i * 1800
+            if t - 1000 >= np.BEHIND_S + 4 * 3600 and self.busy == 2:
+                self.busy = 1   # a card ends
+            if t - 1000 >= np.BEHIND_S + 6 * 3600:
+                self.busy = 0
+            self.run_at(t, c=f"c{i}")
+            if self.restarts() and realigned_at is None:
+                realigned_at = t - 1000
+        self.assertIsNotNone(realigned_at, "never realigned")
+        self.assertLessEqual(realigned_at, np.BEHIND_S + 7 * 3600)
+        self.assertNotIn(0, self.patches)
+        self.assertIn(1, self.patches)
 
     def test_main_moves_every_30_min_and_a_4h_card_never_zeroes_the_node(self):
         """Bar case: slots stay up through 8 h of a moving main and a card that runs 4 h."""
