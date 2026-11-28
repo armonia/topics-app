@@ -294,8 +294,8 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
         const drawer = page.getByTestId("task-detail-drawer");
         await expect(drawer).toBeVisible({ timeout: 10000 });
 
-        // The evidence band lives in DELIVERY, behind its own tab: the drawer
-        // opens on the conversation, and the button is not there.
+        // The evidence band lives in the DELIVERY section, closed by default:
+        // the drawer opens on the conversation, and the button is not there.
         await drawer.getByTestId("task-delivery-toggle").click();
         await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();
         const bottone = drawer.getByTestId("task-recapture-preview");
@@ -354,13 +354,16 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    // Same tab: the evidence band belongs to delivery.
+    // Same section: the evidence band belongs to delivery.
     await drawer.getByTestId("task-delivery-toggle").click();
     await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();
     await drawer.getByTestId("task-recapture-preview").click();
 
     // La nota col motivo compare nel thread: è la risposta a chi ha cliccato.
-    // System notes live under Details, not in the words column.
+    // System notes live under Details, not in the words column. Details and
+    // delivery are independent now: close the delivery section first so the
+    // two capped regions do not stack above the thread.
+    await drawer.getByTestId("task-delivery-toggle").click();
     await drawer.getByTestId("task-details-toggle").click();
     await expect(drawer.getByText(/nessuna anteprima possibile/i)).toBeVisible({ timeout: 60_000 });
     await beat(page, 2200);

@@ -106,10 +106,14 @@ async function openDrawer(page: Page, text: string) {
   return drawer;
 }
 
-// The review decisions live under the delivery tab of the drawer, not on the
-// default conversation view.
+// The review decisions sit in the head band, visible on the default
+// conversation view. The delivery panel only holds the evidence around them
+// (the «approve leaves the branch out» note, files, checks), so the helper
+// opens it once and leaves it open if it already is.
 async function openDeliveryTab(drawer: Locator) {
-  await drawer.getByTestId("task-delivery-toggle").click();
+  const toggle = drawer.getByTestId("task-delivery-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();
 }
 
 test.describe("Quattro bottoni della review che dicevano una cosa e ne facevano un'altra", () => {

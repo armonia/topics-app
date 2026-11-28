@@ -212,6 +212,9 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
     // delivery band, where the lifecycle choices live; the STATE (the chip
     // above) stays on the identity header, because a state has to be read
     // without asking for it and an action does not.
+    // Details and delivery no longer replace each other: close the brief so
+    // the two capped regions do not stack above the conversation.
+    await drawer.getByTestId("task-details-toggle").click();
     await drawer.getByTestId("task-delivery-toggle").click();
     await expect(drawer.getByTestId("task-choice-unblock")).toBeVisible();
     await beat(page, 2000);

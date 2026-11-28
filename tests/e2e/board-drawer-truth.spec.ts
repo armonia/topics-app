@@ -242,7 +242,8 @@ test.describe("Drawer del task — quello che mostra è quello che c'è", () => 
     await expect(drawer.getByTestId("task-preview-open")).toBeVisible({ timeout: 10000 });
     await drawer.getByTestId("task-preview-open").click();
     await expect(drawer.getByTestId("task-drawer-body").locator("img")).toBeVisible();
-    await drawer.getByTestId("task-conversation-toggle").click();
+    // The conversation is the default view, not a tab: the workspace toggle is the way back.
+    await drawer.getByTestId("task-workspace-toggle").click();
     await expect(drawer.getByTestId("task-session-column")).toBeVisible();
     await didascalia(page, "Anteprima tornata: la nota superata non si mostra più");
     await beat(page);

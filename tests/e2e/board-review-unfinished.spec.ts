@@ -206,19 +206,18 @@ test.describe("Review portata dal sistema: scelte diverse da una consegna", () =
         await beat(page, 1800);
 
         // ── 3. Il drawer: il bottone che ha causato l'incidente ──────────────
-        await didascalia(page, "In Consegna il verde è «Rimandalo avanti», non «Approva»");
+        await didascalia(page, "Nella banda di consegna il verde è «Rimandalo avanti», non «Approva»");
         // Il titolo, non il centro della card: in review la card è alta e piena
         // di controlli suoi (le scelte, la casella di risposta).
         await reaper.getByText(T_REAPER).first().click();
         const drawer = page.getByTestId("task-detail-drawer");
         await expect(drawer).toBeVisible({ timeout: 10000 });
         await expect(drawer.getByTestId("task-composer-submit")).toBeInViewport();
-        await expect(drawer.getByTestId("task-send-back")).toHaveCount(0);
-        const deliveryToggle = drawer.getByTestId("task-delivery-toggle");
-        await expect(deliveryToggle).toBeInViewport();
-        await deliveryToggle.click();
-        const delivery = drawer.getByTestId("task-delivery-panel");
-        await expect(delivery).toBeVisible();
+        // The decisions sit in the head band, visible with no click: the
+        // delivery panel stays closed and the conversation stays on screen.
+        await expect(drawer.getByTestId("task-delivery-panel")).toHaveCount(0);
+        const delivery = drawer.getByTestId("task-head-delivery");
+        await expect(delivery).toBeInViewport();
         const approva = delivery.getByTestId("task-approve");
         const avanti = delivery.getByTestId("task-send-back");
         await expect(approva).toBeInViewport({ timeout: 10000 });

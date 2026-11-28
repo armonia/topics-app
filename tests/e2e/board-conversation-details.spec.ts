@@ -132,6 +132,12 @@ test('a task opens on one conversation; repeated preview and long brief never st
   const brief = conversation.getByTestId('task-brief-scroll');
   await expect(brief).toBeVisible();
   expect(await brief.evaluate((el) => getComputedStyle(el).overflowY)).not.toMatch(/auto|scroll/);
+  // The head owns a capped region above the thread: the conversation stays
+  // on screen while the brief is open, and the brief never outgrows 45vh.
+  await expect(conversation.getByTestId('task-conversation-scroll')).toBeVisible();
+  await expect(conversation.getByText(answer, { exact: true })).toBeVisible();
+  const viewportHeight = page.viewportSize()!.height;
+  expect((await brief.locator('xpath=..').boundingBox())!.height).toBeLessThanOrEqual(viewportHeight * 0.45 + 1);
   await details.click();
   await expect(brief).toHaveCount(0);
 
@@ -141,17 +147,23 @@ test('a task opens on one conversation; repeated preview and long brief never st
   await expect(workspace).toHaveAttribute('data-open', '1');
   await expect(drawer.getByTestId('task-drawer-body')).toBeVisible();
   await expect(conversation).toBeHidden();
-  await drawer.getByTestId('task-conversation-toggle').click();
+  // The conversation is the default view: closing the workspace returns to it.
+  await workspace.click();
+  await expect(workspace).toHaveAttribute('data-open', '0');
   await expect(drawer.getByTestId('task-drawer-body')).toHaveCount(0);
   await expect(conversation.getByText(answer, { exact: true })).toBeVisible();
   await expect(row.getByTestId('media-image')).toHaveCount(1);
   await row.getByTestId('task-work-summary').click();
   await expect(row.getByText(technical, { exact: true })).toBeVisible();
-  // Opening details from a hidden reading area must scroll after it is visible.
+  // The head lives in the reading area, which is hidden while the workspace is
+  // open: coming back from the workspace shows the head and the brief opens
+  // above the thread without hiding it.
+  await workspace.click();
+  await expect(conversation).toBeHidden();
   await workspace.click();
   await details.click();
   await expect(conversation.getByTestId('task-brief-scroll')).toBeInViewport();
-  await expect.poll(() => conversation.getByTestId('task-conversation-scroll').evaluate((el) => el.scrollTop)).toBe(0);
+  await expect(conversation.getByTestId('task-conversation-scroll')).toBeVisible();
   await details.click();
   await page.setViewportSize({ width: 1280, height: 600 });
   await expect(header.getByText(title, { exact: true })).toBeInViewport();
@@ -177,9 +189,9 @@ test('an analysis branch offers no merge; a delivery with changes still does', a
   await deliver(0);
   await page.goto(`/task/${taskId}`);
   const drawer = page.getByTestId('task-detail-drawer');
+  // The decisions sit in the head band, visible without opening the delivery panel.
   await expect(drawer.getByTestId('task-delivery-panel')).toHaveCount(0);
-  await drawer.getByTestId('task-delivery-toggle').click();
-  await expect(drawer.getByTestId('task-approve')).toBeVisible();
+  await expect(drawer.getByTestId('task-head-delivery').getByTestId('task-approve')).toBeVisible();
   await expect(drawer.getByTestId('task-send-back')).toBeVisible();
   await expect(drawer.getByRole('button', { name: 'Serve a me', exact: true })).toBeVisible();
   await expect(drawer.getByTestId('task-question-options').getByRole('button', { name: 'Continue analysis', exact: true })).toBeVisible();
@@ -187,11 +199,9 @@ test('an analysis branch offers no merge; a delivery with changes still does', a
   await expect(drawer.getByTestId('task-land')).toHaveCount(0);
   await deliver(2);
   await page.reload();
-  await drawer.getByTestId('task-delivery-toggle').click();
   await expect(drawer.getByTestId('task-land')).toBeVisible();
   await deliver(0);
   await page.reload();
-  await drawer.getByTestId('task-delivery-toggle').click();
   await expect(drawer.getByTestId('task-approve')).toBeVisible();
   await expect(drawer.getByTestId('task-land')).toHaveCount(0);
 });
@@ -411,7 +421,9 @@ test('live progress shares one expandable session detail; a drafted reply sends 
   await expect(conversation.locator('[data-testid^="tool-call-row-"]')).toHaveCount(0);
   await drawer.getByTestId('task-delivery-toggle').click();
   await expect(drawer.getByRole('button', { name: 'Ferma', exact: true })).toHaveCount(1);
-  await drawer.getByTestId('task-conversation-toggle').click();
+  // The same toggle closes the panel again; the conversation never left.
+  await drawer.getByTestId('task-delivery-toggle').click();
+  await expect(drawer.getByTestId('task-delivery-panel')).toHaveCount(0);
   const input = drawer.getByTestId('task-reply-input');
   const correction = 'Keep the existing source and show the result first.';
   await input.fill(correction);
@@ -558,7 +570,9 @@ test('the current question is actionable once; history and centered status stay 
   const conversation = drawer.getByTestId('task-session-column');
   const choices = drawer.getByTestId('task-question-options');
   await expect(choices).toHaveCount(1);
-  await expect(drawer.getByTestId('task-send-back')).toHaveCount(0);
+  // The decision buttons live in the head band: visible with the delivery panel closed.
+  await expect(drawer.getByTestId('task-head-delivery').getByTestId('task-send-back')).toBeVisible();
+  await expect(drawer.getByTestId('task-delivery-panel')).toHaveCount(0);
   await expect(drawer.getByTestId('task-delivery-toggle')).toHaveAttribute('aria-expanded', 'false');
   await expect(conversation.getByRole('button', { name: 'Build the source editor', exact: true })).toBeVisible();
   await expect(drawer.getByText('Build the source editor', { exact: true })).toHaveCount(1);
@@ -579,14 +593,16 @@ test('the current question is actionable once; history and centered status stay 
   await expect(drawer.getByTestId('task-composer').getByTestId('task-reply-quiet-note')).toHaveCount(0);
   await drawer.getByTestId('task-delivery-toggle').click();
   await expect(drawer.getByTestId('task-delivery-panel')).toBeVisible();
-  await expect(drawer.getByTestId('task-delivery-panel').getByTestId('task-send-back')).toBeVisible();
+  // The conversation and the decisions stay on screen while the panel is open.
+  await expect(conversation.getByTestId('task-conversation-scroll')).toBeVisible();
+  await expect(drawer.getByTestId('task-head-delivery').getByTestId('task-send-back')).toBeVisible();
   await page.addScriptTag({ path: resolve('node_modules/axe-core/axe.min.js') });
   for (const dark of [false, true]) {
     await setTheme(page, dark);
     const violations = await page.evaluate(async () => {
       const axe = (window as unknown as { axe: { run: (context: unknown, options: unknown) => Promise<AxeResults> } }).axe;
       const result = await axe.run({ include: [
-        ['[data-testid="task-conversation-toggle"]'], ['[data-testid="task-details-toggle"]'],
+        ['[data-testid="task-details-toggle"]'],
         ['[data-testid="task-delivery-toggle"]'], ['[data-testid="task-workspace-toggle"]'],
         ['[data-testid="task-composer"]'], ['[data-testid="task-reply-quiet-note"]'],
         ['[data-testid="task-question-options"]'], ['[data-testid="task-delivery-panel"]'],
@@ -599,7 +615,8 @@ test('the current question is actionable once; history and centered status stay 
     });
   }
 
-  await drawer.getByTestId('task-conversation-toggle').click();
+  await drawer.getByTestId('task-delivery-toggle').click();
+  await expect(drawer.getByTestId('task-delivery-panel')).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   // The resize to 390px crosses 768px, and the drawer remounts there (see the
   // poll in the floating-composer test above), 100-300ms after the resize on

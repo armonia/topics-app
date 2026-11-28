@@ -68,10 +68,10 @@ test.describe("Board drawer: the title is on the first frame", () => {
     await expect(header.getByText(title, { exact: true })).toBeVisible({ timeout: 1_000 });
     expect(held, "the task read was not the one being held").toBe(1);
     // The read is still pending: the thread area keeps its spinner.
-    await expect(drawer.getByTestId("task-conversation-toggle")).toHaveCount(0);
+    await expect(drawer.getByTestId("task-workspace-toggle")).toHaveCount(0);
 
     // When the read lands the drawer is the real one, same title, no jump.
-    await expect(drawer.getByTestId("task-conversation-toggle")).toBeVisible({ timeout: HELD_MS + 5_000 });
+    await expect(drawer.getByTestId("task-workspace-toggle")).toBeVisible({ timeout: HELD_MS + 5_000 });
     await expect(header.getByText(title, { exact: true })).toBeVisible();
   });
 });

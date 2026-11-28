@@ -150,7 +150,7 @@ test.describe("Fan-out: scelta del tentativo", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    // The attempts live in the DELIVERY band, behind its own tab: the drawer
+    // The attempts live in the DELIVERY section, closed by default: the drawer
     // opens on the conversation, and nothing of this is there yet.
     await drawer.getByTestId("task-delivery-toggle").click();
     await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();

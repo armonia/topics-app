@@ -226,7 +226,10 @@ async function expandEverySection(page: Page) {
   }
 }
 
-/** Delivery decisions and files share the conversation's existing scroll. */
+/**
+ * Open the delivery panel (files, checks, preview) above the conversation.
+ * The decision buttons are NOT in it: they sit in the head band, always visible.
+ */
 async function openDelivery(page: Page) {
   const drawer = page.getByTestId("task-detail-drawer");
   const toggle = drawer.getByTestId("task-delivery-toggle");
@@ -344,12 +347,20 @@ test.describe("Drawer del task — un solo scroll", () => {
     // Details own metadata, description and subtasks; no delivery controls or image.
     await expect(brief.locator("img")).toHaveCount(0);
     await expect(brief.getByTestId("task-preview-open")).toHaveCount(0);
-    await expect(drawer.getByTestId("task-approve")).toHaveCount(0);
+    await expect(brief.getByTestId("task-approve")).toHaveCount(0);
+    // The decisions live in the head band: reachable with no click and with the brief open.
+    const band = drawer.getByTestId("task-head-delivery");
+    await expect(band.getByTestId("task-approve")).toBeInViewport();
     await expect(drawer.getByTestId("task-drawer-body")).toHaveCount(0);
-    const delivery = await openDelivery(page);
+    // Details and delivery are independent regions with their own 45vh cap;
+    // close the brief so the two caps do not stack on a 720px viewport.
+    await drawer.getByTestId("task-details-toggle").click();
     await expect(brief).toHaveCount(0);
-    expect(await scrollableAncestors(page, "task-review-actions")).toBe(1);
-    const approve = delivery.getByTestId("task-approve");
+    const delivery = await openDelivery(page);
+    await expect(delivery.getByTestId("task-approve")).toHaveCount(0);
+    // The band sits outside every scroller: the decisions never scroll away.
+    expect(await scrollableAncestors(page, "task-review-actions")).toBe(0);
+    const approve = band.getByTestId("task-approve");
     await expect(approve).toBeInViewport();
     const approveBox = (await approve.boundingBox())!;
     expect(approveBox.y + approveBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
@@ -379,13 +390,17 @@ test.describe("Drawer del task — un solo scroll", () => {
     expect(bodyBox.height).toBeGreaterThan(160);
     expect(bodyBox.height).toBeGreaterThanOrEqual((await body.locator("..").boundingBox())!.height - 1);
     await expect(drawer.getByTestId("task-brief-header").getByText(task.text, { exact: true })).toBeInViewport();
-    // Even after opening its preview, one click returns to the delivery decisions.
-    await drawer.getByTestId("task-delivery-toggle").click();
+    // The head lives in the conversation column, hidden while the workspace is
+    // open: one click on the workspace toggle returns to the conversation with
+    // the delivery panel still open above it and the decisions in the band.
+    await drawer.getByTestId("task-workspace-toggle").click();
     await expect(delivery).toBeVisible();
-    await expect(delivery.getByTestId("task-approve")).toBeInViewport();
+    await expect(drawer.getByTestId("task-head-delivery").getByTestId("task-approve")).toBeInViewport();
     await expect(body).toHaveCount(0);
+    await expect(session).toBeVisible();
 
-    await drawer.getByTestId("task-conversation-toggle").click();
+    // The same toggle that opened the delivery panel closes it; the conversation stays.
+    await drawer.getByTestId("task-delivery-toggle").click();
     await expect(body).toHaveCount(0);
     await expect(session).toBeVisible();
     await expect(delivery).toHaveCount(0);
@@ -396,7 +411,7 @@ test.describe("Drawer del task — un solo scroll", () => {
     await drawer.getByTestId("task-workspace-toggle").click();
     await expect(body.locator("img")).toBeVisible();
     await expect(drawer.getByTestId("task-composer-submit")).toBeHidden();
-    await drawer.getByTestId("task-conversation-toggle").click();
+    await drawer.getByTestId("task-workspace-toggle").click();
     await expect(session).toBeVisible();
     await expect(drawer.getByTestId("task-composer-submit")).toBeInViewport();
   });
@@ -433,10 +448,11 @@ test.describe("Drawer del task — un solo scroll", () => {
     expect((await right.getByTestId("task-drawer-body").boundingBox())!.height).toBeGreaterThan(160);
     await expect(drawer.getByTestId("task-composer-submit")).toBeInViewport();
     await expect(drawer.getByTestId("task-reply-input")).toBeInViewport();
-    const delivery = await openDelivery(page);
-    await expect(delivery.getByTestId("task-approve")).toBeInViewport();
+    await openDelivery(page);
+    await expect(drawer.getByTestId("task-head-delivery").getByTestId("task-approve")).toBeInViewport();
 
-    await drawer.getByTestId("task-conversation-toggle").click();
+    // Side by side the workspace is closed with its own toggle; the conversation owns the column again.
+    await drawer.getByTestId("task-workspace-toggle").click();
     await expect(right).toHaveCount(0);
     await expect(session).toBeVisible();
     expect((await session.boundingBox())!.width).toBeGreaterThan(drawerBox.width * 0.8);
@@ -462,11 +478,14 @@ test.describe("Drawer del task — un solo scroll", () => {
     await expect(session).toBeHidden();
     await expect(composer).toBeHidden();
     await expect(drawer.getByTestId("task-composer-submit")).toBeHidden();
-    await expect(drawer.getByTestId("task-delivery-toggle")).toBeInViewport();
+    // The head belongs to the conversation column: while the workspace takes
+    // the narrow drawer, the way back is the workspace toggle.
+    await expect(drawer.getByTestId("task-delivery-toggle")).toBeHidden();
+    await expect(drawer.getByTestId("task-workspace-toggle")).toBeInViewport();
     expect((await body.boundingBox())!.height).toBeGreaterThan(160);
     expect((await body.boundingBox())!.height).toBeGreaterThanOrEqual((await body.locator("..").boundingBox())!.height - 1);
     await expect(body.getByTestId("task-session-column")).toHaveCount(0);
-    await drawer.getByTestId("task-conversation-toggle").click();
+    await drawer.getByTestId("task-workspace-toggle").click();
     await expect(body).toHaveCount(0);
     await expect(comment).toBeVisible();
     await expect(composer).toBeInViewport();

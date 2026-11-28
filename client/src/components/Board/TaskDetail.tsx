@@ -28,7 +28,7 @@ import { nodesOf, useMachines } from '../../state/machinesStore';
 import { writeCursor, restoreCursor } from '../../lib/composerCursor';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
-import { boardApi, isUnfinishedReview, isAgentWorking, isThreadSpeech, parseQuestionBlock, isProjectlessId, boardDrafts, blockedByChip, subtaskWorkChip, reopenedChip, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef } from '../../lib/board';
+import { boardApi, isUnfinishedReview, isAgentWorking, isThreadSpeech, parseQuestionBlock, isProjectlessId, boardDrafts, hasDeliveryToMerge, blockedByChip, subtaskWorkChip, reopenedChip, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef } from '../../lib/board';
 import { collectTaskMediaPaths } from './taskMedia';
 import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
@@ -43,6 +43,7 @@ import { holdTopic } from '../../state/topicSubscriptions';
 import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
 import { deliveryNotesToFold } from './taskDeliveryNotes';
 import { AskBox } from './AskBox';
+import { canDecideReview } from '../../../../shared/board';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { addBoardProject, projectNameFromId, useBoardProjects, UNKNOWN_PROJECT_NAME } from '../../lib/boardProjectsStore';
@@ -51,6 +52,7 @@ import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurf
 import { SurfaceContent } from './TaskComments';
 import { DeliveryPanel, DeliveryBanners } from './TaskDeliveryBand';
 import { IdentityCard, TaskTabsBar, TaskTopBar } from './TaskHeader';
+import { TaskHeadStrip } from './TaskHeadStrip';
 import { TaskDetailsPanel } from './TaskMetadata';
 import { TaskComposer, ThreadRows } from './TaskThread';
 
@@ -1171,6 +1173,9 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     () => [...threadComments].reverse().find((c) => c.kind === 'delivery') ?? null,
     [threadComments],
   );
+  // The compact delivery band is there when the card carries a delivery: a review to decide, a branch to merge, checks, files or a declared delivery.
+  const hasDelivery = !!task && (canDecideReview(task) || hasDeliveryToMerge(task) || !!task.checksState || mediaPaths.length > 0 || !!deliveryWord);
+  const headOutcome = deliveryWord ? (stripMarkdown(deliveryWord.content).split('\n').find((l) => l.trim()) ?? null) : null;
   const pinnedDeliveryId = task?.status === 'done' ? deliveryWord?.id ?? null : null;
   const timelineRef = useRef<TimelineItem[]>([]);
   const timeline = useMemo(
@@ -1354,21 +1359,44 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           projects={projects} reopened={reopened} saveTitle={saveTitle} setBlockerMenuOpen={setBlockerMenuOpen} setEditingTitle={setEditingTitle}
           setProjMenuOpen={setProjMenuOpen} setTitleDraft={setTitleDraft} task={task} titleDraft={titleDraft} tr={tr} />
       </div>
-      <TaskTabsBar browser={browser} deliveryOpen={deliveryOpen} detailsOpen={detailsOpen} detailsScrollRequestedRef={detailsScrollRequested}
-        hasWorkspacePanes={hasWorkspacePanes} setDeliveryOpen={setDeliveryOpen} setDetailsOpen={setDetailsOpen} setWorkspaceOpen={setWorkspaceOpen}
-        stickRef={stickRef} toggleWorkspaceOpen={toggleWorkspaceOpen} tr={tr} twoCol={twoCol} workspaceOpen={workspaceOpen}
-        workspacePaneCount={workspacePaneCount} />
+      <TaskTabsBar browser={browser} hasWorkspacePanes={hasWorkspacePanes} setWorkspaceOpen={setWorkspaceOpen}
+        toggleWorkspaceOpen={toggleWorkspaceOpen} tr={tr} workspaceOpen={workspaceOpen} workspacePaneCount={workspacePaneCount} />
       <div className={`flex min-h-0 flex-1 ${twoCol ? 'flex-row' : 'flex-col'}`}>
         <div className={`relative flex min-h-0 min-w-0 flex-col ${twoCol ? 'w-[min(50%,30rem)] shrink-0 border-r border-app-border' : 'flex-1'}`}>
           <div className={`${workspaceOpen && !twoCol ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`} data-testid="task-session-column">
+            <TaskHeadStrip busy={busy} commentRef={commentRef} decide={decide} deliveryOpen={deliveryOpen} detailsOpen={detailsOpen}
+              doLand={doLand} hasDelivery={hasDelivery} load={load} machines={machines} modelLine={modelTrigger.line} onChanged={onChanged}
+              outcome={headOutcome} scrollRequestedRef={detailsScrollRequested} sendBack={sendBack} sending={sending}
+              setDeliveryOpen={setDeliveryOpen} setDetailsOpen={setDetailsOpen} setError={setError}
+              stickRef={stickRef} task={task} tr={tr}
+              expandedDetails={detailsOpen ? <div className="max-h-[30vh] overflow-y-auto border-t border-app-border-subtle">
+                  <TaskDetailsPanel addSubtask={addSubtask} addingSub={addingSub} boardDispatchModel={boardDispatchModel} busy={busy}
+                    cancelKey={cancelKey} changeModel={changeModel} changeNode={changeNode} changePriority={changePriority}
+                    changeTopicsRouting={changeTopicsRouting} children={children} descDraft={descDraft} descOpen={descOpen} detailsOpen={detailsOpen}
+                    doneCount={doneCount} drawerRouting={drawerRouting} editingDesc={editingDesc} labelBtnRef={labelBtnRef}
+                    labelMenuOpen={labelMenuOpen} locale={locale} machines={machines} modelBtnRef={modelBtnRef} modelMenuOpen={modelMenuOpen}
+                    modelTrigger={modelTrigger} nodeBtnRef={nodeBtnRef} nodeMenuOpen={nodeMenuOpen} nodePickerLocked={nodePickerLocked} nodes={nodes}
+                    onOpenTask={onOpenTask} prioBtnRef={prioBtnRef} prioMenuOpen={prioMenuOpen} projectId={projectId} saveDesc={saveDesc}
+                    setDescDraft={setDescDraft} setEditingDesc={setEditingDesc} setLabelMenuOpen={setLabelMenuOpen} setModelMenuOpen={setModelMenuOpen}
+                    setNodeMenuOpen={setNodeMenuOpen} setPrioMenuOpen={setPrioMenuOpen} setSubDraft={setSubDraft} shownEffort={shownEffort}
+                    subDraft={subDraft} subtaskComposerOpen={subtaskComposerOpen} subtasksOpen={subtasksOpen} task={task}
+                    toggleDescOpen={toggleDescOpen} toggleLabel={toggleLabel} toggleStayLocal={toggleStayLocal} toggleSubtasksOpen={toggleSubtasksOpen}
+                    tr={tr} workAncestorId={workAncestorId} workChip={workChip} />
+</div> : null}
+              expandedDelivery={deliveryOpen ? <div className="max-h-[30vh] overflow-y-auto border-t border-app-border-subtle">
+                  <DeliveryPanel browser={browser} bump={bump} busy={busy} commentRef={commentRef} deliveryOpen={deliveryOpen}
+                    downloadsOpen={downloadsOpen} focusDiff={focusDiff} isAgentReview={isAgentReview} load={load}
+                    mediaPaths={mediaPaths} onChanged={onChanged} onOpenTopic={onOpenTopic} openTaskPane={openTaskPane} projectId={projectId}
+                    recapturePreview={recapturePreview} recapturing={recapturing} setError={setError}
+                    setWorkspaceOpen={setWorkspaceOpen} task={task} taskId={taskId} toggleDownloadsOpen={toggleDownloadsOpen} tr={tr} />
+</div> : null} />
             <ThreadRows agentBusy={agentBusy} answerOption={answerOption} busy={busy} children={children} commentReceipt={commentReceipt}
               composerHeight={composerHeight} deliveryWord={deliveryWord} detailsOpen={detailsOpen} foldedDeliveryNotes={foldedDeliveryNotes}
               lastClientHeightRef={lastClientHeightRef} lastHeightRef={lastHeightRef} lastThreadComment={lastThreadComment} lastTopRef={lastTopRef}
               openTaskPane={openTaskPane} ownerName={ownerName} mediaPaths={mediaPaths} pending={pending} replyOptions={replyOptions}
               sending={sending} sessionKey={sessionKey} sessionRuns={sessionRuns} stickRef={stickRef} task={task} threadContentRef={threadContentRef}
               threadScrollRef={threadScrollRef} timeline={timeline} tr={tr} uploading={uploading}
-              details={
-                <>
+              details={<>
                   {task.status === 'review' && (
                     <div className="-mx-3 -mt-3 mb-3 px-3 pt-3">
                       <AskBox
@@ -1392,25 +1420,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                       </div>
                     </div>
                   )}
-                  <TaskDetailsPanel addSubtask={addSubtask} addingSub={addingSub} boardDispatchModel={boardDispatchModel} busy={busy}
-                    cancelKey={cancelKey} changeModel={changeModel} changeNode={changeNode} changePriority={changePriority}
-                    changeTopicsRouting={changeTopicsRouting} children={children} descDraft={descDraft} descOpen={descOpen} detailsOpen={detailsOpen}
-                    doneCount={doneCount} drawerRouting={drawerRouting} editingDesc={editingDesc} labelBtnRef={labelBtnRef}
-                    labelMenuOpen={labelMenuOpen} locale={locale} machines={machines} modelBtnRef={modelBtnRef} modelMenuOpen={modelMenuOpen}
-                    modelTrigger={modelTrigger} nodeBtnRef={nodeBtnRef} nodeMenuOpen={nodeMenuOpen} nodePickerLocked={nodePickerLocked} nodes={nodes}
-                    onOpenTask={onOpenTask} prioBtnRef={prioBtnRef} prioMenuOpen={prioMenuOpen} projectId={projectId} saveDesc={saveDesc}
-                    setDescDraft={setDescDraft} setEditingDesc={setEditingDesc} setLabelMenuOpen={setLabelMenuOpen} setModelMenuOpen={setModelMenuOpen}
-                    setNodeMenuOpen={setNodeMenuOpen} setPrioMenuOpen={setPrioMenuOpen} setSubDraft={setSubDraft} shownEffort={shownEffort}
-                    subDraft={subDraft} subtaskComposerOpen={subtaskComposerOpen} subtasksOpen={subtasksOpen} task={task}
-                    toggleDescOpen={toggleDescOpen} toggleLabel={toggleLabel} toggleStayLocal={toggleStayLocal} toggleSubtasksOpen={toggleSubtasksOpen}
-                    tr={tr} workAncestorId={workAncestorId} workChip={workChip} />
-                  <DeliveryPanel browser={browser} bump={bump} busy={busy} commentRef={commentRef} decide={decide} deliveryOpen={deliveryOpen}
-                    doLand={doLand} downloadsOpen={downloadsOpen} focusDiff={focusDiff} isAgentReview={isAgentReview} load={load}
-                    mediaPaths={mediaPaths} onChanged={onChanged} onOpenTopic={onOpenTopic} openTaskPane={openTaskPane} projectId={projectId}
-                    recapturePreview={recapturePreview} recapturing={recapturing} sendBack={sendBack} sending={sending} setError={setError}
-                    setWorkspaceOpen={setWorkspaceOpen} task={task} taskId={taskId} toggleDownloadsOpen={toggleDownloadsOpen} tr={tr} />
-                </>
-              } />
+                </>} />
           </div>
           {workspaceOpen && !twoCol && (
             <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">

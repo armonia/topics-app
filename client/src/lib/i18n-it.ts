@@ -1488,6 +1488,8 @@ const IT: Dict = {
   // are one list now, and the right word is the one that says what it is - a
   // conversation, not a log.
   'board.task.threadLabel': 'Conversazione',
+  'board.task.moreLabel': 'altro',
+  'board.task.filesCount': '{n} file',
   'board.task.detailsLabel': 'Dettagli',
   'board.task.deliveryNote': 'Nota di consegna',
   // Where what you wrote got to, derived from the envelopes at every read:
