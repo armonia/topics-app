@@ -19,7 +19,7 @@ function PhoneRow({ item, copy, onOpen }: { item: QueueItemModel; copy: UiCopy; 
       <button
         type="button"
         onClick={() => onOpen?.(item.id)}
-        className={clsx('block min-h-[64px] w-full rounded-xl border border-app-border bg-surface px-4 py-3 text-left active:bg-app-hover', PRESS)}
+        className={clsx('block min-h-16 w-full rounded-xl border border-app-border bg-surface px-4 py-3 text-left active:bg-app-hover', PRESS)}
       >
         <span className="flex items-start gap-3">
           <span className="min-w-0 flex-1 text-body-lg font-semibold leading-5 text-app-text">{item.title}</span>

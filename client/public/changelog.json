@@ -1,10 +1,197 @@
 [
   {
-    "version": "2.5.27",
+    "version": "2.5.29",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [
+        {
+          "it": "owner guard, live-session refusal, deadline and incremental scan for top sessions",
+          "en": "",
+          "scope": "usage",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "type the transcript line instead of any (any budget)",
+          "en": "",
+          "scope": "usage",
+          "breaking": false
+        },
+        {
+          "it": "widen the install-call slice for the restored detached checkout",
+          "en": "",
+          "scope": "node-delivery",
+          "breaking": false
+        },
+        {
+          "it": "watchdog test signals the right subshell on macOS sh",
+          "en": "",
+          "scope": "schedule",
+          "breaking": false
+        },
+        {
+          "it": "worker profile inherits model outside board tasks",
+          "en": "",
+          "scope": "subagent",
+          "breaking": false
+        },
+        {
+          "it": "drop App.tsx raw-size drift past the check-design-system baseline",
+          "en": "",
+          "scope": "design",
+          "breaking": false
+        },
+        {
+          "it": "run check-design-system --changed on pull requests too",
+          "en": "",
+          "scope": "ci",
+          "breaking": false
+        },
+        {
+          "it": "bytes-read counter as a scan argument, not a prod-dead export",
+          "en": "",
+          "scope": "usage",
+          "breaking": false
+        },
+        {
+          "it": "TopSessionsSection uses Button/TextField primitives",
+          "en": "",
+          "scope": "design-system",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Give PreviewButton its own key: it shared topic.id with ChangedFilesStrip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "list the detached session resume",
+          "en": "",
+          "scope": "spawn-deadline",
+          "breaking": false
+        },
+        {
+          "it": "Keep cards reachable when an aliased board id still holds cards",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chat previews: memory admission, cap on live chat previews (default 2), button closes the oldest",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "rename helper",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "fix helper calls",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "spec-flow 0.8.0 turns on check-design-system",
+          "en": "",
+          "scope": "design",
+          "breaking": false
+        },
+        {
+          "it": "Send a mail once even if the server restarts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "design-baseline: registra TopSessionsSection (debito di un file nuovo di main)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il selettore del dropdown segue la classe max-h-75",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Sidebar top sessions: use design-system Button and TextField, clearing the red design gate on main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mark the ui kit exports that the production graph now reaches but does not use",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Record pre-existing design-system debt for TopSessionsSection (main merge)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revert \"fix(design-system): TopSessionsSection uses Button/TextField primitives\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "baseline follows the scores that rose tonight [skip ci]",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.28",
     "date": "2026-11-28",
     "sections": {
       "new": [],
       "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Extract chat preview flow into preview-chat.ts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lavori programmati 3/8: job: spento dalla porta seen, esito di consegna nel giro, segreti fuori dall'adattatore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Native child braked only by the real memory floor; refusal counts the parent's live children (card a2459567)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.27",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "make the detached→branch integration test actually bite",
+          "en": "",
+          "scope": "ci-evidence test",
+          "breaking": false
+        },
+        {
+          "it": "watchdog TERM handler kills its sleep via $!, restore 20s test windows",
+          "en": "",
+          "scope": "schedule",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -14,6 +201,11 @@
         },
         {
           "it": "Preview seed: correct the proven cause and lock it with tests",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lavori programmati 3/8: registro di tool e spawn aggiornati per l'adattatore",
           "en": "",
           "scope": null
         }
@@ -32,6 +224,12 @@
           "it": "Make the walkFileTree yield test load-independent",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "widen real-command wait windows to stop CI flake",
+          "en": "",
+          "scope": "schedule",
+          "breaking": false
         },
         {
           "it": "Trace the systemd-temp-entries test to GATE-13 so check:untraced-tests passes",
@@ -164,6 +362,11 @@
           "scope": null
         },
         {
+          "it": "Revert \"Revert the detached node-check worktree: CI rows can no longer read a branch\"",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k",
           "en": "",
           "scope": "openspec",
@@ -193,12 +396,22 @@
           "breaking": false
         },
         {
+          "it": "awaitCiEvidence falls back to the planted branch when the checkout has none",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "secret-store: fix three more ways to lose a secret",
           "en": "",
           "scope": null
         },
         {
           "it": "node-pool: permanent node gets ci-governor files again (shared PERMANENT_FILES list), with a test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix ci-evidence.test.ts type error for the detached-branch fallback test",
           "en": "",
           "scope": null
         }
@@ -792,6 +1005,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Lavori programmati 3/8: correzioni della revisione (pausa R26, timeout adattatore, campanella, ripiego, raffica 24 h, fuso)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Revisione del round 3: cancelli statici verdi, colonna che riapre l'isola giusta, semafori dalla sola finestra principale",
           "en": "",
           "scope": null
@@ -1016,6 +1234,16 @@
           "en": "",
           "scope": "bloat",
           "breaking": false
+        },
+        {
+          "it": "Lavori programmati 3/8: consegna fuori dall'app con un adattatore, avvisi di guasto e strumenti per gli agenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lavori programmati 3/8: gli elenchi degli strumenti includono quelli dei lavori",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -1427,6 +1655,12 @@
           "scope": null
         },
         {
+          "it": "top-sessions e2e captures light and dark shots with realistic names",
+          "en": "",
+          "scope": "usage",
+          "breaking": false
+        },
+        {
           "it": "ci-impact: untraceable files run the whole tier, a failed estimate leaves no judged mark, replay includes --only-changed",
           "en": "",
           "scope": null
@@ -1474,6 +1708,12 @@
           "it": "the new comments quote the report in English",
           "en": "",
           "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "arbitrary px/rem utilities onto the Tailwind scale, design baseline 1681 to 1133",
+          "en": "",
+          "scope": "client",
           "breaking": false
         },
         {
@@ -1879,8 +2119,22 @@
     "version": "2.4.103",
     "date": "2026-11-25",
     "sections": {
-      "new": [],
-      "fixes": [],
+      "new": [
+        {
+          "it": "live preview for chats in their own worktree (ensureForChat, idle and archive teardown, POST /api/topics/:id/preview)",
+          "en": "",
+          "scope": "preview",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "use the shared Spinner in the chat preview button",
+          "en": "",
+          "scope": "preview",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -1908,6 +2162,12 @@
           "it": "Split tasks/shared.ts: baselines and unused type exports",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "trace top-sessions tests to USAGE-29, add the requirement to the usage spec",
+          "en": "",
+          "scope": "usage",
+          "breaking": false
         },
         {
           "it": "Land guard: a card's own branches include its spawned children and worktree branch",
@@ -2021,6 +2281,24 @@
           "scope": null
         },
         {
+          "it": "Anteprima button and chat preview tests",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "reword comments for the English-only gate",
+          "en": "",
+          "scope": "preview",
+          "breaking": false
+        },
+        {
+          "it": "declare what the chat preview tests cover",
+          "en": "",
+          "scope": "preview",
+          "breaking": false
+        },
+        {
           "it": "Land refuses an unmeasured delivery on every path, not only the automatic one",
           "en": "",
           "scope": null
@@ -2070,7 +2348,14 @@
     "date": "2026-11-25",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "read transcripts as a stream, one line at a time, instead of holding them in memory",
+          "en": "",
+          "scope": "usage",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -2123,6 +2408,12 @@
           "it": "red-main cards carry a fixed recipe and run on Sonnet",
           "en": "",
           "scope": "main-ci",
+          "breaking": false
+        },
+        {
+          "it": "who is spending, the heaviest sessions of the last 24 h",
+          "en": "",
+          "scope": "usage",
           "breaking": false
         },
         {

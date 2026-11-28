@@ -366,7 +366,7 @@ export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
         // The badge sits ON the dots, like an app icon's: it says "there is
         // something in here", which is precisely what it is.
         <span
-          className={`absolute -top-0.5 -right-0.5 min-w-[8px] h-[8px] rounded-full ring-1 ring-app-bg ${errors > 0 ? 'bg-red-600 dark:bg-red-500' : 'bg-primary'}`}
+          className={`absolute -top-0.5 -right-0.5 min-w-2 h-2 rounded-full ring-1 ring-app-bg ${errors > 0 ? 'bg-red-600 dark:bg-red-500' : 'bg-primary'}`}
           aria-hidden
         />
       )}

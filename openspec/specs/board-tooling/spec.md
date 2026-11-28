@@ -172,3 +172,19 @@ risponde, la card SHALL tornare in coda su un'altra.
 #### Scenario: la nota è una sola
 - **WHEN** lo sweep gira due volte sulla stessa card ferma
 - **THEN** esiste una sola nota
+
+### Requirement: REVIEW-BUN-01 — Un check di review gira col Bun fissato dal repo, come la CI
+
+Un check lanciato in una cartella con `.bun-version` SHALL vedere come `bun` il
+binario di quella versione, se installato, messo per primo nel PATH del figlio.
+Senza `.bun-version` o senza il binario il PATH SHALL restare quello del server
+(il Bun globale serve gli altri progetti), e nel secondo caso una riga di log
+SHALL dire che la versione manca.
+
+#### Scenario: repo con versione fissata e binario presente
+- **WHEN** un check gira in una cartella con `.bun-version` e il binario installato
+- **THEN** `command -v bun` del figlio stampa quel binario
+
+#### Scenario: nessuna versione fissata
+- **WHEN** la cartella non ha `.bun-version`
+- **THEN** il PATH del figlio non cambia

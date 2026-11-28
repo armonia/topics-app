@@ -169,9 +169,9 @@ export function FlowListScreen({
             icon={Search}
             type="search"
             placeholder={t.searchPlaceholder}
-            className={phone ? undefined : 'w-[240px]'}
+            className={phone ? undefined : 'w-60'}
           />
-          <Select value={office} onChange={onOffice} title={t.officeFilter} options={offices} className={phone ? undefined : 'w-[190px]'} />
+          <Select value={office} onChange={onOffice} title={t.officeFilter} options={offices} className={phone ? undefined : 'w-47.5'} />
           <Button onClick={onTestAll} icon={FlaskConical} title={testTitle}>{t.testAll}</Button>
         </div>
         <div className="p-4">

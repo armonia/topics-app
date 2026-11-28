@@ -58,7 +58,7 @@ const POLL_MS = 15_000;
 
 const SECTION_TITLE = 'mb-1.5 mt-3.5 flex flex-wrap items-center gap-1.5 text-mini font-semibold text-app-text-secondary first:mt-0';
 const LIST = 'overflow-hidden rounded border border-app-border bg-app-inset';
-const LIST_ROW = 'flex min-h-[34px] items-center gap-2 border-t border-app-border-subtle px-2.5 py-[5px] text-compact text-app-text first:border-t-0 @max-2xl:min-h-[52px] @max-2xl:text-prose';
+const LIST_ROW = 'flex min-h-8.5 items-center gap-2 border-t border-app-border-subtle px-2.5 py-1.25 text-compact text-app-text first:border-t-0 @max-2xl:min-h-13 @max-2xl:text-prose';
 interface ProxyReads {
   profiles: unknown;
   settings: unknown;
@@ -177,7 +177,7 @@ export function AccountQuotasPane() {
 
   return (
     <div className="@container h-full overflow-auto bg-app-bg" data-testid="accounts-pane">
-      <div className="mx-auto max-w-[760px] px-4 pb-4 pt-3 @max-2xl:px-3 @max-2xl:pb-5">
+      <div className="mx-auto max-w-190 px-4 pb-4 pt-3 @max-2xl:px-3 @max-2xl:pb-5">
         <header className="mb-3 flex items-center gap-2.5">
           <h1 className="m-0 text-title font-semibold text-app-text-heading @max-2xl:hidden">{tr('accounts.open')}</h1>
           <span className="flex-1" />
@@ -351,7 +351,7 @@ function MeteredCard({ provider: m, board, run, clock }: { provider: MeteredProv
       {m.fiveH !== null && <Bar label={tr('accounts.bar.fiveH')} pct={Math.round(m.fiveH)} testId="account-bar-5h" />}
       <Bar label={tr('accounts.bar.week')} pct={m.week === null ? null : Math.round(m.week)} mark={m.elapsedPct ?? weekElapsedPct(m.weekResetsAtMs)} testId="account-bar-week" />
       {board && <BoardExtras board={board} />}
-      <div className={`mb-[9px] mt-1 min-h-[17px] leading-snug tabular-nums ${m.loginDead ? DANGER_TEXT : m.braked && m.unlockedUntil === null ? WARNING_TEXT : 'text-app-text-secondary'}`}>{caption}</div>
+      <div className={`mb-2.25 mt-1 min-h-4.25 leading-snug tabular-nums ${m.loginDead ? DANGER_TEXT : m.braked && m.unlockedUntil === null ? WARNING_TEXT : 'text-app-text-secondary'}`}>{caption}</div>
       <div className="mt-auto flex items-center gap-1.5">
         {m.unlockedUntil !== null
           ? <button type="button" disabled={busy} data-testid="metered-relock" className={BUTTON} onClick={() => void act({ kind: 'relock', provider: m.provider })}><Lock size={12} aria-hidden="true" />{tr('accounts.cmd.relock')}</button>
@@ -477,7 +477,7 @@ function CapField({ value, label, testId, disabled, onSave }: { value: number | 
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-        className={`h-[26px] w-16 rounded-sm border bg-elevated px-2 text-right text-compact tabular-nums text-app-text outline-none focus:border-primary @max-2xl:h-9 ${parsed === 'invalid' ? 'border-red-500' : 'border-app-border-light'}`}
+        className={`h-6.5 w-16 rounded-sm border bg-elevated px-2 text-right text-compact tabular-nums text-app-text outline-none focus:border-primary @max-2xl:h-9 ${parsed === 'invalid' ? 'border-red-500' : 'border-app-border-light'}`}
       />
       <span className="text-app-text-secondary">%</span>
     </span>
@@ -509,7 +509,7 @@ function RateField({ value, disabled, onSave }: { value: number; disabled: boole
       onChange={(e) => setText(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-      className="h-[26px] w-16 flex-none rounded-sm border border-app-border-light bg-elevated px-2 text-right text-compact tabular-nums text-app-text outline-none focus:border-primary @max-2xl:h-9"
+      className="h-6.5 w-16 flex-none rounded-sm border border-app-border-light bg-elevated px-2 text-right text-compact tabular-nums text-app-text outline-none focus:border-primary @max-2xl:h-9"
     />
   );
 }
@@ -522,7 +522,7 @@ function Brake({ gates, pace, locale }: { gates: unknown; pace: unknown; locale:
   const lines = paceLines(pace);
   if (classes.length === 0 && lines.length === 0) return null;
   const who = (p: string) => (['free', 'claude', 'codex', 'muse'].includes(p) ? tr(`accounts.provider.${p}`) : p);
-  const cell = 'border-t border-app-border-subtle px-2.5 py-[7px] align-top leading-snug';
+  const cell = 'border-t border-app-border-subtle px-2.5 py-1.75 align-top leading-snug';
   return (
     <>
       <h2 className={SECTION_TITLE}><Info size={13} aria-hidden="true" />{tr('accounts.brake')}</h2>
@@ -530,16 +530,16 @@ function Brake({ gates, pace, locale }: { gates: unknown; pace: unknown; locale:
         <table className={`${LIST} w-full border-separate border-spacing-0 text-compact text-app-text-body`} data-testid="accounts-brake">
           <thead>
             <tr className="bg-app-hover text-left text-app-text-secondary">
-              <th scope="col" className="px-2.5 py-[7px] font-semibold">{tr('accounts.brake.class')}</th>
-              <th scope="col" className="px-2.5 py-[7px] font-semibold">{tr('accounts.brake.order')}</th>
-              <th scope="col" className="px-2.5 py-[7px] font-semibold @max-2xl:hidden">{tr('accounts.brake.now')}</th>
+              <th scope="col" className="px-2.5 py-1.75 font-semibold">{tr('accounts.brake.class')}</th>
+              <th scope="col" className="px-2.5 py-1.75 font-semibold">{tr('accounts.brake.order')}</th>
+              <th scope="col" className="px-2.5 py-1.75 font-semibold @max-2xl:hidden">{tr('accounts.brake.now')}</th>
             </tr>
           </thead>
           <tbody>
             {classes.map((c) => (
               <tr key={c.id} data-testid="accounts-brake-row" data-class={c.id} data-go={c.go ? 'true' : 'false'}>
                 <td className={`${cell} whitespace-nowrap text-app-text`}>
-                  <span className={`mr-1.5 inline-block h-[7px] w-[7px] rounded-full align-[1px] ${c.go ? 'bg-emerald-500' : 'bg-amber-500'}`} />{tr(`accounts.class.${c.id}`)}
+                  <span className={`mr-1.5 inline-block h-1.75 w-1.75 rounded-full align-[1px] ${c.go ? 'bg-emerald-500' : 'bg-amber-500'}`} />{tr(`accounts.class.${c.id}`)}
                 </td>
                 <td className={cell}>{c.order.map(who).join(' → ')}</td>
                 <td className={`${cell} @max-2xl:hidden`}>

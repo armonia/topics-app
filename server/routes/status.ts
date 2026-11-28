@@ -18,6 +18,7 @@ import { registeredFleetSocketPath } from "../lib/fleet-usage";
 import { fileWatcherLastError, watchedProjectPaths } from "../file-watcher";
 import { browserEngineIsRunning, browserEngineLastLaunchFailure } from "../browser-engine-registry";
 import { resolveDataDir } from "../lib/data-dir";
+import { databaseFilePath } from "../db";
 import { claudeLoginSource } from "../providers/native/login-source";
 import { createMachineReadoutRoute } from "./machine-readout";
 import { createScreenDataRoute, createScreenSessionsRoute } from "./screen";
@@ -174,7 +175,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       return { state: "ok", reason: source === "keychain" ? "login-found-keychain" : "login-found-file" };
     },
     database: () => {
-      const path = join(resolveDataDir(ctx.STATE_DIR), "topics.db");
+      const path = databaseFilePath(resolveDataDir(ctx.STATE_DIR));
       const size = statSync(path).size;
       return { state: "ok", reason: "database-readable", params: { sizeKb: Math.ceil(size / 1024) } };
     },

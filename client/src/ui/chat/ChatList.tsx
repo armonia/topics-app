@@ -19,7 +19,7 @@ export function ChatList({ chats, label, openLabel, onOpen }: {
   onOpen: (id: string) => void;
 }) {
   return (
-    <ul aria-label={label} data-chat-list="" className="mx-auto w-full max-w-[760px] px-4 py-3">
+    <ul aria-label={label} data-chat-list="" className="mx-auto w-full max-w-190 px-4 py-3">
       {chats.map((c) => (
         <li key={c.id}>
           <button

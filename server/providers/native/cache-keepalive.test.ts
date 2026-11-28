@@ -10,6 +10,7 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, jest, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { stat } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as auth from "./auth";
@@ -45,9 +46,18 @@ let pings: Sent[] = [];
 
 const quiet: StreamHandler = { onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {}, onDone: () => {}, onError: () => {} };
 
-/** Lets the timer's async callback (token, fetch, stream) run to its end. */
+/**
+ * Lets the timer's async callback (token, fetch, stream) run to its end. The
+ * token read is real file I/O, finished on the thread pool: microtasks alone
+ * do not wait for it, and under a loaded machine 200 of them ran out before the
+ * read came back (red in the board's pre-review run, green standalone). A real
+ * stat per round turns the event loop until the pending reads have landed.
+ */
 async function settle(): Promise<void> {
-  for (let i = 0; i < 200; i++) await Promise.resolve();
+  for (let round = 0; round < 8; round++) {
+    for (let i = 0; i < 200; i++) await Promise.resolve();
+    await stat(tmpdir());
+  }
 }
 
 async function advance(ms: number): Promise<void> {

@@ -12,8 +12,8 @@
  * like the model and the effort: an edit applies from the next message.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { resolveAppDataDir } from "./data-dir";
+import { AGENT_ENGINE, instanceEntryPath } from "./instance-files";
 
 export interface AgentEngineProfile {
   /** Compact this agent's chats past this many prompt tokens (`compactionThresholds`). */
@@ -25,7 +25,7 @@ export interface AgentEngineSettings {
 }
 
 export function agentEngineSettingsPath(): string {
-  return join(resolveAppDataDir(), "agent-engine.json");
+  return instanceEntryPath(AGENT_ENGINE, { appDataDir: resolveAppDataDir() });
 }
 
 /** Keeps only well-formed entries: a ceiling is a positive whole number of tokens. */

@@ -27,6 +27,8 @@
  *  - `services/node-client.ts` again, for the worktrees of the node (`routes/nodes-worktrees.ts`):
  *    `worktreeSummary` (GET /api/nodes/worktrees), `putWorktreePolicy`
  *    (PUT /api/nodes/worktree-policy), `worktreeGc` (POST /api/nodes/worktrees/gc).
+ *  - `services/node-client.ts` again, when the primary hands itself over (`routes/nodes-primary.ts`):
+ *    `primaryUpload` (PUT /api/nodes/primary/incoming), `primaryCommit` (POST /api/nodes/primary/commit).
  *
  * The model proxy and the tunnel are not here on purpose: the proxy is the
  * node calling its primary with a model token, and the tunnel is a transport,
@@ -47,6 +49,8 @@ const EXACT = new Set([
   "GET /api/nodes/worktrees",
   "PUT /api/nodes/worktree-policy",
   "POST /api/nodes/worktrees/gc",
+  "PUT /api/nodes/primary/incoming",
+  "POST /api/nodes/primary/commit",
 ]);
 const RUN = /^\/api\/nodes\/runs\/[^/]+$/;
 const RUN_BUNDLE = /^\/api\/nodes\/runs\/[^/]+\/bundle$/;

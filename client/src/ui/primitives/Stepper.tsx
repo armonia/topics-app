@@ -97,7 +97,7 @@ export function Stepper({ steps, onOpen, orientation = 'vertical', copy, ariaLab
         return (
           <li key={s.id} aria-current={s.state === 'current' ? 'step' : undefined} className={clsx('relative flex gap-3', !last && 'pb-3')}>
             {!last && (
-              <span aria-hidden="true" className={clsx('absolute bottom-0 left-[9.5px] top-[26px] w-px', lineDone ? 'bg-emerald-500/70' : 'bg-app-border-light')} />
+              <span aria-hidden="true" className={clsx('absolute bottom-0 left-[9.5px] top-6.5 w-px', lineDone ? 'bg-emerald-500/70' : 'bg-app-border-light')} />
             )}
             <span className="pt-1"><Node state={s.state} /></span>
             {onOpen ? (

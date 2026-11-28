@@ -62,6 +62,13 @@ export function resolveSubagentLaunch(input: {
     model: string | null;
     /** The effort the parent's topic resolves to: its override, then Settings, env and `xhigh`. */
     effort: string | null;
+    /**
+     * True when the parent is a board task's own session (or one of its
+     * children) — a mechanical workflow stage, not a human-watched chat.
+     * Resolved by the route from `boardTaskForSession`. Missing (e.g. a test
+     * that does not care) reads as false, the human-watched default.
+     */
+    belongsToTask?: boolean;
   };
 }): { ok: true; launch: SubagentLaunch } | { ok: false; error: string } {
   const { call, profiles, parent } = input;
@@ -88,7 +95,16 @@ export function resolveSubagentLaunch(input: {
   let model: string | null = null;
   let modelSource: ModelSource = "default";
   let modelNote: string | undefined;
-  const profileModel = profile?.model && profile.model !== "inherit" ? profile.model : null;
+  // The "worker" convention (docs/archive/subagent-model-policy.md) names
+  // Sonnet for a workflow's mechanical stages. Taken from the user's own
+  // `~/.claude/agents/worker.md` it also fires outside any workflow, in a
+  // human-watched project chat (SUBAGENT-worker-chat). That ran a logo or a
+  // slide a person looks at on the cheap model meant for sweeps. A project
+  // that opts in explicitly, with its own `.claude/agents/worker.md`, is left
+  // alone: that choice is deliberate, not the user's catch-all default.
+  const workerSonnetOutsideWorkflow =
+    profile?.name === "worker" && profile.source === "user" && !parent.belongsToTask;
+  const profileModel = profile?.model && profile.model !== "inherit" && !workerSonnetOutsideWorkflow ? profile.model : null;
   if (callModel && callModel !== "inherit") {
     model = callModel;
     modelSource = "call";

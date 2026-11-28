@@ -85,7 +85,7 @@ export function AutomationsPhoneBell() {
       aria-label={label}
       title={tr('inbox.title')}
       onClick={() => window.dispatchEvent(new CustomEvent(OPEN_INBOX_EVENT))}
-      className={`relative ml-auto mr-[6px] ${ROW_ACTION_BOX} tap-expand-y flex-shrink-0 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors app-no-drag`}
+      className={`relative ml-auto mr-1.5 ${ROW_ACTION_BOX} tap-expand-y flex-shrink-0 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors app-no-drag`}
     >
       <Bell size={16} aria-hidden="true" />
       <NotificationBadge count={badge.count} variant={variant} ariaLabel={label} className="absolute -top-1 -right-1" testId="automations-phone-bell-count" />

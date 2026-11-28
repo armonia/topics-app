@@ -217,7 +217,7 @@ export function ProgramSearchScreen({
             <EmptyState
               icon={Search}
               title={mode === 'where' ? s.emptyWhereTitle(query.trim()) : s.emptyCatalogTitle}
-              className="min-h-[220px]"
+              className="min-h-55"
               action={<Button onClick={onEmptyAction}>{mode === 'where' ? s.emptyCatalogAction : s.clearFacets}</Button>}
             >
               {mode === 'where' ? s.emptyWhereBody : s.emptyCatalogBody}

@@ -114,7 +114,7 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
             >
               <Folder size={13} className="flex-shrink-0 text-app-text-tertiary" />
               <span className="min-w-0 flex-1 truncate text-app-text">{p.name}</span>
-              <span className="flex-shrink-0 text-mini text-app-text-muted truncate max-w-[120px]" title={p.path}>
+              <span className="flex-shrink-0 text-mini text-app-text-muted truncate max-w-30" title={p.path}>
                 {p.path.split('/').slice(-2).join('/')}
               </span>
               {/* Same control the sidebar already offers on a project: a
