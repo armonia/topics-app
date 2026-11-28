@@ -2,7 +2,7 @@
  * THE PROJECT'S QUOTA BRAKE (project quota limits, USAGE-29/30).
  *
  * A project pauses when its last-24h points (`server/usage/project-quota.ts`)
- * go past its limit — 10 by default, with no configuration at all. Pausing is
+ * go past its limit. A project nobody configured has no limit for now (the default is decided in `resolveProjectLimit`, card 64b1f052). Pausing is
  * a STATE, not an event: `project_quota.paused_at` is set once, read from
  * everywhere (dispatcher, `spawn_agent`, the goal nudge, every UI surface),
  * and cleared by one of the two confirmations:
@@ -27,7 +27,7 @@
  */
 import type { Database } from "bun:sqlite";
 
-import { resolveProjectLimit } from "../usage/project-limit";
+import { resolveProjectLimit, storedLimit } from "../usage/project-limit";
 
 export const DEFAULT_LIMIT_24H_PCT: number | null = resolveProjectLimit("", undefined);
 /** How many more points "Continua" buys before the confirmation returns. */
@@ -36,14 +36,16 @@ export const CONTINUE_GRACE_PCT = 10;
 export interface ProjectQuotaRow {
   projectId: string;
   limit24hPct: number | null;
+  /** The person chose "None" (no limit). Unset on a row the brake created itself. */
+  limitNone?: boolean;
   pausedAt: string | null;
   continuedUntilPct: number | null;
   holdUntil: number | null;
 }
 
-/** The configured limit: an absent row is the default; a row with `limit24hPct: null` has no limit ("None"). */
+/** The limit: a chosen one, "None" when a person chose it, else the unconfigured default (absent row or a row the brake created). */
 export function effectiveLimit(row: ProjectQuotaRow | null): number | null {
-  return resolveProjectLimit(row?.projectId ?? "", row ? row.limit24hPct : undefined);
+  return resolveProjectLimit(row?.projectId ?? "", row ? storedLimit(row.limit24hPct, row.limitNone ? 1 : 0) : undefined);
 }
 
 export interface ProjectPauseState {
@@ -100,31 +102,32 @@ export function nextLocalMidnight(nowMs: number = Date.now()): number {
 
 export function readProjectQuotaRow(db: Database, projectId: string): ProjectQuotaRow | null {
   const r = db.query(
-    "SELECT project_id, limit_24h_pct, paused_at, continued_until_pct, hold_until FROM project_quota WHERE project_id = ?",
-  ).get(projectId) as { project_id: string; limit_24h_pct: number | null; paused_at: string | null; continued_until_pct: number | null; hold_until: number | null } | null;
+    "SELECT project_id, limit_24h_pct, limit_none, paused_at, continued_until_pct, hold_until FROM project_quota WHERE project_id = ?",
+  ).get(projectId) as { project_id: string; limit_24h_pct: number | null; limit_none: number; paused_at: string | null; continued_until_pct: number | null; hold_until: number | null } | null;
   if (!r) return null;
-  return { projectId: r.project_id, limit24hPct: r.limit_24h_pct, pausedAt: r.paused_at, continuedUntilPct: r.continued_until_pct, holdUntil: r.hold_until };
+  return { projectId: r.project_id, limit24hPct: r.limit_24h_pct, limitNone: r.limit_none === 1, pausedAt: r.paused_at, continuedUntilPct: r.continued_until_pct, holdUntil: r.hold_until };
 }
 
 function upsert(db: Database, projectId: string, patch: Partial<Omit<ProjectQuotaRow, "projectId">>): void {
   const row = readProjectQuotaRow(db, projectId);
   // A row born here (pause/continue writes one before any person ever opened
-  // the project's menu) has to carry the DEFAULT limit explicitly: once the
-  // row exists, `effectiveLimit` reads a null column as "None", and that
-  // meaning belongs to a person's choice alone, never to a row the brake
-  // created for itself.
-  const next: Omit<ProjectQuotaRow, "projectId"> = {
-    limit24hPct: patch.limit24hPct !== undefined ? patch.limit24hPct : row ? row.limit24hPct : DEFAULT_LIMIT_24H_PCT,
+  // the project's menu) leaves the limit UNSET, never an explicit null: a
+  // null limit with `limit_none` is "None", and that meaning belongs to a
+  // person's choice alone, never to a row the brake created for itself.
+  const chosen = patch.limit24hPct !== undefined;
+  const next = {
+    limit24hPct: chosen ? patch.limit24hPct! : row ? row.limit24hPct : null,
+    limitNone: chosen ? (patch.limit24hPct === null ? 1 : 0) : row?.limitNone ? 1 : 0,
     pausedAt: patch.pausedAt !== undefined ? patch.pausedAt : row?.pausedAt ?? null,
     continuedUntilPct: patch.continuedUntilPct !== undefined ? patch.continuedUntilPct : row?.continuedUntilPct ?? null,
     holdUntil: patch.holdUntil !== undefined ? patch.holdUntil : row?.holdUntil ?? null,
   };
   db.run(
-    `INSERT INTO project_quota (project_id, limit_24h_pct, paused_at, continued_until_pct, hold_until, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(project_id) DO UPDATE SET limit_24h_pct = excluded.limit_24h_pct, paused_at = excluded.paused_at,
+    `INSERT INTO project_quota (project_id, limit_24h_pct, limit_none, paused_at, continued_until_pct, hold_until, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(project_id) DO UPDATE SET limit_24h_pct = excluded.limit_24h_pct, limit_none = excluded.limit_none, paused_at = excluded.paused_at,
        continued_until_pct = excluded.continued_until_pct, hold_until = excluded.hold_until, updated_at = excluded.updated_at`,
-    [projectId, next.limit24hPct, next.pausedAt, next.continuedUntilPct, next.holdUntil, nowIso()],
+    [projectId, next.limit24hPct, next.limitNone, next.pausedAt, next.continuedUntilPct, next.holdUntil, nowIso()],
   );
 }
 

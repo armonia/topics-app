@@ -3794,6 +3794,7 @@ const EN = {
   'projectQuota.limit.unknown': 'Limit not available: could not be read',
   'projectQuota.failed': 'Not saved: {why}',
   'projectQuota.meter': '{points} of {limit} quota points in the last 24 hours',
+  'projectQuota.meterNoLimit': '{points} quota points in the last 24 hours, no limit set',
   'projectQuota.title': 'Quota by project',
   'projectQuota.unavailable': 'Quota by project not available.',
   'projectQuota.noHistory': 'No quota history on this machine: points cannot be computed.',

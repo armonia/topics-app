@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
+import { storedLimit } from "../usage/project-limit";
 import {
   CONTINUE_GRACE_PCT, DEFAULT_LIMIT_24H_PCT, continueProject, nextLocalMidnight, openPauseIfNeeded,
   pauseState, pauseUntilTomorrow, projectIsPaused, reconcilePause, projectPauseInfo, readProjectQuotaRow, setProjectLimit,
@@ -38,7 +39,7 @@ describe("pauseState", () => {
   });
 
   test("'Nessuno' (limit24hPct: null on an existing row) removes the limit", () => {
-    const row = { projectId: "p", limit24hPct: null, pausedAt: null, continuedUntilPct: null, holdUntil: null };
+    const row = { projectId: "p", limit24hPct: null, limitNone: true, pausedAt: null, continuedUntilPct: null, holdUntil: null };
     expect(pauseState(row, 90).paused).toBe(false);
   });
 
@@ -162,6 +163,26 @@ describe("the pause CLOSES: what every gate reads (projectIsPaused) flips back",
     expect(projectIsPaused(db, "p", T0)).toBe(true);
     expect(reconcilePause(db, "p", 6, T0)).toBe("closed");
     expect(projectIsPaused(db, "p", T0)).toBe(false);
+  });
+});
+
+describe("a row the brake creates itself", () => {
+  test("hold and continue on a project with no row leave the limit unset, never 'None'", () => {
+    const db = makeDb();
+    pauseUntilTomorrow(db, "fresh", 1_700_000_000_000);
+    expect(readProjectQuotaRow(db, "fresh")?.limitNone).toBe(false);
+    expect(readProjectQuotaRow(db, "fresh")?.limit24hPct).toBeNull();
+    expect(storedLimit(readProjectQuotaRow(db, "fresh")!.limit24hPct, 0)).toBeUndefined();
+    continueProject(db, "fresh2", 5);
+    expect(readProjectQuotaRow(db, "fresh2")?.limitNone).toBe(false);
+  });
+
+  test("a person's 'None' is kept apart, and survives a pause confirmation", () => {
+    const db = makeDb();
+    setProjectLimit(db, "p", null);
+    continueProject(db, "p", 5);
+    expect(readProjectQuotaRow(db, "p")?.limitNone).toBe(true);
+    expect(storedLimit(null, 1)).toBeNull();
   });
 });
 

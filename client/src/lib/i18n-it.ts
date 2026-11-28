@@ -4148,6 +4148,7 @@ const IT: Dict = {
   'projectQuota.limit.unknown': 'Limite non disponibile: lettura fallita',
   'projectQuota.failed': 'Non salvato: {why}',
   'projectQuota.meter': '{points} punti quota su {limit} nelle ultime 24 ore',
+  'projectQuota.meterNoLimit': '{points} punti quota nelle ultime 24 ore, nessun limite impostato',
   'projectQuota.title': 'Quota per progetto',
   'projectQuota.unavailable': 'Quota per progetto non disponibile.',
   'projectQuota.noHistory': 'Nessuno storico della quota su questa macchina: i punti non si possono calcolare.',
