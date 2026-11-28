@@ -183,7 +183,7 @@ function TerminalPeek({ terminal }: { terminal: LiveTerminal }) {
     <div className="flex flex-col gap-2 p-2" data-testid="live-terminals-peek">
       <pre
         ref={preRef}
-        className="max-h-[50vh] min-h-[120px] overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/80 p-2 font-mono text-mini leading-snug text-zinc-100"
+        className="max-h-[50vh] min-h-30 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/80 p-2 font-mono text-mini leading-snug text-zinc-100"
         data-testid="live-terminals-screen"
       >
         {gone ? tr('liveTerminals.gone') : screen ?? tr('liveTerminals.loading')}

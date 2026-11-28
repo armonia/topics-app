@@ -42,7 +42,7 @@ export function SettingRow({ label, description, control, className }: {
 }) {
   return (
     <div className={clsx('flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-app-border py-2.5 first:border-t-0 first:pt-0 last:pb-0', className)}>
-      <div className="min-w-[180px] flex-1">
+      <div className="min-w-45 flex-1">
         <div className="text-prose leading-5 text-app-text">{label}</div>
         {description && <p className="text-mini leading-4 text-app-text-tertiary">{description}</p>}
       </div>
@@ -64,7 +64,7 @@ export function ListRow({ icon: Icon, title, detail, trailing, tone = 'neutral' 
       <span className={clsx('inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', TONE_CHIP[tone])}>
         <Icon size={16} aria-hidden="true" />
       </span>
-      <div className="min-w-[140px] flex-1">
+      <div className="min-w-35 flex-1">
         <div className="truncate text-prose font-medium leading-5 text-app-text">{title}</div>
         {detail && <div className="truncate text-mini leading-4 text-app-text-tertiary">{detail}</div>}
       </div>

@@ -44,7 +44,7 @@ export function CalendarTilePreview({ browserId, active }: { browserId: string; 
   return (
     <div
       data-testid="calendar-tile-preview"
-      className="w-[220px] overflow-hidden rounded-lg border border-app-border bg-app-panel shadow-xl"
+      className="w-55 overflow-hidden rounded-lg border border-app-border bg-app-panel shadow-xl"
     >
       {!active ? (
         <div className="px-2 py-1.5 text-mini text-app-text-muted">{t('calendar.preview.notOpen')}</div>
@@ -57,7 +57,7 @@ export function CalendarTilePreview({ browserId, active }: { browserId: string; 
           src={src}
           alt={t('calendar.preview.alt')}
           data-testid="calendar-tile-preview-image"
-          className="block h-[132px] w-full object-cover object-top"
+          className="block h-33 w-full object-cover object-top"
           onError={() => setFailed(true)}
         />
       )}

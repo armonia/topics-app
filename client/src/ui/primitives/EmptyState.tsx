@@ -21,8 +21,8 @@ export function EmptyState({ icon: Icon, title, children, action, className }: {
           <Icon size={18} aria-hidden="true" />
         </span>
       )}
-      <p className="max-w-[440px] text-body-lg font-semibold text-app-text">{title}</p>
-      {children && <div className="max-w-[440px] text-prose leading-6 text-app-text-secondary">{children}</div>}
+      <p className="max-w-110 text-body-lg font-semibold text-app-text">{title}</p>
+      {children && <div className="max-w-110 text-prose leading-6 text-app-text-secondary">{children}</div>}
       {action && <div className="mt-2 flex flex-wrap items-center justify-center gap-2">{action}</div>}
     </div>
   );

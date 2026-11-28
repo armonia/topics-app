@@ -247,7 +247,7 @@ export function DatePicker({
             tabIndex={-1}
             onKeyDown={onDialogKey}
             style={{ left: box.left, top: box.top, bottom: box.bottom, maxHeight: box.maxHeight }}
-            className={clsx(FLOAT_SURFACE, LAYER_FLOAT, 'fixed w-[240px] overflow-y-auto p-2 outline-none coarse:w-[296px]')}
+            className={clsx(FLOAT_SURFACE, LAYER_FLOAT, 'fixed w-60 overflow-y-auto p-2 outline-none coarse:w-74')}
           >
             <div className="flex items-center gap-1 pb-1">
               <button type="button" aria-label={t.prevMonth} data-tip={t.prevMonth} onClick={() => { setFocus(shift(focus, { months: -1 })); setInGrid(false); }} className={NAV}>

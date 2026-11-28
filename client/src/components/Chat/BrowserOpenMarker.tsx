@@ -129,7 +129,7 @@ export const BrowserOpenMarker = memo(function BrowserOpenMarker({ marker }: { m
         </div>
       ))}
       <DisclosureBody open={listOpen}>
-        <ol data-testid="browser-open-marker-page-list" className="ml-[22px] mb-1 space-y-0.5 text-mini text-app-text-secondary">
+        <ol data-testid="browser-open-marker-page-list" className="ml-5.5 mb-1 space-y-0.5 text-mini text-app-text-secondary">
           {marker.pages.map((p) => (
             <li key={p.toolCallId} className="flex items-center gap-2 min-w-0">
               <span className="truncate" title={p.url}>{browserPageLabel(p)}</span>
@@ -154,7 +154,7 @@ export function BrowserMarkerChip({ marker }: { marker: BrowserMarker }) {
       title={page.url}
       aria-label={tr('chat.browserMarker.open', { url: page.url })}
       data-testid="browser-marker-chip"
-      className="flex-shrink-0 max-w-[12rem] inline-flex items-center gap-1 rounded px-1 py-0.5 coarse:min-h-11 text-mini text-app-text-secondary hover:bg-app-hover hover:text-app-text transition-colors"
+      className="flex-shrink-0 max-w-48 inline-flex items-center gap-1 rounded px-1 py-0.5 coarse:min-h-11 text-mini text-app-text-secondary hover:bg-app-hover hover:text-app-text transition-colors"
     >
       <BrowserFavicon url={page.url} faviconUrl={faviconFor(page.url)} size={12} />
       <span className="truncate">{markerTitle(marker)}</span>

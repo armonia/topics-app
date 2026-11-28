@@ -199,14 +199,14 @@ function Weights({ view, tr, locale, pad }: { view: ContextView; tr: Tr; locale:
       {view.harnesses.map((h) => (
         <div key={h.name} data-testid="context-harness" className="py-1">
           <div className="flex items-center gap-2 text-compact">
-            <span className="w-[104px] flex-none truncate text-app-text" title={h.name}>{h.name}</span>
+            <span className="w-26 flex-none truncate text-app-text" title={h.name}>{h.name}</span>
             <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-app-border">
               <span className="block h-full rounded-full bg-primary/70" style={{ width: `${Math.max(4, Math.round((h.tokens / max) * 100))}%` }} />
             </span>
-            <span className="w-[56px] flex-none text-right text-mini tabular-nums text-app-text-secondary">{tr('hubContext.tok', { n: shortTokens(h.tokens, locale) })}</span>
+            <span className="w-14 flex-none text-right text-mini tabular-nums text-app-text-secondary">{tr('hubContext.tok', { n: shortTokens(h.tokens, locale) })}</span>
           </div>
           {h.extra && (
-            <div className="ml-[112px] text-mini text-app-text-muted">
+            <div className="ml-28 text-mini text-app-text-muted">
               {tr(h.extra.home ? 'hubContext.weight.home' : 'hubContext.weight.some', { n: shortTokens(h.extra.tokens, locale) })}
             </div>
           )}

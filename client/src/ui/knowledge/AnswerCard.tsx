@@ -27,7 +27,7 @@ export function AnswerCard({ answer, copy, onOpenSource, onOpenPassage, onUpload
   if (answer.status === 'none') {
     return (
       <Card className="py-3" tone="amber">
-        <div className="flex min-h-[160px] items-center justify-center">
+        <div className="flex min-h-40 items-center justify-center">
           <EmptyState icon={FileSearch} title={c.noSourceTitle} action={onUpload ? <Button onClick={onUpload}>{c.noSourceUpload}</Button> : undefined} className="min-h-0 py-4">
             {c.noSourceBody(answer.question)}
           </EmptyState>

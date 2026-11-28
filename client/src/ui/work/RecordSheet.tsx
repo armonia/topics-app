@@ -167,8 +167,8 @@ export function RecordSheet({
                       <span className="shrink-0 text-prose font-semibold tabular-nums text-app-text">{d.date}</span>
                       <span className={clsx('shrink-0 text-prose font-semibold tabular-nums', DISTANCE_TONE[d.tone])}>{d.distance}</span>
                     </span>
-                    <span className="mt-1 block pl-[26px] text-compact leading-5 text-app-text-secondary">{d.calc}{d.rollsOver ? ` · ${d.rollsOver}` : ''}</span>
-                    <span className="block pl-[26px] text-compact leading-5 text-app-text-tertiary">{d.rule}</span>
+                    <span className="mt-1 block pl-6.5 text-compact leading-5 text-app-text-secondary">{d.calc}{d.rollsOver ? ` · ${d.rollsOver}` : ''}</span>
+                    <span className="block pl-6.5 text-compact leading-5 text-app-text-tertiary">{d.rule}</span>
                   </button>
                 </li>
               ))}
@@ -224,7 +224,7 @@ export function RecordSheet({
           </div>
         </div>
 
-        <aside className="flex shrink-0 flex-col border-t border-app-border bg-surface md:w-[340px] md:border-l md:border-t-0">
+        <aside className="flex shrink-0 flex-col border-t border-app-border bg-surface md:w-85 md:border-l md:border-t-0">
           <div className="min-h-0 flex-1 md:overflow-y-auto">
             <div className="border-b border-app-border px-4 pb-4 pt-4">
               <span className="mb-2 inline-flex h-5 items-center rounded bg-black/[0.05] px-1.5 text-mini text-app-text-secondary dark:bg-white/10">{sheet.whoLabel}</span>

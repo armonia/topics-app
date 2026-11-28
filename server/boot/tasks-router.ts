@@ -167,10 +167,14 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     },
     // A throwaway checkout of a branch planted from another machine, so its bar
     // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
+    // Detached on the DELIVERED COMMIT, not on the branch tip: the branch can
+    // move (a land, a new delivery) while the measure is running, and a
+    // checkout attached to it would follow HEAD without updating its files.
     nodeDeliveryCheckout: async (taskId) => {
       const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
-      if (!ref) return null;
-      return nodeChecks.open({ repoPath: ref.repoPath, branch: ref.branch, taskId });
+      const commit = dispatcherSvc.get(taskId)?.task.deliveryCommit;
+      if (!ref || !commit) return null;
+      return nodeChecks.open({ repoPath: ref.repoPath, commit, branch: ref.branch, taskId });
     },
     onAutoLand: (api) => {
       late.misuraConsegnaNodo = api.measureNodeDelivery;
@@ -276,7 +280,13 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
       late.resumeHeldDelivery = (taskId) => hooks.settleDelivery(taskId);
     },
     // The e2e row of a delivery is read from the pull request CI, never run here.
-    ciEvidence: ({ onCiWait, ...input }) => awaitCiEvidence(input, { onCiWait }),
+    // The planted delivery branch is handed in as a fallback: a node-check
+    // checkout is detached on the delivered commit (`openNodeCheckWorktree`),
+    // so `git symbolic-ref` inside it finds nothing on its own.
+    ciEvidence: async ({ onCiWait, ...input }) => {
+      const ref = await resolveDeliveryBranch(deliveryBranchDeps(), input.taskId).catch(() => null);
+      return awaitCiEvidence({ ...input, branch: ref?.branch ?? null }, { onCiWait });
+    },
     // A round on a new branch ends the pull requests of the card's earlier rounds.
     supersedeEarlierRounds: ({ cwd, taskId }) => supersedeEarlierRounds(githubPort(), { cwd, taskId, baseBranch: CI_BASE_BRANCH }),
     // The review sweep asks whether a green card's pull request still merges into main.

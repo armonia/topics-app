@@ -89,7 +89,7 @@ export function UnsentBanner({ className = '' }: UnsentBannerProps) {
               key={group.sessionKey}
               data-testid="unsent-row"
               data-session-key={group.sessionKey}
-              className="flex items-center gap-2 rounded-md py-0.5 pl-[22px]"
+              className="flex items-center gap-2 rounded-md py-0.5 pl-5.5"
             >
               <button
                 type="button"

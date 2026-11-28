@@ -101,10 +101,10 @@ export function DeadlinesView({
         <StatCard label={t.stats.open} value={counts.open} detail={openTotal ? t.stats.openDetail(openTotal) : undefined} />
       </div>
       <div className="mb-3 flex flex-wrap items-end gap-2">
-        <div className="min-w-[200px] flex-1 sm:max-w-[320px]">
+        <div className="min-w-50 flex-1 sm:max-w-80">
           <TextField type="search" icon={Search} value={query} onChange={onQuery} placeholder={t.search} title={t.searchLabel} />
         </div>
-        <div className="min-w-[180px]">
+        <div className="min-w-45">
           <Select title={t.office} value={office} options={[{ value: '', label: t.allOffices }, ...offices]} onChange={onOffice} />
         </div>
         <Checkbox checked={showDone} onChange={onShowDone} label={t.showDone} />
@@ -153,7 +153,7 @@ export function DeadlinesView({
     </div>
   );
   const side = detail && (
-    <aside className={clsx('flex shrink-0 flex-col border-app-border bg-surface', phone ? 'w-full border-t' : 'h-full w-[300px] border-l')}>
+    <aside className={clsx('flex shrink-0 flex-col border-app-border bg-surface', phone ? 'w-full border-t' : 'h-full w-75 border-l')}>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <PanelHeading tag={t.detailTag} title={detail.title}><Chip tone={detail.statusTone}>{detail.statusText}</Chip></PanelHeading>
         <PanelSection>

@@ -169,7 +169,7 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div data-testid="voice-player" className="flex items-center gap-2.5 py-1 min-w-[180px] max-w-[260px]">
+    <div data-testid="voice-player" className="flex items-center gap-2.5 py-1 min-w-45 max-w-65">
       <audio ref={audioRef} src={src} preload="auto" />
       {/* The button was an icon and nothing else: `toHaveAccessibleName` had
           nothing to read, and a screen reader announced «button». The name

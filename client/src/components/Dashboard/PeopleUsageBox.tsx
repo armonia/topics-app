@@ -105,10 +105,10 @@ export function PeopleUsageBox() {
             className={`${LINE} min-w-0 flex-1 text-left tabular-nums @max-2xl:h-auto @max-2xl:flex-wrap @max-2xl:py-1.5`}>
             <span className={`min-w-0 flex-[0_1_160px] truncate text-mini ${p.personId ? 'text-app-text' : 'text-app-text-muted'}`}>{nameOf(p)}</span>
             <Bar pct={(100 * p.sharePct) / max} />
-            <span className="w-[120px] flex-none text-right text-mini text-app-text">
+            <span className="w-30 flex-none text-right text-mini text-app-text">
               {p.accountPct != null ? tr('usage.people.account', { pct: fmt(p.accountPct) }) : ''}
             </span>
-            <span className="w-[96px] flex-none text-right text-mini text-app-text-muted">{tr('usage.people.share', { pct: fmt(p.sharePct) })}</span>
+            <span className="w-24 flex-none text-right text-mini text-app-text-muted">{tr('usage.people.share', { pct: fmt(p.sharePct) })}</span>
           </button>
           <span className="w-8 flex-none pr-2">
             {p.canMerge && p.personId && (

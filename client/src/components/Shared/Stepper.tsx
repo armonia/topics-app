@@ -70,7 +70,7 @@ export function Stepper({
         aria-valuetext={text}
         data-testid={testId}
         onKeyDown={onKeyDown}
-        className="flex min-h-6 min-w-[4.5rem] items-center justify-center rounded px-1 text-center text-mini tabular-nums text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 coarse:min-h-11 coarse:text-compact"
+        className="flex min-h-6 min-w-18 items-center justify-center rounded px-1 text-center text-mini tabular-nums text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 coarse:min-h-11 coarse:text-compact"
       >
         {text}
       </span>
