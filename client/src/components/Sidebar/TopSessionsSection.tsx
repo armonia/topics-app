@@ -10,8 +10,6 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { apiFetch } from '../../lib/shell/net';
-import { Button } from '../../ui/primitives/Button';
-import { TextField } from '../../ui/primitives/Field';
 import type { TopSession, TopSessionsResult } from '../../../../shared/top-sessions';
 
 function openFor(ms: number): string {
@@ -69,28 +67,15 @@ export function TopSessionsSection() {
             <span>{tr('topSessions.context', { tokens: compactTokens(s.avgContext) })}</span>
             <span>{tr('topSessions.open', { time: openFor(s.openMs) })}</span>
             <span className="ml-auto flex gap-1">
-              <Button variant="ghost" size="sm" onClick={() => open(s)} className="px-1" title={tr('topSessions.openAction')}>
-                <span data-testid="top-session-open">{tr('topSessions.openAction')}</span>
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setWriting(writing === s.id ? null : s.id)} className="px-1" title={tr('topSessions.writeAction')}>
-                <span data-testid="top-session-write">{tr('topSessions.writeAction')}</span>
-              </Button>
+              <button type="button" data-testid="top-session-open" onClick={() => open(s)} className="rounded px-1 text-app-text-secondary hover:bg-app-hover">{tr('topSessions.openAction')}</button>
+              <button type="button" data-testid="top-session-write" onClick={() => setWriting(writing === s.id ? null : s.id)} className="rounded px-1 text-app-text-secondary hover:bg-app-hover">{tr('topSessions.writeAction')}</button>
             </span>
           </div>
           {writing === s.id && (
-            <div className="mt-1 flex items-end gap-1">
-              <TextField
-                size="sm"
-                className="min-w-0 flex-1"
-                value={text}
-                onChange={setText}
-                onEnter={text.trim() ? () => void send(s) : undefined}
-                name="top-session-input"
-              />
-              <Button variant="ghost" size="sm" className="px-1" onClick={text.trim() ? () => void send(s) : false}>
-                {tr('topSessions.send')}
-              </Button>
-            </div>
+            <form className="mt-1 flex gap-1" onSubmit={(e) => { e.preventDefault(); void send(s); }}>
+              <input data-testid="top-session-input" value={text} onChange={(e) => setText(e.target.value)} className="min-w-0 flex-1 rounded border border-app-border bg-transparent px-1 text-mini" />
+              <button type="submit" disabled={!text.trim()} className="rounded px-1 text-mini text-primary disabled:opacity-40">{tr('topSessions.send')}</button>
+            </form>
           )}
         </div>
       ))}
