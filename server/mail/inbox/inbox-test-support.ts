@@ -7,9 +7,9 @@ import type { ContractMessage, ListAdapter, ListRequest, ListResponse } from "./
 import type { Mailbox } from "./mailboxes";
 
 const MIGRATIONS = join(import.meta.dir, "../../db/migrations");
-const FILES = ["20261126100000-scheduled-delivery.sql", "20261128100000-mail-inbox.sql"];
+const FILES = ["20261126100000-scheduled-delivery.sql", "20261128100000-mail-inbox.sql", "20261128140000-mail-waits.sql"];
 // The settings column belongs to the real migration chain; the tables are what is under test.
-const SQL = FILES.map((file) => readFileSync(join(MIGRATIONS, file), "utf8").replace(/ALTER TABLE app_settings[^;]*;/g, "")).join("\n");
+export const MAIL_SQL = FILES.map((file) => readFileSync(join(MIGRATIONS, file), "utf8").replace(/ALTER TABLE app_settings[^;]*;/g, "")).join("\n");
 
 export interface TestDb { path: string; open: () => Database; dispose: () => void }
 
@@ -24,7 +24,7 @@ export function createTestDb(): TestDb {
     opened.push(db);
     return db;
   };
-  open().exec(SQL);
+  open().exec(MAIL_SQL);
   return { path, open, dispose: () => { for (const db of opened) { try { db.close(true); } catch { /* closed */ } } rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); } };
 }
 

@@ -4,7 +4,7 @@ import { readMailConfig, type MailAccount } from "../../lib/outbound-config";
 import type { OwnerAlert } from "../../schedule/deliver/owner-alert";
 import { getAppSettings } from "../../services/app-settings";
 import { commandListAdapter } from "./contract";
-import { createInbox } from "./inbox";
+import { createInbox, type InboxOptions } from "./inbox";
 import { mergeMailboxes, parseMailboxes, type Mailbox } from "./mailboxes";
 
 /** The send-side environment still declares mailboxes; a broken or absent environment is no mailbox. */
@@ -17,9 +17,9 @@ export function currentMailboxes(): Mailbox[] {
   return mergeMailboxes(parseMailboxes(getAppSettings().mailboxes), envAccounts());
 }
 
-export function startMailInbox(db: Database, alert: OwnerAlert, now: () => Date) {
+export function startMailInbox(db: Database, alert: OwnerAlert, now: () => Date, waits?: Pick<InboxOptions, "onStored" | "nextWaitExpiry" | "openWaits">) {
   const inbox = createInbox({
-    db, now, mailboxes: currentMailboxes, adapterFor: (box) => commandListAdapter(box),
+    db, now, mailboxes: currentMailboxes, ...waits, adapterFor: (box) => commandListAdapter(box),
     alert: (request) => { alert({ subject: request.subject, scope: request.scope, title: request.title, body: request.body }); },
   });
   inbox.start();

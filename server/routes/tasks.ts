@@ -96,6 +96,7 @@ import { emitReviewReadyEdge, requestCardProcessStop } from "./tasks-shared";
 import { matchGuestTaskAction } from "./tasks-guests";
 import { resolveBoardPath } from "../lib/board-alias";
 import { MIRROR_KEY_PREFIX } from "../services/task-dispatcher-support";
+import { WaitRefused } from "../mail/waits/store";
 
 /** The mirror-card sign is reserved: only the node-run handoff may mint it, never a caller-chosen key. */
 function reservedKeyRejection(body: { idempotency_key?: unknown } | null): { error: string; code: string } | null {
@@ -1397,6 +1398,61 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
         return json(task);
       } catch (e) { return fail(e); }
+    }
+
+    // POST /api/sessions/:sessionKey/mail-waits: a card or a chat declares "I resume when this mail arrives, by this
+    // deadline" (change posta-per-gli-agenti, P3). The card is parked on the wait itself until the deadline.
+    const mailWaitRoute = matchRoute(pathname, "/api/sessions/:sessionKey/mail-waits");
+    if (mailWaitRoute && method === "POST") {
+      const sk = decodeURIComponent(mailWaitRoute.sessionKey);
+      const sess = provenSession(req, sk);
+      if (sess instanceof Response) return sess;
+      const waits = opts?.mailWaits?.();
+      if (!waits) return json({ error: "the mail waits are not running", code: "unavailable" }, 503);
+      const body = (await readJSON(req)) as Record<string, unknown> | null;
+      const text = (value: unknown) => (typeof value === "string" ? value : "");
+      const taskId = text(body?.task_id).trim();
+      if (taskId) {
+        const gated = fanOutGate(taskId, "do NOT park the shared task");
+        if (gated) return gated;
+        if (!svc.get(taskId, { projectId: sess.projectId })?.task) return json({ error: "task not found", code: "not_found" }, 404);
+      }
+      const expiresAt = text(body?.expires_at) || (typeof body?.expires_in_minutes === "number" ? new Date(Date.now() + body.expires_in_minutes * 60_000).toISOString() : "");
+      let created: ReturnType<typeof waits.create>;
+      try {
+        created = waits.create({
+          ownerKind: taskId ? "card" : "chat", ownerId: taskId || sk, mailbox: text(body?.mailbox), from: text(body?.from),
+          subjectContains: text(body?.subject_contains) || null, threadId: text(body?.thread_id) || null, inReplyTo: text(body?.in_reply_to) || null,
+          since: text(body?.since) || null, expiresAt,
+        });
+      } catch (e) {
+        if (e instanceof WaitRefused) return json({ error: e.message, code: "wait_refused" }, 400);
+        return fail(e);
+      }
+      const { wait, matched } = created;
+      if (matched) return json({ waitId: wait.id, status: "matched", matchedMessageId: wait.matchedMessageId });
+      if (taskId) {
+        try {
+          const task = dispatcher
+            ? dispatcher.deferWait(taskId, `mail from ${wait.fromMatch} on ${wait.mailbox}`, undefined, "agent", { until: wait.expiresAt, waitId: wait.id })
+            : svc.deferForWait({ taskId, reason: `mail from ${wait.fromMatch} on ${wait.mailbox}`, by: "agent", until: wait.expiresAt, mailWaitId: wait.id });
+          if (!dispatcher) broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
+        } catch (e) { waits.cancel(wait.id); return fail(e); }
+      }
+      return json({ waitId: wait.id, status: "open", parked: !!taskId, expiresAt: wait.expiresAt });
+    }
+    const mailWaitOne = matchRoute(pathname, "/api/sessions/:sessionKey/mail-waits/:waitId");
+    if (mailWaitOne && method === "DELETE") {
+      const sk = decodeURIComponent(mailWaitOne.sessionKey);
+      const sess = provenSession(req, sk);
+      if (sess instanceof Response) return sess;
+      const waits = opts?.mailWaits?.();
+      if (!waits) return json({ error: "the mail waits are not running", code: "unavailable" }, 503);
+      const wait = waits.get(mailWaitOne.waitId);
+      if (!wait) return json({ error: "wait not found", code: "not_found" }, 404);
+      // A wait is withdrawn by its own chat, or from a card of this board.
+      if (wait.ownerKind === "chat" ? wait.ownerId !== sk : !svc.get(wait.ownerId, { projectId: sess.projectId })?.task) return json({ error: "wait not found", code: "not_found" }, 404);
+      return json({ waitId: wait.id, cancelled: waits.cancel(wait.id) });
     }
 
     // POST /api/sessions/:sessionKey/tasks/:taskId/defer

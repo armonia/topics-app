@@ -19,6 +19,8 @@ import type { DeliveryCapture } from "../services/task-delivery-capture";
 import type { BootedExternalProxy } from "../services/external-proxy";
 import type { CtxRipresa } from "../lib/ripresa-boot";
 import type { createTaskDispatcher } from "../services/task-dispatcher";
+import type { MailWaits } from "../mail/waits/service";
+import type { MailWait } from "../mail/waits/store";
 
 export const late = {
   scheduledCardTestNow: null as Date | null,
@@ -91,5 +93,9 @@ export const late = {
   restartAtZeroTurns: false,
   // Built later than the closures that read them; the stage that owns each assigns it right after it is declared.
   taskDispatcher: undefined as unknown as ReturnType<typeof createTaskDispatcher>,
+  /** The wake of a chat that waits for a mail: filled once the boot has the chat route (`reattach.ts`); until then the wake stays owed. */
+  mailWakeChat: null as ((wait: MailWait) => Promise<"done" | "retry" | "gone">) | null,
+  /** The waits for a mail, for the routes and tools that create and cancel them. */
+  mailWaits: null as MailWaits | null,
   resumeCtx: undefined as unknown as CtxRipresa,
 };

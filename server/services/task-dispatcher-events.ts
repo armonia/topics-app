@@ -82,11 +82,11 @@ export function createBoardEvents(ctx: DispatcherCtx) {
     ctx.queue.notifyMemoryQueue();
   }
 
-  function deferWait(taskId: string, reason: string, minutes?: number, source: "agent" | "machine" = "agent"): Task {
+  function deferWait(taskId: string, reason: string, minutes?: number, source: "agent" | "machine" = "agent", mail?: { until: string; waitId: string }): Task {
     // A pending grace timer would re-tick this task the moment it lands in todo,
     // defeating the wait — clear it (harmless if none is set).
     ctx.queue.clearGrace(taskId);
-    const t = deps.svc.deferForWait({ taskId, reason, minutes, by: "agent", source });
+    const t = deps.svc.deferForWait({ taskId, reason, minutes, by: "agent", source, ...(mail ? { until: mail.until, mailWaitId: mail.waitId } : {}) });
     ctx.queue.emit(t);
     // Il park dell'attesa sfondata è l'UNICO park terminale che non passa da
     // `releaseAndEmit`: lo decide il service, guardando i tetti della serie, e

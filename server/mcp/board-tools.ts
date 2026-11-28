@@ -281,6 +281,40 @@ export async function callWaitForCondition(
   return `task ${toolArgs.task_id} released to the queue, waiting${until}. It will be re-dispatched automatically. Your turn is done — do not move it to review.`;
 }
 
+export async function callWaitForMail(
+  args: ParsedArgs,
+  toolArgs: { mailbox?: unknown; from?: unknown; subject_contains?: unknown; thread_id?: unknown; in_reply_to?: unknown; since?: unknown; expires_at?: unknown; expires_in_minutes?: unknown; task_id?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  for (const name of ["mailbox", "from"] as const) {
+    if (typeof toolArgs?.[name] !== "string" || !(toolArgs[name] as string).trim()) throw new Error(`wait_for_mail: '${name}' (string) is required`);
+  }
+  const body: Record<string, unknown> = { mailbox: toolArgs.mailbox, from: toolArgs.from };
+  for (const name of ["subject_contains", "thread_id", "in_reply_to", "since", "expires_at", "task_id"] as const) {
+    if (typeof toolArgs[name] === "string" && toolArgs[name]) body[name] = toolArgs[name];
+  }
+  if (typeof toolArgs.expires_in_minutes === "number" && Number.isFinite(toolArgs.expires_in_minutes)) body.expires_in_minutes = toolArgs.expires_in_minutes;
+  if (!body.expires_at && body.expires_in_minutes === undefined) throw new Error("wait_for_mail: a deadline is required ('expires_at' or 'expires_in_minutes')");
+  const res = await httpJson<{ waitId?: string; status?: string; parked?: boolean; expiresAt?: string }>(args, "POST", `/api/sessions/${encodeURIComponent(args.sessionKey)}/mail-waits`, body, fetchImpl);
+  if (res?.status === "matched") {
+    return `The mail had ALREADY arrived (wait ${res.waitId}). Nothing to wait for: carry on.`;
+  }
+  const tail = res?.parked
+    ? "The task is parked on this wait until the mail arrives or the deadline passes. Your turn is done: do not move it to review, and do not call wait_for_condition."
+    : "You will get ONE message in this chat when the mail arrives, or when the deadline passes without it. You may end your turn.";
+  return `Waiting for the mail (wait ${res?.waitId}, until ${res?.expiresAt ?? "the deadline"}). ${tail}`;
+}
+
+export async function callCancelMailWait(
+  args: ParsedArgs,
+  toolArgs: { wait_id?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.wait_id !== "string" || !toolArgs.wait_id) throw new Error("cancel_mail_wait: 'wait_id' (string) is required");
+  const res = await httpJson<{ cancelled?: boolean }>(args, "DELETE", `/api/sessions/${encodeURIComponent(args.sessionKey)}/mail-waits/${encodeURIComponent(toolArgs.wait_id)}`, undefined, fetchImpl);
+  return res?.cancelled ? `Wait ${toolArgs.wait_id} cancelled: no wake will follow.` : `Wait ${toolArgs.wait_id} was not open any more (already completed or cancelled).`;
+}
+
 export async function callLabelTask(
   args: ParsedArgs,
   toolArgs: { task_id?: unknown; labels?: unknown },

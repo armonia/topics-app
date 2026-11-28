@@ -291,7 +291,7 @@ export interface RemoteNodeHost {
     args: Parameters<TaskService["release"]>[0],
     opts?: { announce?: boolean },
   ) => Task;
-  deferWait: (taskId: string, reason: string, minutes?: number, source?: "agent" | "machine") => Task;
+  deferWait: (taskId: string, reason: string, minutes?: number, source?: "agent" | "machine", mail?: { until: string; waitId: string }) => Task;
   delegatedPolicyForTask?: (taskId: string) => DelegatedRunPolicy | null;
   /** The board's effective answer language (`langFor`). Absent = no language block. */
   languageOf?: (projectId: string) => OutputLanguage;

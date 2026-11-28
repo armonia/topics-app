@@ -19,6 +19,7 @@ import { getAiBridgeClient } from "../lib/ai-bridge-client";
 import { commandBackgroundWork, commandWakeState, sessionsAwaitingCommandWake } from "../routes/processes";
 import { subagentWakeState } from "../lib/subagent-runtime";
 import { startProcessExitWakes } from "../lib/process-exit-wake";
+import { chatWake } from "../mail/waits/chat-wake";
 import { startSubagentWakes } from "../services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot } from "../lib/native-subagents";
 import { recomposeAttentionOnBoot } from "../attention/store";
@@ -564,6 +565,18 @@ export function bootReattach(scope: AfterGovernor) {
       isBusy: (sk) => activeStreams.has(sk), route: topicsRouter,
       log: (m) => console.log(`[process-exit] ${m}`),
     }));
+
+  // A chat that waits for a mail is woken through the same route, once the surviving turns are adopted.
+  void survivingTurnsAdopted
+    .catch(() => { /* logged by the chain below */ })
+    .then(() => {
+      late.mailWakeChat = chatWake({
+        route: topicsRouter, isBusy: (sk) => activeStreams.has(sk),
+        chatOpen: (sk) => { const topic = ctx.getTopicBySessionKey(sk); return !!topic && !topic.archived; },
+        providerHeld: (sk) => isProviderHeld(ctx.getTopicBySessionKey(sk)?.provider || getDefaultProviderName() || "claude-code"),
+        log: (m) => console.log(`[mail-wait] ${m}`),
+      });
+    });
 
   // One answer for the wakes that return the outcome of work a chat
   // launched (sub-agent result, card outcome): an archived

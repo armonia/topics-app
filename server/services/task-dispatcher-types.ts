@@ -543,7 +543,7 @@ export interface TaskDispatcher {
    * opens no turn, so it keeps the wide streak cap, while an agent's wait stops
    * at the second one (`AGENT_WAIT_STREAK_CAP`).
    */
-  deferWait(taskId: string, reason: string, minutes?: number, source?: "agent" | "machine"): Task;
+  deferWait(taskId: string, reason: string, minutes?: number, source?: "agent" | "machine", mail?: { until: string; waitId: string }): Task;
   /**
    * Lo stato della modalità notturna della board, per l'interfaccia. Sola
    * lettura, e passa dallo STESSO calcolo del gate del `tick`: la card delle

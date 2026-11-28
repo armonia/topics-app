@@ -369,5 +369,7 @@ export interface TasksRouterOpts {
    * read failed. Read by the review sweep for green cards waiting on a person.
    */
   reviewPrMergeable?: (taskId: string, branch: string) => Promise<string | null>;
+  /** The waits for a mail (`mail/waits`), read when a tool declares or withdraws one; absent until the boot has built them. */
+  mailWaits?: () => import("../mail/waits/service").MailWaits | null;
 }
 

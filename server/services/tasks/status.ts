@@ -1141,11 +1141,39 @@ release(this: TaskService, { taskId, requeue, reason, by, parkState, rollbackAtt
       return rowToTask(getTaskRow(taskId));
     },
 
-deferForWait(this: TaskService, { taskId, reason, minutes, by, source }): Task {
+deferForWait(this: TaskService, { taskId, reason, minutes, by, source, until, mailWaitId }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       // A done card waits for nothing: same rule as `release`.
       if (row.status === "done") return rowToTask(row);
+      // A WAIT FOR A MAIL IS PARKED ON THE WAIT ITSELF (rule P4 of the mail change). It lasts until the wait's own
+      // deadline, not the 24-hour cap of the agent's window, and it is no series: the receiving round wakes the card when
+      // the mail arrives or the deadline passes, so no turn opens in between. `wait_reason` names the wait, so the wake
+      // finds the card still parked on THAT wait and on no other.
+      if (mailWaitId && until) {
+        const ts = now();
+        const untilMs = Date.parse(until);
+        if (!Number.isFinite(untilMs)) throw new TaskServiceError("invalid_input", "until is not a date");
+        const mins = Math.max(1, Math.ceil((untilMs - Date.parse(ts)) / 60_000));
+        const note = (reason && reason.trim() ? reason.trim() : "In attesa di una mail") + `. La card resta ferma fino all'arrivo della mail o alla scadenza (${until}), senza turni a vuoto (~${mins} min al massimo).`;
+        try { this.addComment({ taskId, author: by ?? "agent", content: note }); } catch { /* dedupe/best-effort */ }
+        let branchKept: string | null = null;
+        try {
+          const root = row.assigned_topic_id
+            ? _opts.repoRootFor?.({ taskId, projectId: row.project_id as string | undefined, assignedTopicId: row.assigned_topic_id as string })
+            : null;
+          branchKept = root ? (_opts.branchAheadOf?.(root) ?? null) : null;
+        } catch { /* best-effort: the wait itself must not fail */ }
+        db.prepare(
+          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL, dispatch_attempts = MAX(dispatch_attempts - 1, 0),
+              status = 'todo', dispatch_state = 'waiting', dispatch_error = ?, dispatch_deferred_until = ?,
+              prior_branch = COALESCE(?, prior_branch), wait_streak = 0, wait_reason = ?, wait_since = NULL, wait_source = 'agent', updated_at = ?
+            WHERE id = ?`,
+        ).run(note, new Date(untilMs).toISOString(), branchKept, `mail-wait:${mailWaitId}`, ts, taskId);
+        if (row.status !== "todo") logStatus(taskId, row.status, "todo", by ?? "agent");
+        markReopened(taskId, row.status, "todo", "agent", by ?? "agent");
+        return rowToTask(getTaskRow(taskId));
+      }
       const askedMins = clampInt(minutes ?? 15, 1, 1440);
       const ts = now();
       const detto = reason && reason.trim() ? reason.trim() : "";

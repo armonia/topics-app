@@ -45,7 +45,7 @@ import { callListAgents, callReadAgent, callSendToAgent, callSpawnAgent, callSto
 import { callReadChatMessages, callSendChatMessage } from "./chat-tools";
 import {
   callCommentGlobalTask, callCommentTask, callCreateGlobalTask, callCreateTask, callGetGlobalTask, callGetTask,
-  callLabelTask, callListGlobalTasks, callListTasks, callUpdateGlobalTask, callUpdateTask, callWaitForCondition,
+  callLabelTask, callListGlobalTasks, callListTasks, callUpdateGlobalTask, callUpdateTask, callWaitForCondition, callWaitForMail, callCancelMailWait,
 } from "./board-tools";
 import { callApprovalPrompt, callAskUserQuestion } from "./human-prompt-tools";
 
@@ -414,6 +414,8 @@ export const TOOL_HANDLERS: Record<
         : undefined,
     }),
   wait_for_condition: (a, t) => callWaitForCondition(a, t),
+  wait_for_mail: (a, t) => callWaitForMail(a, t),
+  cancel_mail_wait: (a, t) => callCancelMailWait(a, t),
   move_session_to_project: (a, t) => callMoveToProject(a, t as { project_path?: unknown }),
   // `onProgress` for the foreground wait: a beat per empty leg (SUBAGENT-13).
   spawn_agent: (a, t, ctx) =>

@@ -660,7 +660,7 @@ export interface TaskService {
    * machine's wait (`source: "machine"`, the silent node) opens no turn and
    * keeps the wide cap (`WAIT_STREAK_CAP`).
    */
-  deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string; source?: "agent" | "machine" }): Task;
+  deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string; source?: "agent" | "machine"; until?: string; mailWaitId?: string }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
   bindTopic(args: { taskId: string; topicId: string; freshSession?: boolean }): Task;
   /** The run this card last created on a paired node (persisted, survives a restart), or null. */

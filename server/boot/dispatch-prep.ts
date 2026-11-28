@@ -21,6 +21,7 @@ import { createRegistryRunner } from "../schedule/command-runner";
 import { createJobsService } from "../schedule/jobs-service";
 import { createScheduleDelivery } from "../schedule/deliver/wiring";
 import { startMailInbox } from "../mail/inbox/wiring";
+import { startMailWaits } from "../mail/waits/wiring";
 import { recordSubjectNotice } from "../attention/owner-notices";
 import { jobSubject } from "../../shared/attention";
 import { createExternalSessionsService } from "../services/external-sessions";
@@ -143,7 +144,18 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   });
   const scheduleDelivery = createScheduleDelivery(ctx.db, scheduleNow);
   // Incoming mail: a round of the server, only for mailboxes the person declared (change posta-per-gli-agenti, P2).
-  startMailInbox(ctx.db, scheduleDelivery.alert, scheduleNow);
+  const mailWaits = startMailWaits({
+    db: ctx.db, svc: dispatcherSvc, now: scheduleNow,
+    onCardRequeued: ({ taskId, projectId }) => {
+      const requeued = dispatcherSvc.get(taskId)?.task;
+      if (requeued && projectId) ctx.broadcastToAll({ type: "task:updated", projectId, task: requeued });
+      if (projectId) late.taskDispatcher?.onEnterTodo(projectId, taskId);
+    },
+    wakeChat: () => late.mailWakeChat,
+    chatOpen: (sessionKey) => { const topic = ctx.getTopicBySessionKey(sessionKey); return !!topic && !topic.archived; },
+  });
+  late.mailWaits = mailWaits;
+  startMailInbox(ctx.db, scheduleDelivery.alert, scheduleNow, { onStored: mailWaits.onStored, nextWaitExpiry: mailWaits.nextExpiry, openWaits: mailWaits.openCount });
   const scheduleEngine = createScheduleEngine(ctx.db, {
     executors: { card: createCardAction(ctx.db, dispatcherSvc), command: commandAction.executor }, now: scheduleNow,
     // Outcomes leave the app and failures are counted after every tick (R22 to R24); the sweep never throws into the tick.

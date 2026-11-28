@@ -49,6 +49,7 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     .then((gone) => { if (gone.length) console.warn(`[node-checks] ${gone.length} checkout del vecchio posto (temp), tolti`); })
     .catch((err) => console.warn("[node-checks] spazzata del vecchio posto fallita", err));
   const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
+    mailWaits: () => late.mailWaits,
     scheduledCards,
     taskModelSnapshot: () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy to preserve provider startup order
