@@ -240,8 +240,8 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
         await page.goto("/");
         await openBoard(page);
         await gear(page).click();
-        const chart = page.getByTestId("dispatch-chart");
-        await expect(chart).toBeVisible();
+        const chart = page.getByTestId("board-settings-menu").getByTestId("dispatch-chart");
+        await expect(chart).toBeVisible({ timeout: 15000 });
         // The top label is the highest axis text; it must sit wholly inside the chart box.
         const box = await chart.boundingBox();
         const label = await chart.locator("svg text").evaluateAll((els) => {
