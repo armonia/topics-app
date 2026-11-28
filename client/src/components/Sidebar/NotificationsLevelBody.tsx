@@ -239,7 +239,7 @@ function PushLevels() {
         minWidth={288}
         maxWidth={340}
         tail={
-          <span className={`max-w-[96px] flex-shrink-0 truncate text-mini ${subscribed && thisDevice?.enabled ? 'text-app-text-tertiary' : tone}`}>
+          <span className={`max-w-24 flex-shrink-0 truncate text-mini ${subscribed && thisDevice?.enabled ? 'text-app-text-tertiary' : tone}`}>
             {subscribed ? (thisDevice?.enabled === false ? tr('notif.level.off') : tr('notif.level.on')) : tr('notif.level.notSubscribed')}
           </span>
         }
@@ -313,7 +313,7 @@ function PushLevels() {
           maxWidth={340}
           tail={<span className="flex-shrink-0 text-mini tabular-nums text-app-text-tertiary">{others.filter((d) => d.enabled).length}/{others.length}</span>}
         >
-          <div className="max-h-[260px] overflow-y-auto py-1">
+          <div className="max-h-65 overflow-y-auto py-1">
             {others.map((d) => (
               <div key={d.deviceId ?? d.label} data-testid={`push-device-${d.deviceId ?? 'legacy'}`} className="flex items-center gap-2 px-3 py-1 text-compact coarse:min-h-11">
                 <Smartphone size={12} className="shrink-0 text-app-text-muted" />

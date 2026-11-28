@@ -36,7 +36,7 @@ export function PersonaMenu({ title, personas, onSelect, onClose, exampleLabel, 
     handleMenuKeys(e, onClose);
   };
   return (
-    <Popover fixed onClose={onClose} ariaLabel={title} className="bottom-12 left-2 w-[300px] max-sm:inset-x-2 max-sm:w-auto">
+    <Popover fixed onClose={onClose} ariaLabel={title} className="bottom-12 left-2 w-75 max-sm:inset-x-2 max-sm:w-auto">
       <div className="px-3 pb-1 pt-2.5 text-mini font-semibold uppercase tracking-[0.08em] text-app-text-tertiary">{title}</div>
       <div role="menu" aria-label={title} ref={focusFirstItem} onKeyDown={onKeyDown} className="max-h-[min(420px,60dvh)] overflow-y-auto pb-1">
         {personas.map((p) => (

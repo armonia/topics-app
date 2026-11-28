@@ -32,7 +32,7 @@ export function TicketDetail({ ticket, copy, onChange, onConfirm, onChangeTurn, 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5 md:px-7">
       <h1 className="text-headline font-semibold leading-7 text-app-text">{ticket.title}</h1>
-      <div className="mt-4 flex max-w-[860px] flex-col gap-3">
+      <div className="mt-4 flex max-w-215 flex-col gap-3">
         <Card title={<span className="flex items-center gap-2"><Chip tone="pink" icon={Sparkles} strong>{copy.common.ai}</Chip>{c.asked}</span>}>
           <p className="text-prose leading-6 text-app-text-body">
             {ticket.asked.text}{' '}

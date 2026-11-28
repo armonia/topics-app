@@ -42,8 +42,8 @@ const topBar = read('InlineFilters.tsx');
 describe('the project chips: one width, one icon box', () => {
   it('no chip spells its own max width: the two caps were 11rem and 13rem', () => {
     for (const src of [code, topBar]) {
-      expect(src).not.toContain('max-w-[11rem]');
-      expect(src).not.toContain('max-w-[13rem]');
+      expect(src).not.toContain('max-w-44');
+      expect(src).not.toContain('max-w-52');
     }
     expect(code).toContain('CHIP_MAX');
   });

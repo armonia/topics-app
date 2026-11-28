@@ -114,7 +114,7 @@ export function PhaseTrack({ label, phases, copy, onOpenStep, phone, bare, trail
           );
           const step = p.step;
           return (
-            <li key={p.id} className="flex w-[148px] flex-col items-start gap-1.5" aria-current={p.state === 'current' ? 'step' : undefined} data-tip={stateWord[p.state]}>
+            <li key={p.id} className="flex w-37 flex-col items-start gap-1.5" aria-current={p.state === 'current' ? 'step' : undefined} data-tip={stateWord[p.state]}>
               {onOpenStep && step ? (
                 <button
                   type="button"

@@ -395,7 +395,7 @@ export function DispatchDetailsView({ capacity, snapshot, queue, moved = [], now
                 <span className="shrink-0 text-mini text-app-text-secondary" data-testid="dispatch-dashboard-queue-sub">{tr('board.dash.since', { time: waitingLabel(q.waitingMs) })}</span>
                 {/* The reason shows on the row only when the cards differ; equal, it sits in the header. */}
                 {!sharedReason && (
-                  <span className="min-w-0 basis-full pl-[26px] text-mini text-app-text-secondary [overflow-wrap:anywhere]" data-testid="dispatch-dashboard-queue-reason" title={q.detail ?? undefined}>{reasonOf(q)}</span>
+                  <span className="min-w-0 basis-full pl-6.5 text-mini text-app-text-secondary [overflow-wrap:anywhere]" data-testid="dispatch-dashboard-queue-reason" title={q.detail ?? undefined}>{reasonOf(q)}</span>
                 )}
                 {i === 0 && onStartNow && q.memoryWaiter && (
                   <button

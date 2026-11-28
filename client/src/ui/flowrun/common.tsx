@@ -120,7 +120,7 @@ export function StepLayout({ rail, children, aside, asideWidth = 360, fill }: { 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
       {rail && (
-        <div className="shrink-0 border-b border-app-border bg-black/[0.02] dark:bg-white/[0.02] p-4 md:w-[300px] md:overflow-y-auto md:border-b-0 md:border-r">{rail}</div>
+        <div className="shrink-0 border-b border-app-border bg-black/[0.02] dark:bg-white/[0.02] p-4 md:w-75 md:overflow-y-auto md:border-b-0 md:border-r">{rail}</div>
       )}
       <div className={clsx('min-w-0 flex-1', fill ? 'flex min-h-0 flex-col md:overflow-hidden' : 'md:overflow-y-auto')}>{children}</div>
       {aside && (
@@ -156,7 +156,7 @@ export function SettingRow({ label, hint, children }: { label: string; hint?: st
         <div className="text-app-text">{label}</div>
         {hint && <div className="text-mini leading-4 text-app-text-tertiary">{hint}</div>}
       </div>
-      <div className="min-w-0 max-w-full shrink-0 basis-[170px] text-right">{children}</div>
+      <div className="min-w-0 max-w-full shrink-0 basis-42.5 text-right">{children}</div>
     </div>
   );
 }

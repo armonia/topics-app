@@ -263,7 +263,7 @@ function OrgsSection({ orgs, width, onClose }: {
       ) : only ? (
         <PresenceList people={only.people} empty={tr('statusBar.orgs.alone')} />
       ) : (
-        <div className="max-h-[240px] overflow-y-auto">
+        <div className="max-h-60 overflow-y-auto">
           {orgs.map((o) => (
             <div key={o.id} data-testid="org-section">
               <div className="flex items-center gap-2 px-3 pb-0.5 pt-1.5 text-mini uppercase tracking-wide text-app-text-muted">

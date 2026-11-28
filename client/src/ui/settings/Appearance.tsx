@@ -65,7 +65,7 @@ const PALETTE: Record<'light' | 'dark', Palette> = {
 /** A small picture of the app in one theme: a sidebar, a header and three rows, drawn with CSS. */
 function SmallApp({ p, half }: { p: Palette; half?: boolean }) {
   return (
-    <div className="flex h-[84px] w-full" style={{ background: p.bg, width: half ? '200%' : '100%' }} aria-hidden="true">
+    <div className="flex h-21 w-full" style={{ background: p.bg, width: half ? '200%' : '100%' }} aria-hidden="true">
       <div className="flex w-[28%] flex-col gap-1.5 p-2" style={{ background: p.side }}>
         <span className="h-2 w-3/4 rounded-sm" style={{ background: p.accent }} />
         <span className="h-1.5 w-full rounded-sm" style={{ background: p.line }} />
@@ -88,7 +88,7 @@ function SmallApp({ p, half }: { p: Palette; half?: boolean }) {
 export function ThemeThumb({ mode }: { mode: 'light' | 'dark' | 'system' }) {
   if (mode === 'system') {
     return (
-      <div className="flex h-[84px] w-full overflow-hidden">
+      <div className="flex h-21 w-full overflow-hidden">
         <div className="w-1/2 overflow-hidden"><SmallApp p={PALETTE.light} half /></div>
         <div className="w-1/2 overflow-hidden"><div className="-translate-x-1/2"><SmallApp p={PALETTE.dark} half /></div></div>
       </div>

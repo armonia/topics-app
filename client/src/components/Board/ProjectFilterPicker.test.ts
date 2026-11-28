@@ -93,7 +93,7 @@ describe('i chip del selettore hanno una misura sola', () => {
     // They were `max-w-[11rem]` on the chip that opens the menu and
     // `max-w-[13rem]` on the suggestions: the same name truncated at two
     // measures in the same row.
-    const widths = new Set(src.match(/max-w-\[[^\]]+\]/g) ?? []);
+    const widths = new Set(src.match(/max-w-(?:\[[^\]]+\]|\d+)/g) ?? []);
     expect(widths.size).toBe(1);
   });
 

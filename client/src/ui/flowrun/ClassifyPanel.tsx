@@ -137,7 +137,7 @@ export function ClassifyPanel({ copy, view, handlers, editable, deniedTitle, dra
           />
         </Card>
       </div>
-      <SidePanel width={320} className="w-full border-t md:w-[320px] md:border-t-0 md:h-auto">
+      <SidePanel width={320} className="w-full border-t md:w-80 md:border-t-0 md:h-auto">
         <PanelHeading tag={copy.common.ai} tagIcon={Sparkles} title={c.howTitle}>{c.howBody}</PanelHeading>
         <PanelSection label={c.beforeTitle}>
           {view.preRules.length === 0 && <p className="text-prose text-app-text-tertiary">{c.noRules}</p>}

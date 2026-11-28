@@ -44,7 +44,7 @@ export function SettingSelect({
         align="right"
         value={value ?? AUTO}
         onChange={(v) => onChange(v === AUTO ? null : v)}
-        className="max-w-full flex-shrink-0 min-w-[140px]"
+        className="max-w-full flex-shrink-0 min-w-35"
         options={[{ value: AUTO, label: autoLabel }, ...options]}
       />
     </div>

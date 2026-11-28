@@ -15,7 +15,7 @@ export function SystemNoteFold({ note }: { note: { content: string } }) {
       <button
         data-testid="card-system-note-toggle"
         onClick={(e) => { e.stopPropagation(); setAperta((v) => !v); }}
-        className="inline-flex min-h-[24px] min-w-[24px] items-center coarse:min-h-[44px] coarse:min-w-[44px] text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+        className="inline-flex min-h-6 min-w-6 items-center coarse:min-h-11 coarse:min-w-11 text-compact leading-4 md:text-mini text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
       >
         {aperta ? tr('board.card.commentLess') : tr('board.card.noteShow')}
       </button>

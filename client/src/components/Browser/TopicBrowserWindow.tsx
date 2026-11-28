@@ -604,7 +604,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
                   openTabSheet(sheetKey, 'commands');
                 }}
                 {...sheetLongPress.handlers}
-                className={`flex items-center gap-1 px-2 h-7 rounded text-mini truncate min-w-[88px] max-w-[160px] ${isActive ? 'bg-app-hover text-app-text' : 'text-app-text-tertiary hover:bg-app-hover'}`}
+                className={`flex items-center gap-1 px-2 h-7 rounded text-mini truncate min-w-22 max-w-40 ${isActive ? 'bg-app-hover text-app-text' : 'text-app-text-tertiary hover:bg-app-hover'}`}
               >
                 <span className="truncate flex-1">{label}</span>
                 <X
@@ -690,7 +690,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
             role="menu"
             // `POPOVER_SURFACE`: the one menu of the app that drew its own
             // card (another radius, an opaque fill) and so had no entrance.
-            className={`fixed min-w-[220px] overflow-auto ${POPOVER_SURFACE}`}
+            className={`fixed min-w-55 overflow-auto ${POPOVER_SURFACE}`}
             style={{
               left: menuAnchor.left,
               top: menuAnchor.top,
