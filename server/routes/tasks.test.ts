@@ -1470,6 +1470,19 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     expect(got.task.checks.map((c: any) => c.name)).toEqual(["realign"]);
   });
 
+  test("the realign could not be measured: a service note, no `fail` record, no conflict comment, the checks still run", async () => {
+    const marker = join(cwd, "ran-unmeasured");
+    const r = mk({ realignForChecks: async () => ({ ok: false, reason: "install timed out", unmeasured: true }) });
+    const t = await delivered(r);
+    await declare(r, t.projectId, [`touch ${marker}`]);
+    await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review", summary: "riassunto della consegna" });
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    const texts: string[] = (got.comments ?? []).map((c: any) => String(c.content));
+    expect(texts.some((c) => c.includes("non misurato") && c.includes("install timed out"))).toBe(true);
+    expect(texts.some((c) => c.includes("git merge origin/main"))).toBe(false);
+    expect((got.task.checks ?? []).map((c: any) => c.name)).not.toContain("realign");
+  });
+
   /**
    * 2026-09-04, 12:37: three cards delivered together, sat in the gate's queue
    * past the client's 50-minute cap, and the green verdicts that followed were
