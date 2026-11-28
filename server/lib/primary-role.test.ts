@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrimaryRole, PAIRING_MACHINE_HEADER, PRIMARY_EPOCH_HEADER, STALE_EPOCH_CODE } from "./primary-role";
+import { createPrimaryRole, LOCAL_MACHINE_ID_FILE, writeLocalMachineId, PAIRING_MACHINE_HEADER, PRIMARY_EPOCH_HEADER, STALE_EPOCH_CODE } from "./primary-role";
 import { createModelProxyHandler, mintModelToken } from "../services/model-proxy";
 import { createTaskDispatcher } from "../services/task-dispatcher";
 
@@ -24,6 +24,13 @@ function fixture(localId = "m-local") {
 const withEpoch = (n: number) => new Request("http://x/api/nodes/runs", { headers: { [PRIMARY_EPOCH_HEADER]: String(n) } });
 
 describe("primary role", () => {
+  test("the local machine id is published next to the state file for outside readers", () => {
+    const f = fixture();
+    writeLocalMachineId(f.dir, "m-local");
+    expect(JSON.parse(readFileSync(join(f.dir, LOCAL_MACHINE_ID_FILE), "utf-8"))).toEqual({ machineId: "m-local" });
+    f.done();
+  });
+
   test("nobody chosen: this install is its own primary at epoch 0", () => {
     const f = fixture();
     const role = f.make();

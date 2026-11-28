@@ -12,7 +12,12 @@ guardiano fa sì che quel nodo esista quando serve e non costi quando non serve.
   node-pool stato       posti, server, spesa del mese del pool
   node-pool spegni      cancella subito ogni server del pool
   node-pool permanent-ci    installa o riallinea i runner della CI sul nodo permanente (deploy/permanent-node/ci-runners.sh)
+  node-pool uplink      only the uplink half of giro: on a secondary, tunnel to the primary up and paired as a node
   node-pool --selftest  le decisioni pure, senza rete
+
+Runs on the primary, whichever computer it is: launchd on macOS, the systemd timer next to this file on
+Linux (node-pool-giro.timer). On a secondary the giro manages no node, it only keeps this computer
+paired to the primary through its own outbound tunnel (UPLINK_CONF, see "this computer as a node").
 
 Memorie e regole degli agenti (harness-sync, accanto a questo file): a ogni giro lancia, staccato, `harness-sync run`
 con i nodi pronti; dopo un riallineamento del codice lo forza. Cosa e dove sta in ~/.topics/harness-sync.config.json
@@ -42,8 +47,13 @@ APP_DIR = os.environ.get("NODE_POOL_APP_DIR", os.path.join(HOME, "Projects/topic
 ST = os.path.join(HOME, ".topics/node-pool")
 STATE = os.path.join(ST, "state.json")
 LOG = os.environ.get("NODE_POOL_LOG", os.path.join(HOME, ".claude/jarvis/logs/node-pool.log"))
-KEY = os.path.join(HOME, ".ssh/offload_hetzner")
-TETTO_BIN = os.path.join(HOME, "bin/hetzner-tetto")
+KEY = os.environ.get("NODE_POOL_SSH_KEY", os.path.join(HOME, ".ssh/offload_hetzner"))
+TETTO_BIN = os.environ.get("NODE_POOL_TETTO", os.path.join(HOME, "bin/hetzner-tetto"))
+# Where this computer's Topics keeps primary-state.json and primary-retired.json (server/lib/data-dir.ts resolveAppDataDir)
+APP_DATA = os.environ.get("NODE_POOL_APP_DATA_DIR") or os.environ.get("APP_DATA_DIR") or os.path.join(HOME, ".topics")
+# Secret-store name of the Hetzner token where there is no Keychain (scripts/secret-read.ts)
+HCLOUD_SECRET = os.environ.get("NODE_POOL_HCLOUD_SECRET", "hcloud-token")
+BUN = os.environ.get("NODE_POOL_BUN", "bun")
 STRUMENTI = os.environ.get("TOPICS_NODE_TOOLS", os.path.join(os.path.dirname(HERE), "node-tools.txt"))
 
 HARNESS_SYNC = os.path.join(HERE, "harness-sync")
@@ -184,12 +194,27 @@ class Lock:
 
 # ── Hetzner e Topics ────────────────────────────────────────────────────────────
 
+_TOKEN = []
+
+
 def token():
-    t = os.environ.get("HCLOUD_TOKEN") or subprocess.run(
-        ["security", "find-generic-password", "-s", "hcloud", "-a", "topics-nodes", "-w"],
-        capture_output=True, text=True).stdout.strip()
+    """The Hetzner token: the environment, else the Keychain on macOS, else the secret store on the primary
+    (age file, unlocked by systemd). Read once per run; it only ever travels through stdout and memory."""
+    if _TOKEN:
+        return _TOKEN[0]
+    t = os.environ.get("HCLOUD_TOKEN", "")
+    if not t and sys.platform == "darwin":
+        t = subprocess.run(["security", "find-generic-password", "-s", "hcloud", "-a", "topics-nodes", "-w"],
+                           capture_output=True, text=True).stdout.strip()
     if not t:
-        raise SystemExit("node-pool: token Hetzner hcloud/topics-nodes non leggibile")
+        try:
+            t = subprocess.run([BUN, os.path.join(APP_DIR, "scripts/secret-read.ts"), HCLOUD_SECRET], cwd=APP_DIR,
+                               capture_output=True, text=True, timeout=60).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            t = ""
+    if not t:
+        raise SystemExit(f"node-pool: token Hetzner non leggibile (Keychain hcloud/topics-nodes o deposito {HCLOUD_SECRET})")
+    _TOKEN.append(t)
     return t
 
 
@@ -212,11 +237,25 @@ _CTX.check_hostname = False
 _CTX.verify_mode = ssl.CERT_NONE
 
 
-def mac(method, path, body=None, timeout=30):
-    req = urllib.request.Request(MAC + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+def http_json(base, method, path, body=None, timeout=30):
+    req = urllib.request.Request(base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout, context=_CTX) as r:
         return json.loads(r.read() or b"{}")
+
+
+def mac(method, path, body=None, timeout=30):
+    return http_json(MAC, method, path, body, timeout)
+
+
+def port_open(port, host="127.0.0.1", timeout=2):
+    """A listener answers on the port: a plain connect, the same on macOS and Linux (BSD `nc -G` is not on Linux)."""
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def pool_servers():
@@ -396,7 +435,7 @@ def tunnel_alive(sl):
         os.kill(pid, 0)
     except OSError:
         return False
-    return subprocess.run(["nc", "-z", "-G", "2", "127.0.0.1", str(LPORT + sl["n"])], capture_output=True).returncode == 0
+    return port_open(LPORT + sl["n"])
 
 
 def open_tunnel(sl):
@@ -557,7 +596,7 @@ def delete(state, n, reason):
     state["slots"][str(n)] = {"n": n}
     save_state(state)
     # tray e `hetzner-tetto json` leggono il registro del tetto: va riscritto subito, non al giro dopo
-    if sid:
+    if sid and os.path.exists(TETTO_BIN):
         subprocess.run([TETTO_BIN, "stato"], capture_output=True, timeout=60)
 
 
@@ -771,13 +810,288 @@ def run_harness_sync(targets, force=False):
 
 # ── comandi ─────────────────────────────────────────────────────────────────────
 
+# ── who is the primary, and this computer as a node of it ─────────────────────────────
+#
+# One writer for the pool: only the primary manages nodes (openspec/changes/nodo-principale-a-mano T5).
+# A computer that handed the primary over keeps running this same script, and its giro does one thing:
+# keep its own outbound tunnel to the primary open and stay paired there as a node. Outbound only,
+# because a laptop is reachable only in that direction:
+#   -R <node_port> on the primary -> this computer's node listener (TOPICS_TUNNEL_PORT, wants the pairing token)
+#   -L <api_port> here            -> the primary's main server, on its loopback: drives the pairing
+#   -L <hub_port> here            -> the primary's model hub, so ANTHROPIC_BASE_URL keeps its local address
+# Everything that varies between installations lives in UPLINK_CONF (absent = off):
+#   {"ssh": "<ssh destination>", "listener_port": N, "key": "...", "node_port": 3302, "api_port": 3502,
+#    "api_remote_port": 3333, "api_scheme": "https|http", "listener_scheme": "http|https",
+#    "hub_port": N, "hub_remote_port": N, "slots": N, "name": "..."}
+
+UPLINK_CONF = os.environ.get("NODE_POOL_UPLINK", os.path.join(ST, "uplink.json"))
+# api_port stays out of 3400-3450, the preview pool: a preview server there would pass for the tunnel.
+UPLINK_DEFAULTS = {"node_port": 3302, "api_port": 3502, "api_remote_port": 3333, "listener_scheme": "http"}
+
+
+def local_machine_id():
+    """The id the server itself compares with primaryMachineId, written by the server next to primary-state.json
+    (server/lib/primary-role.ts writeLocalMachineId). Never guessed from the hostname: a switch leaves rows
+    with a base_url and several hostnames, and only the server knows which row is its own."""
+    try:
+        with open(os.path.join(APP_DATA, "primary-local-id.json")) as f:
+            return (json.load(f) or {}).get("machineId") or None
+    except Exception:
+        return None
+
+
+def has_primary_channel():
+    """True when this server holds a channel to another primary (primary_state.channel_machine_id set, written
+    when it was paired as a secondary). None = the DB cannot say."""
+    import sqlite3
+    try:
+        db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
+        try:
+            r = db.execute("select channel_machine_id from primary_state where id = 1").fetchone()
+        finally:
+            db.close()
+    except sqlite3.OperationalError as e:
+        # A server older than the roles has no such table: it is the sole primary it always was.
+        return False if "no such table" in str(e) else None
+    except Exception:
+        return None
+    return bool(r and r[0])
+
+
+def local_role():
+    """'primary', 'secondary' or 'unknown', from the files the server writes first
+    (server/lib/primary-role.ts, server/lib/primary-switch-markers.ts). No choice made = primary only while
+    this server has no channel to another primary (the server's own rule is the same file, but a node that was
+    never switched to is still a secondary of the primary it is paired with); anything unreadable = unknown,
+    and unknown manages nothing."""
+    if os.path.exists(os.path.join(APP_DATA, "primary-retired.json")):
+        return "secondary"
+    chosen = None
+    try:
+        with open(os.path.join(APP_DATA, "primary-state.json")) as f:
+            chosen = (json.load(f) or {}).get("primaryMachineId")
+    except FileNotFoundError:
+        pass
+    except Exception:
+        return "unknown"
+    if not chosen:
+        channel = has_primary_channel()
+        if channel is None:
+            return "unknown"
+        return "secondary" if channel else "primary"
+    here = local_machine_id()
+    if not here:
+        return "unknown"
+    return "primary" if chosen == here else "secondary"
+
+
+def is_this_host(server):
+    """The Hetzner server is the machine running this script (its hostname is the server name)."""
+    import socket
+    return bool(server) and server.get("name") == socket.gethostname().split(".")[0]
+
+
+def uplink_conf():
+    try:
+        with open(UPLINK_CONF) as f:
+            c = json.load(f)
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        log(f"uplink: {UPLINK_CONF} illeggibile: {e}")
+        return None
+    if not isinstance(c, dict) or not c.get("ssh") or not c.get("listener_port"):
+        return None
+    return {**UPLINK_DEFAULTS, **c}
+
+
+def uplink_wants_hub(c):
+    return bool(c.get("hub_port") and c.get("hub_remote_port"))
+
+
+def uplink_argv(c, hub):
+    argv = ["ssh", "-N"]
+    if c.get("key"):
+        argv += ["-i", c["key"], "-o", "IdentitiesOnly=yes"]
+    argv += ["-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15",
+             "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=accept-new",
+             "-o", f"UserKnownHostsFile={os.path.join(ST, 'uplink_known_hosts')}",
+             "-R", f"127.0.0.1:{c['node_port']}:127.0.0.1:{c['listener_port']}",
+             "-L", f"127.0.0.1:{c['api_port']}:127.0.0.1:{c['api_remote_port']}"]
+    if hub:
+        argv += ["-L", f"127.0.0.1:{c['hub_port']}:127.0.0.1:{c['hub_remote_port']}"]
+    return argv + [c["ssh"]]
+
+
+def pid_alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def listening_pids(port):
+    """Pids holding a loopback listener on the port (lsof, else ss), the same on macOS and Linux. Empty = unknown."""
+    import re
+    for argv in (["lsof", "-t", "-nP", f"-iTCP@127.0.0.1:{port}", "-sTCP:LISTEN"],
+                 ["ss", "-H", "-ltnp", f"sport = :{port}"]):
+        try:
+            out = subprocess.run(argv, capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if argv[0] == "ss":
+            pids = {int(x) for x in re.findall(r"pid=(\d+)", out)}
+        else:
+            pids = {int(x) for x in out.split() if x.isdigit()}
+        if pids:
+            return pids
+    return set()
+
+
+def uplink_alive(up, c):
+    """Alive = our ssh is running and it is the one listening on the api port: any other listener there is an
+    impostor (it would receive the pairing request), and counts as a dead tunnel."""
+    pid = up.get("pid")
+    return pid_alive(pid) and pid in listening_pids(c["api_port"])
+
+
+def is_ssh(pid):
+    """The saved pid is still our ssh, not a recycled number."""
+    try:
+        out = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return os.path.basename(out.strip()) == "ssh"
+
+
+def close_uplink(up):
+    pid = up.pop("pid", None)
+    up.pop("hub", None)
+    if pid_alive(pid) and is_ssh(pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+
+def open_uplink(up, c):
+    # The hub port is this computer's own hub address: while a local hub still holds it the tunnel
+    # goes up without it (ExitOnForwardFailure would drop the node too), and a later giro adds it.
+    hub = uplink_wants_hub(c) and not port_open(c["hub_port"])
+    if uplink_wants_hub(c) and not hub:
+        log(f"uplink: porta {c['hub_port']} dell'hub occupata qui, tunnel senza hub")
+    p = subprocess.Popen(uplink_argv(c, hub), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    up["pid"], up["hub"] = p.pid, hub
+    for _ in range(20):
+        if uplink_alive(up, c):
+            return True
+        if p.poll() is not None:
+            break
+        time.sleep(1)
+    close_uplink(up)
+    return False
+
+
+def primary_api(c, method, path, body=None, timeout=30):
+    """The primary's main server through the -L: loopback there, the same trust node-pool has on its own server."""
+    last = None
+    for scheme in ([c["api_scheme"]] if c.get("api_scheme") else ["https", "http"]):
+        try:
+            return http_json(f"{scheme}://127.0.0.1:{c['api_port']}", method, path, body, timeout)
+        except urllib.error.HTTPError:
+            raise
+        except Exception as e:
+            last = e
+    raise last
+
+
+def pair_uplink(c):
+    """Pairs this computer as a node of the primary: the primary opens, this computer approves on its own loopback."""
+    base = f"{c['listener_scheme']}://127.0.0.1:{c['node_port']}"
+    opened = primary_api(c, "POST", "/api/machines/pair", {"baseUrl": base})
+    for _ in range(30):
+        reqs = mac("GET", "/api/auth/pair/pending").get("requests", [])
+        req = next((q for q in reqs if q.get("code") == opened["code"]), None)
+        if req:
+            mac("POST", "/api/auth/pair/approve", {"requestId": req["id"], "role": "owner"})
+            break
+        time.sleep(2)
+    for _ in range(30):
+        g = primary_api(c, "GET", f"/api/machines/pair/{opened['pairingId']}")
+        if g.get("state") == "approved":
+            return g["machine"]["id"]
+        if g.get("state") != "pending":
+            raise RuntimeError(f"appaiamento col principale: {g.get('state')}")
+        time.sleep(2)
+    raise RuntimeError("appaiamento col principale: nessuna risposta")
+
+
+def ensure_uplink_paired(up, c):
+    mid = up.get("machine_id")
+    if mid:
+        try:
+            primary_api(c, "GET", f"/api/machines/{mid}")
+            return mid
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+            log("uplink: il principale non conosce questo computer, lo riaccoppio")
+    import socket
+    mid = pair_uplink(c)
+    up["machine_id"] = mid
+    primary_api(c, "PATCH", f"/api/machines/{mid}", {"name": c.get("name") or socket.gethostname().split(".")[0]})
+    primary_api(c, "PATCH", f"/api/machines/{mid}", {"slots": int(c.get("slots") or SLOTS_PER_NODE)})
+    log(f"uplink: accoppiato al principale come nodo {mid}")
+    return mid
+
+
+def uplink_giro(role):
+    """On a secondary: tunnel up and paired. Anywhere else (primary, unknown, no config): tunnel down."""
+    c = uplink_conf()
+    with Lock("uplink"):
+        state = load_state()
+        up = state.setdefault("uplink", {})
+        if not c or role != "secondary":
+            if up.get("pid"):
+                close_uplink(up)
+                log(f"uplink: chiuso ({'nessuna configurazione' if not c else 'ruolo ' + role})")
+                save_state(state)
+            return 0
+        stale_hub = uplink_wants_hub(c) and not up.get("hub") and not port_open(c["hub_port"])
+        if not uplink_alive(up, c) or stale_hub:
+            close_uplink(up)
+            ok = open_uplink(up, c)
+            log(f"uplink: tunnel verso il principale {'aperto' if ok else 'non aperto'}")
+            if not ok:
+                save_state(state)
+                return 1
+        try:
+            ensure_uplink_paired(up, c)
+        finally:
+            save_state(state)
+    return 0
+
+
 def giro():
     sweep_stale_bundles()
+    role = local_role()
+    if role != "primary":
+        log(f"ruolo {role}: il pool non viene gestito da questo computer")
+    try:
+        uplink_giro(role)
+    except Exception as e:
+        log(f"uplink: {e}")
+    if role != "primary":
+        return 0  # one writer: only the primary manages the pool
     with Lock("giro"):
         state = load_state()
         now = time.time()
         fx = permanent_server()
-        if fx:
+        if fx and not is_this_host(fx):
             try:
                 ensure_permanent(state, fx)
             except Exception as e:
@@ -1007,4 +1321,4 @@ def spegni():
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "stato"
     sys.exit({"giro": giro, "hook": hook, "snapshot": snapshot, "stato": stato, "spegni": spegni, "permanent-ci": permanent_ci,
-              "--selftest": selftest}.get(cmd, stato)() or 0)
+              "uplink": lambda: uplink_giro(local_role()), "--selftest": selftest}.get(cmd, stato)() or 0)

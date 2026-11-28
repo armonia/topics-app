@@ -82,6 +82,7 @@
         "scripts/backfill-agent-account.ts", // lancio a mano: bun run scripts/backfill-agent-account.ts <id>=<account> [--apply] (dichiara l'account di un agente senza riavviare la migrazione automatica)
         "scripts/migrate-principal-soul.ts", // lancio a mano: bun run scripts/migrate-principal-soul.ts <agentId> [--keep "<heading>"] [--apply] (sposta le direttive dal SOUL dell agente principale allo strato utente)
         "scripts/redact-stored-secrets.ts", // lancio a mano: bun run scripts/redact-stored-secrets.ts [--apply] [--db PATH] (SEC-02: oscura i segreti già salvati, dopo il backup)
+        "scripts/secret-read.ts", // run by deploy/cloud-node/node-pool: bun scripts/secret-read.ts <name> (one secret of the store on stdout)
         "scripts/build-client.ts",
         "scripts/compose-release-manifest.ts", // invoked by .github/workflows/tauri-release.yml
         "scripts/assert-sig.ts", // invoked by .github/workflows/tauri-release.yml (publish job)

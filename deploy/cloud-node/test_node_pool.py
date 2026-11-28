@@ -2,13 +2,15 @@
 
 @covers WORKTREE-STD-12 (BundleNeverStays)
 """
-import base64, importlib.machinery, importlib.util, os, shutil, tempfile, unittest
+import base64, importlib.machinery, importlib.util, json, os, shutil, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["NODE_POOL_LOG"] = "/tmp/node-pool-test.log"
 loader = importlib.machinery.SourceFileLoader("node_pool", os.path.join(HERE, "node-pool"))
 np = importlib.util.module_from_spec(importlib.util.spec_from_loader("node_pool", loader))
 loader.exec_module(np)
+# Other benches swap module functions and keep them: the uplink bench starts from the real ones
+PRISTINE = dict(vars(np))
 
 
 class R:
@@ -308,6 +310,385 @@ class LoadedThroughASymlink(unittest.TestCase):
         loader.exec_module(mod)
         self.assertTrue(os.path.isdir(os.path.join(mod.HERE, "..", "permanent-node")), mod.HERE)
         self.assertTrue(os.path.exists(mod.STRUMENTI), mod.STRUMENTI)
+
+
+class NoLock:
+    def __init__(self, name): pass
+    def __enter__(self): return self
+    def __exit__(self, *a): pass
+
+
+class Role(unittest.TestCase):
+    """Who is the primary, read from the files the server writes: only the primary manages the pool."""
+    def setUp(self):
+        import sqlite3
+        self.tmp = tempfile.mkdtemp()
+        self.saved = (np.APP_DATA, np.MAC_DB)
+        np.APP_DATA, np.MAC_DB = self.tmp, os.path.join(self.tmp, "topics.db")
+        self.db = sqlite3.connect(np.MAC_DB)
+        self.db.execute("create table primary_state (id integer primary key, channel_device_id text, channel_machine_id text)")
+        self.db.execute("insert into primary_state (id) values (1)")
+        # the shape the primary switch leaves behind: the new primary is a paired row with a base_url,
+        # and the rows of this computer carry hostnames that are not its current one
+        self.db.execute("create table machines (id text, hostname text, base_url text)")
+        self.db.execute("insert into machines values ('here', 'old-name', 'http://127.0.0.1:3401'), ('node', 'other', null)")
+        self.db.commit()
+        self.write("primary-local-id.json", '{"machineId": "here"}')
+
+    def tearDown(self):
+        self.db.close()
+        np.APP_DATA, np.MAC_DB = self.saved
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def write(self, name, body):
+        with open(os.path.join(self.tmp, name), "w") as f:
+            f.write(body)
+
+    def channel(self, machine_id):
+        self.db.execute("update primary_state set channel_machine_id=? where id=1", (machine_id,))
+        self.db.commit()
+
+    def test_never_chosen_without_a_channel_is_primary(self):
+        self.assertEqual(np.local_role(), "primary")
+        self.write("primary-state.json", '{"primaryMachineId": null, "epoch": 0}')
+        self.assertEqual(np.local_role(), "primary")
+
+    def test_never_chosen_with_a_channel_to_a_primary_is_secondary(self):
+        # a server paired to a primary before any switch: an empty registry here would reap the primary's pool
+        self.channel("node")
+        self.assertEqual(np.local_role(), "secondary")
+        self.write("primary-state.json", '{"primaryMachineId": null, "epoch": 0}')
+        self.assertEqual(np.local_role(), "secondary")
+
+    def test_db_without_roles_yet_is_the_sole_primary(self):
+        self.db.execute("drop table primary_state")
+        self.db.commit()
+        self.assertEqual(np.local_role(), "primary")
+
+    def test_unreadable_db_is_unknown(self):
+        np.MAC_DB = os.path.join(self.tmp, "missing", "topics.db")
+        self.assertEqual(np.local_role(), "unknown")
+
+    def test_chosen_elsewhere_is_secondary_and_here_is_primary(self):
+        self.write("primary-state.json", '{"primaryMachineId": "node", "epoch": 2}')
+        self.assertEqual(np.local_role(), "secondary")
+        self.write("primary-state.json", '{"primaryMachineId": "here", "epoch": 3}')
+        self.assertEqual(np.local_role(), "primary")
+
+    def test_the_id_comes_from_the_server_not_from_the_hostname(self):
+        self.write("primary-state.json", '{"primaryMachineId": "here", "epoch": 3}')
+        self.assertEqual(np.local_role(), "primary")
+        os.remove(os.path.join(self.tmp, "primary-local-id.json"))
+        self.assertEqual(np.local_role(), "unknown")
+
+    def test_retired_marker_wins(self):
+        self.write("primary-state.json", '{"primaryMachineId": "here", "epoch": 3}')
+        self.write("primary-retired.json", '{"epoch": 3}')
+        self.assertEqual(np.local_role(), "secondary")
+
+    def test_unreadable_is_unknown(self):
+        self.write("primary-state.json", "{not json")
+        self.assertEqual(np.local_role(), "unknown")
+
+
+class GiroOneWriter(unittest.TestCase):
+    """A secondary (or a computer that cannot tell) never touches Hetzner nor a node: one writer for the pool."""
+    def setUp(self):
+        self.saved = {k: getattr(np, k) for k in ("local_role", "uplink_giro", "permanent_server", "pool_servers",
+                                                  "sweep_stale_bundles", "Lock", "load_state", "save_state",
+                                                  "run_harness_sync", "harness_targets")}
+        self.calls = []
+        np.sweep_stale_bundles = lambda now=None, state_dir=None: None
+        np.uplink_giro = lambda role: self.calls.append(("uplink", role))
+        np.permanent_server = lambda: self.calls.append("hetzner") or None
+        np.pool_servers = lambda: self.calls.append("hetzner") or []
+        np.Lock = NoLock
+        np.load_state = lambda: {"slots": {}}
+        np.save_state = lambda s: None
+        np.run_harness_sync = lambda targets, force=False: None
+        np.harness_targets = lambda state: []
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(np, k, v)
+
+    def test_secondary_only_keeps_its_uplink(self):
+        for role in ("secondary", "unknown"):
+            self.calls.clear()
+            np.local_role = lambda role=role: role
+            self.assertEqual(np.giro(), 0)
+            self.assertEqual(self.calls, [("uplink", role)])
+
+    def test_primary_manages_the_pool_and_closes_its_uplink(self):
+        np.local_role = lambda: "primary"
+        np.giro()
+        self.assertEqual(self.calls[0], ("uplink", "primary"))
+        self.assertIn("hetzner", self.calls)
+
+    def test_primary_on_the_permanent_node_does_not_tunnel_to_itself(self):
+        import socket
+        np.local_role = lambda: "primary"
+        np.permanent_server = lambda: {"name": socket.gethostname().split(".")[0], "id": 7}
+        np.ensure_permanent, saved = (lambda state, fx: self.calls.append("ensure_permanent")), np.ensure_permanent
+        try:
+            np.giro()
+        finally:
+            np.ensure_permanent = saved
+        self.assertNotIn("ensure_permanent", self.calls)
+
+
+class FakePrimary:
+    """The primary's main server as the Mac sees it through the -L: pairing, machines, slots."""
+    def __init__(self, mac_pending):
+        import http.server, json as j, threading
+        self.machines, self.pairings, self.patches, self.mac_pending = {}, {}, [], mac_pending
+        outer = self
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+
+            def reply(self, code, body):
+                raw = j.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def body(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                return j.loads(self.rfile.read(n) or b"{}")
+
+            def do_POST(self):
+                if self.path == "/api/machines/pair":
+                    b = self.body()
+                    pid = f"p{len(outer.pairings) + 1}"
+                    outer.pairings[pid] = {"baseUrl": b["baseUrl"], "code": f"C{pid}", "approved": False}
+                    # the primary reaches the Mac's listener through the -R: a pending request appears there
+                    outer.mac_pending.append({"id": f"r-{pid}", "code": f"C{pid}", "pairing": pid})
+                    return self.reply(200, {"pairingId": pid, "code": f"C{pid}", "expiresInMs": 60000})
+                self.reply(404, {})
+
+            def do_GET(self):
+                if self.path.startswith("/api/machines/pair/"):
+                    p = outer.pairings.get(self.path.rsplit("/", 1)[1])
+                    if not p:
+                        return self.reply(200, {"state": "expired"})
+                    if not p["approved"]:
+                        return self.reply(200, {"state": "pending"})
+                    mid = f"m-{self.path.rsplit('/', 1)[1]}"
+                    outer.machines.setdefault(mid, {"id": mid, "baseUrl": p["baseUrl"], "status": "online"})
+                    return self.reply(200, {"state": "approved", "machine": outer.machines[mid]})
+                if self.path == "/api/machines":
+                    return self.reply(200, {"machines": list(outer.machines.values())})
+                if self.path.startswith("/api/machines/"):
+                    m = outer.machines.get(self.path.rsplit("/", 1)[1])
+                    return self.reply(200, m) if m else self.reply(404, {"error": "Machine not found"})
+                self.reply(404, {})
+
+            def do_PATCH(self):
+                mid = self.path.rsplit("/", 1)[1]
+                b = self.body()
+                outer.patches.append((mid, b))
+                outer.machines.get(mid, {}).update(b)
+                self.reply(200, outer.machines.get(mid, {}))
+
+        self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.port = self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+
+class Uplink(unittest.TestCase):
+    """The Mac as a node of the primary: outbound tunnel, paired once, reopened when it dies."""
+    def setUp(self):
+        import socket
+        self.tmp = tempfile.mkdtemp()
+        self.saved = {k: getattr(np, k) for k in ("UPLINK_CONF", "ST", "STATE", "Lock", "mac", "pid_alive", "subprocess",
+                                                  "load_state", "save_state", "uplink_giro", "port_open", "http_json",
+                                                  "listening_pids", "is_ssh")}
+        for k in ("load_state", "save_state", "uplink_giro", "port_open", "http_json"):
+            setattr(np, k, PRISTINE[k])
+        np.ST = self.tmp
+        np.STATE = os.path.join(self.tmp, "state.json")
+        np.UPLINK_CONF = os.path.join(self.tmp, "uplink.json")
+        np.Lock = NoLock
+        self.mac_pending, self.approved = [], []
+        self.primary = FakePrimary(self.mac_pending)
+
+        def fake_mac(method, path, body=None, timeout=30):
+            if path == "/api/auth/pair/pending":
+                return {"requests": list(self.mac_pending)}
+            if path == "/api/auth/pair/approve":
+                req = next(q for q in self.mac_pending if q["id"] == body["requestId"])
+                self.approved.append(body)
+                self.primary.pairings[req["pairing"]]["approved"] = True
+                self.mac_pending.remove(req)
+                return {"ok": True}
+            raise AssertionError(path)
+        np.mac = fake_mac
+        self.alive, self.spawned = set(), []
+        test = self
+
+        class Popen:
+            def __init__(self, argv, **kw):
+                self.pid = 1000 + len(test.spawned)
+                test.spawned.append(argv)
+                test.alive.add(self.pid)
+            def poll(self): return None if self.pid in test.alive else 1
+
+        class FakeSubprocess:
+            DEVNULL = -3
+            Popen = None
+        FakeSubprocess.Popen = Popen
+        np.subprocess = FakeSubprocess
+        np.pid_alive = lambda pid: pid in self.alive
+        np.is_ssh = lambda pid: True
+        # the tunnel is the listener on the api port as long as it runs: the fake primary stands in for the -L
+        self.listener = None
+        np.listening_pids = lambda port: set(self.alive) if self.listener is None else {self.listener}
+        # a free port for the hub: nothing listens there until a test says so
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        self.hub_port = s.getsockname()[1]
+        s.close()
+        self.conf = {"ssh": "primary-host", "listener_port": 3341, "node_port": 3302,
+                     "api_port": self.primary.port, "api_scheme": "http", "hub_port": self.hub_port, "hub_remote_port": 4000}
+        with open(np.UPLINK_CONF, "w") as f:
+            json.dump(self.conf, f)
+
+    def tearDown(self):
+        self.primary.close()
+        for k, v in self.saved.items():
+            setattr(np, k, v)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def state(self):
+        with open(np.STATE) as f:
+            return json.load(f)["uplink"]
+
+    def test_secondary_opens_the_tunnel_and_shows_up_online_on_the_primary(self):
+        self.assertEqual(np.uplink_giro("secondary"), 0)
+        argv = self.spawned[0]
+        self.assertIn("127.0.0.1:3302:127.0.0.1:3341", argv[argv.index("-R") + 1])
+        self.assertIn(f"127.0.0.1:{self.hub_port}:127.0.0.1:4000", argv)
+        self.assertEqual(argv[-1], "primary-host")
+        self.assertEqual(self.approved, [{"requestId": "r-p1", "role": "owner"}])
+        mid = self.state()["machine_id"]
+        listed = np.http_json(f"http://127.0.0.1:{self.primary.port}", "GET", "/api/machines")["machines"]
+        self.assertEqual([(m["id"], m["baseUrl"], m["status"]) for m in listed], [(mid, "http://127.0.0.1:3302", "online")])
+        self.assertIn((mid, {"slots": np.SLOTS_PER_NODE}), self.primary.patches)
+
+    def test_tunnel_down_is_reopened_without_pairing_again(self):
+        np.uplink_giro("secondary")
+        mid = self.state()["machine_id"]
+        self.alive.clear()  # the tunnel dies: laptop lid closed, network gone
+        np.uplink_giro("secondary")
+        self.assertEqual(len(self.spawned), 2)
+        self.assertEqual(self.state()["machine_id"], mid)
+        self.assertEqual(len(self.primary.pairings), 1)
+
+    def test_a_foreign_listener_on_the_api_port_is_not_the_tunnel(self):
+        np.uplink_giro("secondary")
+        self.listener = 4242  # another process took the port: our ssh runs but does not hold it
+        self.assertFalse(np.uplink_alive(self.state(), self.conf))
+        np.uplink_giro("secondary")
+        self.assertEqual(len(self.spawned), 2)  # reopened instead of trusting the impostor
+
+    def test_default_api_port_is_outside_the_preview_pool(self):
+        self.assertFalse(3400 <= np.UPLINK_DEFAULTS["api_port"] <= 3450)
+
+    def test_alive_tunnel_is_left_alone(self):
+        np.uplink_giro("secondary")
+        np.uplink_giro("secondary")
+        self.assertEqual(len(self.spawned), 1)
+
+    def test_primary_that_forgot_this_computer_pairs_it_again(self):
+        np.uplink_giro("secondary")
+        self.primary.machines.clear()
+        np.uplink_giro("secondary")
+        self.assertEqual(len(self.primary.pairings), 2)
+        self.assertNotEqual(self.state()["machine_id"], "m-p1")
+
+    def test_busy_local_hub_port_opens_without_the_hub_then_adds_it(self):
+        import socket
+        busy = socket.socket()
+        busy.bind(("127.0.0.1", self.hub_port))
+        busy.listen(16)
+        try:
+            np.uplink_giro("secondary")
+        finally:
+            busy.close()
+        self.assertNotIn(f"127.0.0.1:{self.hub_port}:127.0.0.1:4000", self.spawned[0])
+        self.assertFalse(self.state()["hub"])
+        np.uplink_giro("secondary")  # the local hub is gone: the tunnel comes back with it
+        self.assertIn(f"127.0.0.1:{self.hub_port}:127.0.0.1:4000", self.spawned[1])
+
+    def test_becoming_primary_closes_the_tunnel(self):
+        np.uplink_giro("secondary")
+        killed = []
+        saved_kill = np.os.kill
+        np.os.kill = lambda pid, sig: killed.append(pid)
+        try:
+            np.uplink_giro("primary")
+        finally:
+            np.os.kill = saved_kill
+        self.assertEqual(killed, [1000])
+        self.assertNotIn("pid", self.state())
+
+    def test_no_config_is_off(self):
+        os.remove(np.UPLINK_CONF)
+        self.assertEqual(np.uplink_giro("secondary"), 0)
+        self.assertEqual(self.spawned, [])
+
+
+class ListeningPids(unittest.TestCase):
+    def test_finds_the_process_holding_a_loopback_port(self):
+        import shutil as sh, socket
+        if not (sh.which("lsof") or sh.which("ss")):
+            self.skipTest("neither lsof nor ss here")
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        try:
+            self.assertIn(os.getpid(), np.listening_pids(srv.getsockname()[1]))
+        finally:
+            srv.close()
+
+
+class HcloudToken(unittest.TestCase):
+    """Without a Keychain the Hetzner token comes from the secret store, through stdout, never argv."""
+    def setUp(self):
+        self.saved = (np.subprocess, np.sys.platform, os.environ.pop("HCLOUD_TOKEN", None))
+        np._TOKEN.clear()
+        self.runs = []
+        test = self
+
+        class FakeSubprocess:
+            TimeoutExpired = TimeoutError
+            @staticmethod
+            def run(argv, **kw):
+                test.runs.append(argv)
+                class Done: stdout = "tok-from-store\n" if argv[0] == np.BUN else ""
+                return Done()
+        np.subprocess = FakeSubprocess
+        np.sys.platform = "linux"
+
+    def tearDown(self):
+        np.subprocess, np.sys.platform, env = self.saved
+        if env is not None:
+            os.environ["HCLOUD_TOKEN"] = env
+        np._TOKEN.clear()
+
+    def test_linux_reads_the_store_once(self):
+        self.assertEqual(np.token(), "tok-from-store")
+        self.assertEqual(np.token(), "tok-from-store")
+        self.assertEqual(len(self.runs), 1)
+        self.assertEqual(self.runs[0][1:], [os.path.join(np.APP_DIR, "scripts/secret-read.ts"), np.HCLOUD_SECRET])
+        self.assertNotIn("security", self.runs[0])
 
 
 if __name__ == "__main__":
