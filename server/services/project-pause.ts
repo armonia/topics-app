@@ -29,7 +29,6 @@ import type { Database } from "bun:sqlite";
 
 import { resolveProjectLimit, storedLimit } from "../usage/project-limit";
 
-export const DEFAULT_LIMIT_24H_PCT: number | null = resolveProjectLimit("", undefined);
 /** How many more points "Continua" buys before the confirmation returns. */
 export const CONTINUE_GRACE_PCT = 10;
 

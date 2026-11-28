@@ -7,7 +7,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { storedLimit } from "../usage/project-limit";
 import {
-  CONTINUE_GRACE_PCT, DEFAULT_LIMIT_24H_PCT, continueProject, nextLocalMidnight, openPauseIfNeeded,
+  CONTINUE_GRACE_PCT, continueProject, nextLocalMidnight, openPauseIfNeeded,
   pauseState, pauseUntilTomorrow, projectIsPaused, reconcilePause, projectPauseInfo, readProjectQuotaRow, setProjectLimit,
 } from "./project-pause";
 import { createTaskService, type TaskService } from "./tasks";
@@ -190,7 +190,6 @@ describe("projectPauseInfo", () => {
   test("a project never configured has no limit and is not stopped at 35 points", () => {
     const db = makeDb();
     const info = projectPauseInfo(db, "q", 35);
-    expect(info.limit).toBe(DEFAULT_LIMIT_24H_PCT);
     expect(info.limit).toBeNull();
     expect(info.paused).toBe(false);
     expect(openPauseIfNeeded(db, "q", 35, 1_700_000_000_000)).toBe(false);
