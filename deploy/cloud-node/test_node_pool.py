@@ -116,7 +116,7 @@ class DeleteForgetsMachine(unittest.TestCase):
         np.subprocess.run = self._run
 
     def state(self, **slot):
-        return {"slots": {"2": {"n": 2, **slot}}, "lives": []}
+        return {"slots": {"2": {"n": 2, **slot}}}
 
     def test_hourly_server_row_is_deleted(self):
         s = self.state(server_id=7, machine_id="m2", ip="1.2.3.4", name="x")
