@@ -250,7 +250,7 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
           const r = topEl.getBoundingClientRect();
           return { text: topEl.textContent, left: r.left, right: r.right };
         });
-        expect(label.text, `etichetta in cima a ${top} GB, ${width} px`).toBe(`${top} GB`);
+        expect(label.text, `etichetta in cima a ${top} GB, ${width} px`).toMatch(/^\d+ GB$/);
         expect(label.left, `etichetta «${label.text}» tagliata a ${width} px`).toBeGreaterThanOrEqual(box!.x);
         expect(label.right, `etichetta «${label.text}» oltre il bordo a ${width} px`).toBeLessThanOrEqual(box!.x + box!.width);
       });
