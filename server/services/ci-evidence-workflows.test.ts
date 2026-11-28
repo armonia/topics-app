@@ -64,7 +64,7 @@ describe("a board whose CI is not in ci.yml", () => {
     expect(reruns).toEqual([77]);
   });
 
-  test("KANBAN-93: in a repo with both, the rerun is the declared workflow's run, not ci.yml's", async () => {
+  test("KANBAN-93b: in a repo with both, the rerun is the declared workflow's run, not ci.yml's", async () => {
     const reruns: number[] = [];
     const fake = fakePort({
       rerun: async (_repo, id) => { reruns.push(id); return { ok: true, value: undefined }; },
