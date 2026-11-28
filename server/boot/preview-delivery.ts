@@ -1,7 +1,9 @@
 /**
  * Card previews, auto-merge, worktree cleanup and the delivery references a card's branch is read through.
  */
-import { join } from "path";
+import { basename, join } from "path";
+import { AUTO_PREVIEW_DIR } from "../../shared/media-kind";
+import { worktreeTouchesInterface } from "../services/chat-preview-diff";
 import { mkdirSync, readFileSync, statSync, readlinkSync, realpathSync } from "fs";
 import { createTaskAutoMerge, declaredDeliveryFor, worktreeRealDirt } from "../services/task-automerge";
 import { imageShape, isBlankLikeImage } from "../services/image-shape";
@@ -26,6 +28,12 @@ import { keepDeliveryCommit } from "../services/delivery-ref-keep";
 import { auditOneLanding as auditOneLandingPass, type AuditWiring } from "../services/landing-audit-pass";
 import type { AfterQuiescence } from "./scope";
 import { late } from "./late";
+
+/** Cap on live chat previews: TOPICS_MAX_CHAT_PREVIEWS, default 2. */
+function chatPreviewCap(): number {
+  const n = Number(process.env.TOPICS_MAX_CHAT_PREVIEWS);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 2;
+}
 
 export function bootPreviewDelivery(scope: AfterQuiescence) {
   const { DISPATCH_WORKSPACE_DIR, broadcastToAll, ctx, dispatchExtraPaths, dispatcherSvc, scheduledCardsTimer, taskAttemptStore, worktreeOfTask } = scope;
@@ -79,6 +87,28 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       const wt = worktreeOfTask(taskId);
       if (!wt) return null;
       return { id: wt.id, absPath: wt.absPath, branchName: wt.branchName, projectId: wt.projectId, mode: wt.mode };
+    },
+    // A chat's worktree: only a chat that works in its own branch checkout. In
+    // the live checkout the real app is already the preview.
+    worktreeOfTopic: (topicId) => {
+      const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
+      const wt = worktreeId ? ctx.worktreeStore.get(worktreeId) : null;
+      if (!wt) return null;
+      return { id: wt.id, absPath: wt.absPath, branchName: wt.branchName, projectId: wt.projectId, mode: wt.mode };
+    },
+    maxChatPreviews: chatPreviewCap(),
+    // Same memory floor as the cards; `ourWorkRunning` so the one-card exemption does not apply.
+    admitChatPreview: () => late.resourceBlock?.() ?? null,
+    touchesInterface: (wt) => worktreeTouchesInterface(wt.absPath),
+    postChatMessage: (topicId, { content, media }) => {
+      const topic = ctx.getTopicById(topicId);
+      if (!topic?.sessionKey) return;
+      // The screenshot is served from the media folder the card previews use.
+      const image = (media ?? []).map((m) => `\n\n![Anteprima](/media/${AUTO_PREVIEW_DIR}/${basename(m)})`).join("");
+      const text = content + image;
+      const stored = ctx.appendLocalMessage(topic.sessionKey, "assistant", text);
+      ctx.broadcastToAll({ type: "message", sessionKey: topic.sessionKey, message: { id: stored.id, role: "assistant", content: text, timestamp: stored.timestamp } });
+      ctx.broadcastToAll({ type: "message:new", topicId, sessionKey: topic.sessionKey, role: "assistant", messageId: stored.id, content: text, preview: content.slice(0, 100) });
     },
     // How the command is chosen (env override, preview:worktree, package.json
     // heuristic) lives in `resolvePreviewCommand`. The server honours PORT (injected
@@ -180,6 +210,7 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
     // and an image taller than `PREVIEW_CARD_MAX_RATIO` (0.70) times its width
     // gets CROPPED instead of scaled — 1440×760 = 0.528 fits with margin.
     screenshot: (url, outPath, opts) => previewBrowser.screenshot(url, outPath, opts),
+    screenshotFailure: () => previewBrowser.lastFailure(),
     currentOutputUrl: (taskId) => dispatcherSvc.get(taskId)?.task.outputUrl ?? null,
     currentPreviewImage: (taskId) => dispatcherSvc.get(taskId)?.task.previewImage ?? null,
     setOutputUrl: (taskId, url) => {

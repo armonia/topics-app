@@ -33,6 +33,10 @@ export interface ScheduledJobRow {
   id: string; name: string; project_id: string | null; schedule_json: string; action_json: string;
   deliver_json: string | null; policy_json: string; enabled: number; next_run_at: string | null;
   created_by: string; created_at: string; updated_at: string; deleted_at: string | null;
+  /** 1 while a job an agent created waits for a person to turn it on (R26). */
+  awaiting_owner: number;
+  /** When the job got its delivery block: older runs are never delivered. */
+  deliver_since: string | null;
 }
 
 export interface RunRow {

@@ -37,7 +37,8 @@ import { createCheckpointsRouter } from "../routes/checkpoints";
 import { createGoalsRouter } from "../routes/goals";
 import { createPlanRouter } from "../routes/plan";
 import { createContextPreviewRouter } from "../routes/context-preview";
-import { listOwnedScripts, commandWakeState, createProcessesRouter, stopCommandWakesOf, stopTopicCommandProcesses } from "../routes/processes";
+import { listOwnedScripts, commandWakeState, createProcessesRouter, stopCommandWakesOf } from "../routes/processes";
+import { ensureChatPreview, stopTopicProcessesAndPreview } from "./chat-preview";
 import { killProcessTree } from "../lib/process-tree";
 import { buildProjectCandidates, isSelectableProjectDir } from "../services/project-path-resolver";
 import { homedir } from "os";
@@ -83,7 +84,8 @@ export function bootRoutersFirst(scope: AfterTracker) {
     hooks: defaultLifecycleHooks(),
     exposeGoalLoop: (l) => { late.goalLoop = l; },
     exposeAnswerRelay: (r) => { late.answerRelay = r; },
-    stopTopicProcesses: stopTopicCommandProcesses,
+    stopTopicProcesses: stopTopicProcessesAndPreview,
+    ensureChatPreview,
   });
 
   const orchestratorSessionsRouter = createOrchestratorSessionsRouter(ctx);
@@ -167,7 +169,6 @@ export function bootRoutersFirst(scope: AfterTracker) {
 
   const dashboardRouter = createDashboardRouter(ctx);
 
-  const usageRouter = createUsageRouter(ctx);
 
   // The usage hub's quotas, Mac and services, read by ONE reader while a window
   // is connected and pushed as `hub:live` (server/lib/hub-live.ts).
@@ -184,6 +185,7 @@ export function bootRoutersFirst(scope: AfterTracker) {
   hubLive.start();
 
   const hubRouter = createHubRouter(ctx, { live: hubLive, waiting });
+  const usageRouter = createUsageRouter(ctx, { waiting });
 
   const authRouter = createAuthRouter(ctx, {
     onCapabilityRevoked: async (capabilityId) => {
@@ -417,7 +419,7 @@ export function bootRoutersFirst(scope: AfterTracker) {
           purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id, (c) => browserService.destroyContext(c)),
         parkClaudeSession: parkTopicSession,
         recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, reason),
-        stopProcesses: stopTopicCommandProcesses,
+        stopProcesses: stopTopicProcessesAndPreview,
       }, topicId);
       // Nessuna risposta HTTP da restituire qui: la purge fallita si logga, non
       // può fermare il ritiro (il task è finito comunque).

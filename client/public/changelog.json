@@ -1,5 +1,79 @@
 [
   {
+    "version": "2.5.27",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Remove on-demand node-pool slots, keep the permanent node only",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview seed: correct the proven cause and lock it with tests",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.25",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Make the walkFileTree yield test load-independent",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Trace the systemd-temp-entries test to GATE-13 so check:untraced-tests passes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview photo: the announced page is the contract, not the bare home",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.24",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "node-pool: realign the permanent node without draining slots",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cut-run test falls back to lsof on macOS and always kills the runner group",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "node-pool: AI bridge on the nodes and a cap on new cards when behind",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.22",
     "date": "2026-11-27",
     "sections": {
@@ -62,6 +136,12 @@
           "it": "a wake is a continuation too; one list of machine marks for continuation and sentByPerson",
           "en": "",
           "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "close the race between retiring the orphan guard and re-arming it",
+          "en": "",
+          "scope": "tests",
           "breaking": false
         }
       ],
@@ -143,12 +223,34 @@
           "en": "",
           "scope": "node-delivery",
           "breaking": false
+        },
+        {
+          "it": "the two-server test's roots outlive a normal run",
+          "en": "",
+          "scope": "tests",
+          "breaking": false
+        },
+        {
+          "it": "retire the orphan guard right after the shared helper's server stops",
+          "en": "",
+          "scope": "tests",
+          "breaking": false
         }
       ],
       "perf": [],
       "internal": [
         {
           "it": "secret-store: mutex per file, derived recipient, Keychain limit and read-back, no env identity, secrets dir, CI age retry",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview seed: make the example topic standalone, not project-bound",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cloud node: install WebKit so a card there can get a live preview screenshot",
           "en": "",
           "scope": null
         },
@@ -170,6 +272,16 @@
         },
         {
           "it": "Prove \"already on main\" before writing it, and warn review of a false claim",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview seed test: declare the requirement it covers (KANBAN-126)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Exclude systemd PrivateTmp entries from the real-tmp-folder check",
           "en": "",
           "scope": null
         },
@@ -216,12 +328,23 @@
       "perf": [],
       "internal": [
         {
+          "it": "the cut-run mutation is caught at the registration contract",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Card legata a un nodo pieno: il pavimento di memoria del Mac non la nasconde al controllo delle card ferme",
           "en": "",
           "scope": null
         },
         {
           "it": "Card ferme: per una card legata a un nodo cade solo il pavimento di memoria del Mac, il disco pieno e la spesa restano un motivo (fermano anche la corsia remota)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revert \"chore(release):",
           "en": "",
           "scope": null
         }
@@ -257,6 +380,12 @@
           "it": "primary-role test: drop duplicated worktree opt-out after merge (card 9fecea98)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "name E2E-GATE-15 for the orphan-guard cut-run test",
+          "en": "",
+          "scope": "spec",
+          "breaking": false
         }
       ]
     }
@@ -781,6 +910,12 @@
           "breaking": false
         },
         {
+          "it": "a detached watchdog closes the servers and folders a cut run leaves behind",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "trace the new archive and blockedByTaskId tests to KANBAN-123/124",
           "en": "",
           "scope": null,
@@ -1020,9 +1155,21 @@
           "breaking": false
         },
         {
+          "it": "stop two-server test fully, loopback-only",
+          "en": "",
+          "scope": "tests",
+          "breaking": false
+        },
+        {
           "it": "carry node attachments to the primary, read delivery commits against origin/main",
           "en": "",
           "scope": "nodes",
+          "breaking": false
+        },
+        {
+          "it": "the two-server test's cut-run cleanup never ran under bun test",
+          "en": "",
+          "scope": "tests",
           "breaking": false
         }
       ],

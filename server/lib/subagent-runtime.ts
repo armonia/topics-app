@@ -548,7 +548,7 @@ export function subagentLimitRefusal(parentKey: string, live: { depth: number; c
   let room: { admit: boolean; reason: string } | null = null;
   try { room = configured?.machineRoom?.() ?? null; } catch { /* unmeasurable: lets it through */ }
   if (room && !room.admit) {
-    return `no memory for another sub-agent right now (${room.reason}; ${runningSubagents(db).length} live). Wait for one to finish, or stop one with stop_agent.`;
+    return `no memory for another sub-agent right now (${room.reason}; ${mine.size} live for this parent). Wait for one to finish, or stop one with stop_agent.`;
   }
   return null;
 }
