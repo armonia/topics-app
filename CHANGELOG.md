@@ -4,6 +4,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.5.22 — 2026-11-27
 
+### Correzioni
+- **node-mirror** · a null attachment is gone for good, not a hiccup to retry forever
+
 ### Sotto il cofano
 - **openspec** · archive tetto-contesto-agenti; CHAT-COMPACT-06 joins the chat spec
 
@@ -18,9 +21,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **openspec** · tetto-contesto-agenti, the ceiling at turn start and its three new scenarios
+- node-pool: repo copy gets the drain fix (needs_input and waiting cards do not count), with a regression test
 - **openspec** · tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k
 - **openspec** · tetto-contesto-agenti, the ceiling skips continuations; a Discord message from Jarvis's channel gets it
+- picker keeps projects under ~/.claude, a queued card can move boards, merged parent header shows its name
+- Declare coverage of the merged-parent name test
 - **openspec** · tetto-contesto-agenti, wakes are continuations
+- node-pool: permanent node gets ci-governor files again (shared PERMANENT_FILES list), with a test
 
 ## 2.5.20 — 2026-11-27
 
@@ -39,11 +46,18 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.5.19 — 2026-11-27
 
+### Correzioni
+- **gates** · record task-dispatcher-remote-node.test.ts growth with a live exception
+- **gates** · drop unused nodeTokenPath re-export flagged by deadcode-prod
+
 ### Sotto il cofano
 - Card legata a un nodo pieno: il pavimento di memoria del Mac non la nasconde al controllo delle card ferme
 - Card ferme: per una card legata a un nodo cade solo il pavimento di memoria del Mac, il disco pieno e la spesa restano un motivo (fermano anche la corsia remota)
 
 ## 2.5.18 — 2026-11-27
+
+### Correzioni
+- **gates** · declare untraced test coverage, split node-client under bloat threshold
 
 ### Sotto il cofano
 - Test della scala del bundle: un'identità git sua, il runner della CI non ne ha una globale
@@ -150,6 +164,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **deploy** · Windows node scripts move into deploy/windows-node, single node-tools list, no personal paths
 
 ### Correzioni
+- **nodes** · retry failed attachments, test previewImage, extract delivery mainRef wiring
 - **board** · read the clock once per render in the load gauge
 - **board** · close the review's 5 blocking gaps on archive/revoke/dedupe
 - **land** · close a card whose delivery already reached main
@@ -236,6 +251,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **board** · the new board requirements are in the spec, and the person-owned word list carries its language marker
 - **node-checks** · give each run its own checkout folder
 - **node-delivery** · measure node deliveries whose bar mixes CI and local checks
+- **nodes** · carry node attachments to the primary, read delivery commits against origin/main
 
 ### Sotto il cofano
 - close the remaining 26/11 review gaps on archive() and blockedByTaskId
