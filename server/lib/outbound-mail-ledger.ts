@@ -97,7 +97,9 @@ export interface ChatMailRow {
  */
 export function pickChatMailRow(rows: ChatMailRow[], questions: string[]): { row: ChatMailRow } | "none" | "mismatch" {
   if (rows.length === 0) return "none";
-  const named = rows.find((r) => r.digest && questions.some((q) => q.endsWith(`(${r.digest})`)));
+  // Two identical messages share a fingerprint: the one still waiting wins over a delivered twin.
+  const names = rows.filter((r) => r.digest && questions.some((q) => q.endsWith(`(${r.digest})`)));
+  const named = names.find((r) => r.state === "pending") ?? names[0];
   if (named) return { row: named };
   // A row written before the fingerprint was kept: only unambiguous when alone.
   if (rows.length === 1 && !rows[0]!.digest) return { row: rows[0]! };
@@ -174,7 +176,7 @@ export function answerPendingMailFromThread(askId: string | undefined, text: str
 }
 
 /** What a chat click came to: nothing to do with a mail, answered, already settled, or naming no row. */
-export type MailChatVerdict = "none" | "answered" | "settled" | "mismatch";
+export type MailChatVerdict = "none" | "answered" | "settled" | "mismatch" | "empty";
 type MailChatAnswer = (sessionKey: string, toolCallId: string, questions: string[], text: string) => MailChatVerdict;
 let mailChatAnswer: MailChatAnswer | null = null;
 

@@ -265,7 +265,10 @@ export function createMailSend(deps: MailSendDeps) {
   };
   registerPendingMailAnswer((askId, answer) => answerPending(ledger.pendingByAsk(askId), answer));
   registerMailChatAnswer((sessionKey, toolCallId, questions, answer) => {
-    const picked = pickChatMailRow(ledger.rowsByToolCall(sessionKey, toolCallId), questions);
+    const rows = ledger.rowsByToolCall(sessionKey, toolCallId);
+    // An answer with no text is no click on a mail: nothing is closed by it.
+    if (!answer) return rows.length ? "empty" : "none";
+    const picked = pickChatMailRow(rows, questions);
     if (picked === "none" || picked === "mismatch") return picked;
     // Any state but `pending` was settled already: a late click touches nothing.
     if (picked.row.state !== "pending") return "settled";

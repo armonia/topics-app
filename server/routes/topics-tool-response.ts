@@ -120,8 +120,12 @@ export function createToolResponseRoutes(
         // chat row: two sends of one model message can share a row, and the
         // question text ends with the fingerprint that tells them apart.
         const answers = (response.answers || {}) as Record<string, unknown>;
-        const said = Object.values(answers).find((v): v is string => typeof v === 'string');
-        const verdict = answerMailFromChat(sessionKey, toolCallId, Object.keys(answers), said ?? '');
+        // The question and the answer are read from the SAME entry. A mail
+        // click always carries text.
+        const entry = Object.entries(answers).find((e): e is [string, string] => typeof e[1] === 'string');
+        const said = entry?.[1];
+        const verdict = answerMailFromChat(sessionKey, toolCallId, entry ? [entry[0]] : [], entry?.[1] ?? '');
+        if (verdict === 'empty') return json({ error: 'The answer carries no text. Nothing was sent.', code: 'mail_answer_empty' }, 400);
         // A message the register already settled (an old tab clicking again)
         // answers as done and writes nothing: the provider path would fail and
         // paint `error` on a mail that left.
