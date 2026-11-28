@@ -26,9 +26,9 @@ function flat(value: string, max: number): string {
 }
 
 function fenceFor(lines: string[]): string {
-  let longest = 0;
-  for (const line of lines) for (const run of line.match(/`+/g) ?? []) longest = Math.max(longest, run.length);
-  return "`".repeat(Math.max(3, longest + 1));
+  let maxRun = 0;
+  for (const line of lines) for (const run of line.match(/`+/g) ?? []) maxRun = Math.max(maxRun, run.length);
+  return "`".repeat(Math.max(3, maxRun + 1));
 }
 
 export function wakeText(f: WakeFacts): string {

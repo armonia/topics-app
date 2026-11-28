@@ -1146,16 +1146,13 @@ deferForWait(this: TaskService, { taskId, reason, minutes, by, source, until, ma
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       // A done card waits for nothing: same rule as `release`.
       if (row.status === "done") return rowToTask(row);
-      // A WAIT FOR A MAIL IS PARKED ON THE WAIT ITSELF (rule P4 of the mail change). It lasts until the wait's own
-      // deadline, not the 24-hour cap of the agent's window, and it is no series: the receiving round wakes the card when
-      // the mail arrives or the deadline passes, so no turn opens in between. `wait_reason` names the wait, so the wake
-      // finds the card still parked on THAT wait and on no other.
+      // A WAIT FOR A MAIL IS PARKED ON THE WAIT ITSELF (rule P4 of the mail change): it lasts until the wait's own
+      // deadline, not the 24-hour cap, and opens no turn; `wait_reason` names the wait so the wake matches only THAT one.
       if (mailWaitId && until) {
         const ts = now();
         const untilMs = Date.parse(until);
         if (!Number.isFinite(untilMs)) throw new TaskServiceError("invalid_input", "until is not a date");
-        const mins = Math.max(1, Math.ceil((untilMs - Date.parse(ts)) / 60_000));
-        const note = (reason && reason.trim() ? reason.trim() : "In attesa di una mail") + `. La card resta ferma fino all'arrivo della mail o alla scadenza (${until}), senza turni a vuoto (~${mins} min al massimo).`;
+        const note = (reason?.trim() || "In attesa di una mail") + `. La card resta ferma fino all'arrivo della mail o alla scadenza (${until}), senza turni a vuoto.`;
         try { this.addComment({ taskId, author: by ?? "agent", content: note }); } catch { /* dedupe/best-effort */ }
         let branchKept: string | null = null;
         try {

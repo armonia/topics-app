@@ -1,5 +1,5 @@
 /**
- * The waits for a mail (change posta-per-gli-agenti, track E2: rules P3, P4, P5).
+ * The waits for a mail (mail-for-agents change, track E2: rules P3, P4, P5).
  * @covers MAILWAIT-01
  */
 import { afterEach, describe, expect, test } from "bun:test";
@@ -177,9 +177,9 @@ describe("corretto: i criteri", () => {
     expect(run({ inReplyTo: "<a@x>" }, message("m1", at(MIN), { inReplyTo: "<b@x>" })).status).toBe("open");
   });
   test("mittente giusto ma dmarc non passato, o riga di un altro authserv-id: nessun abbinamento e il motivo resta scritto", () => {
-    const noDmarc = run({}, message("m1", at(MIN), { authResults: "mx.example.test; dmarc=fail" }));
-    expect(noDmarc.status).toBe("open");
-    expect(noDmarc.rejectNote).toContain("dmarc");
+    const noSenderAuth = run({}, message("m1", at(MIN), { authResults: "mx.example.test; dmarc=fail" }));
+    expect(noSenderAuth.status).toBe("open");
+    expect(noSenderAuth.rejectNote).toContain("dmarc");
     const other = run({}, message("m1", at(MIN), { authResults: "evil.example; dmarc=pass" }));
     expect(other.status).toBe("open");
     expect(other.rejectNote).toContain("authserv-id");
