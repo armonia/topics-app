@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.5.27",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Preview seed: correct the proven cause and lock it with tests",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.25",
     "date": "2026-11-28",
     "sections": {
@@ -9,6 +25,16 @@
       "internal": [
         {
           "it": "Make the walkFileTree yield test load-independent",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Trace the systemd-temp-entries test to GATE-13 so check:untraced-tests passes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview photo: the announced page is the contract, not the bare home",
           "en": "",
           "scope": null
         }
@@ -214,6 +240,16 @@
           "scope": null
         },
         {
+          "it": "Preview seed: make the example topic standalone, not project-bound",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cloud node: install WebKit so a card there can get a live preview screenshot",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "review-checks brakes: load gets its own budget clock, only the load reason is released by it (card 9fecea98)",
           "en": "",
           "scope": null
@@ -231,6 +267,16 @@
         },
         {
           "it": "Prove \"already on main\" before writing it, and warn review of a false claim",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview seed test: declare the requirement it covers (KANBAN-126)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Exclude systemd PrivateTmp entries from the real-tmp-folder check",
           "en": "",
           "scope": null
         },
