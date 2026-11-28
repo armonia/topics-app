@@ -9,6 +9,7 @@ import { createTaskAutoMerge, declaredDeliveryFor, worktreeRealDirt } from "../s
 import { imageShape, isBlankLikeImage } from "../services/image-shape";
 import { createPreviewManager, type PreviewProcess } from "../services/preview-manager";
 import { createPreviewBrowser } from "../services/preview-browser";
+import { gitDiffNames, writeVisualProof } from "../services/visual-proof";
 import { recordServerSpawn } from "../lib/spawn-metrics";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees } from "../routes/processes";
 import { killProcessTree } from "../lib/process-tree";
@@ -211,6 +212,13 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
     // gets CROPPED instead of scaled — 1440×760 = 0.528 fits with margin.
     screenshot: (url, outPath, opts) => previewBrowser.screenshot(url, outPath, opts),
     screenshotFailure: () => previewBrowser.lastFailure(),
+    // D20, visual proof: the same evidence capture also writes the
+    // `visual-proof.json` entries check-design-system --base needs, for
+    // whatever `.tsx` the task's own branch touched. See visual-proof.ts.
+    writeVisualProof: ({ wt, url }) => writeVisualProof(
+      { diffNames: gitDiffNames, screenshot: (u, outPath, opts) => previewBrowser.screenshot(u, outPath, opts), log: (msg, err) => console.error(msg, err ?? "") },
+      { cwd: wt.absPath, baseRef: "origin/main", url, branchName: wt.branchName },
+    ).then(() => undefined),
     currentOutputUrl: (taskId) => dispatcherSvc.get(taskId)?.task.outputUrl ?? null,
     currentPreviewImage: (taskId) => dispatcherSvc.get(taskId)?.task.previewImage ?? null,
     setOutputUrl: (taskId, url) => {

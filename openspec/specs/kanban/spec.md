@@ -6155,3 +6155,34 @@ leaving it in review with no photo and no explanation.
 #### Scenario: a machine with no capture browser
 - **GIVEN** a launch that answers that the browser executable does not exist
 - **THEN** the browser SHALL be downloaded once, and a failed download SHALL leave a one-line reason for the card
+
+### Requirement: KANBAN-127 — A delivery that touches a `.tsx` writes its own visual proof
+
+`check-design-system` (spec-flow D20) requires a `visual-proof.json` entry at
+375/768/1440/3440 px for every UI file a change touches, with a non-empty
+`reference`. No agent SHALL be asked to author that entry by hand: when the
+review preview capture succeeds for a task whose branch touches a `.tsx` under
+the consumer's declared `designSystem.uiRoots`, the system SHALL write or update
+one entry per touched file in a `visual-proof.json` — inside the touched
+`openspec/changes/<name>/` when there is one, else in a generic folder named
+after the branch — with one shared capture of the preview at each of the four
+widths and the consumer's `designFile` as the reference. A capture that fails at
+any width SHALL abandon the round rather than write a proof with a missing
+image. A consumer with no `designSystem` configured, or a delivery that touches
+no UI file, SHALL leave no trace.
+
+#### Scenario: a touched `.tsx` gets its proof
+- **GIVEN** a review preview capture that succeeds, for a branch that touched one `.tsx` under a declared UI root
+- **THEN** `visual-proof.json` SHALL gain an entry for that file with all four widths and a non-empty reference
+
+#### Scenario: an existing openspec change is reused
+- **GIVEN** a touched `.tsx` and a touched `openspec/changes/<name>/` file in the same diff
+- **THEN** the proof SHALL be written inside that change's own folder
+
+#### Scenario: no UI touched, no proof
+- **GIVEN** a diff with no file under the declared UI roots
+- **THEN** no `visual-proof.json` SHALL be written or modified
+
+#### Scenario: a failed capture abandons the round
+- **GIVEN** the screenshot at one of the four widths fails
+- **THEN** no entry SHALL be written for that round, rather than one missing an image

@@ -206,6 +206,14 @@ export interface PreviewManagerDeps {
   /** Render a PNG of `url` at `width` px to `outPath`. Best-effort → boolean. */
   screenshot(url: string, outPath: string, opts: { width: number }): Promise<boolean>;
   /**
+   * D20, visual proof: once the evidence shot is good, best-effort writes the
+   * `visual-proof.json` entry (375/768/1440/3440 px) for every `.tsx` the task's
+   * branch touches under the consumer's declared UI roots — the file
+   * `check-design-system --base` reads instead of today's `--changed ""`
+   * placeholder. Absent ⇒ off (no proof written, as today).
+   */
+  writeVisualProof?(args: { wt: PreviewWorktree; url: string }): Promise<void>;
+  /**
    * Why the last capture produced nothing, in one line. A machine with no
    * browser installed failed mute, and the card reached review with no photo
    * and no reason: a board that requires one then parks it for ever.
@@ -895,6 +903,14 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       }
 
       if (shot) {
+        // The D20 gate is a different question than the card's thumbnail: even
+        // when the card's own evidence is kept as-is below, the touched `.tsx`
+        // files still want their visual-proof.json entry. Best-effort, must not
+        // block the rest of the delivery.
+        const wt = deps.worktreeOf(taskId);
+        if (wt && deps.writeVisualProof) {
+          try { await deps.writeVisualProof({ wt, url }); } catch (err) { log(`[preview] writeVisualProof failed for ${taskId}`, err); }
+        }
         // Evidence somebody chose is not replaced: `preview-own-evidence.ts`.
         const isOwnEvidence = holdsOwnEvidence(deps.currentPreviewImage?.(taskId), explain, deps.previewEvidenceExists);
         if (isOwnEvidence) {
