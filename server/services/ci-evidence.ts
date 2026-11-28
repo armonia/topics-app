@@ -857,6 +857,8 @@ export async function awaitCiEvidence(
   /** The attempt a rerun of ours has to beat before a read is conclusive again, 0 when none is pending. */
   let rerunAwaitedAttempt = 0;
   let rerunReadsLeft = 0;
+  /** The workflow file whose run our rerun asked for (null = ci.yml): the attempt to beat is read from that run. */
+  let rerunFile: string | null = null;
   let lastRun: GithubRun | null = null;
   /** A row whose run ended without a verdict says what unblocks it, once the rerun is spent. */
   type Settled = Exclude<CiEvidence, { kind: "pending" }>;
@@ -909,7 +911,8 @@ export async function awaitCiEvidence(
     // answers when GitHub accepts the request, not when the new attempt is
     // listed, so the read right after it can still be the dead run.
     if (page && rerunAwaitedAttempt > 0) {
-      if (run && runAttempt(run) > rerunAwaitedAttempt) rerunAwaitedAttempt = 0;
+      const awaited = rerunFile ? latestCiRun(sha, page.runs, rerunFile) : run;
+      if (awaited && runAttempt(awaited) > rerunAwaitedAttempt) rerunAwaitedAttempt = 0;
       else if (rerunReadsLeft > 0) rerunReadsLeft -= 1;
       else rerunAwaitedAttempt = 0; // the grace is spent: read the run as it is
     }
@@ -934,6 +937,11 @@ export async function awaitCiEvidence(
       // opposite of ONE RED ENDS THE ROUND a few lines down. Reachable: the
       // `check` job dies before its unit step (Setup Bun, typecheck,
       // `cancel-in-progress`) while an e2e shard fails for real.
+      // The run a row reads: ci.yml, or the workflow its row names.
+      const runOf = (c: ReviewCheck): GithubRun | null => {
+        const file = ciEvidenceWorkflow(c);
+        return file ? latestCiRun(sha, page.runs, file) : run;
+      };
       const redAlready = checks.some((c) => {
         const done = settled.get(c);
         return done ? !done.ok && !done.notMeasured : readNow(c).kind === "fail";
@@ -947,7 +955,9 @@ export async function awaitCiEvidence(
       // last 100 shas measured on 17/09/2026 were already parked there.
       // Only when the run itself is over, so a rerun cannot cut a shard still
       // running for the other row.
-      if (run && run.status === "completed" && !rerunTried && unmeasured.length > 0 && !redAlready) {
+      const rerunRow = unmeasured.find((c) => runOf(c)?.status === "completed");
+      const rerunTarget = rerunRow ? runOf(rerunRow) : null;
+      if (rerunRow && rerunTarget && !rerunTried && !redAlready) {
         rerunTried = true;
         // Every row with no verdict is read again from here. The new attempt
         // re-measures it (a row already green or red measured something real on
@@ -965,10 +975,11 @@ export async function awaitCiEvidence(
         // in 25.7 hours against a CI wait of 15-25 minutes. The attempt number
         // is the state GitHub keeps for us: above 1 the rerun was already asked,
         // and this run is what it produced.
-        if (runAttempt(run) === 1) {
-          const again = await port.rerun(repo.value, run.id);
+        if (runAttempt(rerunTarget) === 1) {
+          const again = await port.rerun(repo.value, rerunTarget.id);
           if (again.ok) {
-            rerunAwaitedAttempt = runAttempt(run);
+            rerunFile = ciEvidenceWorkflow(rerunRow);
+            rerunAwaitedAttempt = runAttempt(rerunTarget);
             rerunReadsLeft = errorsMax;
             await pause(pollMs);
             continue;
@@ -997,13 +1008,24 @@ export async function awaitCiEvidence(
       // A row without a verdict is not final while its run is still going: the
       // rerun above reopens it when the run completes, so leaving now would be
       // the dead end again with every row closed.
-      const mayStillRerun = !rerunTried && !!run && run.status !== "completed" && unmeasured.length > 0;
+      const mayStillRerun = !rerunTried && unmeasured.some((c) => {
+        const r = runOf(c);
+        return !!r && r.status !== "completed";
+      });
       if (open().length === 0 && !mayStillRerun) {
         const rows = checks.map((c) => settled.get(c)!);
         // A CARD DOES NOT SAY GREEN ON A COMMIT WHOSE CI IS RED (KANBAN-86).
         // Only the all-green close can lie this way: a red row or a row with no
         // verdict already keeps the card's verdict off `pass`.
-        const why = rows.every((r) => r.ok) ? runRedElsewhere(run, page.jobs) : null;
+        // Every run a row read counts, not only ci.yml's.
+        let why: string | null = null;
+        if (rows.every((r) => r.ok)) {
+          why = runRedElsewhere(run, page.jobs);
+          for (const other of page.runs) {
+            const otherJobs = page.extra.get(other.id);
+            if (!why && otherJobs && other !== run) why = runRedElsewhere(other, otherJobs);
+          }
+        }
         return why ? rows.map((r) => contradictedByItsRun(r, why)) : rows;
       }
     }

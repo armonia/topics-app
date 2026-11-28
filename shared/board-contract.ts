@@ -182,6 +182,13 @@ export function isCiEvidenceCheck(check: { cmd: string }): boolean {
 /** `github-ci:<workflow-file>.yml/<job>`: the workflow file is part of the declaration. */
 const WORKFLOW_JOB = /^([^/\s]+\.ya?ml)\/(.+)$/;
 
+/** False for a `github-ci:` declaration with no job (`github-ci:`, `github-ci:chain.yml/`): it must not be saved. */
+export function ciEvidenceNamesAJob(check: { cmd: string }): boolean {
+  if (!isCiEvidenceCheck(check)) return true;
+  const job = ciEvidenceJobName(check)?.trim() ?? "";
+  return job !== "" && !job.endsWith("/");
+}
+
 /** The GitHub Actions job name a `github-ci:<job>` or `github-ci:<workflow>.yml/<job>` check declares, or `null` when it isn't one. */
 export function ciEvidenceJobName(check: { cmd: string }): string | null {
   const cmd = check.cmd.trim();
@@ -190,7 +197,7 @@ export function ciEvidenceJobName(check: { cmd: string }): string | null {
   return WORKFLOW_JOB.exec(rest)?.[2] ?? rest;
 }
 
-/** The workflow file (`catena.yml`) a `github-ci:<workflow>.yml/<job>` check names, or `null` for the default `ci.yml`. */
+/** The workflow file (`chain.yml`) a `github-ci:<workflow>.yml/<job>` check names, or `null` for the default `ci.yml`. */
 export function ciEvidenceWorkflow(check: { cmd: string }): string | null {
   const cmd = check.cmd.trim();
   if (!cmd.startsWith(CI_EVIDENCE_PREFIX)) return null;

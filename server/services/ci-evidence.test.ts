@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ciEvidenceJobName, ciEvidenceWorkflow, E2E_CI_CHECK, isCiEvidenceCheck, NOT_MEASURED_EXIT, UNIT_CI_CHECK } from "../../shared/board";
+import { ciEvidenceJobName, ciEvidenceNamesAJob, ciEvidenceWorkflow, E2E_CI_CHECK, isCiEvidenceCheck, NOT_MEASURED_EXIT, UNIT_CI_CHECK } from "../../shared/board";
 import {
   CI_BASE_BRANCH,
   CI_E2E_DEADLINE_MS,
@@ -111,6 +111,11 @@ describe("a board whose CI is not in ci.yml", () => {
   const wait = (port: ReturnType<typeof portFor>) =>
     awaitCiEvidence({ ...input, checks: [CHAIN] }, { port, ...fakeClock(), stopping: () => false }).then((r) => r[0]!);
 
+  test("a declaration with no job is refused, the others are fine", () => {
+    for (const cmd of ["github-ci:", "github-ci:  ", "github-ci:chain.yml/"]) expect(ciEvidenceNamesAJob({ cmd })).toBe(false);
+    for (const cmd of ["github-ci:build", "github-ci:chain.yml/build", "bun run test"]) expect(ciEvidenceNamesAJob({ cmd })).toBe(true);
+  });
+
   test("the declaration names the workflow file and the job", () => {
     expect(ciEvidenceJobName(CHAIN)).toBe("build");
     expect(ciEvidenceWorkflow(CHAIN)).toBe("chain.yml");
@@ -126,6 +131,47 @@ describe("a board whose CI is not in ci.yml", () => {
 
   test("a run of ci.yml alone does not answer for another workflow", () => {
     expect(readCiEvidence(CHAIN, SHA, [run()], [job("build", "success")]).kind).toBe("pending");
+  });
+
+  test("KANBAN-86: the declared job green on a run that concluded red does not close the card green", async () => {
+    const port = fakePort({
+      runs: async () => ({ ok: true, value: [chainRun({ conclusion: "failure" })] }),
+      jobs: async () => ({ ok: true, value: [job("build", "success"), job("test", "failure")] }),
+    }).port;
+    const row = await wait(port);
+    expect(row.ok).toBe(false);
+  });
+
+  test("KANBAN-93: a cancelled run of the declared workflow is re-run, with no ci.yml in the repo", async () => {
+    const reruns: number[] = [];
+    const fake = fakePort({
+      rerun: async (_repo, id) => { reruns.push(id); return { ok: true, value: undefined }; },
+      runs: async () => ({ ok: true, value: [chainRun({ conclusion: "cancelled" })] }),
+      jobs: async () => ({ ok: true, value: [] }),
+    });
+    await wait(fake.port);
+    expect(reruns).toEqual([77]);
+  });
+
+  test("KANBAN-93: in a repo with both, the rerun is the declared workflow's run, not ci.yml's", async () => {
+    const reruns: number[] = [];
+    const fake = fakePort({
+      rerun: async (_repo, id) => { reruns.push(id); return { ok: true, value: undefined }; },
+      runs: async () => ({ ok: true, value: [run({ id: 10 }), chainRun({ conclusion: "cancelled" })] }),
+      jobs: async (_repo, runId) => ({ ok: true, value: runId === 10 ? [job("check", "success")] : [] }),
+    });
+    await wait(fake.port);
+    expect(reruns).toEqual([77]);
+  });
+
+  test("a GitHub error reading the other workflow's jobs is never a pass", async () => {
+    const port = fakePort({
+      runs: async () => ({ ok: true, value: [chainRun({ conclusion: "success" })] }),
+      jobs: async () => ({ ok: false, error: "boom" }),
+    }).port;
+    const row = await wait(port);
+    expect(row.ok).toBe(false);
+    expect(row.tail).toContain("reads failed in a row: boom");
   });
 });
 
