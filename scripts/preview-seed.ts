@@ -8,13 +8,21 @@
  * 27/11). So the order of the seeding steps is a contract, not a detail, and a
  * contract needs a test that does not boot a server.
  *
- * THE ORDER. The page is announced AS SOON AS the topic exists, before the
- * example messages. `POST /api/topics/:id/system-message` answers 400 on a bad
- * body and 404 on an unknown topic (measured against the real server on
- * :3412): with the announcement last, any such answer threw, the whole seed was
- * logged as "skipped", and the photographable topic that already existed was
- * never pointed at. The messages are now best effort: they make the shot
- * nicer, they do not decide whether there is a shot.
+ * THE REPRODUCED CAUSE (card 79ab687d). The old seed also registered a project
+ * (`POST /api/projects`, fixed name and path) before creating the topic.
+ * `preview-worktree.ts` never clears its `/tmp/topics-preview-<port>` root
+ * between runs on the same port, so a second run reused the first run's
+ * `topics.db` and hit the project's slug a second time: the insert answers a
+ * slug-conflict 409 (reproduced directly against `project-store.ts`, see
+ * `project-store.slug-conflict.test.ts`), the seed threw before the topic
+ * existed, and the deep link was never written. Removing the project (the
+ * topic is standalone, see `cf1d1656ea`) also removed the only call that could
+ * conflict across runs.
+ *
+ * THE ORDER, KEPT AS DEFENSE IN DEPTH. The page is still announced AS SOON AS
+ * the topic exists, before the example messages, so a failure in the optional
+ * content can never cost the announcement. The messages are best effort: they
+ * make the shot nicer, they do not decide whether there is a shot.
  *
  * Kanban spec: KANBAN-126.
  */

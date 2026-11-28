@@ -13,7 +13,7 @@
  *      `public/` is never left half empty;
  *   3. the isolated test server (`start-test-server.sh`: its own DATA_DIR,
  *      HOME, sockets and CLI stubs) on `$PORT`, serving that bundle;
- *   4. a made-up project and topic with a couple of messages, created through
+ *   4. a made-up, standalone topic with a couple of messages, created through
  *      the server's own API, so the shot shows a chat instead of the first-run
  *      screen. Nothing real goes in.
  *
