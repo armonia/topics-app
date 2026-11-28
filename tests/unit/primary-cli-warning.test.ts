@@ -1,4 +1,6 @@
 /**
+ * @covers MACHINE-07
+ *
  * `bun run primary switch <machine>` against a stand-in server: a switch that
  * stands but comes back with a warning (the replica of the new primary did not
  * start again) must not read as a clean switch on the command line.

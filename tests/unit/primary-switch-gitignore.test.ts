@@ -21,11 +21,12 @@ import {
   applyPendingPrimaryChange, collectAttachmentFiles, collectStateFiles, commitIncoming, DB_NAME, sha256File,
   snapshotDatabase, writeIncomingChunk, writeRetired, type SwitchManifest,
 } from "../../server/lib/primary-switch";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
 function git(cwd: string, ...args: string[]): string {
-  const r = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", env: gitEnv() });
   if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
   return r.stdout.toString();
 }

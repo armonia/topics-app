@@ -17,14 +17,15 @@
  * The code itself never moves: it lives in git and every machine has its clone.
  */
 import { Database } from "bun:sqlite";
-import { spawnSync } from "node:child_process";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   chmodSync, closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync,
   readSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeFileSync, writeSync,
 } from "node:fs";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { writeFileAtomic } from "./atomic-write";
+import { readRetired, RETIRED_FILE, type RetiredPhase, type RetiredState, writeRestoreStatus, writeRetired } from "./primary-switch-markers";
+import { refuseIfHeld, replicaWatching, REPLICA_START_ENV, REPLICA_STOP_ENV, runReplicaCommand, type ReplicaCommands } from "./primary-replica";
 import { LIVE_DB_NAME, RETIRED_DB_NAME } from "./data-dir";
 import {
   ID_SEGMENT, INSTANCE_ENTRIES, instanceBaseDir, instanceEntryPath, KEPT_TRANSCRIPTS,
@@ -41,11 +42,13 @@ export const INCOMING_DIR = "primary-incoming";
 /** Under the state dir of the sender: the snapshot while it is being shipped. */
 export const OUTGOING_DIR = "primary-outgoing";
 export const MANIFEST_FILE = "manifest.json";
-/** Next to `primary-state.json`: present on a server that handed the primary over. */
-export const RETIRED_FILE = "primary-retired.json";
 export const PRIMARY_STATE_FILE = "primary-state.json";
-/** The receiver's answer to "did the restore of epoch N succeed?", read by the sender before it retires. */
-export const RESTORE_STATUS_FILE = "primary-restore.json";
+// Their own modules, kept under this name for every caller of the switch.
+export {
+  clearRestoreStatus, confirmsRestore, readRestoreStatus, readRetired, RESTORE_STATUS_FILE, RETIRED_FILE, writeRetired,
+  type RetiredPhase, type RetiredState,
+} from "./primary-switch-markers";
+export { replicaCommandsFromEnv, REPLICA_START_ENV, REPLICA_STOP_ENV, type ReplicaCommands } from "./primary-replica";
 export const MOVED_CODE = "primary_moved";
 export const DB_NAME = LIVE_DB_NAME;
 
@@ -93,34 +96,6 @@ export interface SwitchManifest {
    * not exist: the secret is how the sender asks "are you the primary now?".
    */
   confirmSha256?: string;
-}
-
-/**
- * Where a server that is handing (or handed) the primary over stands. Every
- * phase but the last refuses EVERY client write, sign-in and node routes
- * included, because the data still on this disk is the data that moved:
- *
- *  - `fencing`: the switch is running; in memory only, a refusal undoes it;
- *  - `sent`: the commit is on its way. Written to disk BEFORE it leaves, so a
- *    crash or a lost answer can never boot this server back as the primary;
- *  - `uncertain`: the commit got no usable answer. Stays until a person checks
- *    the other computer (`bun run primary reclaim` if it did not take over);
- *  - `pending-set-aside`: the other computer took over; the next boot renames
- *    this DB and state aside;
- *  - `set-aside`: done. This server runs as a secondary on a service DB of its
- *    own (`topics.retired.db`, never `topics.db`: a replica of that path must
- *    find nothing to publish), so the node and pairing routes open again (how
- *    it becomes a node of the new one).
- */
-export type RetiredPhase = "fencing" | "sent" | "uncertain" | "pending-set-aside" | "set-aside";
-const RETIRED_PHASES: readonly RetiredPhase[] = ["fencing", "sent", "uncertain", "pending-set-aside", "set-aside"];
-
-export interface RetiredState {
-  epoch: number;
-  toMachineId: string;
-  toName: string | null;
-  at: string;
-  phase: RetiredPhase;
 }
 
 export function countRows(db: Pick<Database, "query">): RowCounts {
@@ -439,106 +414,6 @@ export async function commitIncoming(
   return { ok: true, counts };
 }
 
-export function readRetired(appDataDir: string): RetiredState | null {
-  try {
-    const raw = JSON.parse(readFileSync(join(appDataDir, RETIRED_FILE), "utf-8")) as Partial<RetiredState>;
-    if (!Number.isInteger(raw.epoch) || typeof raw.toMachineId !== "string" || !raw.toMachineId) return null;
-    // A marker with a phase this code does not know is the strictest one we have: never a reason to open the door.
-    const phase = RETIRED_PHASES.includes(raw.phase as RetiredPhase) && raw.phase !== "fencing" ? raw.phase as RetiredPhase : "uncertain";
-    return {
-      epoch: raw.epoch as number,
-      toMachineId: raw.toMachineId,
-      toName: typeof raw.toName === "string" ? raw.toName : null,
-      at: typeof raw.at === "string" ? raw.at : "",
-      phase,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function writeRetired(appDataDir: string, state: RetiredState): void {
-  mkdirSync(appDataDir, { recursive: true });
-  writeFileAtomic(join(appDataDir, RETIRED_FILE), JSON.stringify(state));
-}
-
-/**
- * Where the receiver stands after a commit, for the sender that waits on it:
- * `committed` until the boot ran the restore, then `restored` (with a warning
- * when the replica did not start again) or `failed` with the reason.
- */
-export interface RestoreStatus {
-  epoch: number;
-  confirmSha256: string;
-  state: "committed" | "restored" | "failed";
-  error?: string;
-  warning?: string;
-  at: string;
-}
-
-export function readRestoreStatus(appDataDir: string): RestoreStatus | null {
-  try {
-    const raw = JSON.parse(readFileSync(join(appDataDir, RESTORE_STATUS_FILE), "utf-8")) as Partial<RestoreStatus>;
-    if (!Number.isInteger(raw.epoch) || typeof raw.confirmSha256 !== "string") return null;
-    if (raw.state !== "committed" && raw.state !== "restored" && raw.state !== "failed") return null;
-    return raw as RestoreStatus;
-  } catch {
-    return null;
-  }
-}
-
-function writeRestoreStatus(appDataDir: string, status: Omit<RestoreStatus, "at">, now: () => string): void {
-  mkdirSync(appDataDir, { recursive: true });
-  writeFileAtomic(join(appDataDir, RESTORE_STATUS_FILE), JSON.stringify({ ...status, at: now() }));
-}
-
-export function clearRestoreStatus(appDataDir: string): void {
-  rmSync(join(appDataDir, RESTORE_STATUS_FILE), { force: true });
-}
-
-/** True when `secret` is the one whose hash the status carries; constant time. */
-export function confirmsRestore(status: Pick<RestoreStatus, "confirmSha256">, secret: string): boolean {
-  const a = Buffer.from(createHash("sha256").update(secret).digest("hex"));
-  const b = Buffer.from(status.confirmSha256);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-/** Process ids holding `path` open, by `lsof`. None where `lsof` is missing: then only the Litestream folder is looked for. */
-function lsofHolders(path: string): number[] {
-  if (process.platform === "win32" || !existsSync(path)) return [];
-  const r = spawnSync("lsof", ["-t", "--", path], { encoding: "utf-8", timeout: 10_000 });
-  if (r.error || typeof r.stdout !== "string") return [];
-  return r.stdout.split(/\s+/).filter(Boolean).map(Number).filter((pid) => Number.isInteger(pid));
-}
-
-/**
- * Why the live DB looks replicated (a Litestream folder next to it, another
- * process holding it open), or null. Replacing the file under such a process
- * corrupts what it publishes, so the swap needs the replica stop and start commands.
- */
-export function replicaWatching(dbPath: string, holdersOf: (path: string) => number[] = lsofHolders): string | null {
-  const sidecar = join(dirname(dbPath), `.${basename(dbPath)}-litestream`);
-  if (existsSync(sidecar)) return `a Litestream folder (${basename(sidecar)}) sits next to the DB`;
-  return heldBy(dbPath, holdersOf);
-}
-
-/**
- * Why another process holds the live DB open, or null. Asked again after the
- * replica stop and right before the rename: a stop that only kills a Litestream
- * under a supervisor that restarts it (launchd KeepAlive, systemd Restart=)
- * exits 0 while a new one already holds the file. The Litestream folder is not
- * asked here, a stopped replica leaves it in place.
- */
-function heldBy(dbPath: string, holdersOf: (path: string) => number[] = lsofHolders): string | null {
-  const pids = holdersOf(dbPath).filter((pid) => pid !== process.pid);
-  return pids.length > 0 ? `process ${pids.join(", ")} holds the DB open` : null;
-}
-
-function refuseIfHeld(dbPath: string, holdersOf: ((path: string) => number[]) | undefined, when: string): void {
-  const held = heldBy(dbPath, holdersOf);
-  if (held) throw new Error(`${held} ${when}: a supervisor may have started the replica again (stop it through the service manager, not with a kill), so the DB is not replaced under it`);
-}
-
 /** Writes and removes a probe file in `dir`: the error message when this server cannot write there, else null. */
 function unwritable(dir: string): string | null {
   const probe = join(dir, `.topics-write-probe-${process.pid}`);
@@ -742,37 +617,6 @@ export interface PendingChangeInputs {
   now?: () => string;
   log?: (line: string) => void;
 }
-
-export interface ReplicaCommands { stop?: string; start?: string }
-
-/** Instance settings, read from the environment: a command line each, default empty (no replica managed). */
-export const REPLICA_STOP_ENV = "TOPICS_REPLICA_STOP_COMMAND";
-export const REPLICA_START_ENV = "TOPICS_REPLICA_START_COMMAND";
-
-export function replicaCommandsFromEnv(env: NodeJS.ProcessEnv = process.env): ReplicaCommands {
-  return { stop: env[REPLICA_STOP_ENV]?.trim() || undefined, start: env[REPLICA_START_ENV]?.trim() || undefined };
-}
-
-/**
- * Runs one configured replica command through the shell (no arguments of ours,
- * so nothing secret is on a command line), logs how it ended and returns why it
- * failed, or null. A command that runs past the timeout counts as failed.
- */
-function runReplicaCommand(what: "stop" | "start", command: string, log: (line: string) => void): string | null {
-  const shell = process.platform === "win32" ? ["cmd", "/c", command] : ["sh", "-c", command];
-  let failure: string | null;
-  try {
-    // stdio ignored: a replica started in the background must not keep a pipe of ours open.
-    const r = spawnSync(shell[0]!, shell.slice(1), { stdio: "ignore", timeout: REPLICA_COMMAND_TIMEOUT_MS, killSignal: "SIGKILL" });
-    failure = r.status === 0 && !r.error ? null : (r.error?.message ?? `exit ${r.status}, signal ${r.signal}`);
-  } catch (err) {
-    failure = err instanceof Error ? err.message : String(err);
-  }
-  log(`[primary] replica ${what} command ${failure ? `failed (${failure})` : "ok"}`);
-  return failure;
-}
-
-const REPLICA_COMMAND_TIMEOUT_MS = 60_000;
 
 /**
  * The restore of one committed bundle. The replica of the live DB is stopped
