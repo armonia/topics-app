@@ -11,7 +11,7 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { createReviewSweep, orderForSweep, sortForSweep } from "./tasks-review-sweep";
+import { createReviewSweep, orderForSweep, sortForSweep, sqliteRemeasureStore } from "./tasks-review-sweep";
 import { createTaskService, type TaskService } from "../services/tasks";
 import { freshDb } from "./tasks-test-support";
 import type { Task } from "../services/tasks";
@@ -20,6 +20,11 @@ const BASE = {
   id: "card-1", projectId: "p", deliveryCommit: "abc1234", deliveryBranch: "topics/x",
   checksCommit: null, humanAsk: null, landIntent: null,
 } as unknown as Task;
+
+function memoryStore() {
+  const records = new Map<string, { commit: string; at: number; tries: number }>();
+  return { get: (id: string) => records.get(id), set: (id: string, rec: { commit: string; at: number; tries: number }) => { records.set(id, rec); } };
+}
 
 function sweep(over: { nodeMeasures?: string[]; maxConcurrent?: number; runChecksGate?: Parameters<typeof createReviewSweep>[0]["runChecksGate"] } = {}) {
   const nodeMeasures = over.nodeMeasures ?? [];
@@ -34,6 +39,7 @@ function sweep(over: { nodeMeasures?: string[]; maxConcurrent?: number; runCheck
     afterDelivery: async () => undefined,
     bounceWithReason: () => true,
     maxConcurrent: over.maxConcurrent,
+    remeasureStore: memoryStore(),
   });
   return { unmeasuredInReview, remeasureInReview, hasFreeSlot, isMeasuring, nodeMeasures };
 }
@@ -159,6 +165,7 @@ describe("a node measure in flight does not block a local card from the real swe
       afterDelivery: async () => undefined,
       bounceWithReason: () => true,
       maxConcurrent: 1,
+      remeasureStore: memoryStore(),
     });
     const node = reviewSweep.remeasureInReview({ ...BASE, id: "card-node", checksState: null });
     // Give the node branch time to release its local slot before the node meter itself resolves.
@@ -221,5 +228,47 @@ describe("orderForSweep keeps the queue order stable on the real task service", 
 
     const round2 = orderForSweep(reviewRows(svc)).map((t) => t.id);
     expect(round2).toEqual(round1); // created_at never moved: orderForSweep's order holds regardless
+  });
+});
+
+describe("remeasure count survives a restart", () => {
+  test("a sweep recreated on the same card and commit resumes at 2/3, not 1/3", async () => {
+    const records = new Map<string, { commit: string; at: number; tries: number }>();
+    const remeasureStore = { get: (id: string) => records.get(id), set: (id: string, rec: { commit: string; at: number; tries: number }) => { records.set(id, rec); } };
+    const build = () => createReviewSweep({
+      svc: { update: () => BASE, get: () => undefined } as unknown as Parameters<typeof createReviewSweep>[0]["svc"],
+      broadcastToAll: () => undefined,
+      runChecksGate: async () => null,
+      capturaConsegna: async () => false,
+      nodeMeter: { measure: async () => undefined },
+      bounceRed: async () => false,
+      afterDelivery: async () => undefined,
+      bounceWithReason: () => true,
+      remeasureStore,
+    });
+    const logs: string[] = [];
+    const original = console.warn;
+    console.warn = (line: string) => { logs.push(String(line)); };
+    try {
+      await build().remeasureInReview({ ...BASE, checksState: null });
+      // the pause is a clock matter: age the record so the restarted sweep may run again
+      records.set(BASE.id, { ...records.get(BASE.id)!, at: 0 });
+      await build().remeasureInReview({ ...BASE, checksState: null });
+    } finally { console.warn = original; }
+    expect(logs.some((l) => l.includes("(1/3)"))).toBe(true);
+    expect(logs.some((l) => l.includes("(2/3)"))).toBe(true);
+  });
+});
+
+describe("sqliteRemeasureStore", () => {
+  test("set, then get, and a card with no record reads as undefined", () => {
+    const db = freshDb();
+    db.run("INSERT INTO tasks (id, project_id, text, created_at, updated_at) VALUES ('a', 'p', 't', 'x', 'x')");
+    db.run("INSERT INTO tasks (id, project_id, text, created_at, updated_at) VALUES ('b', 'p', 't', 'x', 'x')");
+    const store = sqliteRemeasureStore(db);
+    expect(store.get("a")).toBeUndefined();
+    store.set("a", { commit: "abc1234", tries: 2, at: 99 });
+    expect(store.get("a")).toEqual({ commit: "abc1234", tries: 2, at: 99 });
+    expect(store.get("b")).toBeUndefined();
   });
 });

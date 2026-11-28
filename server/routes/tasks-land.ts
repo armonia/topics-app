@@ -19,7 +19,7 @@ import { createCiPhase } from "./tasks-ci-phase";
 import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
-import { createReviewSweep, orderForSweep } from "./tasks-review-sweep";
+import { createReviewSweep, orderForSweep, sqliteRemeasureStore } from "./tasks-review-sweep";
 import { checksLanes } from "./tasks-checks-delivery";
 import { createNothingToLand } from "./tasks-land-nothing";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -276,6 +276,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     // Same cap the checks gate itself holds: a second serialization on top of
     // it meant a long-running measure held every other review card still.
     maxConcurrent: checksLanes(),
+    remeasureStore: sqliteRemeasureStore(db),
   });
   const { unmeasuredInReview, remeasureInReview, probeConflict } = reviewSweep;
 

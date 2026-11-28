@@ -27,6 +27,7 @@
  * Uso:  bun run scripts/mem-growth.ts [minuti] [--every 30]
  */
 import { spawnSync } from "child_process";
+import { slopeMBPerMin } from "./footprint-growth";
 
 const minuti = Number(process.argv.find((a) => /^\d+$/.test(a)) ?? 15);
 const everyIdx = process.argv.indexOf("--every");
@@ -66,24 +67,10 @@ if (campioni.length < 4) {
   process.exit(0);
 }
 
-/**
- * La pendenza sulla SECONDA METÀ. Il boot alloca per mestiere: includerlo
- * darebbe una retta in salita anche a un'app che poi resta ferma per ore, cioè
- * la risposta sbagliata alla domanda «cresce?».
- */
-function pendenzaMBalMin(serie: Campione[], leggi: (c: Campione) => number): number {
-  const s = serie.slice(Math.floor(serie.length / 2));
-  if (s.length < 2) return 0;
-  const n = s.length;
-  const mx = s.reduce((a, c) => a + c.t, 0) / n;
-  const my = s.reduce((a, c) => a + leggi(c), 0) / n;
-  let num = 0, den = 0;
-  for (const c of s) { num += (c.t - mx) * (leggi(c) - my); den += (c.t - mx) ** 2; }
-  return den === 0 ? 0 : (num / den) * 60_000;
-}
-
-const dev = pendenzaMBalMin(campioni, (c) => c.deviceMB);
-const srv = pendenzaMBalMin(campioni, (c) => c.serverMB);
+// The slope lives in `footprint-growth.ts`, shared with the bar that turns it
+// into an exit code (`bun run check:renderer-growth`).
+const dev = slopeMBPerMin(campioni.map((c) => ({ t: c.t, mb: c.deviceMB })));
+const srv = slopeMBPerMin(campioni.map((c) => ({ t: c.t, mb: c.serverMB })));
 const primo = campioni[0], ultimo = campioni[campioni.length - 1];
 console.log(`\ndevice: ${primo.deviceMB} → ${ultimo.deviceMB} MB   pendenza ${dev.toFixed(2)} MB/min`);
 console.log(`server: ${primo.serverMB} → ${ultimo.serverMB} MB   pendenza ${srv.toFixed(2)} MB/min`);
