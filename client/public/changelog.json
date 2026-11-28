@@ -8,6 +8,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Land gates: install ceiling is a total budget, tests follow runBounded, route unmeasured path tested",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "aggiorna durate shard dal nightly del 2026-11-28 [skip ci]",
           "en": "",
           "scope": "e2e",
@@ -24,6 +29,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Land gates: unmeasured is not a conflict in the pre-review realign, install has a ceiling, wiring tested",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Pane store snapshot: exit flush always writes, dedupe tests, LEAK-03 spec describes the real mechanism",
           "en": "",
@@ -244,6 +254,12 @@
           "breaking": false
         },
         {
+          "it": "fast static gates on the realign merge before pushing",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Primary switch: the replica and the marker files get modules of their own so the switch stays under the size threshold, the lsof spawn is listed with its reason, the gitignore test runs git in the isolated env, and the CLI test names what it covers",
           "en": "",
           "scope": null
@@ -279,12 +295,22 @@
           "scope": null
         },
         {
+          "it": "Land gates: move static gates out of task-automerge, keep bloat under ceiling",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Review sweep: remeasure store is required, tasks.test fixture covers remeasure columns",
           "en": "",
           "scope": null
         },
         {
           "it": "Mail inbox: Gmail reads in chunks, the lease outlasts the longest round, tests catch doubles",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land gates: install deps in the realign worktree, unmeasured verdict, pre-review gates",
           "en": "",
           "scope": null
         },

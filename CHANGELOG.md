@@ -5,11 +5,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.5.31 — 2026-11-28
 
 ### Sotto il cofano
+- Land gates: install ceiling is a total budget, tests follow runBounded, route unmeasured path tested
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-28 [skip ci]
 
 ## 2.5.30 — 2026-11-28
 
 ### Sotto il cofano
+- Land gates: unmeasured is not a conflict in the pre-review realign, install has a ceiling, wiring tested
 - Pane store snapshot: exit flush always writes, dedupe tests, LEAK-03 spec describes the real mechanism
 
 ## 2.5.29 — 2026-11-28
@@ -56,6 +58,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Review checks: put the repo's pinned Bun first in the child PATH
 - Declare what the pinned-bun test covers
 - REVIEW-BUN-01
+- fast static gates on the realign merge before pushing
 - Primary switch: the replica and the marker files get modules of their own so the switch stays under the size threshold, the lsof spawn is listed with its reason, the gitignore test runs git in the isolated env, and the CLI test names what it covers
 - Mark the ui kit exports that the production graph now reaches but does not use
 - Remeasure store: fix reserved-word alias, add real-DB test, regenerate manifest, order TASKS_DDL columns
@@ -63,8 +66,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Mail inbox tests declare the requirements they cover
 - Primary switch: the tests import the replica settings and the restore status file from their own modules, so production keeps no export only a test reads
 - Revert "fix(design-system): TopSessionsSection uses Button/TextField primitives"
+- Land gates: move static gates out of task-automerge, keep bloat under ceiling
 - Review sweep: remeasure store is required, tasks.test fixture covers remeasure columns
 - Mail inbox: Gmail reads in chunks, the lease outlasts the longest round, tests catch doubles
+- Land gates: install deps in the realign worktree, unmeasured verdict, pre-review gates
 - Primary switch: after the rename the copy set aside is asked who holds it, and a replica a supervisor restarted while lsof answered undoes the rename and refuses
 - baseline follows the scores that rose tonight [skip ci]
 
