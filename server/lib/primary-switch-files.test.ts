@@ -126,6 +126,7 @@ describe("primary switch: attachments, uploads, views and kept transcripts", () 
     write(from.transcript, turns(1));
     write(join(from.appDataDir, "media", "task-previews", "Schermata 2026 (1).png"), png);
     write(join(from.stateDir, "uploads", "scan.pdf"), png);
+    write(join(from.stateDir, "context-files", "topic-1", "Appunti riunione.txt"), "context a person attached");
     write(join(from.dataDir, "views", "view-1.json"), '{"spec":{}}');
     // The keeper's copy of a session whose CLI file is gone: the only copy there is.
     write(join(from.dataDir, "claude-transcripts", "feedface-0000-4000-8000-000000000000.jsonl"), turns(2));
@@ -138,6 +139,7 @@ describe("primary switch: attachments, uploads, views and kept transcripts", () 
     const arrived = [
       [join(to.appDataDir, "media", "task-previews", "Schermata 2026 (1).png"), png],
       [join(to.stateDir, "uploads", "scan.pdf"), png],
+      [join(to.stateDir, "context-files", "topic-1", "Appunti riunione.txt"), Buffer.from("context a person attached")],
       [join(to.dataDir, "views", "view-1.json"), Buffer.from('{"spec":{}}')],
       [join(to.dataDir, "claude-transcripts", "feedface-0000-4000-8000-000000000000.jsonl"), Buffer.from(turns(2))],
     ] as const;
@@ -145,6 +147,8 @@ describe("primary switch: attachments, uploads, views and kept transcripts", () 
       expect(Buffer.from(readFileSync(path)).equals(Buffer.from(bytes))).toBe(true);
       expect(mode(path)).toBe(0o600);
     }
+    // The folder made for a topic's context files is owner-only too.
+    expect(mode(join(to.stateDir, "context-files", "topic-1"))).toBe(0o700);
   });
 
   test("a file already on the receiver is never lost: other bytes go aside, the same bytes stay put", async () => {
@@ -153,8 +157,12 @@ describe("primary switch: attachments, uploads, views and kept transcripts", () 
     write(clash, "what the receiver had");
     const same = join(to.stateDir, "uploads", "scan.pdf");
     write(same, png);
+    const contextClash = join(to.stateDir, "context-files", "topic-1", "Appunti riunione.txt");
+    write(contextClash, "context the receiver had");
     const epoch = await move(from, to);
     expect(readFileSync(`${clash}.prima-${epoch}`, "utf-8")).toBe("what the receiver had");
+    expect(readFileSync(`${contextClash}.prima-${epoch}`, "utf-8")).toBe("context the receiver had");
+    expect(readFileSync(contextClash, "utf-8")).toBe("context a person attached");
     expect(Buffer.from(readFileSync(clash)).equals(Buffer.from(png))).toBe(true);
     expect(existsSync(`${same}.prima-${epoch}`)).toBe(false);
   });
@@ -171,12 +179,13 @@ describe("primary switch: attachments, uploads, views and kept transcripts", () 
   test("the closed list: nothing outside the four folders, no `..`, no hidden file", () => {
     for (const bad of [
       "media/../state/license-token", "media/a/../../b", "media/.hidden", "media/a/.git/config", "media/", "media//x", "media/a\\b",
-      "uploads/../../etc/passwd", "uploads/", "views/a/b.json", "views/x.html", "views/../x.json", "claude-transcripts/x.txt",
+      "uploads/../../etc/passwd", "uploads/", "context-files/", "context-files/topic-1", "context-files/../x/y", "context-files/topic-1/.hidden",
+      "context-files/a b/x.txt", "views/a/b.json", "views/x.html", "views/../x.json", "claude-transcripts/x.txt",
       "claude-transcripts/a/b.jsonl", "workspace/x", "data/topics.db", "Media/x",
     ]) {
       expect([bad, isSafeBundleName(bad)]).toEqual([bad, false]);
     }
-    for (const good of ["media/x.png", "media/task-previews/a b (1).png", "uploads/scan.pdf", "views/view-1.json", `claude-transcripts/${SESSION}.jsonl`]) {
+    for (const good of ["media/x.png", "media/task-previews/a b (1).png", "uploads/scan.pdf", "context-files/topic-1/notes.txt", "context-files/topic:2/a b/x.txt", "views/view-1.json", `claude-transcripts/${SESSION}.jsonl`]) {
       expect([good, isSafeBundleName(good)]).toEqual([good, true]);
     }
   });
@@ -198,6 +207,7 @@ describe("primary switch: attachments, uploads, views and kept transcripts", () 
     write(join(outside, "secret.txt"), "not an attachment");
     symlinkSync(outside, join(from.appDataDir, "media", "linked-dir"));
     symlinkSync(join(outside, "secret.txt"), join(from.appDataDir, "media", "linked-file.txt"));
+    symlinkSync(outside, join(from.stateDir, "context-files", "linked-topic"));
     expect(collectAttachmentFiles(from).map((f) => f.name).filter((n) => n.includes("linked"))).toEqual([]);
 
     // On the receiver a folder of the media tree is a link out: the file meant for it is dropped, the target is untouched.
@@ -205,8 +215,11 @@ describe("primary switch: attachments, uploads, views and kept transcripts", () 
     mkdirSync(receiverOutside, { recursive: true });
     mkdirSync(join(to.appDataDir, "media"), { recursive: true });
     symlinkSync(receiverOutside, join(to.appDataDir, "media", "task-previews"));
+    mkdirSync(join(to.stateDir, "context-files"), { recursive: true });
+    symlinkSync(receiverOutside, join(to.stateDir, "context-files", "topic-1"));
     await move(from, to);
     expect(existsSync(join(receiverOutside, "Schermata 2026 (1).png"))).toBe(false);
+    expect(existsSync(join(receiverOutside, "Appunti riunione.txt"))).toBe(false);
     expect(Buffer.from(readFileSync(join(to.stateDir, "uploads", "scan.pdf"))).equals(Buffer.from(png))).toBe(true);
   });
 });

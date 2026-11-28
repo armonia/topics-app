@@ -28,7 +28,7 @@ import { writeFileAtomic } from "./atomic-write";
 import { LIVE_DB_NAME, RETIRED_DB_NAME } from "./data-dir";
 import {
   ID_SEGMENT, INSTANCE_ENTRIES, instanceBaseDir, instanceEntryPath, KEPT_TRANSCRIPTS,
-  MEDIA, UPLOADS, VIEWS, type InstanceDirs, type InstanceEntry, type InstanceKind,
+  CONTEXT_FILES, MEDIA, UPLOADS, VIEWS, type InstanceDirs, type InstanceEntry, type InstanceKind,
 } from "./instance-files";
 import { findCliTranscript } from "./subagent-migration";
 
@@ -241,7 +241,7 @@ export interface AttachmentDirs {
 
 /** The attachment entries by kind: bundle prefix and the folder each one lands in on the receiver. */
 const ATTACHMENT_ROOTS: Partial<Record<InstanceKind, InstanceEntry>> = {
-  media: MEDIA, uploads: UPLOADS, views: VIEWS, "kept-transcripts": KEPT_TRANSCRIPTS,
+  media: MEDIA, uploads: UPLOADS, "context-files": CONTEXT_FILES, views: VIEWS, "kept-transcripts": KEPT_TRANSCRIPTS,
 };
 
 /**

@@ -21,7 +21,7 @@ import { join } from "node:path";
 export type InstanceRoot = "state" | "secrets" | "app-data" | "data";
 
 /** What a bundle file becomes on the receiver, by the entry it matched. */
-export type InstanceKind = "state" | "secrets" | "app-data" | "media" | "uploads" | "views" | "kept-transcripts";
+export type InstanceKind = "state" | "secrets" | "app-data" | "media" | "uploads" | "context-files" | "views" | "kept-transcripts";
 
 export interface InstanceDirs {
   stateDir?: string;
@@ -87,6 +87,10 @@ export const CLAUDE_CLOUD_RUNS: InstanceEntry = {
 export const VAPID_KEYS: InstanceEntry = {
   kind: "state", prefix: "state", root: "state", base: "", path: "vapid-keys.json", type: "file", accept: ["vapid-keys\\.json"],
 };
+/** The person's per-agent engine tuning. */
+export const AGENT_ENGINE: InstanceEntry = {
+  kind: "app-data", prefix: "app-data", root: "app-data", base: "", path: "agent-engine.json", type: "file", accept: ["agent-engine\\.json"],
+};
 /** What the hub shows as waiting for the person. */
 export const WAITING_ITEMS: InstanceEntry = {
   kind: "app-data", prefix: "app-data", root: "app-data", base: "", path: "waiting-items.json", type: "file", accept: ["waiting-items\\.json"],
@@ -95,6 +99,10 @@ export const WAITING_ITEMS: InstanceEntry = {
 /** The attachments, uploads, stored views and the keeper's copies of the CLI transcripts: walked whole. */
 export const MEDIA: InstanceEntry = { kind: "media", prefix: "media", root: "app-data", base: "media", path: "", type: "folder", accept: [FILE_TREE] };
 export const UPLOADS: InstanceEntry = { kind: "uploads", prefix: "uploads", root: "state", base: "uploads", path: "", type: "folder", accept: [FILE_TREE] };
+/** The files a person attached to a topic as context: one folder per topic id. */
+export const CONTEXT_FILES: InstanceEntry = {
+  kind: "context-files", prefix: "context-files", root: "state", base: "context-files", path: "", type: "folder", accept: [`${TOPIC_ID}/${FILE_TREE}`],
+};
 export const VIEWS: InstanceEntry = { kind: "views", prefix: "views", root: "data", base: "views", path: "", type: "folder", accept: [`${ID_SEGMENT}\\.json`] };
 export const KEPT_TRANSCRIPTS: InstanceEntry = {
   kind: "kept-transcripts", prefix: "claude-transcripts", root: "data", base: "claude-transcripts", path: "", type: "folder", accept: [`${ID_SEGMENT}\\.jsonl`],
@@ -102,8 +110,8 @@ export const KEPT_TRANSCRIPTS: InstanceEntry = {
 
 /** Every entry, in the order the bundle lists them. */
 export const INSTANCE_ENTRIES: readonly InstanceEntry[] = [
-  NODES, LICENSE_TOKEN, INSTALLATION_ID, TOPIC_MEMORY, CLAUDE_CLOUD_RUNS, VAPID_KEYS, WAITING_ITEMS,
-  MEDIA, UPLOADS, VIEWS, KEPT_TRANSCRIPTS,
+  NODES, LICENSE_TOKEN, INSTALLATION_ID, TOPIC_MEMORY, CLAUDE_CLOUD_RUNS, VAPID_KEYS, AGENT_ENGINE, WAITING_ITEMS,
+  MEDIA, UPLOADS, CONTEXT_FILES, VIEWS, KEPT_TRANSCRIPTS,
 ];
 
 function rootDir(root: InstanceRoot, dirs: InstanceDirs): string {

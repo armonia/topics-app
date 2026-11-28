@@ -59,9 +59,6 @@ const NOT_CARRIED: Record<string, string> = {
   "ssh-control": "SSH control sockets of this machine, alive only here",
   "orchestrator-cwd": "a scratch working folder for the orchestrator turns",
   "revisione-pr": "working data of the PR review runs on this machine",
-  // Not carried YET: nobody decided, and the next person to touch the switch should.
-  "context-files": "not carried yet (undecided): files a person attached to a topic as context",
-  "agent-engine.json": "not carried yet (undecided): the per-agent engine tuning the person set",
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
@@ -133,7 +130,7 @@ describe("every entry of the list travels", () => {
   const sampleOf = (entry: InstanceEntry, dirs: ReturnType<typeof computer>): string => {
     const base = instanceEntryPath(entry, dirs);
     if (entry.type === "file") return base;
-    const sample = { nodes: "a-node.token", memory: "topic-1.md", media: "photo.png", uploads: "doc.pdf", views: "view-1.json", "claude-transcripts": "11111111.jsonl" }[entry.prefix === "state" ? entry.path : entry.prefix];
+    const sample = { nodes: "a-node.token", memory: "topic-1.md", media: "photo.png", uploads: "doc.pdf", "context-files": "topic-1/notes.txt", views: "view-1.json", "claude-transcripts": "11111111.jsonl" }[entry.prefix === "state" ? entry.path : entry.prefix];
     return join(base, sample!);
   };
 

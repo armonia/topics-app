@@ -16,14 +16,19 @@
  *  - the fence is the real one (`setPrimaryFence`, which turns the live handle
  *    `query_only`): a write attempted on the old DB afterwards is refused with
  *    SQLITE_READONLY and changes nothing, and the front door answers 409
- *    `primary_moved` to a write;
+ *    `primary_moved` to a write over a real HTTP request (a listener on a free
+ *    loopback port, the real access gate and `gatedRefusal` wired the way
+ *    `server/routes/front-door.ts` wires them) while a read goes through;
  *  - after the old primary restarts, its DB is set aside, no file exists at the
  *    live DB path (nothing for a replica to publish), and it still refuses;
- *  - a session is resumed on the new side with its context: the REAL `claude -p`
- *    (the cheapest non-Haiku model, `sonnet`) memorizes a random word in a temp
- *    project, the switch ships its transcript, the origin copy is deleted, a
- *    resume by id without the shipped copy fails, and `claude -p --resume` on the
- *    restored file answers with the word. Without `claude` in PATH, or with
+ *  - a session is resumed on the new side with its context, the way Topics
+ *    resumes one (`claude -p --resume <sessionId>` run with the project folder as
+ *    cwd, `server/providers/claude/args.ts`): the REAL `claude -p` (the cheapest
+ *    non-Haiku model, `sonnet`) memorizes a random word in a temp project, the
+ *    switch ships its transcript, the origin copy is deleted, a resume by id
+ *    without the shipped copy fails, then the receiver's own restore puts the
+ *    transcript back under the CLI projects folder, where the CLI looks for it,
+ *    and the resume by id answers with the word. Without `claude` in PATH, or with
  *    `--no-cli`, it falls back to Topics' own reader (find the transcript by id,
  *    read its messages) and says so in `resume.mode`. The CLI's configuration
  *    and credentials are never touched; its own transcript folder gets one temp
@@ -39,6 +44,7 @@ import { homedir, hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { closeDatabase, getDatabase, initDatabase, isFencedWriteError } from "../server/db";
+import { createAccessGate } from "../server/routes/access-gate";
 import { RETIRED_DB_NAME } from "../server/lib/data-dir";
 import { createPrimaryRole } from "../server/lib/primary-role";
 import { bootPrimaryChange, gatedRefusal, setPrimaryFence } from "../server/lib/primary-fence";
@@ -96,6 +102,30 @@ async function claude(cwd: string, args: string[]): Promise<{ exitCode: number; 
     return { exitCode, result: parsed.result ?? "", sessionId: parsed.session_id ?? null };
   } catch {
     return { exitCode, result: `${out}${err}`.trim(), sessionId: null };
+  }
+}
+
+/**
+ * One request through the real door: a listener on a free loopback port whose handler is the
+ * access gate and `gatedRefusal` wired as `server/routes/front-door.ts` wires them. `through` is
+ * what a request the door lets pass gets; a refusal is the door's own answer.
+ */
+async function askDoor(method: string, pathname: string): Promise<{ status: number; body: { code?: string } | null }> {
+  const gate = createAccessGate({ corsAllowOrigin: () => "", ctx: { db: getDatabase() } as never, identityByRequest: new WeakMap() });
+  const door = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: (req, server) => {
+      const url = new URL(req.url);
+      const refused = gatedRefusal(() => gate(req, server as never, url.pathname, req.method, url.pathname.startsWith("/api/")) ?? null, url.pathname, req.method);
+      return refused ?? new Response(JSON.stringify({ code: "through" }), { headers: { "content-type": "application/json" } });
+    },
+  });
+  try {
+    const res = await fetch(`http://127.0.0.1:${door.port}${pathname}`, { method });
+    return { status: res.status, body: (await res.json().catch(() => null)) as { code?: string } | null };
+  } finally {
+    door.stop(true);
   }
 }
 
@@ -166,7 +196,19 @@ try {
   });
   checks.switched = report.outcome === "switched";
   checks.sessionTranscriptShipped = transcripts.some((t) => t.name.endsWith(`${sessionId}.jsonl`));
-  checks.restored = applyPendingPrimaryChange({ ...receiver, log: () => {} }) === "restored";
+  // The origin copy of the session goes BEFORE the receiver restores: only what the switch shipped can answer.
+  const origin = findCliTranscript(sessionId, projectsDir);
+  const originBytes = origin ? readFileSync(origin) : null;
+  if (cliFolder) rmSync(cliFolder, { recursive: true, force: true });
+  checks.originGone = findCliTranscript(sessionId, projectsDir) === null;
+  const resume: { mode: "cli" | "reader"; model?: string; answer: string; withoutCopyRefused?: boolean } = { mode: useCli ? "cli" : "reader", answer: "" };
+  if (useCli) {
+    const without = await claude(projectCwd, ["--resume", sessionId, "What was the secret word?"]);
+    resume.withoutCopyRefused = without.exitCode !== 0 && !without.result.includes(word);
+    checks.resumeNeedsTheShippedCopy = resume.withoutCopyRefused;
+  }
+  // The receiver's own restore, onto the CLI projects folder: the transcript lands where the CLI looks for it.
+  checks.restored = applyPendingPrimaryChange({ ...receiver, projectsDir, log: () => {} }) === "restored";
   const restored = new Database(receiver.dbPath, { readonly: true });
   const after = countRows(restored);
   checks.countsEqual = after.tasks === before.tasks && after.topics === before.topics && after.messages === before.messages + 1;
@@ -177,8 +219,10 @@ try {
   let writeError: unknown = null;
   try { writeOneMessage(db); } catch (err) { writeError = err; }
   checks.oldWriteRefusedByDb = isFencedWriteError(writeError) && countRows(db).messages === before.messages + 1;
-  const door = gatedRefusal(() => null, "/api/tasks", "POST");
-  checks.oldWriteRefusedByDoor = door?.status === 409 && ((await door.json()) as { code?: string }).code === MOVED_CODE;
+  const write = await askDoor("POST", "/api/tasks");
+  checks.oldWriteRefusedByDoor = write.status === 409 && write.body?.code === MOVED_CODE;
+  const read = await askDoor("GET", "/api/topics");
+  checks.oldReadGoesThroughDoor = read.status === 200 && read.body?.code === "through";
   checks.oldIsNotPrimary = !role.isPrimary();
 
   // The old one restarts: the boot alone sets its DB aside; it opens a service DB, never a file at the live path.
@@ -189,22 +233,15 @@ try {
   initDatabase(repoRoot, old.stateDir);
   if (previousDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = previousDataDir;
   checks.oldLivePathStaysEmpty = !existsSync(old.dbPath) && existsSync(join(dirname(old.dbPath), RETIRED_DB_NAME));
-  checks.oldRefusesAfterRestart = gatedRefusal(() => null, "/api/tasks", "POST")?.status === 409;
+  checks.oldRefusesAfterRestart = (await askDoor("POST", "/api/tasks")).status === 409;
   closeDatabase();
   setPrimaryFence(null);
 
-  // The session on the new side. The origin copy goes first: only what the switch shipped can answer.
-  const origin = findCliTranscript(sessionId, projectsDir);
-  const shipped = findCliTranscript(sessionId, receiver.projectsDir);
-  checks.transcriptRestored = !!origin && !!shipped && readFileSync(shipped).equals(readFileSync(origin));
-  if (cliFolder) rmSync(cliFolder, { recursive: true, force: true });
-  checks.originGone = findCliTranscript(sessionId, projectsDir) === null;
-  const resume: { mode: "cli" | "reader"; model?: string; answer: string; withoutCopyRefused?: boolean } = { mode: useCli ? "cli" : "reader", answer: "" };
+  // The session on the new side, resumed by id with the project folder as cwd, the way Topics does.
+  const shipped = findCliTranscript(sessionId, projectsDir);
+  checks.transcriptRestored = !!originBytes && !!shipped && readFileSync(shipped).equals(originBytes);
   if (useCli && shipped) {
-    const without = await claude(projectCwd, ["--resume", sessionId, "What was the secret word?"]);
-    resume.withoutCopyRefused = without.exitCode !== 0 && !without.result.includes(word);
-    checks.resumeNeedsTheShippedCopy = resume.withoutCopyRefused;
-    const answered = await claude(projectCwd, ["--resume", shipped, "What was the secret word? Answer with the word only."]);
+    const answered = await claude(projectCwd, ["--resume", sessionId, "What was the secret word? Answer with the word only."]);
     resume.model = model;
     resume.answer = answered.result;
     checks.sessionResumedWithItsContext = answered.exitCode === 0 && answered.result.toLowerCase().includes(word);
