@@ -78,3 +78,42 @@ describe("readableViewFallback — cache by structural signature", () => {
     expect(calls).toBe(2);
   });
 });
+
+describe("readableViewFallback: provider errors and nested shapes", () => {
+  const nested = { data: { items: [{ name: "a", n: 1 }, { name: "b", n: 2 }] }, total: 2 };
+
+  test("a complete() that throws once is not cached: the second call answers", async () => {
+    const db = freshDb();
+    let calls = 0;
+    const complete = async () => {
+      calls++;
+      if (calls === 1) throw new Error("provider down");
+      return JSON.stringify({ kind: "counter", label: "Total", path: "total" });
+    };
+    expect(await readableViewFallback({ db, complete }, "srv__t", nested)).toBeNull();
+    expect(await readableViewFallback({ db, complete }, "srv__t", nested)).toEqual({ kind: "counter", label: "Total", value: { text: "2" } });
+    expect(calls).toBe(2);
+  });
+
+  test("an invalid answer IS cached as no view", async () => {
+    const db = freshDb();
+    let calls = 0;
+    const complete = async () => { calls++; return "not json"; };
+    await readableViewFallback({ db, complete }, "srv__t", nested);
+    await readableViewFallback({ db, complete }, "srv__t", nested);
+    expect(calls).toBe(1);
+  });
+
+  test("a nested shape with a model answer faithful to the prompt gives a view", async () => {
+    const db = freshDb();
+    const prompts: string[] = [];
+    const complete = async (p: string) => {
+      prompts.push(p);
+      return JSON.stringify({ kind: "table", rowsPath: "data.items[]", columns: [{ label: "Name", path: "data.items[].name" }, { label: "N", path: "n" }] });
+    };
+    const view = await readableViewFallback({ db, complete }, "srv__t", nested);
+    expect(prompts[0]).toContain("data.items[].name");
+    expect(prompts[0]).toContain("RELATIVI");
+    expect(view).toEqual({ kind: "table", columns: ["Name", "N"], rows: [[{ text: "a" }, { text: "1" }], [{ text: "b" }, { text: "2" }]] });
+  });
+});

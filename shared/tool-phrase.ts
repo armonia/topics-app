@@ -9,10 +9,10 @@
  *
  * Covers the Topics bridge + browser tools deterministically: a closed,
  * known list, no model needed. A third-party MCP tool this does not name
- * falls back to a humanized version of its own name, still no model: an
- * unknown tool deserves a readable guess from its own name, not a paid call
- * for every tool a server happens to expose. The model fallback this card's
- * other traces use for shapes stays reserved for VALUES, never for names.
+ * gets a humanized version of its own name and `guessed: true`; the client
+ * may then ask the cheap model ONCE per tool name (cached on the server) and
+ * pass the answer back in as `learned`. With the fallback off nothing asks,
+ * and the humanized name stays.
  */
 import { classifyToolAction } from './agent-action';
 
@@ -22,7 +22,7 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim
 /** The short id a reader recognizes a card by, same cut as elsewhere in the chat. */
 const shortId = (id: string): string => (id.length > 8 ? id.slice(0, 8) : id);
 
-interface Phrase { text: string; category: ToolCategory }
+export interface Phrase { text: string; category: ToolCategory; /** True when only the humanized name was available: the caller may ask the model once per tool name. */ guessed?: boolean }
 
 /** One entry per Topics bridge/browser tool this can phrase from its own name alone. */
 function knownTopicsPhrase(tool: string, a: Record<string, unknown>): Phrase | null {
@@ -114,13 +114,14 @@ const SEARCH_HINT = /search|find|lookup|query|resolve/i;
  * The readable phrase + icon category for a tool call outside the dedicated
  * `ToolCallDetail` types — the generic `mcp` and `unknown` rows. PURE.
  */
-export function toolPhrase(rawName: string, tool: string, args: Record<string, unknown> | undefined): Phrase {
+export function toolPhrase(rawName: string, tool: string, args: Record<string, unknown> | undefined, learned?: Phrase | null): Phrase {
   const a = args ?? {};
   const known = knownTopicsPhrase(tool, a);
   if (known) return known;
   const read = readPhrase(tool, a);
   if (read) return read;
   if (SEARCH_HINT.test(tool)) return { text: humanize(tool), category: 'search' };
+  if (learned) return { text: learned.text, category: learned.category };
   const action = classifyToolAction(rawName);
-  return { text: humanize(tool), category: AGENT_ACTION_TO_CATEGORY[action] ?? 'other' };
+  return { text: humanize(tool), category: AGENT_ACTION_TO_CATEGORY[action] ?? 'other', guessed: true };
 }

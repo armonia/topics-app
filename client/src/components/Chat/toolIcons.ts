@@ -9,7 +9,8 @@
 import { Terminal as TerminalIcon, FileText, FilePen, FilePlus, Search, Globe, ListChecks, Bot, Brain, Sparkles, Wrench, Activity, Timer, ScrollText, Ban, NotebookPen, Wand2, Slash, Braces, Send, Users, LayoutTemplate, LayoutGrid, MessageCircleQuestion, KanbanSquare, SquareTerminal, type LucideIcon } from 'lucide-react';
 import type { ToolCallDetail } from '../../types';
 import { workKindOf } from './workKind';
-import { toolPhrase, type ToolCategory } from '../../../../shared/tool-phrase';
+import type { ToolCategory } from '../../../../shared/tool-phrase';
+import { phraseFor } from '../../state/toolPhraseFallback';
 
 /** The icon of the 7-category bucket a generic (`mcp`/`unknown`) row's own
  *  tool name falls into (`shared/tool-phrase.ts`): read, write, search,
@@ -20,7 +21,7 @@ const CATEGORY_ICON: Record<ToolCategory, LucideIcon> = {
 };
 
 function genericIcon(rawName: string, tool: string, args: Record<string, unknown> | undefined, fallback: LucideIcon): LucideIcon {
-  const { category } = toolPhrase(rawName, tool, args);
+  const { category } = phraseFor(rawName, tool, args);
   return category === 'other' ? fallback : CATEGORY_ICON[category];
 }
 

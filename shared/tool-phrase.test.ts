@@ -25,11 +25,21 @@ describe("toolPhrase — a readable sentence + icon category instead of 'server 
   });
 
   test("an unknown MCP tool falls back to its action category and a humanized name", () => {
-    expect(toolPhrase("mcp__acme__write_file", "write_file", {})).toEqual({ text: "Write file", category: "write" });
-    expect(toolPhrase("mcp__acme__fetch_url", "fetch_url", {})).toEqual({ text: "Fetch url", category: "network" });
+    expect(toolPhrase("mcp__acme__write_file", "write_file", {})).toEqual({ text: "Write file", category: "write", guessed: true });
+    expect(toolPhrase("mcp__acme__fetch_url", "fetch_url", {})).toEqual({ text: "Fetch url", category: "network", guessed: true });
   });
 
   test("a truly opaque tool name still gets a readable humanization and a category", () => {
-    expect(toolPhrase("mcp__acme__doSomethingWeird", "doSomethingWeird", {})).toEqual({ text: "Do something weird", category: "other" });
+    expect(toolPhrase("mcp__acme__doSomethingWeird", "doSomethingWeird", {})).toEqual({ text: "Do something weird", category: "other", guessed: true });
   });
+
+describe("toolPhrase: a phrase learned from the model", () => {
+  test("is used for an unknown tool and no longer marked as a guess", () => {
+    const learned = { text: "Legge un ordine", category: "read" as const };
+    expect(toolPhrase("mcp__shop__fetch_order", "fetch_order", {}, learned)).toEqual(learned);
+  });
+  test("never overrides a known Topics tool", () => {
+    expect(toolPhrase("mcp__topics__task_get", "task_get", {}, { text: "X", category: "other" }).category).toBe("read");
+  });
+});
 });

@@ -14,7 +14,7 @@ import type { ToolCall, ToolCallDetail } from '../../types';
 import { workKindOf } from './workKind';
 import { parseToolCallDetail } from '../../../../shared/tool-call-detail';
 import { deriveToolDetail, goalStepsAsTodo, isGoalStepsTool, isSetGoalTool, pageHost } from '../../../../shared/tool-detail';
-import { toolPhrase } from '../../../../shared/tool-phrase';
+import { phraseFor } from '../../state/toolPhraseFallback';
 
 export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
   // A failed call opened nothing. The SDK path keeps the detail it built at
@@ -199,7 +199,7 @@ function labelOf(detail: ToolCallDetail, rawName?: string): { name: string; summ
       }
       // "topics · task_get" told a reader nothing; the sentence does
       // (`shared/tool-phrase.ts`), and the full name stays on hover.
-      return { name: toolPhrase(rawName ?? detail.tool, detail.tool, detail.args).text, tooltip: `${detail.server} · ${detail.tool}` };
+      return { name: phraseFor(rawName ?? detail.tool, detail.tool, detail.args).text, tooltip: `${detail.server} · ${detail.tool}` };
     case 'monitor':
       return { name: 'Monitor', summary: detail.description || detail.command || detail.wsUrl };
     case 'wait':
@@ -242,7 +242,7 @@ function labelOf(detail: ToolCallDetail, rawName?: string): { name: string; summ
       // A bare "Tool" row is unreadable — the sentence from its own name
       // stands on its own; the provider's raw name stays on hover.
       if (!rawName) return { name: 'Tool', summary: summarizeArgs(detail.raw.args) };
-      return { name: toolPhrase(rawName, rawName, detail.raw.args).text, tooltip: rawName };
+      return { name: phraseFor(rawName, rawName, detail.raw.args).text, tooltip: rawName };
     }
   }
 }

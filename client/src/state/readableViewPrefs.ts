@@ -1,16 +1,16 @@
 import { useSyncExternalStore } from 'react';
 
 /**
- * The reader's choices for JSON tool results: the readable layout or the
- * original coloured text (remembered), whether the cheap model may be asked for
- * a never-seen shape (on by default, switchable off in Settings), and which
- * model. Kept in localStorage: it is a per-browser display preference, not data.
+ * The reader's choice for JSON tool results: the readable layout or the
+ * original coloured text (remembered). Kept in localStorage: it is a
+ * per-browser display preference, not data. The fallback switch and its model
+ * are NOT here: they are server settings (`readable_view_settings`).
  */
 export type ReadableMode = 'readable' | 'original';
-export interface ReadableViewPrefs { mode: ReadableMode; fallbackEnabled: boolean; model: string }
+export interface ReadableViewPrefs { mode: ReadableMode }
 
 const KEY = 'topics.readableView';
-const DEFAULTS: ReadableViewPrefs = { mode: 'readable', fallbackEnabled: true, model: '' };
+const DEFAULTS: ReadableViewPrefs = { mode: 'readable' };
 
 const listeners = new Set<() => void>();
 let cached: ReadableViewPrefs | null = null;
@@ -20,11 +20,7 @@ function load(): ReadableViewPrefs {
     const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(KEY);
     if (!raw) return DEFAULTS;
     const p = JSON.parse(raw) as Partial<ReadableViewPrefs>;
-    return {
-      mode: p.mode === 'original' ? 'original' : 'readable',
-      fallbackEnabled: p.fallbackEnabled !== false,
-      model: typeof p.model === 'string' ? p.model : '',
-    };
+    return { mode: p.mode === 'original' ? 'original' : 'readable' };
   } catch {
     return DEFAULTS;
   }

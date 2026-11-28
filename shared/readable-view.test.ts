@@ -156,3 +156,30 @@ describe("shapeSignature — keys and types only, never values", () => {
     expect(shapeSignature({ id: "x" })).not.toBe(shapeSignature({ id: "x", extra: 1 }));
   });
 });
+
+describe("nested values go to the fallback", () => {
+  test("an object with an array of objects inside is not deterministic", () => {
+    expect(deterministicReadableView({ results: [{ id: 1, name: "a" }], total: 3 })).toBeNull();
+  });
+  test("a nested object in a table cell is not deterministic", () => {
+    expect(deterministicReadableView([{ id: 1, meta: { a: 1 } }])).toBeNull();
+  });
+  test("flat shapes stay deterministic", () => {
+    expect(deterministicReadableView({ a: 1, b: "x", tags: ["p", "q"] })?.kind).toBe("kv");
+  });
+});
+
+describe("resolvePath fan-out", () => {
+  const value = { data: { items: [{ name: "a", n: 1 }, { name: "b", n: 2 }] } };
+  test("[] maps over an array", () => {
+    expect(resolvePath(value, "data.items[].name")).toEqual(["a", "b"]);
+    expect(resolvePath(value, "data.items[]")).toEqual(value.data.items);
+  });
+  test("a step missing in one element discards the path", () => {
+    expect(resolvePath({ items: [{ a: 1 }, {}] }, "items[].a")).toBeUndefined();
+  });
+  test("table columns resolve relative to the row, absolute notation included", () => {
+    const spec = { kind: "table" as const, rowsPath: "data.items[]", columns: [{ label: "N", path: "data.items[].name" }, { label: "Num", path: "n" }] };
+    expect(resolveDeclSpec(spec, value)).toEqual({ kind: "table", columns: ["N", "Num"], rows: [[{ text: "a" }, { text: "1" }], [{ text: "b" }, { text: "2" }]] });
+  });
+});

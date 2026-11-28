@@ -1,40 +1,68 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/shell/net';
-import { shapeSignature, type ReadableView } from '../../../shared/readable-view';
+import type { ReadableView } from '../../../shared/readable-view';
 
 /**
  * Asks the server for the model's layout of a shape the pure matcher did not
- * place. At most one request per structural signature per page (the server
- * caches across pages), so a re-render never costs a call. Until the answer
- * lands the caller keeps showing the original text.
+ * place. At most one request per distinct result per page (the server
+ * caches the shape, so only a new shape costs a model call). The answer is a
+ * NDJSON stream of fuller and fuller layouts: each line is drawn as it
+ * arrives. Until the first one lands the caller keeps showing the original.
  */
-const answers = new Map<string, ReadableView | null>();
-const pending = new Map<string, Promise<ReadableView | null>>();
+const seen = new Map<string, Promise<void>>();
+const latest = new Map<string, ReadableView | null>();
+const listeners = new Map<string, Set<(view: ReadableView | null) => void>>();
 
-function request(toolName: string, value: unknown, model: string): Promise<ReadableView | null> {
-  const key = `${toolName}::${shapeSignature(value)}`;
-  const known = pending.get(key);
-  if (known) return known;
-  const p = apiFetch('/api/readable-view', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ toolName, value, ...(model ? { model } : {}) }),
-  })
-    .then(async (r) => (r.ok ? ((await r.json()) as { view: ReadableView | null }).view : null))
-    .catch(() => null)
-    .then((view) => { answers.set(key, view); return view; });
-  pending.set(key, p);
-  return p;
+/** Reads a NDJSON body line by line, handing every complete line to `onLine`. */
+async function readNdjson(res: Response, onLine: (line: { view?: ReadableView; done?: boolean }) => void): Promise<void> {
+  if (!res.body) return;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    let nl = buffer.indexOf('\n');
+    while (nl >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (line) onLine(JSON.parse(line) as { view?: ReadableView; done?: boolean });
+      nl = buffer.indexOf('\n');
+    }
+    if (done) break;
+  }
 }
 
-export function useFallbackView(toolName: string, value: unknown, enabled: boolean, model: string): ReadableView | null {
+function request(key: string, toolName: string, value: unknown): void {
+  if (seen.has(key)) return;
+  const publish = (view: ReadableView | null) => {
+    latest.set(key, view);
+    listeners.get(key)?.forEach((l) => l(view));
+  };
+  seen.set(key, apiFetch('/api/readable-view', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ toolName, value }),
+  })
+    .then((r) => (r.ok ? readNdjson(r, (line) => { if (line.view) publish(line.view); }) : undefined))
+    .catch(() => undefined));
+}
+
+export function useFallbackView(toolName: string, value: unknown): ReadableView | null {
+  // Keyed by the value itself: the server caches the shape, but the numbers on screen must be this result's.
+  const key = `${toolName}::${JSON.stringify(value)}`;
   const [answer, setAnswer] = useState<{ value: unknown; view: ReadableView | null } | null>(null);
   useEffect(() => {
-    if (!enabled || value === undefined) return;
-    let live = true;
-    void request(toolName, value, model).then((view) => { if (live) setAnswer({ value, view }); });
-    return () => { live = false; };
-  }, [toolName, value, enabled, model]);
+    if (value === undefined) return;
+    const set = listeners.get(key) ?? new Set();
+    const l = (view: ReadableView | null) => setAnswer({ value, view });
+    set.add(l);
+    listeners.set(key, set);
+    const known = latest.get(key);
+    if (known) l(known);
+    request(key, toolName, value);
+    return () => { set.delete(l); };
+  }, [key, toolName, value]);
   // An answer belongs to the value it was asked for: a stale one is never shown.
-  return enabled && answer && answer.value === value ? answer.view : null;
+  return answer && answer.value === value ? answer.view : null;
 }

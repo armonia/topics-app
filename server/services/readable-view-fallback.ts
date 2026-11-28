@@ -4,8 +4,8 @@
  * the closed catalog and names PATHS into the real JSON, never values — so it
  * cannot invent a number (`shared/readable-view.ts`). Cached by structural
  * signature (keys + types, never values), so the same shape on different data
- * calls the model once; a shape it fails on is cached too, so it is not
- * retried on every render.
+ * calls the model once; an answer that is not a valid spec is cached too, so
+ * it is not retried on every render. A provider error is not cached.
  */
 import type { Database } from "bun:sqlite";
 import type { AIProvider } from "../providers";
@@ -20,7 +20,10 @@ const CATALOG = `Catalogo chiuso di componenti. Rispondi SOLO con JSON, una di q
 {"kind":"chip","path":"...","tone":"neutral|success|danger|warning"}
 {"kind":"counter","label":"...","path":"..."}
 {"kind":"error","path":"..."}
-Regole: "path" punta SEMPRE dentro il JSON sottostante (notazione a punti, es. "data.items[].name"); non scrivere mai un valore, solo percorsi che esistono qui sotto. Scegli la forma piu' leggibile per questi campi (chiave: tipo):\n`;
+Regole: ogni percorso punta dentro il JSON sottostante, in notazione a punti ("data.items[].name": [] scorre un array). Non scrivere mai un valore, solo percorsi che esistono qui sotto.
+"rowsPath" e "itemsPath" sono ASSOLUTI (partono dalla radice, es. "data.items[]"); i percorsi di "columns" e "textPath" sono RELATIVI alla riga (es. "name", non "data.items[].name").
+Scegli la forma piu' leggibile per questi campi (percorso: tipo):
+`;
 
 /** The prompt names only paths and their types — never a value from the result. */
 export function fallbackPrompt(toolName: string, value: unknown): string {
@@ -62,10 +65,16 @@ export async function readableViewFallback(deps: FallbackDeps, toolName: string,
     return spec ? resolveDeclSpec(spec, value) : null;
   }
   let raw: unknown;
+  let text: string;
   try {
-    const text = await deps.complete(fallbackPrompt(toolName, value));
-    const jsonText = text.trim().replace(/^```(?:json)?\n?/, "").replace(/```$/, "");
-    raw = JSON.parse(jsonText);
+    text = await deps.complete(fallbackPrompt(toolName, value));
+  } catch {
+    // The provider failed (down, quota): nothing was answered, so nothing is
+    // cached; a later result of this shape asks again.
+    return null;
+  }
+  try {
+    raw = JSON.parse(text.trim().replace(/^```(?:json)?\n?/, "").replace(/```$/, ""));
   } catch {
     writeCache(deps.db, signature, toolName, null);
     return null;

@@ -114,6 +114,12 @@ function asCard(value: Record<string, unknown>, fields: KvField[]): CardView | n
   return { kind: 'card', title: String(value[titleKey]), status: statusField.value, labels, fields: rest };
 }
 
+/** An object, or an array holding anything but scalars: a cell cannot show it without falling back to raw JSON. */
+function isNested(v: unknown): boolean {
+  if (isPlainObject(v)) return true;
+  return Array.isArray(v) && v.some((x) => x !== null && typeof x === 'object');
+}
+
 /**
  * The shape → view mapping for what a tool result commonly is. Null means
  * "nothing deterministic fits" — the caller falls back to the model, and
@@ -128,6 +134,8 @@ export function deterministicReadableView(value: unknown): ReadableView | null {
 
     const keys = Object.keys(value);
     if (keys.length === 0) return null;
+    // Nested fields have no deterministic layout: the model fallback picks one.
+    if (keys.some((k) => isNested(value[k]))) return null;
     const fields: KvField[] = keys.slice(0, MAX_KV_FIELDS)
       .filter((k) => value[k] !== undefined)
       .map((k) => ({ label: k, value: cellOf(value[k], k) }));
@@ -148,6 +156,7 @@ export function deterministicReadableView(value: unknown): ReadableView | null {
       return { kind: 'list', items };
     }
     if (value.every(isPlainObject)) {
+      if (value.some((row) => Object.values(row).some(isNested))) return null;
       const columns: string[] = [];
       for (const row of value) for (const k of Object.keys(row)) if (!columns.includes(k)) columns.push(k);
       const cappedColumns = columns.slice(0, MAX_TABLE_COLUMNS);
@@ -175,16 +184,38 @@ export type DeclSpec =
 const DECL_KINDS = new Set(['kv', 'table', 'list', 'chip', 'counter', 'error']);
 const TONES = new Set(['neutral', 'success', 'danger', 'warning']);
 
-/** `foo.bar[0].baz` -> the value at that path inside `root`, or `undefined` if any step misses. */
+/**
+ * `foo.bar[0].baz` -> the value at that path inside `root`, or `undefined` if
+ * any step misses. `[]` fans out over an array (`items[].name` -> every
+ * name), the same notation `leafPaths` shows the model.
+ */
 export function resolvePath(root: unknown, path: string): unknown {
   if (path === '' || path === '.') return root;
-  const steps = path.replace(/\[(\d+)\]/g, '.$1').split('.').filter(Boolean);
-  let cur: unknown = root;
-  for (const step of steps) {
-    if (cur === null || cur === undefined || typeof cur !== 'object') return undefined;
-    cur = Array.isArray(cur) ? cur[Number(step)] : (cur as Record<string, unknown>)[step];
+  const steps = path.replace(/\[\]/g, '.[]').replace(/\[(\d+)\]/g, '.$1').split('.').filter(Boolean);
+  return walk(root, steps);
+}
+
+function walk(cur: unknown, steps: string[]): unknown {
+  if (steps.length === 0) return cur;
+  if (cur === null || cur === undefined || typeof cur !== 'object') return undefined;
+  const [step, ...rest] = steps;
+  if (step === '[]') {
+    if (!Array.isArray(cur)) return undefined;
+    const out = cur.map((el) => walk(el, rest));
+    return out.some((x) => x === undefined) ? undefined : out;
   }
-  return cur;
+  return walk(Array.isArray(cur) ? cur[Number(step)] : (cur as Record<string, unknown>)[step], rest);
+}
+
+/**
+ * A column or text path is relative to its row, but a model that copies the
+ * prompt's absolute notation (`data.items[].name`) names the same thing: the
+ * rows path, when it prefixes the cell path, is cut off.
+ */
+function relativeTo(basePath: string, path: string): string {
+  const base = basePath.replace(/\[\]$/, '');
+  for (const prefix of [`${base}[].`, `${base}.`]) if (path.startsWith(prefix)) return path.slice(prefix.length);
+  return path;
 }
 
 function isLabelPath(v: unknown): v is { label: unknown; path: unknown } {
@@ -264,7 +295,7 @@ export function resolveDeclSpec(spec: DeclSpec, value: unknown): ReadableView | 
     for (const row of rows.slice(0, MAX_TABLE_ROWS)) {
       const cells: Cell[] = [];
       for (const c of spec.columns) {
-        const v = resolvePath(row, c.path);
+        const v = resolvePath(row, relativeTo(spec.rowsPath, c.path));
         if (v === undefined) return null;
         cells.push(cellOf(v, c.path.split('.').pop()));
       }
@@ -277,7 +308,7 @@ export function resolveDeclSpec(spec: DeclSpec, value: unknown): ReadableView | 
     if (!Array.isArray(items)) return null;
     const outItems: ListItem[] = [];
     for (const item of items.slice(0, MAX_LIST_ITEMS)) {
-      const v = spec.textPath ? resolvePath(item, spec.textPath) : item;
+      const v = spec.textPath ? resolvePath(item, relativeTo(spec.itemsPath, spec.textPath)) : item;
       if (v === undefined) return null;
       outItems.push({ text: cellText(v) });
     }
@@ -333,4 +364,22 @@ export function leafPaths(value: unknown, prefix = '', depth = 0, out: Array<{ p
   }
   if (prefix) out.push({ path: prefix, type: value === null ? 'null' : typeof value });
   return out;
+}
+
+/**
+ * The view as it grows: cumulative prefixes of a table, list or field set, so
+ * a client that reads a stream line by line can draw the first rows while the
+ * rest is still on the wire. A view with no parts to grow is one chunk.
+ */
+export function viewChunks(view: ReadableView, size = 10): ReadableView[] {
+  const prefixes = <T,>(items: T[]): T[][] => {
+    const out: T[][] = [];
+    for (let n = size; n < items.length; n += size) out.push(items.slice(0, n));
+    out.push(items);
+    return out;
+  };
+  if (view.kind === 'table') return prefixes(view.rows).map((rows) => ({ ...view, rows }));
+  if (view.kind === 'list') return prefixes(view.items).map((items) => ({ ...view, items }));
+  if (view.kind === 'kv') return prefixes(view.fields).map((fields) => ({ ...view, fields }));
+  return [view];
 }

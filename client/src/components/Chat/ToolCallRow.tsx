@@ -33,6 +33,7 @@ import { FindToolIdContext, useFindFocusTool } from '../../state/chatFindFocus';
 import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY } from './useComposerDock';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { FadedText } from './FadedText';
+import { useLearnedPhrases } from '../../state/toolPhraseFallback';
 
 /**
  * Where a `scrollIntoView` of the row lands (the row a failure badge opened):
@@ -186,6 +187,7 @@ function useIsTextCut(ref: RefObject<HTMLElement | null>, text: string | undefin
 }
 
 export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, messageId, onPlanDecision, highlighted }: Props) {
+  useLearnedPhrases(); // a model-written tool phrase arriving re-renders the row with its sentence and icon
   const tr = useT();
   const rowRef = useRef<HTMLDivElement>(null);
   const settledMetricClass = useSettledMetricClass('tool');

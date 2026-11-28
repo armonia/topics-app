@@ -148,7 +148,7 @@ export function ReadableResult({ text, toolName, original }: { text: string; too
   const prefs = useReadableViewPrefs();
   const value = useMemo(() => parseJsonResult(unwrapStoredToolResult(text)), [text]);
   const pure = useMemo(() => (value === undefined ? null : deterministicReadableView(value)), [value]);
-  const asked = useFallbackView(toolName, value, value !== undefined && !pure && prefs.fallbackEnabled, prefs.model);
+  const asked = useFallbackView(toolName, !pure ? value : undefined);
   const view = pure ?? asked;
   if (!view) return <>{original}</>;
   return (
