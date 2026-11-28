@@ -608,6 +608,9 @@
     "client/src/components/Sidebar/SpaceGroups.tsx": {
       "raw-control": 1
     },
+    "client/src/components/Sidebar/TopSessionsSection.tsx": {
+      "raw-control": 4
+    },
     "client/src/components/Sidebar/TopicItem.tsx": {
       "raw-size": 7
     },
