@@ -84,7 +84,7 @@ export function Menu({ items, header, onSelect, onClose, x, y, ariaLabel, align 
         style={atPoint ? { left: `min(${x}px, calc(100vw - ${MENU_MAX_WIDTH + 8}px))`, top: y, maxHeight: `calc(100dvh - ${y}px - 8px)` } : undefined}
         className={clsx(
           FLOAT_SURFACE, LAYER_FLOAT,
-          'min-w-[190px] max-w-[min(288px,calc(100vw-16px))] overflow-y-auto py-1 outline-none',
+          'min-w-47.5 max-w-[min(288px,calc(100vw-16px))] overflow-y-auto py-1 outline-none',
           atPoint ? 'fixed' : clsx('absolute max-h-[min(420px,60dvh)]', side === 'above' ? 'bottom-full mb-1' : 'top-full mt-1', align === 'right' ? 'right-0' : 'left-0'),
           className,
         )}

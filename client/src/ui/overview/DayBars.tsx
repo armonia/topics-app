@@ -44,15 +44,15 @@ export function DayBars({ chart, copy }: { chart: DayChartModel; copy: UiCopy })
         </span>
       </figcaption>
       <div className="flex gap-2" aria-hidden="true">
-        <div className="flex h-[112px] w-7 shrink-0 flex-col justify-between text-right text-mini tabular-nums leading-none text-app-text-tertiary">
+        <div className="flex h-28 w-7 shrink-0 flex-col justify-between text-right text-mini tabular-nums leading-none text-app-text-tertiary">
           {ticks.map((t) => <span key={t} className="-translate-y-px">{t}</span>)}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="relative h-[112px]">
+          <div className="relative h-28">
             {ticks.map((t, i) => (
               <div key={t} className={clsx('absolute inset-x-0 border-t', i === ticks.length - 1 ? 'border-app-border' : 'border-dashed border-app-border-light')} style={{ top: `${(i / (ticks.length - 1)) * 100}%` }} />
             ))}
-            <div className="absolute inset-0 flex items-end gap-[3px]">
+            <div className="absolute inset-0 flex items-end gap-0.75">
               {chart.days.map((d) => (
                 <div key={d.id} data-tip={`${d.label}: ${d.value}`} className="flex h-full min-w-0 flex-1 items-end hover:bg-black/[0.03] dark:hover:bg-white/[0.04]">
                   <div className={clsx('w-full rounded-t-[4px]', d.weekend ? WEEKEND_FILL : WEEKDAY_FILL)} style={{ height: `${(d.value / chart.max) * 100}%` }} />

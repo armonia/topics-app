@@ -47,7 +47,7 @@ const GRID = 'grid grid-cols-[minmax(0,1fr)_112px_104px_176px_84px_72px_150px] i
 function ShareBar({ value }: { value: number }) {
   return (
     <span className="flex items-center gap-2.5">
-      <span className="h-1.5 w-[88px] overflow-hidden rounded-full bg-black/[0.08] dark:bg-white/[0.12]" aria-hidden="true">
+      <span className="h-1.5 w-22 overflow-hidden rounded-full bg-black/[0.08] dark:bg-white/[0.12]" aria-hidden="true">
         <span className="block h-full rounded-full bg-primary dark:bg-primary-dark" style={{ width: `${value}%` }} />
       </span>
       <span className="tabular-nums">{value}%</span>
@@ -76,7 +76,7 @@ export function FlowStatsTable({ flows, copy, volumeLabel, onOpenFlow, onOpenStu
   };
   return (
     <div className={clsx(CARD, 'overflow-x-auto')}>
-    <div className="min-w-[1000px]" role="table">
+    <div className="min-w-250" role="table">
       <div role="row" className={clsx(GRID, 'h-9 border-b border-app-border bg-black/[0.02] text-compact text-app-text-secondary dark:bg-white/[0.03]')}>
         <span role="columnheader">{c.flow}</span>
         <span role="columnheader" className="text-right">{volumeLabel ?? c.perMonth}</span>

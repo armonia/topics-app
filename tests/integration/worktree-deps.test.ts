@@ -62,7 +62,7 @@ describe("le dipendenze del client arrivano col worktree", () => {
     // Un `bun install` dentro un worktree symlinkato scriverebbe nel checkout
     // principale. Se un giorno qualcuno prova la scorciatoia, questo caso lo
     // ferma prima che il danno diventi «dipendenze sbagliate, in silenzio».
-    expect(corpo()).toContain("Bun.spawn(installArgv(dir)");
+    expect(corpo()).toContain("runBounded(installArgv(dir)");
     expect(corpo()).not.toContain("symlink");
   });
 
@@ -81,7 +81,7 @@ describe("le dipendenze del client arrivano col worktree", () => {
     // "install failed" with no hint of why.
     const c = corpo();
     expect(c).toContain("missingPackageManager(dir)");
-    expect(c.indexOf("missingPackageManager(dir)")).toBeLessThan(c.indexOf("Bun.spawn("));
+    expect(c.indexOf("missingPackageManager(dir)")).toBeLessThan(c.indexOf("runBounded("));
     expect(c).toMatch(/console\.warn\(`\[worktree-install-deps\] deps NOT installed in \$\{dir\}: \$\{missing\}`\)/);
   });
 
@@ -89,7 +89,8 @@ describe("le dipendenze del client arrivano col worktree", () => {
     // L'agente puo' lavorare lo stesso, e i cancelli che non partono adesso lo
     // DICONO (uscita 97) invece di andare rossi. Un throw qui trasformerebbe un
     // degrado onesto in una card che non nasce.
-    expect(corpo()).toContain("catch");
+    // runBounded reports a spawn failure as a value (`spawnError`), never a throw.
+    expect(corpo()).toContain("run.spawnError");
     expect(corpo()).not.toContain("throw");
   });
 
@@ -102,7 +103,7 @@ describe("le dipendenze del client arrivano col worktree", () => {
     // never had a test of its own: a refactor that dropped it would fall back to
     // "nothing installed" with nothing going red (card dcdee50e).
     const creazione = NODE_CHECK_WORKTREE_SRC.slice(NODE_CHECK_WORKTREE_SRC.indexOf("export async function openNodeCheckWorktree"));
-    expect(creazione.slice(0, 2000)).toContain("await installWorktreeDeps(path)");
+    expect(creazione.slice(0, 2300)).toContain("await installWorktreeDeps(path)");
   });
 
   test("DUE installazioni: la radice e il client, non una sola", () => {
@@ -112,5 +113,10 @@ describe("le dipendenze del client arrivano col worktree", () => {
     // fa 0 errori. Il client porta eslint e tsc. Ne manca una, e mezza barra
     // tace — che e' il difetto di partenza, spostato di un livello.
     expect(corpo()).toContain('[absPath, join(absPath, "client")]');
+  });
+
+  test("the ceiling is on the TOTAL of root plus client, not per install", () => {
+    expect(corpo()).toContain("timeoutMs - (Date.now() - started)");
+    expect(corpo()).toContain("timeoutMs: left");
   });
 });

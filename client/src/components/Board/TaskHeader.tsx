@@ -181,7 +181,7 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
                   className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-mini text-amber-800 dark:text-amber-300 hover:bg-amber-500/25"
                 >
                   <Lock className="h-3 w-3 shrink-0" />
-                  <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
+                  <span className="max-w-56 truncate">{blockedChip.label}</span>
                   <ChevronDown className="h-3 w-3 shrink-0 text-amber-800/70 dark:text-amber-300/70" />
                 </button>
               </div>

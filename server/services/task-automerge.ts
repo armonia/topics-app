@@ -31,6 +31,7 @@
 
 import { join } from "path";
 import { existsSync } from "fs";
+import { REALIGN_GATES_INSTRUCTION, runStaticGates, type StaticGateVerdict } from "./task-automerge-gates";
 import { worktreeRegistrationLost } from "./worktree-registration";
 import { carriedBranch, isPlainBranchName, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { findAttributionViolations } from "./land-attribution-gate";
@@ -135,6 +136,9 @@ export type LandSkipCode =
   | "realign-blocked"
   /** The automatic land found the branch behind `main` and refused to realign it (`DeliverySnapshot.noRealign`). */
   | "realign-needed"
+  /** The realign merge made a tree a fast static gate rejects: the land stopped before pushing it (`staticGates`). */
+  | "realign-gates-red"
+  | "realign-gates-unmeasured"
   /** The branch on origin holds commits this checkout does not have and the fetch could not bring them in. */
   | "branch-stale"
   /** The delivered commit is not in this checkout: the delivery never arrived here (a node bundle that failed to plant). */
@@ -256,6 +260,9 @@ export function landFallout(
       return { status: "review", reason: "il ramo è indietro su main e il riallineamento non si è potuto provare" };
     case "realign-needed":
       return { status: "review", reason: "il ramo è indietro su main: l'atterraggio automatico non lo riallinea" };
+    case "realign-gates-unmeasured": return { status: "review", reason: "i cancelli statici non hanno potuto misurare la fusione con main: niente è stato spinto" };
+    case "realign-gates-red":
+      return { status: "in_progress", reason: "la fusione con main fa uscire rosso un cancello statico", resume: REALIGN_GATES_INSTRUCTION };
     case "branch-stale":
       return { status: "review", reason: "il ramo su origin ha commit che il checkout locale non ha" };
     case "delivery-absent":
@@ -422,7 +429,7 @@ export function chooseMergeTarget(
  *  merge happened), or why it could not, in the agent's words. */
 export type RealignOutcome =
   | { ok: true; note: string | null }
-  | { ok: false; reason: string; files?: string[] };
+  | { ok: false; reason: string; files?: string[]; /** a static gate could not measure the merge: not a conflict */ unmeasured?: true };
 
 export interface AutoMergeDeps {
   /**
@@ -468,6 +475,8 @@ export interface AutoMergeDeps {
    * `"head-differs"` and `"main-ahead"` fall back to the local merge unchanged.
    */
   landViaPullRequest?: typeof landViaPullRequest;
+  /** Injected for tests. Default: `runStaticGates`. First red as text, or `null`. */
+  staticGates?: (cwd: string) => Promise<StaticGateVerdict | null>;
 }
 
 /** What `buildClient` answers: the exit code, plus what is ON DISK afterwards. */
@@ -538,6 +547,10 @@ const MIGRATIONS_SQL_DIR = "server/db/migrations";
 const MIGRATIONS_MANIFEST = "server/db/migrations-embedded.ts";
 const MIGRATIONS_MANIFEST_SCRIPT = "scripts/gen-migrations-manifest.ts";
 
+function defaultStaticGates(cwd: string): Promise<StaticGateVerdict | null> {
+  return runStaticGates(cwd, runRepoScript);
+}
+
 function defaultRegenerateManifest(cwd: string): Promise<GitRunResult> {
   return runRepoScript(cwd, [MIGRATIONS_MANIFEST_SCRIPT]);
 }
@@ -548,6 +561,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   const runBuild = deps.runBuild ?? defaultRunBuild;
   const regenerateBaseline = deps.regenerateBaseline ?? defaultRegenerateBaseline;
   const regenerateManifest = deps.regenerateManifest ?? defaultRegenerateManifest;
+  const staticGates = deps.staticGates ?? defaultStaticGates;
   const verifyBundle = deps.verifyBundle ?? bundleBreakageReason;
   const log = deps.log ?? (() => {});
 
@@ -675,6 +689,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   function realignmentFor(
     target: { repoPath: string; defaultBranch: string; readonly branch: string },
     onRealigned: (note: string) => void,
+    gates?: (cwd: string) => Promise<StaticGateVerdict | null>,
   ) {
     const { repoPath, defaultBranch } = target;
     async function branchWorktree(): Promise<string | null> {
@@ -757,6 +772,15 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       return commit.code === 0;
     }
 
+    /** Fast static gates on the merged tree; red = branch reset, so the next land measures again. */
+    async function redGates(wtPath: string, before: string | null, behind: number): Promise<AutoMergeResult | null> {
+      const verdict = gates ? await gates(wtPath) : null; if (!verdict) return null;
+      if (before) await runGit(wtPath, ["reset", "--hard", before]);
+      const unmeasured = verdict.kind === "unmeasured";
+      return { status: "skipped", code: unmeasured ? "realign-gates-unmeasured" : "realign-gates-red",
+        reason: `il ramo '${target.branch}' era indietro di ${behind} commit su '${defaultBranch}' e ${unmeasured ? "i cancelli statici non hanno potuto misurare la fusione" : "la fusione fa uscire rosso un cancello statico"}: ${verdict.detail}. Non ho spinto niente, il ramo è com'era` };
+    }
+
     async function realignOnMain(): Promise<AutoMergeResult | null> {
       // `merge-base --is-ancestor` invece di contare: una domanda sola, e la
       // risposta «main è già dentro» è quella del caso normale.
@@ -794,6 +818,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         }
       }
 
+      const headBefore = (await runGit(wtPath, ["rev-parse", "HEAD"])).stdout.trim() || null;
       try {
         const msg = `Riporta ${defaultBranch} nel ramo prima del land`;
         const merge = await runGit(wtPath, ["merge", "--no-edit", "-m", msg, defaultBranch]);
@@ -811,7 +836,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
               `il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro; ` +
               `l'unico conflitto era su ${which} (${files.join(", ")}), che ho rigenerato dallo script che la scrive ` +
               "prima di valutare i cancelli");
-            return null;
+            return await redGates(wtPath, headBefore, behind);
           }
           await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
           // Un merge può fallire SENZA conflitti: git si rifiuta di partire
@@ -831,7 +856,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         }
         await refreshMigrationsManifest(wtPath);
         onRealigned(`il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro (fusione pulita, nessun conflitto) prima di valutare i cancelli`);
-        return null;
+        return await redGates(wtPath, headBefore, behind);
       } finally {
         if (!live) {
           await discardWorktree(runGit, repoPath, wtPath);
@@ -856,7 +881,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     return chain(target.repoPath, async () => {
       let note: string | null = null;
       const base = await comparisonBase(target.repoPath, target.defaultBranch);
-      const blocked = await realignmentFor({ ...target, defaultBranch: base }, (n) => { note = n; }).realignOnMain();
+      const blocked = await realignmentFor({ ...target, defaultBranch: base }, (n) => { note = n; }, staticGates).realignOnMain();
       if (!blocked) return { ok: true, note };
       if (blocked.status === "conflict") {
         const files = blocked.realignConflict?.files ?? [];
@@ -865,7 +890,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           reason: `riportare main nel ramo ha fatto conflitto su ${files.length} file: ${files.slice(0, 20).join(", ") || "nessun file elencabile"}`,
         };
       }
-      if (blocked.status === "skipped") return { ok: false, reason: blocked.reason };
+      if (blocked.status === "skipped") return { ok: false, reason: blocked.reason, ...(blocked.code === "realign-gates-unmeasured" && { unmeasured: true as const }) };
       return { ok: true, note };
     });
   }
@@ -983,6 +1008,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     const realignOnMain = () => realignmentFor(
       { repoPath, defaultBranch: base, get branch() { return branch; } },
       (note) => { realigned = note; },
+      staticGates,
     ).realignOnMain();
 
     /**
@@ -1098,6 +1124,26 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         log(`[automerge] ${taskId}: ${foreign.length} foreign commit(s) on '${branch}' are already on '${defaultBranch}' (${byPatch} by patch, ${foreign.length - byPatch} by content): plain merge`);
       }
       return missing;
+    }
+
+    /**
+     * `foreignNotOnMain` on a scratch worktree detached at `cwd`'s current HEAD,
+     * never on `cwd` itself. The probe resets its own checkout after every pick
+     * (see `foreignNotOnMain`'s docblock): run on a live, shared checkout that
+     * would reset away another session's uncommitted work.
+     */
+    async function foreignNotOnMainIsolated(cwd: string, own: { others: string[] }): Promise<string[] | null> {
+      const head = await runGit(cwd, ["rev-parse", "HEAD"]);
+      if (head.code !== 0 || !head.stdout.trim()) return null;
+      const wtPath = join(scratchDir("land"), scratchId(repoPath));
+      await discardWorktree(runGit, repoPath, wtPath);
+      const add = await runGit(repoPath, ["worktree", "add", "--detach", wtPath, head.stdout.trim()]);
+      if (add.code !== 0) return null;
+      try {
+        return await foreignNotOnMain(wtPath, own);
+      } finally {
+        await discardWorktree(runGit, repoPath, wtPath);
+      }
     }
 
     /**
@@ -1609,15 +1655,31 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // would have touched.
         // Merge in a checkout that already has the default branch open and live.
         const mergeInOpenCheckout = async (cwd: string, checkoutBranch: string, live: boolean): Promise<AutoMergeResult> => {
-          const st = await runGit(cwd, ["status", "--porcelain", "--untracked-files=no"]);
-          if (st.stdout.trim() !== "") {
-            return { status: "skipped", code: "dirty-checkout", reason: `il checkout ${cwd} è su '${defaultBranch}' con modifiche non committate a file tracciati. Mergia a mano o pulisci il checkout` };
+          // A staged change would be folded into the merge (git refuses a merge with a non-empty index only in some cases), so it stops the land.
+          const staged = await runGit(cwd, ["diff", "--cached", "--name-only"]);
+          const stagedFiles = staged.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+          if (stagedFiles.length > 0) {
+            return { status: "skipped", code: "dirty-checkout", reason: `il checkout ${cwd} è su '${defaultBranch}' con file in stage (${stagedFiles.slice(0, 5).join(", ")}). Fai commit o unstage, poi riprova` };
           }
           const diverged = await syncLandingBase(cwd);
           if (diverged) return diverged;
+          // Unstaged edits stay where they are unless the merge would change the same file: only that overlap stops the land.
+          const modified = await runGit(cwd, ["diff", "--name-only"]);
+          const modifiedFiles = modified.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+          if (modifiedFiles.length > 0) {
+            const incoming = await runGit(cwd, ["diff", "--name-only", `HEAD...${mergeRef()}`]);
+            const incomingFiles = new Set(incoming.stdout.split("\n").map((l) => l.trim()).filter(Boolean));
+            const overlap = incoming.code !== 0 ? modifiedFiles : modifiedFiles.filter((f) => incomingFiles.has(f));
+            if (overlap.length > 0) {
+              return { status: "skipped", code: "dirty-checkout", reason: `il checkout ${cwd} è su '${defaultBranch}' con modifiche non committate a file che il merge cambierebbe (${overlap.slice(0, 5).join(", ")}). Mergia a mano o pulisci quei file` };
+            }
+          }
           // Mixed by ancestry is not mixed by content: see `foreignNotOnMain`.
+          // `cwd` here is a live, shared checkout (it may hold another session's
+          // uncommitted edits, just allowed through above): the probe runs on an
+          // isolated worktree instead, never on `cwd` itself.
           if (onlyOwn) {
-            const missing = await foreignNotOnMain(cwd, onlyOwn);
+            const missing = await foreignNotOnMainIsolated(cwd, onlyOwn);
             if (missing === null || missing.length > 0) return partialLandRefused(cwd, onlyOwn, missing);
           }
           const stopped = await lookBeforeMerge(cwd);

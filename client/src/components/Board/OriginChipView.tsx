@@ -40,7 +40,7 @@ export function OriginChipView({ chip, notify, open = openTabInApp }: {
   const iconOnly = !chip.label;
   const cls = iconOnly
     ? `flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${ownerTone(chip.key)}`
-    : `flex h-5 min-w-0 max-w-[12rem] shrink items-center gap-1 rounded-full py-0.5 pl-0.5 pr-2 text-compact leading-4 md:text-mini ${ownerTone(chip.key)}`;
+    : `flex h-5 min-w-0 max-w-48 shrink items-center gap-1 rounded-full py-0.5 pl-0.5 pr-2 text-compact leading-4 md:text-mini ${ownerTone(chip.key)}`;
   const body = <>
     <span className={iconOnly ? 'contents' : 'flex h-4 w-4 shrink-0 items-center justify-center'}><OwnerGlyph ownerKey={chip.key} /></span>
     {!iconOnly && <span className={`truncate ${chip.kind === 'agent' ? 'font-semibold' : ''}`}>{chip.label}</span>}

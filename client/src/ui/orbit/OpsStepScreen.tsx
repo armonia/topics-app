@@ -64,7 +64,7 @@ export function OpsStepScreen({ page, copy, phone, crumbs }: { page: StepPageMod
             onClick={n.onOpen}
             className={clsx(
               'flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
-              phone ? 'w-[220px] shrink-0' : 'w-full',
+              phone ? 'w-55 shrink-0' : 'w-full',
               on ? 'border-primary bg-surface shadow-[0_0_0_3px_rgba(0,102,255,0.15)]' : 'border-app-border bg-surface hover:bg-app-hover',
               FOCUS_RING,
             )}
@@ -104,7 +104,7 @@ export function OpsStepScreen({ page, copy, phone, crumbs }: { page: StepPageMod
         </div>
       )}
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        {!phone && <div className="w-[280px] shrink-0 overflow-y-auto border-r border-app-border p-3">{nav}</div>}
+        {!phone && <div className="w-70 shrink-0 overflow-y-auto border-r border-app-border p-3">{nav}</div>}
         <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
           <div className="flex items-start gap-3">
             <StepMarker size={28}>{page.marker}</StepMarker>

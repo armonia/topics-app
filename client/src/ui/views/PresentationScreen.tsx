@@ -104,13 +104,13 @@ export function PresentationScreen({
         aria-label={d.presenting}
       >
         <div className="flex min-h-0 flex-1 items-center justify-center p-4 sm:p-10">
-          <div className="w-full max-w-[1100px]">{view(slide, index, true)}</div>
+          <div className="w-full max-w-275">{view(slide, index, true)}</div>
         </div>
         <div className="flex shrink-0 items-center justify-center gap-3 border-t border-white/10 px-4 py-3 text-[#e6e8ec]">
           <button type="button" onClick={() => onSelect((index - 1 + shown.length) % shown.length)} aria-label={d.prev} className={clsx('inline-flex h-8 items-center gap-1 rounded-lg bg-white/10 px-3 text-prose hover:bg-white/15 disabled:opacity-40', FOCUS_RING)}>
             <ChevronLeft size={15} aria-hidden="true" />{d.prev}
           </button>
-          <span className="min-w-[72px] text-center text-prose tabular-nums">{d.slideOf(index + 1, shown.length)}</span>
+          <span className="min-w-18 text-center text-prose tabular-nums">{d.slideOf(index + 1, shown.length)}</span>
           <button type="button" onClick={() => onSelect((index + 1) % shown.length)} aria-label={d.next} className={clsx('inline-flex h-8 items-center gap-1 rounded-lg bg-white/10 px-3 text-prose hover:bg-white/15 disabled:opacity-40', FOCUS_RING)}>
             {d.next}<ChevronRight size={15} aria-hidden="true" />
           </button>
@@ -123,7 +123,7 @@ export function PresentationScreen({
   }
 
   const strip = (
-    <div className={clsx('flex shrink-0 gap-2 bg-app-inset p-2.5', phone ? 'overflow-x-auto border-b border-app-border' : 'w-[170px] flex-col overflow-y-auto border-r border-app-border')} role="list" aria-label={d.stripLabel}>
+    <div className={clsx('flex shrink-0 gap-2 bg-app-inset p-2.5', phone ? 'overflow-x-auto border-b border-app-border' : 'w-42.5 flex-col overflow-y-auto border-r border-app-border')} role="list" aria-label={d.stripLabel}>
       {shown.map((s, i) => {
         const on = i === index;
         return (
@@ -133,7 +133,7 @@ export function PresentationScreen({
             role="listitem"
             aria-current={on ? 'true' : undefined}
             onClick={() => onSelect(i)}
-            className={clsx('relative shrink-0 rounded-md text-left transition-shadow', phone ? 'w-[140px]' : 'w-full', FOCUS_RING, on ? 'ring-2 ring-primary' : 'ring-1 ring-app-border hover:ring-app-border-light')}
+            className={clsx('relative shrink-0 rounded-md text-left transition-shadow', phone ? 'w-35' : 'w-full', FOCUS_RING, on ? 'ring-2 ring-primary' : 'ring-1 ring-app-border hover:ring-app-border-light')}
             data-tip={s.name}
           >
             <span className="pointer-events-none block">{view(s, i, false)}</span>
@@ -148,11 +148,11 @@ export function PresentationScreen({
     slide ? (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#dfe1e5] dark:bg-[#26282c]">
         <div className="grid min-h-0 flex-1 place-items-center overflow-y-auto p-4 sm:p-6">
-          <div className="w-full max-w-[780px]">{view(slide, index, true)}</div>
+          <div className="w-full max-w-195">{view(slide, index, true)}</div>
         </div>
         <div className="flex shrink-0 items-center justify-center gap-2 border-t border-app-border bg-surface px-3 py-2">
           <Button size="sm" icon={ChevronLeft} onClick={() => onSelect((index - 1 + shown.length) % shown.length)}>{d.prev}</Button>
-          <span className="min-w-[72px] text-center text-compact tabular-nums text-app-text-secondary">{d.slideOf(index + 1, shown.length)}</span>
+          <span className="min-w-18 text-center text-compact tabular-nums text-app-text-secondary">{d.slideOf(index + 1, shown.length)}</span>
           <Button size="sm" trailing={<ChevronRight size={12} aria-hidden="true" />} onClick={() => onSelect((index + 1) % shown.length)}>{d.next}</Button>
         </div>
       </div>
@@ -161,7 +161,7 @@ export function PresentationScreen({
     )
   ) : (
     <div className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-[#dfe1e5] p-4 dark:bg-[#26282c] sm:p-6">
-      <div className="mx-auto flex max-w-[780px] flex-col gap-5">
+      <div className="mx-auto flex max-w-195 flex-col gap-5">
         {shown.map((s, i) => <div key={s.id}>{view(s, i, true)}</div>)}
         {shown.length === 0 && <EmptyState title={d.noSlides}>{d.noSlidesBody}</EmptyState>}
       </div>

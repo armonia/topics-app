@@ -129,7 +129,7 @@ export function DensitySlider({ value, onChange }: { value: BoardDensity; onChan
 }
 
 // h-6 like every other control of the bar; the shared Select's own vertical padding is cancelled.
-const selectClass = `${TOOLBAR_CONTROL_H} min-w-0 max-w-[8rem] shrink !py-0 text-compact`;
+const selectClass = `${TOOLBAR_CONTROL_H} min-w-0 max-w-32 shrink !py-0 text-compact`;
 
 /** «Group by» and, once the first is chosen, «then by»: two levels at most. */
 export function GroupSelectors({ view, hasProjects, groupBy, thenBy, onGroupBy, onThenBy }: {

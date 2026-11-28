@@ -155,7 +155,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
       // DROP_ACTIVE_ATTR in `lib/dragPreview`). Si spegne con `dropping`, che il
       // `dragleave` e il `drop` azzerano già.
       data-drop-active={dropping ? 'into' : undefined}
-      className={`mx-1.5 my-[3px] flex-shrink-0 overflow-hidden rounded-lg border transition-colors ${
+      className={`mx-1.5 my-0.75 flex-shrink-0 overflow-hidden rounded-lg border transition-colors ${
         card.detachedLabel
           ? 'border-dashed border-app-border/70'
           : card.active
@@ -271,7 +271,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
           // card — la stessa aria che c'è fra due righe. È la regola della
           // colonna («ognuno porta metà passo»), che questo contenitore era
           // rimasto l'unico a non seguire.
-          className="pb-[3px]"
+          className="pb-0.75"
         >
           {children}
         </div>

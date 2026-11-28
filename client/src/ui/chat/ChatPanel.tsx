@@ -28,7 +28,7 @@ export function ChatRefChip({ r, onOpen, flowIcon }: { r: ChatRef; onOpen: (path
       data-tip={r.detail ? `${r.label} · ${r.detail}` : r.label}
       onClick={() => onOpen(r.path)}
       className={clsx(
-        'mx-0.5 inline-flex min-h-6 max-w-full items-start gap-1.5 rounded-md border bg-surface px-2 py-[3px] text-left align-middle text-mini leading-4 transition-colors',
+        'mx-0.5 inline-flex min-h-6 max-w-full items-start gap-1.5 rounded-md border bg-surface px-2 py-0.75 text-left align-middle text-mini leading-4 transition-colors',
         r.tone === 'red' ? 'border-rose-500/40' : r.tone === 'amber' ? 'border-amber-500/40' : 'border-app-border',
         'hover:border-primary/50 hover:bg-black/[0.03] dark:hover:bg-white/[0.05]',
         FOCUS_RING,
@@ -157,7 +157,7 @@ export function ChatPanel({ copy, messages, pending, value, onChange, onSend, on
   if (pending) items.push({ kind: 'rich', id: 'typing', node: <TypingLine label={copy.chat.typing} /> });
 
   const thread = (
-    <div data-chat-thread="" className={clsx(page && 'mx-auto w-full max-w-[760px]')}>
+    <div data-chat-thread="" className={clsx(page && 'mx-auto w-full max-w-190')}>
       {head}
       {messages.length === 0 && empty}
       <ChatThread items={items} scrollToEnd={page || messages.length > opened} />
@@ -184,7 +184,7 @@ export function ChatPanel({ copy, messages, pending, value, onChange, onSend, on
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">{thread}</div>
-      <div className="mx-auto w-full max-w-[760px]">{composer}</div>
+      <div className="mx-auto w-full max-w-190">{composer}</div>
     </div>
   );
 }
@@ -203,7 +203,7 @@ export function ChatStart({ title, body, suggestionsLabel, questions, onPick }: 
         <MessageSquare size={18} aria-hidden="true" />
       </span>
       <h2 className="text-body-lg font-semibold text-app-text">{title}</h2>
-      <p className="max-w-[440px] text-prose leading-6 text-app-text-secondary">{body}</p>
+      <p className="max-w-110 text-prose leading-6 text-app-text-secondary">{body}</p>
       <div className="mt-4 w-full text-left">
         <p className="mb-2 text-mini font-semibold text-app-text-tertiary">{suggestionsLabel}</p>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

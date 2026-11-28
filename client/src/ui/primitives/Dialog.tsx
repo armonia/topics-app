@@ -5,9 +5,9 @@ import { FOCUS_RING } from '../shell/pressable';
 import { LAYER_MODAL, MODAL_VEIL, focusOnMount, focusSurface } from './overlay';
 
 const WIDTH = {
-  sm: 'sm:max-w-[420px]',
-  md: 'sm:max-w-[560px]',
-  lg: 'sm:max-w-[800px]',
+  sm: 'sm:max-w-105',
+  md: 'sm:max-w-140',
+  lg: 'sm:max-w-200',
 } as const;
 
 /*
