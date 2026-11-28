@@ -47,6 +47,20 @@
     }
   },
   {
+    "version": "2.5.28",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "stop the local pane-store write storm on every tab switch",
+          "scope": "client"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.27",
     "date": "2026-11-28",
     "sections": {

@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.31 — 2026-11-28
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-28 [skip ci]
+
+## 2.5.30 — 2026-11-28
+
+### Sotto il cofano
+- Pane store snapshot: exit flush always writes, dedupe tests, LEAK-03 spec describes the real mechanism
+
 ## 2.5.29 — 2026-11-28
 
 ### Novità
@@ -20,17 +30,26 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Give PreviewButton its own key: it shared topic.id with ChangedFilesStrip
 - **spawn-deadline** · list the detached session resume
+- Comment in English in the rss growth spec
 - Record the land guard's size as a live exception, not a silent bump
 - Keep cards reachable when an aliased board id still holds cards
+- Rename an identifier the language gate did not know
+- LEAK-03, the pane store is written only when localSeq moves
+- RSS growth spec: keep only the topic-switch loop that CI can drive
 - Chat previews: memory admission, cap on live chat previews (default 2), button closes the oldest
 - rename helper
 - fix helper calls
 - **design** · spec-flow 0.8.0 turns on check-design-system
+- RSS growth spec: the bar is the snapshot write count, the RSS slope is informational
 - Send a mail once even if the server restarts
 - Primary switch: launches on their way to any machine are parked before the snapshot, the VAPID keys live in the state folder the switch collects, and nothing a switch leaves in a checkout is seen by git
+- Pane store snapshot: write on every sequence tick but skip identical content (fixes remote updates not persisting)
 - Primary switch: the receiver refuses before the commit a replica it cannot stop or a folder it cannot write, a failed replica stop throws before anything moves, and the sender retires only once the new primary confirms its restore; a failed restore is dropped and the sender stays the primary
+- Pane store snapshot: leave the lastSeq counter out of the content comparison
 - design-baseline: registra TopSessionsSection (debito di un file nuovo di main)
 - node-pool: resolve HERE through symlinks, slots from env
+- Mail inbox: declared mailboxes, a receiving round with a cursor, a Gmail reference adapter
+- Node delivery meter runs up to 3 checkouts at once; review remeasure count persists on the card
 - Primary switch: the receiver asks again after the replica stop and right before the rename whether anyone holds the DB, the CLI prints a switch warning and exits 3, the legacy VAPID keys are copied and left in place, and the owner-only restore test runs on the new flow
 - il selettore del dropdown segue la classe max-h-75
 - Sidebar top sessions: use design-system Button and TextField, clearing the red design gate on main
@@ -39,13 +58,20 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - REVIEW-BUN-01
 - Primary switch: the replica and the marker files get modules of their own so the switch stays under the size threshold, the lsof spawn is listed with its reason, the gitignore test runs git in the isolated env, and the CLI test names what it covers
 - Mark the ui kit exports that the production graph now reaches but does not use
+- Remeasure store: fix reserved-word alias, add real-DB test, regenerate manifest, order TASKS_DDL columns
 - Record pre-existing design-system debt for TopSessionsSection (main merge)
+- Mail inbox tests declare the requirements they cover
 - Primary switch: the tests import the replica settings and the restore status file from their own modules, so production keeps no export only a test reads
 - Revert "fix(design-system): TopSessionsSection uses Button/TextField primitives"
+- Review sweep: remeasure store is required, tasks.test fixture covers remeasure columns
+- Mail inbox: Gmail reads in chunks, the lease outlasts the longest round, tests catch doubles
 - Primary switch: after the rename the copy set aside is asked who holds it, and a replica a supervisor restarted while lsof answered undoes the rename and refuses
 - baseline follows the scores that rose tonight [skip ci]
 
 ## 2.5.28 — 2026-11-28
+
+### Correzioni
+- **client** · stop the local pane-store write storm on every tab switch
 
 ### Sotto il cofano
 - Extract chat preview flow into preview-chat.ts
@@ -124,6 +150,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - awaitCiEvidence falls back to the planted branch when the checkout has none
 - secret-store: fix three more ways to lose a secret
 - node-pool: permanent node gets ci-governor files again (shared PERMANENT_FILES list), with a test
+- Renderer growth bar: name the requirement it covers, and wait for the eviction instead of the clock
 - Fix ci-evidence.test.ts type error for the detached-branch fallback test
 
 ## 2.5.20 — 2026-11-27
@@ -143,12 +170,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - review-checks brakes: load gets its own budget clock, only the load reason is released by it (card 9fecea98)
 - review-checks brakes test: complete the spent clocks literal (card 9fecea98)
 - age is a spawned test binary, not dead code
+- Renderer heap growth bar: on-demand snapshot hook + e2e guard
 - Prove "already on main" before writing it, and warn review of a false claim
 - Preview seed test: declare the requirement it covers (KANBAN-126)
 - Exclude systemd PrivateTmp entries from the real-tmp-folder check
 - **native** · the ceiling reaches the loop inside the turn's own process
 - **openspec** · tetto-contesto-agenti, CHAT-COMPACT-06 and its bar; token-audit measures an agent's calls
 - **openspec** · no machine path in the proposal
+- Renderer growth: weigh the churn lap in bytes, and give the footprint curve a verdict
 
 ## 2.5.19 — 2026-11-27
 
