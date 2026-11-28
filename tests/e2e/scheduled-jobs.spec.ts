@@ -84,7 +84,7 @@ test.describe("scheduled jobs in the Automations view, no hub", () => {
     await form.getByTestId("sj-when-custom").click();
     await form.getByTestId("sj-cron").locator("input").fill("61 * * * *");
     await expect(form.getByTestId("sj-preview-error")).toBeVisible();
-    await expect(form.getByTestId("sj-save")).toBeDisabled();
+    await expect(form.getByTestId("sj-save").locator("button")).toBeDisabled();
     await form.getByTestId("sj-when-every").click();
     await form.getByTestId("sj-every").locator("input").fill("1");
     await expect(items).toHaveCount(3);
