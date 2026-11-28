@@ -1712,9 +1712,6 @@
       "loc",
       "unackedJson"
     ],
-    "client/src/state/pane/devOverlay/MutationLogOverlay.tsx": [
-      "ndjson"
-    ],
     "client/src/state/pane/middleware/serverHydrated.test.ts": [
       "applicato",
       "ordine"
