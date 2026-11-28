@@ -279,15 +279,29 @@ le scritture ripetute gonfiano la memoria del processo, non solo il disco. Il
 difetto stava nell'osservare `lastSeq` (che si muove a ogni azione) invece di
 `localSeq` (che si muove solo quando cambia lo stato da persistere).
 
-Il sistema DEVE scrivere lo store locale **solo quando `localSeq` avanza**, e
-la prova DEVE essere il conteggio delle scritture più la pendenza dell'RSS del
-processo web sullo stesso giro.
+Il sistema DEVE osservare `lastSeq` (anche gli aggiornamenti remoti, che non
+muovono `localSeq`, devono arrivare a `localStorage`) ma scrivere solo quando il
+CONTENUTO dello snapshot, senza il contatore `lastSeq` e senza `savedAt`, è
+diverso dall'ultimo scritto. Il flush di uscita (pagehide, visibilitychange)
+DEVE scrivere sempre: la chiave è condivisa da tutte le finestre della stessa
+origine e un'altra finestra può averla sovrascritta, quindi la memoria
+dell'ultimo scritto non è affidabile e le bozze di questa finestra andrebbero
+perse. L'ultimo contenuto scritto si aggiorna solo dopo un `setItem` riuscito.
+La prova DEVE essere il conteggio delle scritture (test unit nel tier delle PR)
+più la pendenza dell'RSS del processo web sullo stesso giro (informativa,
+notturna, solo webkit).
 
-#### Scenario: un giro di switch non scrive e non cresce oltre il limite
+#### Scenario: un giro di switch scrive al massimo una volta
 
 - **GIVEN** 16 tab aperte e un giro di 10 cambi di tab
-- **WHEN** si contano le scritture di `pane-store-v2` e si misura l'RSS del processo web
-- **THEN** le scritture sono zero e la pendenza resta sotto il limite scritto nella spec
+- **WHEN** si contano le scritture di `pane-store-v2`
+- **THEN** le scritture sono al massimo quelle di una finestra di debounce (2 nell'e2e) e un cambio di contenuto vero scrive
+
+#### Scenario: un'altra finestra ha sovrascritto la chiave
+
+- **GIVEN** un'altra finestra ha sostituito `pane-store-v2` con uno snapshot che questa scarta
+- **WHEN** questa finestra esce (flush di uscita)
+- **THEN** riscrive il proprio stato, bozze comprese
 
 ### Requirement: LEAK-04 — Una callback che pulisce DEVE scattare una volta per ogni contesto che se ne va
 

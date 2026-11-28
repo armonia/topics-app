@@ -60,7 +60,11 @@ let started = false;
  *  `savedAt` stamp, so an identical state is not written twice. */
 let lastWrittenContent: string | null = null;
 
-function writeSnapshotNow(): void {
+/** `force` is the page-exit flush: the key is shared by every window of the
+ *  origin, so another window may have overwritten it with a snapshot this one
+ *  discarded. Our own memory of what we wrote is then stale and must not skip
+ *  the write (this window's drafts live only here). */
+function writeSnapshotNow(force = false): void {
   try {
     const state = usePaneStore.getState();
     // `lastSeq` rides inside the snapshot and ticks on every action: it is the
@@ -71,8 +75,7 @@ function writeSnapshotNow(): void {
     // the sequence without changing anything this snapshot holds: rewriting
     // it on every tab switch was a write storm into a WAL WebKit never
     // checkpoints, inflating the renderer's resident memory.
-    if (content === lastWrittenContent) return;
-    lastWrittenContent = content;
+    if (!force && content === lastWrittenContent) return;
     const snap = {
       ...selectLocalSnapshot(state),
       // LWW key for the warm-boot hydrate and the cross-tab gate: the highest
@@ -86,6 +89,8 @@ function writeSnapshotNow(): void {
       senderId: getTabId(),
     };
     localStorage.setItem(LOCAL_KEY, JSON.stringify(snap));
+    // Only after a successful write: a quota error must not count as written.
+    lastWrittenContent = content;
   } catch {
     /* quota / private mode — server sync is the source of truth */
   }
@@ -184,7 +189,7 @@ export function hydrateFromLocalSnapshot(): void {
 
 function flushNow(): void {
   if (timer) { clearTimeout(timer); timer = null; }
-  writeSnapshotNow();
+  writeSnapshotNow(true);
 }
 
 /**
@@ -217,7 +222,7 @@ export function initLocalPersistence(): void {
     (s: PaneStore) => s.lastSeq,
     () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(writeSnapshotNow, DEBOUNCE_MS);
+      timer = setTimeout(() => writeSnapshotNow(), DEBOUNCE_MS);
     },
   );
 
