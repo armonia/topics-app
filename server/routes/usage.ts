@@ -26,6 +26,10 @@ import type { Database } from "bun:sqlite";
 import { computeCalls, peopleUsage, personDetail, type Computed } from "../usage/person-usage";
 import { projectQuota, withLimits } from "../usage/project-quota";
 import type { ProjectQuotaResponse, ProjectQuotaResult } from "../../shared/usage-shapes";
+import { topSessions } from "../usage/top-sessions";
+import { sendToSession } from "../usage/top-sessions-send";
+import type { WaitingStore } from "../attention/waiting-items";
+import type { TopSessionsResult } from "../../shared/top-sessions";
 import { authorForSender, mergeChannelPerson, parseSender, senderAllowed, type Sender } from "../lib/person-identities";
 
 /**
@@ -46,8 +50,12 @@ const PROJECT_TTL_MS = 60_000;
 /** A transcript scan costs enough that every reader shares one reading; a minute keeps the meter within a minute of the truth. */
 const PROJECT_QUOTA_TTL_MS = 60_000;
 
-export function createUsageRouter(ctx: AppContext): RouteHandler {
+/** One transcript scan is shared by every reader for a minute. */
+const TOP_SESSIONS_TTL_MS = 60_000;
+
+export function createUsageRouter(ctx: AppContext, deps: { waiting?: WaitingStore; topSessionsRoot?: string } = {}): RouteHandler {
   const { db, json } = ctx;
+  let topSessionsCache: { at: number; data: TopSessionsResult } | null = null;
 
   let cached: { at: number; days: number | null; data: ProjectUsageResult } | null = null;
   let peopleCache: { at: number; days: number; data: Computed } | null = null;
@@ -100,6 +108,26 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
      */
     if (method === "GET" && pathname === "/api/usage/consumption") {
       return json(await getSessionConsumption(ctx).read());
+    }
+
+    // GET /api/usage/top-sessions: the heaviest sessions of the last 24 h, from the user's own transcripts.
+    if (method === "GET" && pathname === "/api/usage/top-sessions") {
+      const now = Date.now();
+      if (!topSessionsCache || now - topSessionsCache.at >= TOP_SESSIONS_TTL_MS) {
+        topSessionsCache = { at: now, data: await topSessions({ root: deps.topSessionsRoot, now }) };
+        for (const s of topSessionsCache.data.sessions) {
+          if (s.hog) deps.waiting?.open({ tipo: "decisione", key: `hog:${s.id}`, title: s.title || s.id, why: `One session has been open for over 24 h and does at least half of the consumption (${Math.round(s.weekShare * 100)}% of the week).`, from: "usage" }, { at: now });
+        }
+      }
+      return json(topSessionsCache.data);
+    }
+
+    // POST /api/usage/top-sessions/send {sessionId, text}: writes into one of the listed sessions.
+    if (method === "POST" && pathname === "/api/usage/top-sessions/send") {
+      const body = (await _req.json().catch(() => null)) as { sessionId?: unknown; text?: unknown } | null;
+      const known = topSessionsCache?.data.sessions.find((s) => s.id === body?.sessionId);
+      if (!known || typeof body?.text !== "string" || !body.text.trim()) return json({ error: "sessionId must be one of the listed sessions and text is required" }, 400);
+      return json(await sendToSession(known.id, known.cwd, body.text));
     }
 
     // GET /api/usage/projects?range=7d|30d|all
