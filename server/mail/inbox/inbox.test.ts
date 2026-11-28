@@ -1,4 +1,5 @@
 /**
+ * @covers MAIL-01 MAIL-02
  * Incoming mail: no hole, no double, through restarts (the mail inbox change, track E1).
  * Scripted adapter, fake clock, a real SQLite file with the real migrations.
  */

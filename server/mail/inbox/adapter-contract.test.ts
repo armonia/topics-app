@@ -1,4 +1,5 @@
 /**
+ * @covers MAIL-01 MAIL-02
  * ONE SERIES OF CHECKS, TWO ADAPTERS: the scripted one and the Gmail reference adapter on recorded
  * `gws` answers (the mail inbox change, track E1: the adapter contract).
  */
