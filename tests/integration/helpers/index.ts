@@ -18,11 +18,12 @@
 
 import * as fs from "node:fs";
 import { randomBytes } from "node:crypto";
-import * as os from "node:os";
 import path from "node:path";
 import { closeDatabase, getDatabase } from "../../../server/db";
 import type { AppContext } from "../../../server/types";
 import { trackTestTmpDir } from "../../setup/test-tmp-dirs";
+import { guardAgainstOrphans, releaseFromOrphanGuard, retireOrphanGuard } from "../../helpers/orphan-guard";
+import { killProcessTree } from "../../../server/lib/process-tree";
 import { topicsHome } from "../../../server/services/daemon-state";
 
 /**
@@ -220,23 +221,22 @@ export function freePort(): number {
 export interface RealServer {
   port: number;
   baseUrl: string;
-  /** SIGTERM the child and wait for it to exit. Call from `afterAll`. */
+  /**
+   * Kills the child's whole process GROUP and waits for it to exit. Call from
+   * `afterAll`. A plain SIGTERM on the child used to leave behind anything the
+   * server had spawned itself (card 617a7a68).
+   */
   stop(): Promise<void>;
 }
 
 /**
- * The bind host for a server a test spawns. The server defaults to "::" (dual
- * stack) and on a machine with no IPv6 loopback (the cloud VM, some containers)
- * `listen` fails with EAFNOSUPPORT, so the child never answers and the test
- * reads "the spawned server never answered" for a reason that is not the code.
- * Without IPv6 the child is told to bind 127.0.0.1, which is all these tests
- * probe; with IPv6 nothing changes and it keeps the default.
+ * The bind host for a server a test spawns. The server defaults to "::"
+ * (dual stack, every interface): a test child left on the default is
+ * reachable from the LAN for as long as it runs, and these tests only ever
+ * probe 127.0.0.1 anyway, so the child is always told to bind loopback only.
  */
 export function spawnedServerHostEnv(): Record<string, string> {
-  const hasIpv6 = Object.values(os.networkInterfaces())
-    .flat()
-    .some((i) => i?.family === "IPv6" && i.address === "::1");
-  return hasIpv6 ? {} : { SERVER_HOST: "127.0.0.1" };
+  return { SERVER_HOST: "127.0.0.1" };
 }
 
 /**
@@ -290,7 +290,14 @@ export async function spawnRealServer(root: string): Promise<RealServer> {
     },
     stdout: "pipe",
     stderr: "pipe",
+    // Leader of its own process group, so ONE signal to `-pid` reaches whatever
+    // the server spawned itself, and so the detached watchdog below can clean
+    // it up after a cut run. `stop()` relies on it.
+    detached: true,
   });
+  // Registered before the readiness probe: a run cut while the server is still
+  // booting is how the orphans of card 617a7a68 were born.
+  guardAgainstOrphans({ groupLeaderPid: child.pid, root });
 
   const baseUrl = `http://127.0.0.1:${port}`;
   // 60 s of readiness polling, not 15: under a loaded fleet (measured at load
@@ -304,15 +311,44 @@ export async function spawnRealServer(root: string): Promise<RealServer> {
         return {
           port,
           baseUrl,
-          async stop() { child.kill("SIGTERM"); await child.exited; },
+          async stop() { await stopSpawnedServer(child); },
         };
       }
     } catch { /* not listening yet */ }
     await new Promise((r) => setTimeout(r, 50));
   }
+  try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
   child.kill("SIGKILL");
+  releaseFromOrphanGuard(child.pid);
+  // This helper spawns one server per test file: the release above was the
+  // last one it ever registers, so the watchdog has nothing left to watch.
+  // Retiring now, instead of waiting for its 250 ms poll, is what keeps the
+  // registry directory out of a check that runs right after this file ends
+  // (card b66e32c0, seen on the full suite under CI load: a file using this
+  // shared helper left `.guards` behind for that poll window).
+  retireOrphanGuard();
   const errorOutput = await new Response(child.stderr as ReadableStream).text().catch(() => "");
   throw new Error(`the spawned server never answered on ${port}\n${errorOutput.slice(-2000)}`);
+}
+
+/**
+ * Stops a server spawned as a group leader: the group first (so a tunnel helper
+ * or a worktree command it started goes with it), SIGKILL on the group if it is
+ * still there, and only then does the watchdog stop watching that pid.
+ */
+async function stopSpawnedServer(child: ReturnType<typeof Bun.spawn>): Promise<void> {
+  await killProcessTree(child.pid, 5000, { group: true });
+  await Promise.race([child.exited, Bun.sleep(10_000)]);
+  if (child.exitCode === null) {
+    try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
+    child.kill("SIGKILL");
+  }
+  await child.exited;
+  releaseFromOrphanGuard(child.pid);
+  // Same reasoning as the boot-failure path above: this helper's one server
+  // per file is the only thing it ever registers, so retire now rather than
+  // leave the registry for the watchdog's next poll to find.
+  retireOrphanGuard();
 }
 
 /**

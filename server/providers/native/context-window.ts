@@ -24,7 +24,7 @@ import type { AgentMessage } from "./agent-loop";
 import type { StreamHandler } from "../types";
 import {
   COMPACT_AT, COMPACT_AT_UNMEASURED, COMPACT_TO,
-  needsCompaction, compact, charsPerTokenFrom, promptTooLong, stripAllImages, estimateImageTokensTotal,
+  needsCompaction, compact, compactionThresholds, charsPerTokenFrom, promptTooLong, stripAllImages, estimateImageTokensTotal,
 } from "./compaction";
 import { CODING_TOOLS as DEFAULT_TOOLS } from "./tools";
 import { ApiHttpError } from "./retry";
@@ -83,19 +83,27 @@ export function compactIfNeeded(ctx: {
   windowTokens: number;
   overheadChars: number;
   calibration: Calibration;
+  /** The chat's absolute ceiling in tokens (`compactionThresholds`); absent = the window's own. */
+  capTokens?: number | null;
   sessionId?: string;
   handler: Pick<StreamHandler, "onCompaction">;
 }): boolean {
   const { history, windowTokens, overheadChars, calibration } = ctx;
-  const compactAt = calibration.calibrated ? COMPACT_AT : COMPACT_AT_UNMEASURED;
+  const { compactAt, compactTo } = compactionThresholds(windowTokens, { calibrated: calibration.calibrated, capTokens: ctx.capTokens });
   if (!needsCompaction(history, windowTokens, overheadChars, calibration.charsPerToken, compactAt)) return false;
-  const c = compact(history, { windowTokens, overheadChars, charsPerToken: calibration.charsPerToken, compactAt, compactTo: COMPACT_TO });
+  const windowAt = calibration.calibrated ? COMPACT_AT : COMPACT_AT_UNMEASURED;
+  // `cap=` names the compactions the ceiling caused, which is what its
+  // measurement counts; a window compaction prints none, and neither does one
+  // the window would have made anyway (a chat already past its own trigger).
+  // Read before the history is replaced: afterwards it is under both.
+  const capped = compactAt < windowAt && !needsCompaction(history, windowTokens, overheadChars, calibration.charsPerToken, windowAt);
+  const c = compact(history, { windowTokens, overheadChars, charsPerToken: calibration.charsPerToken, compactAt, compactTo, clipAt: windowAt });
   if (c.after >= c.before) return false;
   history.length = 0;
   history.push(...c.messages);
   console.log(
     `[native] contesto compattato: at=${new Date().toISOString()} session_key=${ctx.sessionId ?? "unknown"} `
-    + `pre_tokens=${c.before} post_tokens=${c.after} (~${c.before} → ~${c.after} token stimati)`,
+    + `pre_tokens=${c.before} post_tokens=${c.after}${capped ? ` cap=${ctx.capTokens}` : ""} (~${c.before} → ~${c.after} token stimati)`,
   ); // allow-italian: server log, not UI
   ctx.handler.onCompaction?.({ trigger: "auto", preTokens: c.before, postTokens: c.after });
   return true;

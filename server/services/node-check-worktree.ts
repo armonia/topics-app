@@ -31,6 +31,7 @@ import { readdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { ASIDE_MARK, discardWorktree, worktreeRepoOf, type DiscardDeps, type DiscardGit } from "../lib/worktree-discard";
+import { installWorktreeDeps } from "../lib/worktree-install-deps";
 import { scratchDir } from "./worktree-scratch";
 import type { NodeDeliveryCheckout } from "./node-delivery-meter";
 
@@ -83,6 +84,11 @@ export async function openNodeCheckWorktree(input: NodeCheckWorktreeInput): Prom
     await discardWorktree(git, repoPath, path, input.discard);
     return null;
   }
+  // A LOCAL CHECK (typecheck, lint, unit tests) needs `node_modules`, which
+  // `git worktree add` never materialises (shared with the agent worktrees,
+  // `worktree-manager.ts`). Best-effort: a failed install must not stop the
+  // measure, the gate the install was for goes red on its own instead.
+  await installWorktreeDeps(path).catch((err) => console.warn(`[node-check-worktree] deps not installed in ${path}:`, err));
   return {
     cwd: path,
     head: () => input.resolveHead(path),
