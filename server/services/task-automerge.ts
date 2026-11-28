@@ -1609,12 +1609,25 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // would have touched.
         // Merge in a checkout that already has the default branch open and live.
         const mergeInOpenCheckout = async (cwd: string, checkoutBranch: string, live: boolean): Promise<AutoMergeResult> => {
-          const st = await runGit(cwd, ["status", "--porcelain", "--untracked-files=no"]);
-          if (st.stdout.trim() !== "") {
-            return { status: "skipped", code: "dirty-checkout", reason: `il checkout ${cwd} è su '${defaultBranch}' con modifiche non committate a file tracciati. Mergia a mano o pulisci il checkout` };
+          // A staged change would be folded into the merge (git refuses a merge with a non-empty index only in some cases), so it stops the land.
+          const staged = await runGit(cwd, ["diff", "--cached", "--name-only"]);
+          const stagedFiles = staged.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+          if (stagedFiles.length > 0) {
+            return { status: "skipped", code: "dirty-checkout", reason: `il checkout ${cwd} è su '${defaultBranch}' con file in stage (${stagedFiles.slice(0, 5).join(", ")}). Fai commit o unstage, poi riprova` };
           }
           const diverged = await syncLandingBase(cwd);
           if (diverged) return diverged;
+          // Unstaged edits stay where they are unless the merge would change the same file: only that overlap stops the land.
+          const modified = await runGit(cwd, ["diff", "--name-only"]);
+          const modifiedFiles = modified.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+          if (modifiedFiles.length > 0) {
+            const incoming = await runGit(cwd, ["diff", "--name-only", `HEAD...${mergeRef()}`]);
+            const incomingFiles = new Set(incoming.stdout.split("\n").map((l) => l.trim()).filter(Boolean));
+            const overlap = incoming.code !== 0 ? modifiedFiles : modifiedFiles.filter((f) => incomingFiles.has(f));
+            if (overlap.length > 0) {
+              return { status: "skipped", code: "dirty-checkout", reason: `il checkout ${cwd} è su '${defaultBranch}' con modifiche non committate a file che il merge cambierebbe (${overlap.slice(0, 5).join(", ")}). Mergia a mano o pulisci quei file` };
+            }
+          }
           // Mixed by ancestry is not mixed by content: see `foreignNotOnMain`.
           if (onlyOwn) {
             const missing = await foreignNotOnMain(cwd, onlyOwn);
