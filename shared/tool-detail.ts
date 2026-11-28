@@ -46,6 +46,7 @@ export const TOPICS_BRIDGE_TOOLS: ReadonlySet<string> = new Set([
   "move_session_to_project", "spawn_agent", "send_to_agent", "read_agent", "list_agents", "stop_agent",
   "switch_topic", "new_topic", "create_project", "open_project", "send_chat_message", "read_chat_messages",
   "resolve_tab", "send_mail", "google_call",
+  "create_scheduled_job", "list_scheduled_jobs", "run_scheduled_job", "pause_scheduled_job", "delete_scheduled_job",
 ]);
 
 /** The in-app browser tools (`server/browser-tool-spec.ts`), also bare. */
