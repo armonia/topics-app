@@ -12,7 +12,7 @@ const MIGRATIONS = join(import.meta.dir, "../db/migrations");
 
 export function migratedDb(): Database {
   const db = freshDb();
-  for (const file of ["20261014225051-scheduled-cards.sql", "20261121105631-scheduled-jobs.sql", "20261121160000-scheduled-job-command-output.sql"]) db.run(readFileSync(join(MIGRATIONS, file), "utf8"));
+  for (const file of ["20261014225051-scheduled-cards.sql", "20261121105631-scheduled-jobs.sql", "20261121160000-scheduled-job-command-output.sql", "20261126180000-scheduled-delivery-guards.sql"]) db.run(readFileSync(join(MIGRATIONS, file), "utf8"));
   return db;
 }
 
