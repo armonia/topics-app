@@ -36,6 +36,13 @@ describe("runStaticGates", () => {
     expect(ran).toHaveLength(3);
   });
 
+  test("an install that hit its deadline: unmeasured, the reason names the install", async () => {
+    const ran: string[] = [];
+    const verdict = await runStaticGates(tree(ALL, false), async (_c, a) => { ran.push(a[0]); return ok; }, async () => ({ timedOut: true }));
+    expect(verdict).toMatchObject({ kind: "unmeasured", detail: expect.stringContaining("installazione") });
+    expect(ran).toEqual([]);
+  });
+
   test("a project without those scripts lands as before, with no install", async () => {
     let installed = false;
     const verdict = await runStaticGates(tree({ build: "x" }, false), async () => ok, async () => { installed = true; });

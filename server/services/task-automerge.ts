@@ -429,7 +429,7 @@ export function chooseMergeTarget(
  *  merge happened), or why it could not, in the agent's words. */
 export type RealignOutcome =
   | { ok: true; note: string | null }
-  | { ok: false; reason: string; files?: string[] };
+  | { ok: false; reason: string; files?: string[]; /** a static gate could not measure the merge: not a conflict */ unmeasured?: true };
 
 export interface AutoMergeDeps {
   /**
@@ -890,7 +890,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           reason: `riportare main nel ramo ha fatto conflitto su ${files.length} file: ${files.slice(0, 20).join(", ") || "nessun file elencabile"}`,
         };
       }
-      if (blocked.status === "skipped") return { ok: false, reason: blocked.reason };
+      if (blocked.status === "skipped") return { ok: false, reason: blocked.reason, ...(blocked.code === "realign-gates-unmeasured" && { unmeasured: true as const }) };
       return { ok: true, note };
     });
   }

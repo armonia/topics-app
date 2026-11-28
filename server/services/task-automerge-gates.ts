@@ -33,14 +33,17 @@ const UNKNOWN_COMMAND = /unknown command|comando sconosciuto/i;
 export async function runStaticGates(
   cwd: string,
   runScript: (cwd: string, args: string[]) => Promise<ScriptResult>,
-  install: (cwd: string) => Promise<unknown> = installWorktreeDeps,
+  install: (cwd: string) => Promise<{ timedOut?: boolean } | void> = installWorktreeDeps,
 ): Promise<StaticGateVerdict | null> {
   let declared: Record<string, string> = {};
   try { declared = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")).scripts ?? {}; } catch { return null; }
   const scripts = STATIC_GATE_SCRIPTS.filter((s) => declared[s]);
   if (scripts.length === 0) return null;
   if (!existsSync(join(cwd, "node_modules"))) {
-    await install(cwd).catch(() => undefined);
+    const installed = await install(cwd).catch(() => undefined);
+    if (installed && installed.timedOut) {
+      return { kind: "unmeasured", detail: "l'installazione delle dipendenze nel worktree della fusione è scaduta: nessun cancello ha misurato niente" };
+    }
     if (!existsSync(join(cwd, "node_modules"))) {
       return { kind: "unmeasured", detail: "le dipendenze non si sono potute installare nel worktree della fusione: nessun cancello ha misurato niente" };
     }
