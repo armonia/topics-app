@@ -15,9 +15,27 @@ import { WAITING_MEMORY, HEAVY_HOLD_MAX_MS, HELD_RESUME_REFRESH_MS, RESUME_WAIT_
 import type { DispatcherCtx } from "./task-dispatcher-context";
 import type { TickPlan } from "./task-dispatcher-tick";
 import { isNodeChildRun } from "./node-child-run";
+import { reopenedByMainRed } from "./red-bounce";
+
+/**
+ * A remote card the CAS refused: every other row guard (`blocked_by`, a
+ * deferral, attempts, a topic) is already mirrored upstream in
+ * `task-dispatcher-tick.ts` before a card reaches this claim pass, so a
+ * `null` here is almost always a lost race with another claim in the same
+ * instant, which resolves itself at the next tick. The one guard that is
+ * NOT mirrored upstream is `maxAttempts`: a delegated card's cap is 1, not
+ * the board's `dispatchRetryCap`, so a delegated card already at its one
+ * attempt is the one case worth naming.
+ */
+function remoteDeclineReason(t: Task, delegated: unknown): string {
+  if (delegated && t.dispatchAttempts >= 1) {
+    return `il tentativo delegato era già stato usato (${t.dispatchAttempts}/1)`; // allow-italian: user-facing board note
+  }
+  return "il claim ha perso una corsa con un altro tentativo nello stesso istante, si risolve da solo al giro dopo"; // allow-italian: user-facing board note
+}
 
 export function createClaim(ctx: DispatcherCtx) {
-  const { capHeldNoted, clock, delegatedPolicy, deps, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceTimers, heavyHeldNoted, heavyHoldSince, inFlight, log, noCheckExemptions, spendHeldNoted, shared } = ctx.core;
+  const { capHeldNoted, clock, delegatedPolicy, deps, fanOutBlockedNoted, floorBlockSent, floorHeldNoted, graceTimers, heavyHeldNoted, heavyHoldSince, inFlight, log, noCheckExemptions, remoteClaimDeclinedNoted, spendHeldNoted, shared } = ctx.core;
 
   async function claimPass(projectId: string, pass: TickPlan): Promise<void> {
     const { aliveAgents, capScope, caps, daySpendBlock, effectiveCap, fanOut, fanOutBlocked, floorBlock, floorNote, floorNoteKey, floorNow, floorSent, gateRuns, heavyBusy, heavyCall, heldForLoad, heldForMs, intruders, loadGate, memoryFloorHolds, noCheckReservationAtRead, noteCapFull, overflowRound, overflowRoundNo, pressure, rampActive, remoteCard, remoteIds, resolved, resourceFloor, settings, todos, wantFanOut } = pass;
@@ -233,7 +251,13 @@ export function createClaim(ctx: DispatcherCtx) {
       // (torna una card che non è `done`) questa card non è finita, e il ciclo
       // prosegue fino al claim invece di saltarla.
       const reopenedHumanBy = t.reopenedActor === "human";
-      if (t.deliveryCommit && deps.deliveryLanded && !reopenedHumanBy) {
+      // Sent back by the red on main after its land: the work is on main and a fix on top is still owed.
+      let reopenedByMainRedCi = t.reopenedActor === "system" && reopenedByMainRed(deps.svc.get(t.id)?.comments ?? []);
+      // The mark holds only while main is still red: repaired elsewhere, "already in main" is right again.
+      if (reopenedByMainRedCi && deps.mainIsRed) {
+        try { reopenedByMainRedCi = await deps.mainIsRed(resolved.path); } catch { /* unknown: stays red */ }
+      }
+      if (t.deliveryCommit && deps.deliveryLanded && !reopenedHumanBy && !reopenedByMainRedCi) {
         let landed: boolean | null = null;
         try { landed = await deps.deliveryLanded(resolved.path, t.deliveryCommit); }
         catch (err) { log(`sonda del commit di consegna fallita per ${t.id}`, err); }
@@ -431,7 +455,34 @@ export function createClaim(ctx: DispatcherCtx) {
         // con un altro claim nello stesso istante (che si risolve da sé al tick
         // dopo, e commentarla sarebbe rumore). Si distinguono ri-contando gli
         // agenti vivi: se sono già almeno quanti il tetto ne ammette, è il tetto.
-        if (remoteTask) continue;
+        // A remote claim has no cap or race to tell apart (the CAS above skips
+        // the local concurrency count for it): a `null` here means the row's
+        // own guards refused it (blocked_by, attempts, a deferral still ahead).
+        // Silent before this line, so the card sat `queued` for hours with
+        // nothing in the log to say why - the thread note itself comes from
+        // the stuck-card sweep once the wait is old enough to say something.
+        if (remoteTask) {
+          // ONE line per episode, not one per tick: the dispatcher re-reads
+          // this card every ~10s while it is held, and the CAS refusal is
+          // the same refusal until something about the card changes. The
+          // reason goes on the card too, not only in the server log: a
+          // silent decline here was exactly the defect this branch used to
+          // have (measured 27/11: cards pinned to a free node sat for hours
+          // with nothing on the thread saying why).
+          if (!remoteClaimDeclinedNoted.has(t.id)) {
+            remoteClaimDeclinedNoted.add(t.id);
+            const reason = remoteDeclineReason(t, delegated);
+            log(`remote claim declined for ${t.id} on machine ${t.machineId ?? "?"}: ${reason}`);
+            try {
+              deps.svc.addComment({
+                taskId: t.id, author: "system", kind: "service",
+                content: `In coda sul nodo: il claim è stato rifiutato (${reason}).`, // allow-italian: user-facing board note
+                once: true,
+              });
+            } catch { /* the task may have moved */ }
+          }
+          continue;
+        }
         const vivi = aliveAgents();
         if (vivi == null || vivi >= claimCap) noteCapFull(t, vivi);
         continue;
@@ -448,6 +499,7 @@ export function createClaim(ctx: DispatcherCtx) {
       // Same for the spend brake: this card started, so the episode is closed. If
       // it goes through the cap again tomorrow, it says so again.
       spendHeldNoted.delete(t.id);
+      remoteClaimDeclinedNoted.delete(t.id);
       if (forced) {
         const atteso = Math.round(heldForMs(t) / 60_000);
         heavyHoldSince.delete(t.id);

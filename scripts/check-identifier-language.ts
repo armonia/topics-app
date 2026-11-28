@@ -107,6 +107,8 @@ export const PROJECT_WORDS = new Set([
   "cancelled",
   // countdown: plain English the dictionary lacks, the time left on a card (card 791984dc).
   "countdown",
+  // popup: plain English the dictionary lacks, the OAuth login window `tests/unit/oauth-popup-keeps-opener.test.ts` reads the shape of.
+  "popup",
   // hang: plain English the dictionary lacks, a node that answers the TCP handshake and never the
   // request behind it (`hangBreaker` in `server/services/task-dispatcher-remote-node.ts`).
   "hang",
@@ -134,8 +136,6 @@ export const PROJECT_WORDS = new Set([
   // readout: what one machine reports about itself (its processes, its sleep
   // countdown) for the load screen, `server/lib/machine-readout.ts`.
   "readout",
-  // winfleet: the PC's own tooling folder (sleep keeper, screen file), read by `server/routes/machine-readout.ts`.
-  "winfleet",
   // gpu: the graphics card the e2e browser can render on (`tests/e2e/helpers/remote-gpu.ts`).
   "gpu",
   // automation: a scheduled job of the usage hub (cron, launchd, workflow), the
@@ -678,6 +678,10 @@ export const PROJECT_WORDS = new Set([
   // (2026-10-06, `server/lib/subagent-migration.ts`).
   "handover",
   "emptied", // a past participle the 1934 list lacks, like `held` (`observeTasksEmptied`, 2026-10-09)
+  // ciphertext, decrypt, keygen: crypto vocabulary newer than the 1934 list
+  // (`encrypt` is there, `decrypt` is not); `keygen` is the exact binary name
+  // (`age-keygen`) the secret store spawns (`server/lib/secret-store.ts`).
+  "ciphertext", "decrypt", "keygen",
 ]);
 
 function trackedFiles(): string[] {

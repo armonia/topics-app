@@ -54,7 +54,7 @@ import { type PaneScope } from '../../state/pane/adapters';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles';
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
-import { BAR_LABEL_TOP, GLYPH_KBD_PADDING, RAISED_CONTROL, ROW_ACTION_BOX } from '../../lib/selectionStyles';
+import { BAR_LABEL_TOP, GLYPH_KBD_PADDING, RAISED_CONTROL, ROW_ACTION_BOX, TAB_BUTTON, TAB_BUTTON_SQUARE, tabButton } from '../../lib/selectionStyles';
 import { Menu } from './Menu';
 import { LiveTerminalsLevel } from './LiveTerminalsLevel';
 import { loadSettings } from '../../lib/settings';
@@ -227,12 +227,13 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
    *   - `'ghost'` — 7×7 desktop / 10×10 mobile with no resting background,
    *     hover `bg-black/5`. Matches the global sidebar header icons
    *     (Settings, Remote, etc.).
-   *   - `'header'` — compact h-7 button with the shared RAISED_CONTROL fill
-   *     (the same OPAQUE plate as the Search button beside it and the button
-   *     that reopens the column), with room for a `triggerKbd` hint.
+   *   - `'header'` — a tab button (TAB_BUTTON), no ground at rest like the
+   *     Search button beside it, with room for a `triggerKbd` hint.
+   *   - `'tab'` — the pill's skin on a square tab button (34 / 44 with the
+   *     finger), for the title row with the tabs at the side.
    *
    *  The size also drives the inner `Plus` icon (14px / 18px). */
-  triggerVariant?: 'pill' | 'ghost' | 'header' | 'bar';
+  triggerVariant?: 'pill' | 'ghost' | 'header' | 'bar' | 'tab';
   /** Keyboard-shortcut hint rendered INSIDE the trigger (kbd style — same
    *  as the sidebar Search button's ⌘K). Desktop only; hidden on mobile. */
   triggerKbd?: string;
@@ -384,8 +385,9 @@ export function PaneAddMenu({
   // header icons (Settings, Remote, etc.) — same 7×7 / 10×10 footprint,
   // transparent at rest, hover bg-black/5. The 'pill' variant matches
   // tab-bar / sidebar-project-row affordances — see TRIGGER_CLASS_PILL.
-  // The 'header' variant matches the sidebar Search button — compact h-7
-  // RAISED_CONTROL plate with an inline kbd hint.
+  // The 'header' variant matches the sidebar Search button: a tab button
+  // (TAB_BUTTON) with an inline kbd hint, the open tabs' ground while its menu
+  // is open.
   const triggerBase =
     // 'bar' — una delle tre porte della fila in fondo al telefono
     // (MobileChromeBar): glifo sopra, parola sotto, 44 di altezza come le sue
@@ -407,7 +409,12 @@ export function PaneAddMenu({
     triggerVariant === 'bar'
       ? `edge-lit relative flex flex-1 min-w-0 h-full items-center justify-center rounded-xl px-1 ${RAISED_CONTROL} text-app-text transition-colors`
       : triggerVariant === 'header'
-      ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0`
+      ? `${TAB_BUTTON} ${isMobile ? TAB_BUTTON_SQUARE : ''} gap-1.5 ${tabButton(open)}`
+      // 'tab': the pill's skin on a tab button's box, for the title row with
+      // the tabs at the side, where every command is as tall as the title tab
+      // beside it and so one step from the row's top and bottom (26/11).
+      : triggerVariant === 'tab'
+      ? `${TAB_BUTTON} ${TAB_BUTTON_SQUARE} edge-lit ${RAISED_CONTROL} text-app-text`
       : triggerVariant === 'ghost'
         ? `${isMobile ? 'w-11 h-11' : 'w-7 h-7'} flex items-center justify-center text-app-text hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
         : TRIGGER_CLASS_PILL;

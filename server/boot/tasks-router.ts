@@ -2,6 +2,7 @@
  * The tasks router and the process detection and presence that start with it.
  */
 import { basename } from "path";
+import { cpus, loadavg } from "node:os";
 import { teardownArchivedTaskBrowserState } from "../services/task-tab-teardown";
 import { getClaudeSessionsForDetection, countBusyAgentTerminals } from "../routes/terminal";
 import { pushMainToOrigin } from "../services/main-on-origin";
@@ -9,7 +10,8 @@ import { CI_BASE_BRANCH, awaitCiEvidence, githubPort, spawnCapped } from "../ser
 import { supersedeEarlierRounds } from "../services/ci-supersede";
 import { worktreeDirtProbe, worktreeRealDirt } from "../services/task-automerge";
 import { killAgentProcessTree } from "../lib/kill-agent-tree";
-import { branchStatusFromRepo, commitIsAncestor, resolveCommit } from "../services/branch-status";
+import { branchStatusFromRepo, commitIsAncestor, publishedMainRef, resolveCommit } from "../services/branch-status";
+import { landedMergeRange } from "../services/task-diff-range";
 import { resolveDeliveryBranch } from "../services/delivery-branch-ref";
 import { realMainCiPort } from "../services/main-ci-watch";
 import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
@@ -203,6 +205,18 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     // "main" ovunque qui (vedi `resolveTaskMerge` sopra), quindi la domanda è
     // esattamente quella che il land ha provato a rendere vera.
     confirmLandedOnMain: (repoPath, commit) => commitIsAncestor(repoPath, commit, "main"),
+    // THE SAME THREE QUESTIONS THE AUDIT ASKS (`landing-audit-pass.ts`), here
+    // asked BEFORE the merge, on a card the unmeasured-delivery gate would
+    // otherwise block forever: is the commit already an ancestor of the
+    // published main, or inside the merge this card already wrote there?
+    alreadyLandedProof: async (repoPath, taskId, commit) => {
+      const mainRef = await publishedMainRef(repoPath);
+      if ((await commitIsAncestor(repoPath, commit, mainRef)) === true) return commit;
+      const merge = await landedMergeRange(repoPath, taskId, { mainRef }).catch(() => null);
+      if (!merge) return null;
+      const sha = merge.range.split("..")[1] ?? "";
+      return sha && (await commitIsAncestor(repoPath, commit, sha)) === true ? sha : null;
+    },
     pushMainAfterLand: (repoPath) => pushMainToOrigin(repoPath),
     markLandPending: (taskId) => {
       try {
@@ -279,7 +293,7 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     // row, so moving it in the panel takes effect on the next round. It used to be
     // `DISPATCH_MEM_FLOOR_NATIVE_GB` — the floor for admitting an AGENT, three
     // times the heaviest check command ever measured on this machine.
-    checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: () => dispatcherSvc.getChecksMemFloorGB() },
+    checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: () => dispatcherSvc.getChecksMemFloorGB(), loadPerCore: () => loadavg()[0]! / Math.max(1, cpus().length) },
     // Same union the dispatcher resolves against — but trimmed to the dirs that
     // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
     // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config

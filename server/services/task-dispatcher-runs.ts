@@ -20,11 +20,14 @@ export function createRunTracking(ctx: DispatcherCtx) {
    * requeue after a restart.
    */
   const remote: ReturnType<typeof createRemoteNodeLane> = createRemoteNodeLane({
-    client: deps.node, svc: deps.svc, broadcast: deps.broadcast, captureDelivery: deps.captureDelivery, measureDelivery: deps.measureDelivery,
+    client: deps.node, svc: deps.svc, broadcast: deps.broadcast, captureDelivery: deps.captureDelivery, measureDelivery: deps.measureDelivery, saveNodeMedia: deps.saveNodeMedia,
     log, emit: (...args) => ctx.queue.emit(...args), inFlight, beginRun, endRun, ownsRun, bindRunSession, releaseAndEmit: (...args) => ctx.queue.releaseAndEmit(...args), deferWait: (...args) => ctx.events.deferWait(...args),
     delegatedPolicyForTask: deps.delegatedPolicyForTask,
     recordDelegatedPhase: deps.recordDelegatedPhase,
     languageOf: (...args) => ctx.kickoff.langFor(...args),
+    deliveryLanded: deps.deliveryLanded,
+    repoPathOfTask: deps.repoPathOfTask,
+    mainIsRed: deps.mainIsRed,
   });
   function drainBlock(): string | null {
     return shared.draining

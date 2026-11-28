@@ -54,7 +54,9 @@ import { useWaitingQueueStore } from './state/waitingQueue';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { lazyWarm } from './lib/lazyWarm';
 import { loadPanelGrid } from './state/pane/panePreload';
-import { RAISED_CONTROL, ROW_INSET, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
+import { ROW_INSET, BAND_OWN_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, STRIP_TOGGLE_SURFACE, trafficLightsRowPx } from './lib/selectionStyles';
+import { setTrafficLightsRow } from './lib/shell/window';
+import { isMainWindow } from './lib/windowRole';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
@@ -468,6 +470,14 @@ function App() {
   }, [appSettings.pinnedClosable, paneStateHydrated, topicsLoading, isDetached, openPinsInBackground, sidebar.pinnedItems]);
 
   const placement = tabsPlacement(appSettings.tabsPosition, { phone: isMobile });
+  // The native lights centre on the row under them. Only the main window
+  // sends it: the shell keeps ONE row, the main window's, and a narrow pop-out
+  // or group window drawing the phone's 40 would move the main window's lights
+  // off its 46.
+  const lightsRowPx = trafficLightsRowPx(isMobile, placement.strip);
+  useEffect(() => {
+    if (isDesktop && isMainWindow()) setTrafficLightsRow(lightsRowPx);
+  }, [lightsRowPx]);
   const stripPaneIds = useMemo(
     () => (placement.columnSkipsStrip ? new Set(visiblePanels) : undefined),
     [placement.columnSkipsStrip, visiblePanels],
@@ -769,7 +779,9 @@ function App() {
         sidebarRef={sidebarRef}
         sidebarContentRef={sidebarContentRef}
         isMobile={isMobile}
+        tabStrip={placement.strip}
         sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={toggleSidebar}
         sidebarWidth={sidebarWidth}
         floatingSplits={appSettings.floatingSplits}
         viewportHeight={viewportHeight}
@@ -927,20 +939,25 @@ function App() {
           // HERE as well as on #main-content: this wrapper is a sibling of the
           // content, not a child, so it inherits nothing from it. Measured
           // before this line existed: left stayed at 8 with the sidebar away.
+          // On a desktop it sits where a cell's own toggle would, one step
+          // (ROW_INSET) from the top and the left: a tab button on the 46 row
+          // of the tabs at the side, centred on 23 like the lights; the
+          // strip's 28 on its 40 row, centred on 20.
           className="content-chrome-inset absolute z-30 flex items-center gap-1"
           style={{
             [CONTENT_CHROME_INSET_PROPERTY as string]: contentChromeInset,
-            left: `calc(0.5rem + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))`,
-            top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem',
+            left: isMobile
+              ? `calc(0.5rem + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))`
+              : `calc(${ROW_INSET}px + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))`,
+            top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : ROW_INSET,
           }}
         >
-          {/* `RAISED_CONTROL` + `edge-lit`: the SAME button as the «+» and the
-              search, which is the parity asked for («at this point make the
-              sidebar-opening key the same»). It was `bg-surface` + a border,
-              and `--bg-surface` under 768px COLLAPSES onto the chrome (index.css):
-              the only way to reopen the column when no pane is open
-              vanished into the background precisely on the phone. */}
-          <SidebarToggleButton onClick={toggleSidebar} title={`Expand sidebar (${shortcut('B')})`} size="action" className={`edge-lit ${RAISED_CONTROL} rounded-lg shadow-sm`} />
+          {/* The SAME button as the one on the tab strip, a strip tab's
+              surface (25/11: the sidebar's buttons wear the tabs' colours).
+              Not `bg-surface`: under 768px it COLLAPSES onto the chrome
+              (index.css), and the only way to reopen the column when no pane
+              is open vanished into the background precisely on the phone. */}
+          <SidebarToggleButton onClick={toggleSidebar} title={`Expand sidebar (${shortcut('B')})`} size={!isMobile && !placement.strip ? 'tab' : 'action'} surface={STRIP_TOGGLE_SURFACE} />
         </div>
       )}
 
@@ -954,6 +971,11 @@ function App() {
           or closed. Now the strip is always chrome: it is the edge of the app, and
           the edge of the app is chrome. */}
       <div id="main-content" ref={mainContentRef} role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-chrome"
+        // Where the column's toggle is: in the sidebar header while the
+        // column is open with the mouse layout (SidebarHeader draws it on the
+        // same `!isMobile`), and then the content's own toggle and the room
+        // for it give way (`.column-toggle` in index.css).
+        data-column-toggle={!isMobile && !sidebarCollapsed ? 'header' : 'content'}
         style={{
           contain: 'layout style',
           paddingTop: 'env(safe-area-inset-top, 0px)',

@@ -20,13 +20,15 @@
  *  · sul telefono il titolo «Topics» era `min-h-7` in una riga da 56 mentre i
  *    suoi vicini sono 44, quindi il suo rialzo finiva 13px sopra il fondo della
  *    riga invece di 6.
+ *
+ * The phone has a third: the list starting under its header instead of a
+ * step below it (27/11). Both widths now hold the same one-step rule.
   * @covers HDRGAP-01
  */
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { LAYOUT_MOBILE_WIDTH } from "../../client/src/hooks/useMobile";
 
 hermetic(test);
 
@@ -126,57 +128,29 @@ async function misura(page: Page): Promise<Misura> {
 }
 
 for (const s of SCHERMI) {
-  const mobile = s.w < LAYOUT_MOBILE_WIDTH;
-  test(
-    mobile
-      ? `HEADER-GAP at ${s.w}px: the list starts at the edge, under the overlay header`
-      : `HEADER-GAP a ${s.w}px: sotto l'header c'è UN passo, non due`,
-    async ({ page }) => {
+  test(`HEADER-GAP a ${s.w}px: sotto l'header c'è UN passo, non due`, async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "HDRGAP-01" });
     await page.setViewportSize({ width: s.w, height: s.h });
     await goToApp(page);
     await expect(page.locator(".sidebar-column").first()).toBeVisible({ timeout: 15000 });
     // Il layout deve essersi fermato: una misura presa a metà del riflusso è un
     // numero vero di uno stato che non esiste.
-    if (mobile) {
-      // The phone list starts at the top edge and travels behind the header
-      // from the first pixel (A1, MOBILE-CHROME-07), so its head sits at ~0:
-      // settling is read on the two adjacent cards instead of on the head.
-      await expect
-        .poll(async () => (await misura(page)).passi.length, { timeout: 10000 })
-        .toBeGreaterThan(0);
-    } else {
-      await expect
-        .poll(async () => (await misura(page)).primo.top, { timeout: 10000 })
-        .toBeGreaterThan(0);
-    }
+    await expect
+      .poll(async () => (await misura(page)).primo.top, { timeout: 10000 })
+      .toBeGreaterThan(0);
     const m = await misura(page);
 
-    if (mobile) {
-      // 1. THE LIST STARTS AT THE EDGE, under the header, not one step below
-      //    it. Since mobile-chrome-feedback A1 the phone header is an overlay
-      //    veil (compact 44 at rest, whole on scroll) and `--sidebar-scroll-top`
-      //    carries the safe-area inset alone, so the rows begin right past it —
-      //    MOBILE-CHROME-07 pins the same geometry with a notch, and here there
-      //    is none, hence ~0. The old pin (one step of painted gap between the
-      //    header ink and the first card) cannot hold where the header floats
-      //    over the list by design; what it guarded — no dead band at the head
-      //    of the list — is this: the head sits within one step of the edge
-      //    (it used to sit a full header below it), and the header covers it.
-      expect(m.primo.top, `the head of the list sits a dead band below the edge — «${m.primo.cls}»`).toBeGreaterThanOrEqual(0);
-      expect(m.primo.top, `the head of the list sits a dead band below the edge — «${m.primo.cls}»`).toBeLessThanOrEqual(COLUMN_GAP);
-      expect(
-        m.headerBox.bottom,
-        `the header is a row above the list (${m.headerBox.bottom}), not an overlay over its head (${m.primo.top})`,
-      ).toBeGreaterThan(m.primo.top);
-    } else {
-      // 1. Lo stacco DIPINTO sotto l'header vale un passo, non due. È la misura
-      //    che i tre giri precedenti non avevano.
-      expect(
-        m.primo.top - m.inchiostroHeader,
-        `dal fondo dell'inchiostro dell'header (${m.inchiostroHeader}) alla prima card (${m.primo.top}) — «${m.primo.cls}»`,
-      ).toBe(COLUMN_GAP);
-    }
+    // 1. Lo stacco DIPINTO sotto l'header vale un passo, non due. È la misura
+    //    che i tre giri precedenti non avevano.
+    //    The phone is held to the same step: its header floats over the list
+    //    (compact 44 at rest, whole on scroll) but at rest the list starts one
+    //    step under the compact row. For a while it started right past the
+    //    safe area, under the header, and «Automazioni» read through the veil
+    //    next to «Topics» (27/11, mobile-sidebar-first-row.spec.ts).
+    expect(
+      m.primo.top - m.inchiostroHeader,
+      `dal fondo dell'inchiostro dell'header (${m.inchiostroHeader}) alla prima card (${m.primo.top}) — «${m.primo.cls}»`,
+    ).toBe(COLUMN_GAP);
 
     // 2. E vale lo STESSO passo che separa due card fra loro: il confronto è
     //    con quello che c'è a schermo, non con la costante, perché il difetto
@@ -194,6 +168,5 @@ for (const s of SCHERMI) {
         .map((b) => Math.round(b.getBoundingClientRect().bottom * 10) / 10);
     });
     expect(new Set(fondi).size, `i comandi dell'header non sono allineati: ${fondi.join(", ")}`).toBe(1);
-    },
-  );
+  });
 }

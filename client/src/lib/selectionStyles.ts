@@ -116,9 +116,18 @@ export const TAB_SELECTED_SURFACE_SOFT =
 export const TAB_AS_TITLE_SURFACE =
   'tab-as-title bg-transparent hover:bg-[var(--tab-bg-sel)]';
 
+/** The column's toggle where it sits on the tab strip (the column away, or
+ *  no pane open): a strip tab at rest, its surface, edge and ink (25/11: the
+ *  sidebar's buttons wear the tabs' colours). */
+export const STRIP_TOGGLE_SURFACE =
+  `edge-lit ${TAB_RESTING_SURFACE} text-app-text-secondary hover:text-app-text`;
+
 export const RESTING_FILL_MOBILE = 'max-md:bg-black/[0.08] max-md:dark:bg-white/[0.10]';
+/** The open tabs' resting ground on its own, for a surface that holds rows
+ *  (an open island) and so takes no hover of its own: the rows inside it do. */
+const RESTING_FILL = 'bg-black/[0.05] dark:bg-white/[0.06]';
 export const RESTING_SURFACE =
-  'bg-black/[0.05] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.10] ' +
+  `${RESTING_FILL} hover:bg-black/[0.08] dark:hover:bg-white/[0.10] ` +
   // SOTTO I 768px IL RIALZO CRESCE, e prende il posto di una linea.
   //
   // Attilio ha chiesto «una linea separatrice per ogni tab principale, se ha
@@ -457,12 +466,16 @@ export const ROW_INSET = 6;
  * itself would move the scroller down, and nothing would ever pass behind.
  *
  * Two names, one number, and the number is only ever written here: the sidebar
- * declares the property, the scrolling column reads it. On a desktop it is
- * `0px` and the row is back in the flow, where it has a ground and nothing
- * passes behind it.
+ * declares the property, the scrolling column reads it. On a desktop the row is
+ * back in the flow, where it has a ground and nothing passes behind it, and the
+ * property is what the header's own air under its buttons leaves of
+ * {@link COLUMN_GAP}: 0 with the tabs at the side (34 buttons in a 46 row,
+ * already one step), half of it with the strip (34 in its 40 row).
  *
- * 56 is `h-14`, the height the header row has on a touch screen: two 44px
- * commands plus {@link ROW_INSET} above and below.
+ * On a phone it is the safe area, the compact row
+ * ({@link MOBILE_SIDEBAR_HEADER_H_COMPACT}, the row at rest) and one
+ * {@link COLUMN_GAP}: at rest the first row sits one step under the title, as
+ * under the desktop header, and only the rows that scroll pass behind it.
  */
 export const SIDEBAR_SCROLL_TOP_PROPERTY = '--sidebar-scroll-top';
 /**
@@ -485,11 +498,16 @@ export const SIDEBAR_SCROLL_BOTTOM_PROPERTY = '--sidebar-scroll-bottom';
  * screens that still let the root reserve the band.
  */
 export const BAND_OWN_PROPERTY = '--mobile-band-own-h';
+/**
+ * 56 is `h-14`, the height the phone's header row has while the list scrolls:
+ * two 44px commands plus {@link ROW_INSET} above and below.
+ */
 export const MOBILE_SIDEBAR_HEADER_H = 56;
 /**
  * The header's height at the top of the run (mobile-chrome-feedback A1): the
  * row is compact there (44, exactly its buttons) and reveals the full 56 when
- * the list scrolls, while the rows always start right after `--sat`.
+ * the list scrolls. The list starts one {@link COLUMN_GAP} under the compact
+ * row, so at rest nothing sits behind it.
  */
 export const MOBILE_SIDEBAR_HEADER_H_COMPACT = 44;
 /**
@@ -594,6 +612,60 @@ export const ROW_H = 'h-11 md:h-[34px] coarse:h-11';
 export const CARD_H = 'h-9 md:h-7';
 
 /**
+ * A chrome BUTTON drawn as a tab of the column: the bell, search, «+» and the
+ * column's toggle in the sidebar header (25/11, the owner: "all the
+ * notification and sidebar buttons [must] have the tabs' behaviour, size and
+ * colours"). A row's height and a row's corner, never narrower than it is
+ * tall; an icon-only one is square ({@link TAB_BUTTON_SQUARE}), one with a
+ * shortcut grows to hold it. Its ground comes from {@link tabButton}.
+ *
+ * The height is {@link TAB_BUTTON_H}, a row's WITHOUT the `coarse:` step of
+ * {@link ROW_H}: the rows these buttons sit in (the sidebar header, the
+ * window's title row) are 40px from 768px up whatever the pointer, and the
+ * column's drag minimum counts 34px buttons. A 44px button on a touch laptop
+ * would stick out of the row and, on Windows, run under Search.
+ *
+ * It replaces the raised, always-visible control ({@link RAISED_CONTROL}) in
+ * that header: a tab has no ground at rest, so neither does a button beside
+ * the tabs.
+ */
+export const TAB_BUTTON_H = 'h-11 md:h-[34px]';
+export const TAB_BUTTON =
+  `${TAB_BUTTON_H} min-w-11 md:min-w-[34px] rounded-lg flex items-center justify-center flex-shrink-0 transition-colors duration-instant`;
+export const TAB_BUTTON_SQUARE = 'w-11 md:w-[34px]';
+/** {@link TAB_BUTTON_H} from 768px up, as a number for the row arithmetic. */
+export const TAB_BUTTON_PX = 34;
+
+/**
+ * THE CHROME ROW WITH THE TABS AT THE SIDE: a tab, and one step above and
+ * below it (26/11, the owner: the header's icons and the open project's tab
+ * "do not have spacing between them and at the sides consistent on all 4
+ * sides"). Everything that row holds is a tab or a tab button, 34: the
+ * sidebar header's four, the title tab, the project's commands. The row was
+ * the strip's 40, so they kept 3 above and below against 6 at the sides and
+ * between them. 34 + 2 x ROW_INSET = 46, and the step is one number on all
+ * four sides.
+ *
+ * With the strip on top the row stays {@link CHROME_BAR_H}: it holds the
+ * strip's 28px tabs, which are already one step from every edge of it. The
+ * native lights follow whichever row is under them (`setTrafficLightsRow` in
+ * `lib/shell/window.ts`, `TRAFFIC_LIGHTS_ROW_PX` in the shell's `lib.rs`).
+ */
+export const CHROME_ROW_SIDE_PX = TAB_BUTTON_PX + 2 * ROW_INSET;
+
+/**
+ * The tab button's ink and ground. At rest, a closed tab: no ground, the
+ * secondary ink, the rows' hover ground under the pointer. Active (its panel
+ * or menu is open), an open tab: its resting ground with the edge that goes
+ * with a ground, and the full ink.
+ */
+export function tabButton(active: boolean): string {
+  return active
+    ? `edge-lit ${RESTING_SURFACE} text-app-text`
+    : `text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
+}
+
+/**
  * The SHAPE of a section's header: a row's height, padding, gap and type. Its
  * ink and ground come from {@link sectionCard}, which knows if it is open.
  *
@@ -618,14 +690,14 @@ export const SECTION_CARD =
 
 /**
  * A section's header with its state, read like a TAB in the column: open, the
- * full ink and the rows' hover over the island's ground; closed, no ground, the
- * pointer included, and the secondary ink that lights under the pointer, as a
- * closed tab (`sidebarRowCard({ tab: 'closed' })`).
+ * full ink over the island's ground; closed, no ground at rest and the
+ * secondary ink. Both take the rows' hover ground under the pointer, as every
+ * tab does (`sidebarRowCard({ tab: 'closed' })`).
  */
 export function sectionCard(open: boolean): string {
   return open
     ? `${SECTION_CARD} text-app-text ${SIDEBAR_HOVER}`
-    : `${SECTION_CARD} text-app-text-secondary hover:text-app-text`;
+    : `${SECTION_CARD} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }
 
 /**
@@ -646,7 +718,7 @@ export const SECTION_ISLAND = 'rounded-xl overflow-hidden mx-1.5 my-[3px]';
  * background, as the tabs should already do").
  */
 export function sectionIsland(open: boolean): string {
-  return open ? `${SECTION_ISLAND} edge-lit bg-black/[0.05] dark:bg-white/[0.06]` : SECTION_ISLAND;
+  return open ? `${SECTION_ISLAND} edge-lit ${RESTING_FILL}` : SECTION_ISLAND;
 }
 /** Indent added per nesting level for sidebar child rows (px). */
 export const SIDEBAR_INDENT_STEP = 16;
@@ -909,6 +981,13 @@ export const CHROME_ROW_ACTION_RESERVE = 'pr-[48px] md:pr-[40px]';
  * box e dall'incasso, così non possono più separarsi in silenzio.
  */
 export const CHROME_ROW_ACTION_RESERVE_LEFT = 'pl-[48px] md:pl-[40px]';
+/**
+ * The same room on the title row, where the command that reopens the column
+ * is a tab button ({@link TAB_BUTTON}: 44 with the finger, 34 with the mouse)
+ * like the title tab beside it: ROW_INSET + box + ROW_INSET, 56 and 46.
+ * `selectionStyles.test.ts` recomputes both from the box.
+ */
+export const CHROME_ROW_TAB_RESERVE_LEFT = 'pl-[56px] md:pl-[46px]';
 
 /**
  * LA RIGA DELLE TAB, UNA VOLTA SOLA — e ora che è un vetro conta il doppio.
@@ -935,6 +1014,27 @@ export const CHROME_BAR = 'pane-chrome-bar chrome-glass flex items-center h-10 f
  *  dell'incasso — l'uguaglianza la controlla `selectionStyles.test.ts`. */
 export const CHROME_BAR_H = 40;
 export const CHROME_BAR_H_VAR = { '--chrome-bar-h': `${CHROME_BAR_H}px` } as CSSProperties;
+/**
+ * The same row with the tabs at the side ({@link CHROME_ROW_SIDE_PX}): 46. Only
+ * the title row of a desktop cell wears it, a branch that never renders below
+ * the layout's 768 (`useLayoutMobile`, a width and not a finger: a touch tablet
+ * at 900 gets the desktop layout, and this row with it), so its variable can be
+ * written inline like the strip's. The `md:` restates that 768 in CSS for the
+ * frame between a resize and the flag catching up.
+ */
+export const CHROME_BAR_SIDE =
+  'pane-chrome-bar chrome-glass flex items-center h-10 md:h-[46px] flex-shrink-0 overflow-hidden min-w-0';
+export const CHROME_BAR_SIDE_STYLE = { '--chrome-bar-h': `${CHROME_ROW_SIDE_PX}px` } as CSSProperties;
+/** The desktop chrome row for where the tabs are: the strip's, or the side's. */
+export function chromeRowPx(strip: boolean): number {
+  return strip ? CHROME_BAR_H : CHROME_ROW_SIDE_PX;
+}
+/** The row the native traffic lights centre on, the height the client sends
+ *  the shell: the phone layout's 40 (a narrow window), otherwise the desktop
+ *  row of the tabs' placement. */
+export function trafficLightsRowPx(phone: boolean, strip: boolean): number {
+  return phone ? CHROME_BAR_H : chromeRowPx(strip);
+}
 export const CHROME_BAR_SUB =
   'pane-chrome-bar chrome-glass flex items-center h-10 md:h-[34px] flex-shrink-0 overflow-hidden min-w-0';
 /** La variabile, per la card che possiede una barra subordinata. Va al POSTO di
@@ -1136,11 +1236,20 @@ export function sidebarRowCard(
   if (attention) return `${base} edge-lit ${attentionSurface(attention)}`;
   if (focused) return `${base} edge-lit ${SELECTED_SURFACE}`;
   if (tab === 'open') return `${base} edge-lit ${RESTING_SURFACE} text-app-text`;
-  // A closed row never takes a fill, the pointer included: the hover fill is a
-  // shade above the open tabs' resting one, so a closed row under the pointer
-  // read as open, and WKWebView keeps a hover on after the pointer leaves the
-  // window (25/11, a closed project that looked open). The text lights instead.
-  if (tab === 'closed') return `${base} text-app-text-secondary hover:text-app-text`;
+  // A closed row has no ground at rest and the same hover ground as every
+  // other tab (25/11, the owner: "shouldn't the hover background appear for
+  // all of them?"). It had none, the pointer included, for two reasons that
+  // are now handled where they happen instead of by a missing hover:
+  //  - the row that a click just closed stays under the pointer, and with a
+  //    ground it looked as if the close did nothing: `hoverQuiet.ts` marks it
+  //    `data-hover-quiet` until the pointer leaves it;
+  //  - WKWebView keeps a hover on after the pointer leaves the window: the
+  //    closed rows' hover ground waits for the pointer to be in the window
+  //    (`html[data-pointer-away]` in index.css).
+  // `closed-tab-row` is the handle of those two rules, on this branch only: a
+  // closed row with an attention fill returned above, and its fill is a
+  // signal, not a hover ground, so nothing may cancel it.
+  if (tab === 'closed') return `${base} closed-tab-row text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
   if (open) return `${base} text-app-text ${SIDEBAR_HOVER}`;
   return `${base} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }

@@ -12,7 +12,8 @@ import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees
 import { killProcessTree } from "../lib/process-tree";
 import { resolvePreviewCommand } from "../services/preview-command";
 import { branchExistsInRepo, resolveCommit, worktreeDiffStat } from "../services/branch-status";
-import { deliveryPointer } from "../services/own-commits";
+import { deliveryPointer, resolveMainRef } from "../services/own-commits";
+import { resolveDeliveryReference } from "../services/task-delivery-reference";
 import { collectCardOwnBranches } from "../services/card-own-branches";
 import { subagentBranchesOf } from "../lib/subagent-store";
 import { getDatabase } from "../db";
@@ -179,6 +180,7 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
     // and an image taller than `PREVIEW_CARD_MAX_RATIO` (0.70) times its width
     // gets CROPPED instead of scaled — 1440×760 = 0.528 fits with margin.
     screenshot: (url, outPath, opts) => previewBrowser.screenshot(url, outPath, opts),
+    screenshotFailure: () => previewBrowser.lastFailure(),
     currentOutputUrl: (taskId) => dispatcherSvc.get(taskId)?.task.outputUrl ?? null,
     currentPreviewImage: (taskId) => dispatcherSvc.get(taskId)?.task.previewImage ?? null,
     setOutputUrl: (taskId, url) => {
@@ -387,32 +389,12 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       // già su main da una settimana. Registrarla avrebbe fatto leggere al
       // reviewer il diff sbagliato e all'audit un «atterrato» falso, che è
       // esattamente il guasto per cui l'audit esiste.
-      const pointer = await deliveryPointer(ref.repoPath, ref.branch, { ownRefs: cardOwnBranches(taskId) }).catch(() => null);
-      if (!pointer) return null;
-      // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
       //
-      // La colonna review chiedeva «Approva» senza dire cosa si approvasse: il
-      // diff esisteva solo dietro l'apertura del drawer, una card alla volta.
-      // Calcolarlo nel feed sarebbe stato tre comandi git per card a ogni push
-      // WebSocket; calcolarlo alla consegna è una volta sola, quando il fatto
-      // accade. `worktreeDiffStat` misura dal PADRE del commit più vecchio SUO,
-      // cioè lo stesso perimetro di `deliveryPointer`: non eredita il lavoro di
-      // chi stava parcheggiato sul checkout condiviso.
-      //
-      // Senza cartella si misura dal checkout del progetto: la domanda è tutta sui
-      // ref, che i worktree di un repo condividono, e l'albero di lavoro non entra
-      // nella risposta (`worktreeDiffStat` confronta due commit).
-      //
-      // Best-effort come tutto il resto di questa funzione: se git inciampa la
-      // consegna passa lo stesso, senza misura (NULL, che non è zero).
-      const stat = await worktreeDiffStat(ref.worktreePath ?? ref.repoPath, { branch: ref.branch }).catch(() => null);
-      // `repoPath` travels with the snapshot because the capture plants
-      // `refs/consegne/<taskId>` on the delivered sha before writing the column
-      // (`services/delivery-ref-keep.ts`): the land squashes and then deletes the
-      // branch, and without that ref the commit is reachable from nowhere.
-      return stat
-        ? { ...pointer, repoPath: ref.repoPath, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
-        : { ...pointer, repoPath: ref.repoPath };
+      // The actual composition (resolve mainRef, ask for the own pointer, ask
+      // for the diffstat — all against THAT mainRef) lives in
+      // `resolveDeliveryReference`, which a test can reach directly: see
+      // `services/task-delivery-reference.test.ts`.
+      return resolveDeliveryReference({ resolveMainRef, deliveryPointer, worktreeDiffStat, cardOwnBranches }, ref, taskId);
   };
 
 
@@ -474,6 +456,7 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       buildProjectCandidates,
       deliveryBranchDeps,
       resolveDeliveryBranch,
+      resolveMainRef,
       deliveryPointer,
       worktreeDiffStat,
       keepDeliveryCommit,

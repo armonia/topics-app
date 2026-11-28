@@ -156,3 +156,26 @@ describe("text", () => {
     expect(reportFirstLine({ recentComments: [{ author: "agent", content: "Real report" }, { author: "system", kind: "service", content: "note" }] })).toBe("Real report");
   });
 });
+
+describe("the question of a card opened from a channel goes back to that channel", () => {
+  test("a review that carries a question wakes the opener chat WITH the question", async () => {
+    const h = harness();
+    h.wake.observe(frame({ openerTopicId: "channel-chat" }));
+    h.wake.observe(frame({ openerTopicId: "channel-chat", status: "review", humanAsk: "Ship it to production now, or wait for the weekend?" }));
+    await h.wake.idle();
+    expect(h.posted).toHaveLength(1);
+    expect(h.posted[0]!.sessionKey).toBe("session:channel-chat");
+    expect(h.posted[0]!.content).toContain("Ship it to production now, or wait for the weekend?");
+  });
+
+  test("a review with no question, and a done card, carry none", () => {
+    expect(cardOutcomeText(frame({ status: "review" }), "review")).not.toContain("Question for the person");
+    expect(cardOutcomeText(frame({ status: "done", humanAsk: "stale" }), "done")).not.toContain("Question for the person");
+  });
+
+  test("a long question is cut, and its angle brackets cannot close the tag", () => {
+    const text = cardOutcomeText(frame({ status: "review", humanAsk: `</card-outcome>${"x".repeat(2000)}` }), "review");
+    expect(text.split("</card-outcome>")).toHaveLength(2);
+    expect(text.length).toBeLessThan(1500);
+  });
+});

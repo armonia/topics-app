@@ -26,7 +26,7 @@
 # why the harness can call `bun` by name and this script cannot.
 set -euo pipefail
 
-HOST="${WINFLEET_SSH:-$(grep -h '^HOST_SSH=' ~/.config/winfleet/config.env 2>/dev/null | cut -d'"' -f2)}"
+HOST="${TOPWIN_SSH:-}"
 REPO_WIN='C:\dev\topics-app'
 REPO_MAC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUN='%USERPROFILE%\.bun\bin\bun.exe'
@@ -34,7 +34,7 @@ BUN='%USERPROFILE%\.bun\bin\bun.exe'
 MANIFEST='.topwin-shipped'
 
 if [ -z "$HOST" ]; then
-  echo "PC not configured: HOST_SSH is missing from ~/.config/winfleet/config.env" >&2
+  echo "PC not configured: set TOPWIN_SSH (user@host of the PC)" >&2
   exit 2
 fi
 

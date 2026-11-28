@@ -1183,9 +1183,9 @@ html {
  * Il ritmo della colonna è «ognuno porta metà passo»: mezzo dal contenitore che
  * scorre, mezzo dal margine dell'elemento, e la somma fa sempre COLUMN_GAP.
  * Regge fra due elementi. NON regge in cima, perché sopra la lista non c'è un
- * bordo: c'è l'header, che è alto 40 (`h-10`, il contratto della riga di chrome)
- * attorno a un contenuto da 28 — quindi porta già SEI pixel suoi sotto il
- * proprio inchiostro. Sommati ai sei della lista fanno dodici fra due cose
+ * bordo: c'è l'header, che porta già aria sua sotto il proprio inchiostro (46
+ * attorno a tasti da 34 con le tab di lato, 40 con la striscia: sei o tre
+ * pixel). Sommati al mezzo passo della lista facevano più di sei fra due cose
  * DIPINTE, dove fra due card ce ne sono sei.
  *
  * È la «doppia spaziatura sotto la topbar della sidebar» (l'utente, 08 e 09/08,
@@ -1527,6 +1527,29 @@ html, body {
    two durations, and for a few frames the strip crosses the lights. */
 .content-chrome-inset {
   transition: padding-left 200ms ease, left 200ms ease;
+}
+
+/* THE CONTENT'S TOGGLE FOR THE COLUMN, ONLY WHILE THE COLUMN IS AWAY (25/11,
+   the owner: "the button to open and close should be before the notifications
+   icon"). With the column open its toggle sits in the sidebar header, so the
+   content's one and the room its row keeps for it give way. Not on the phone:
+   there the column is a drawer and the content's toggle is the way to it.
+   The room eases on the slide's 200ms like `.content-chrome-inset`, so on
+   reopening the strip slides back from the lights instead of jumping under
+   them for the first frames. `#main-content[data-column-toggle]` is set by
+   App.tsx, on the same predicate SidebarHeader draws its toggle with.
+   The toggle hides by `visibility`, not `display`: it keeps its box and its
+   eased `left`, so on collapsing it leaves the lights' room on the content's
+   own curve (above). Shown from `display: none` it would start at its resting
+   place and ride the whole slide, and its last frame would land a pixel off. */
+.column-toggle-room {
+  transition: padding-left 200ms ease;
+}
+#main-content[data-column-toggle='header'] .column-toggle {
+  visibility: hidden;
+}
+#main-content[data-column-toggle='header'] .column-toggle-room {
+  padding-left: 6px;
 }
 
 /* Sidebar transitions (desktop column; the phone drawer is `.sidebar-drawer`) */
@@ -2587,14 +2610,14 @@ html.native-frost.dark .edge-lit::before {
    ricetta della banda in basso: tinta del chrome all'86% + blur. `.mobile-top-veil`
    e' per la riga «Topics» della colonna, che non e' una `.pane-chrome-bar`; la riga
    delle pane la prende dalla media query piu' sotto, dopo la sua regola base.
-   Il velo e' il `::before` e non la riga: sale di `env(safe-area-inset-top)` perche'
+   Il velo e' il `::before` e non la riga: sale di `--sat` (la safe area) perche'
    la lista scorre anche sotto la fascia di sicurezza e il velo deve coprirla fino al
    bordo dello schermo, e un `backdrop-filter` sulla riga renderebbe nullo quello
    del figlio (la riga diventa «backdrop root»). */
 .mobile-top-veil::before {
   content: '';
   position: absolute;
-  inset: calc(-1 * env(safe-area-inset-top, 0px)) 0 0 0;
+  inset: calc(-1 * var(--sat, 0px)) 0 0 0;
   z-index: -1;
   background-color: color-mix(in srgb, var(--chrome-bg) 86%, transparent);
   @apply backdrop-blur-md;
@@ -2909,46 +2932,35 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 }
 
 /*
- * THE HINT GIVES WAY BEFORE THE NAME.
+ * THE HINT GIVES WAY BEFORE THE NAME, AND THE NAME GOES WHOLE.
  *
  * The sidebar header is a fixed budget: the lights' 64px, the word «Topics»,
- * the bell, Search and «+». Two of those carry a keyboard hint (the ⌘K inside
- * Search, the ⌘N inside «+»), and the hints are the ONLY part of the row that
- * is a repetition: both buttons already say the same shortcut in their
- * `title`, in full. The word is not a repetition of anything.
+ * the column's toggle, the bell, Search and «+», the four buttons a tab's size
+ * since 25/11 (34px). Two of them carry a keyboard hint (the ⌘K inside Search,
+ * the ⌘N inside «+»), and the hints are the ONLY part of the row that is a
+ * repetition: both buttons already say the same shortcut in their `title`.
  *
- * Yet flexbox handed the shortage to the word: the hints sit in
- * `flex-shrink-0` buttons at the end of the row, so the whole deficit landed
- * on the one `min-w-0` chain in the header, and at the DEFAULT sidebar width
- * of 256px the wordmark rendered 18.7px wide against the 62 it wants — the
- * app's own name reduced to «To…» (card b109c85c, measured 2026-09-07).
+ * So the hints go first, at a measured width, and the word goes next, on its
+ * own: it is a one-line box that wraps, so a word that does not fit drops to
+ * the clipped second line instead of truncating to «To…» (25/11, the owner:
+ * "let's hide the word altogether when it does not fit"). No number for that
+ * one, the layout decides it.
  *
- * ONE RULE, and it is measured: no keyboard hint is visible while the wordmark
- * is under its natural width. The threshold below is the narrowest header row
- * that holds everything AT ONCE, hints included, and it was MEASURED rather
- * than added up — the row was swept from 400px down to 180 with both hints
- * forced on, reading the wordmark's rect at every pixel:
+ * The hints' number is MEASURED, on WebKit (the engine the Mac app ships in)
+ * with the Mac's system font, the row swept from 187 to 427px with the hints
+ * forced on and off (25/11):
  *
- *   row 287 and wider   wordmark 61.8px, its natural width
- *   row 286             wordmark 61.8px  <- the last width that still fits
- *   row 285             wordmark 60.8px, and it keeps losing a pixel per pixel
+ *   hints on    the word fits from a 335px row
+ *   hints off   the word fits from a 289px row
  *
- * That sweep was made on macOS, with the system font. THE SUM IS THE FONT'S:
- * on Linux CI (2026-09-07, DejaVu-class fallback) the same word measures
- * 67.3px and both hint chips are wider too, so at a 286px row the wordmark
- * still read 59.7px, i.e. that platform fits everything only from a 294px row
- * up. The threshold below is therefore 300, not 286: the widest font we ship
- * to, plus six pixels of rounding. On a Mac the hints leave 14px earlier than
- * the row strictly required, which costs nothing (the buttons' `title` keeps
- * naming the shortcut); a fixed number under the widest font would cost Linux
- * users the app's own name.
- *
- * It is the ROW's content box, not the column's width: the sidebar is 13px
- * wider than its row (1px border plus two ROW_INSET), which puts the switch at
- * a 313px sidebar. Below it the hints go and the word takes back the ~55px
- * they were holding, which is what makes the default 256px column (a 243px
- * row) whole again. Below ~245 nothing is left to give and the word truncates
- * as it always did: the lights' 64px are not ours to spend (card f0e15ea1).
+ * The threshold is 350, not 335: Linux CI runs this spec with a Mac platform
+ * on a wider font (the word measured 67.3px there against 61.8 on a Mac), and
+ * the margin is that font's. It is the ROW's content box, not the column's
+ * width: the sidebar is 13px wider than its row (1px border plus two
+ * ROW_INSET), which puts the switch at a 363px sidebar and the word's return
+ * at about 302. At the default 256px column neither shows; the four buttons
+ * do, and the column's drag minimum (SIDEBAR_MIN_W) is the width at which
+ * they still fit beside the lights.
  *
  * A CONTAINER QUERY and not a width read in JS, because the sidebar resize
  * bypasses React on purpose — the drag writes `style.width` on the node and
@@ -2967,9 +2979,44 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   container-name: sidebar-header;
 }
 
-@container sidebar-header (width < 300px) {
+@container sidebar-header (width < 350px) {
   .sidebar-header .kbd-hint {
     display: none;
+  }
+}
+
+/* THE WORD'S BOX GOES WITH THE WORD. The box wraps a word that does not fit
+ * away, but it keeps the width the row gave it, and beside the window's
+ * commands that is a blank between them and the column's toggle (31px at the
+ * default 256 on a Mac). Below the width the word needs, the box goes too and
+ * the toggle follows the commands at one step. The same sweep as the hints:
+ * beside the lights the word fits from a 289px row; 298 is the Linux CI font's
+ * margin, and Windows' controls are 10px wider than the lights. With no window
+ * commands the word fits across the column's whole drag travel. A font wider
+ * still falls back on the wrap: a blank can show, a cut word never. */
+@container sidebar-header (width < 298px) {
+  .sidebar-header[data-window-chrome='mac'] .sidebar-wordmark {
+    display: none;
+  }
+}
+@container sidebar-header (width < 308px) {
+  .sidebar-header[data-window-chrome='windows'] .sidebar-wordmark {
+    display: none;
+  }
+}
+
+/* A closed tab takes the hover ground like every tab in the column (25/11),
+ * but not on the row a click just closed, until the pointer leaves it, and not
+ * while the pointer is outside the window, where WKWebView keeps the last
+ * `:hover` on. Both attributes come from `lib/hoverQuiet.ts`. Unlayered, so it
+ * wins over the row's `hover:` utilities, which is why it names only the plain
+ * closed row (`closed-tab-row`, from `sidebarRowCard`): a closed row with an
+ * attention fill keeps its fill. Behind `(hover: hover)` like Tailwind's own
+ * `hover:`, so a touch screen's sticky hover never reaches it. */
+@media (hover: hover) {
+  .closed-tab-row[data-hover-quiet]:hover,
+  html[data-pointer-away] .closed-tab-row:hover {
+    background-color: transparent;
   }
 }
 

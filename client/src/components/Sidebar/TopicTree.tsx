@@ -77,7 +77,8 @@ import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
 import { useClosedRows, useCloseInnerChat } from './useClosedRows';
 import { orderByHand, ROW_ORDER_DRAG } from '@/lib/listOrder';
 import { useHandOrder } from './useHandOrder';
-import { TabStateRing } from './TabStateRing';
+import { TabStateRail, TabStateRing } from './TabStateRing';
+import { ROW_EXIT_ATTR } from '../../lib/rowExit';
 import type { ClosedTabRecord } from '@/state/pane/adapters/closedTabRecord';
 import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, sidebarItemPaneId, sidebarItemSpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
 import { nextWaiting, waitingQueue } from '@/lib/waitingQueue';
@@ -1002,6 +1003,7 @@ export function TopicTree({
         aria-selected={isFocused}
         data-testid={`sidebar-utility-${utilType}`}
         data-tab-state={isOpen ? 'open' : 'closed'}
+        {...{ [ROW_EXIT_ATTR]: item.id }}
         // La card di ogni altra riga, CHIAMATA invece che ricopiata. `gap-2` e
         // glifo nello slot condiviso: stessa colonna del nome della riga board,
         // dei terminali e dei browser (vedi ROW_GLYPH_SLOT).
@@ -1027,14 +1029,13 @@ export function TopicTree({
         {/* Suppressed while focused, the same rule the chat row uses. */}
         {!isFocused && <NotificationBadge count={item.notificationCount} />}
         {(isOpen ? onCloseTab : item.closed && onForgetClosedTab) && (
-          <span className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}>
-            <TabStateRing
-              paneId={item.id}
-              name={item.name}
-              onCloseTab={isOpen && onCloseTab ? () => onCloseTab(item.id) : undefined}
-              onForgetClosed={!isOpen && onForgetClosedTab ? () => onForgetClosedTab(item.id, item.name) : undefined}
-            />
-          </span>
+          <TabStateRail
+            className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}
+            paneId={item.id}
+            name={item.name}
+            onCloseTab={isOpen && onCloseTab ? () => onCloseTab(item.id) : undefined}
+            onForgetClosed={!isOpen && onForgetClosedTab ? () => onForgetClosedTab(item.id, item.name) : undefined}
+          />
         )}
       </div>
     );
@@ -1449,9 +1450,12 @@ export function TopicTree({
     const projOnFill = projectFill !== null;
 
     return (
-      <div key={item.id}>
-        {/* Project header */}
+      <div key={item.id} {...{ [ROW_EXIT_ATTR]: projectPaneId }}>
+        {/* Project header: not a treeitem, so it says it is a row that
+            moves (`data-sidebar-flip`), or it would jump under an archived
+            row's leaving copy while the treeitems around it wait. */}
         <LongPressRow
+          data-sidebar-flip=""
           // Col dito il menu del progetto non esisteva: il tasto destro ne apre
           // quattro voci — «Segna tutto come letto», «Fissa», «Muta notifiche»,
           // «Archivia» — e da telefono se ne raggiungeva UNA. Tenere premuto apre
@@ -1508,7 +1512,7 @@ export function TopicTree({
             setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name, allArchived, unseenSubjects, pinned: !!item.pinned, muted });
           }}
         >
-          <ProjectRowPendingOverlay projectPath={pp} />
+          <ProjectRowPendingOverlay projectPath={pp} paneId={projectPaneId} />
           {/* Chevron is its own control — toggles the accordion ONLY (expand /
               collapse), never moves focus. Separating it from the name button
               means clicking the row to focus a project can't accidentally
@@ -2226,8 +2230,9 @@ export function TopicTree({
         // column has no ground and floats over this list (card 1e015ad6), so
         // the room it needs is the padding of the SCROLLER - inside the scroll,
         // which is what lets the tabs travel behind it and behind the
-        // safe-area band. On a desktop the property is `0px` and this is the
-        // zero it has always been. See `SIDEBAR_SCROLL_TOP_PROPERTY`.
+        // safe-area band. On a desktop the property is what is left of a step:
+        // the one the header's buttons leave (none with the tabs at the side).
+        // See `SIDEBAR_SCROLL_TOP_PROPERTY`.
         style={{ paddingTop: `var(${SIDEBAR_SCROLL_TOP_PROPERTY}, 0px)`, paddingBottom: COLUMN_GAP / 2 }}
         // IL GESTO INVERSO: una tessera lasciata sulla LISTA torna una riga.
         //
@@ -2707,6 +2712,8 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
     <LongPressRow
       isTouch={isTouch && hasMenu}
       data-tab-state={tab}
+      {...{ [ROW_EXIT_ATTR]: `terminal:${s.id}` }}
+      data-sidebar-flip=""
       // Same three-state model as chat (TopicItem) so selection means the SAME
       // thing on every sidebar row: the focused item gets the shared neutral
       // SELECTED_SURFACE (= the focused tab), merely-open is subtle, else quiet.
@@ -2834,9 +2841,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
         </span>
       )}
       {onArchiveClosed && (
-        <span className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}>
-          <TabStateRing paneId={`terminal:${s.id}`} name={s.name} onForgetClosed={onArchiveClosed} />
-        </span>
+        <TabStateRail className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`} paneId={`terminal:${s.id}`} name={s.name} onForgetClosed={onArchiveClosed} />
       )}
 
       {/* IL MENU DELLA RIGA — uno solo, per tutte e tre le porte: tasto destro,
@@ -3069,7 +3074,9 @@ function ProjectRowActions({
   onNewTopicInProject?: (projectPath: string) => void;
   onAddProjectPane?: (projectPath: string, type: PaneType, subType?: string) => void;
 }) {
-  const status = usePendingActionStatus(allArchived ? null : `archive-project:${pp}`);
+  const archiveStatus = usePendingActionStatus(allArchived ? null : `archive-project:${pp}`);
+  const forgetStatus = usePendingActionStatus(onForgetClosed ? `forget-closed:${paneId}` : null);
+  const status = archiveStatus ?? forgetStatus;
   const hasAdd = !!(onNewTopicInProject || onAddProjectPane);
   if (!hasAdd && !onArchiveProject) return null;
   return (
@@ -3117,8 +3124,11 @@ function ProjectRowActions({
  * the row's bounds. Lives at module scope for the same hook-rule reason
  * as ProjectArchiveButton.
  */
-function ProjectRowPendingOverlay({ projectPath }: { projectPath: string }) {
-  const status = usePendingActionStatus(`archive-project:${projectPath}`);
+function ProjectRowPendingOverlay({ projectPath, paneId }: { projectPath: string; paneId: string }) {
+  const archive = usePendingActionStatus(`archive-project:${projectPath}`);
+  // A closed project row archived from its circle (its closed record).
+  const forget = usePendingActionStatus(`forget-closed:${paneId}`);
+  const status = archive ?? forget;
   if (!status) return null;
   return <PendingActionProgressOverlay status={status} />;
 }
@@ -3164,6 +3174,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
   const press = useLongPress(openContextMenuAt, { enabled: isTouch && hasMenu });
   return (
     <div
+      data-sidebar-flip=""
       className={[
         // `select-none`: chi monta un long-press lo vuole, o iOS ci mette sopra
         // il proprio callout di selezione mentre tieni premuto.
@@ -3180,6 +3191,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
       onDragStart={(e) => startPaneDrag(e, `browser:${bc.id}`, isOpen || isFocused)}
       data-pinned={pinned ? 'true' : undefined}
       data-tab-state={tab}
+      {...{ [ROW_EXIT_ATTR]: `browser:${bc.id}` }}
       {...press.handlers}
       data-pressing={press.pressed || undefined}
       onClick={() => { if (press.consumeClick()) return; onOpenBrowser?.(bc.id); }}
@@ -3245,9 +3257,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
         </span>
       )}
       {onArchiveClosed && (
-        <span className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}>
-          <TabStateRing paneId={`browser:${bc.id}`} name={itemName} onForgetClosed={onArchiveClosed} />
-        </span>
+        <TabStateRail className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`} paneId={`browser:${bc.id}`} name={itemName} onForgetClosed={onArchiveClosed} />
       )}
       {ctxMenu && (
         <ContextMenuPortal

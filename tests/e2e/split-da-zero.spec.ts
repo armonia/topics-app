@@ -13,6 +13,7 @@
  */
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, seedPaneStore, seedProjectInnerChats, seedProjectInnerPanes, seedProjectPane } from "./helpers/api-fixtures";
@@ -338,7 +339,7 @@ test.describe("split, from zero", () => {
       await tools.getByTestId("project-rail-button").nth(1).click();
       await expect.poll(() => gitSection.evaluate((el) => el.clientHeight)).toBe(gitOpen);
       await tools.getByTestId("project-card").click();
-      await expect(page.getByTestId("project-sidebar")).toHaveCount(0);
+      await expect(page.getByTestId("project-sidebar")).toBeHidden();
 
       // No bar of its own: no tab of its chats, its commands on the title row.
       await expect(page.locator(`[role="tab"][data-pane-id="${inner.id}"]`)).toHaveCount(0);
@@ -466,10 +467,13 @@ test.describe("split, from zero", () => {
     // 25/11, on a project's browser: the title on top was the project's tab and
     // the browser's tab was nowhere, and the page was a square slab against the
     // window's rounded corner.
-    const projectPath = canonicalTmpDir("e2e-title-browser");
+    // Names that read like a real board in the photos (25/11, "not even in a
+    // demo"): the run's uniqueness is in the parent folder, not in the name.
+    const scratch = canonicalTmpDir("e2e-title-browser");
+    const projectPath = join(scratch, "sito-vetrina");
     mkdirSync(projectPath, { recursive: true });
-    const projectName = projectPath.split("/").pop()!;
-    const inner = await createTopic(request, `title-browser-chat-${Date.now()}`, { projectPath, provider: "claude-code" });
+    const projectName = "sito-vetrina";
+    const inner = await createTopic(request, "Revisione della home", { projectPath, provider: "claude-code" });
     const ctx = `title-in-project-${Date.now()}`;
     const browserId = `browser:${ctx}`;
     await page.routeWebSocket(/\/ws\/browser\//, () => {});
@@ -477,7 +481,7 @@ test.describe("split, from zero", () => {
       await resetPaneStore(request, []);
       await seedProjectPane(request, projectPath);
       await seedProjectInnerPanes(request, projectPath, [
-        { id: browserId, type: "browser", title: "gtm", titleSource: "user", url: "http://title-in-project.test/container" },
+        { id: browserId, type: "browser", title: "gtm", titleSource: "user", url: "http://gtm.sito-vetrina.test/container" },
       ], [inner.id]);
       await goToApp(page);
       const project = projectRow(page, projectName);
@@ -519,6 +523,13 @@ test.describe("split, from zero", () => {
       await expect(tools.getByTestId("project-card")).toBeVisible();
       const [t, k] = await Promise.all([title.boundingBox(), tools.boundingBox()]);
       if (!t || !k) throw new Error("no geometry for the title row");
+      // 25/11, the owner: "the tab in the top bar should be bigger, now it is
+      // tiny". A row's height, at least as wide as the active browser tab of a
+      // strip (300), and the address beside the name, always on.
+      expect(Math.round(t.height), "the title tab is a row tall").toBe(34);
+      expect(t.width, "the title tab is as wide as an active browser tab").toBeGreaterThanOrEqual(300);
+      // As a strip shows it (`prettyUrl`): https is dropped, http is said.
+      await expect(title.getByTestId("cell-title-tab-address")).toHaveText("http://gtm.sito-vetrina.test/container");
       expect(Math.abs((t.y + t.height / 2) - (k.y + k.height / 2)), "title and project commands on one row").toBeLessThan(2);
       expect(k.x, "the project commands at the right of the title").toBeGreaterThan(t.x + t.width);
       // Its menu and commands under the pointer, as on a cell's title.
@@ -559,7 +570,7 @@ test.describe("split, from zero", () => {
       });
     } finally {
       await deleteTopic(request, inner.id).catch(() => {});
-      removeTmpDir(projectPath);
+      removeTmpDir(scratch);
     }
   });
 
@@ -567,15 +578,19 @@ test.describe("split, from zero", () => {
     // 25/11: everything consistent, the island headers' heights and spacings
     // like the tabs' and like the user and Sistema buttons', and none of them
     // with a background unless it is active in some way, as the tabs.
-    const projectPath = canonicalTmpDir("e2e-row-grammar");
+    const scratch = canonicalTmpDir("e2e-row-grammar");
+    const projectPath = join(scratch, "gestionale-ordini");
     mkdirSync(projectPath, { recursive: true });
-    const projectName = projectPath.split("/").pop()!;
-    const inner = await createTopic(request, `row-grammar-chat-${Date.now()}`, { projectPath, provider: "claude-code" });
+    const projectName = "gestionale-ordini";
+    const inner = await createTopic(request, "Bozza del preventivo", { projectPath, provider: "claude-code" });
+    // A second chat of the project, closed from its row for the photo of a
+    // closed tab under the pointer.
+    const releaseNotes = await createTopic(request, "Note di rilascio", { projectPath, provider: "claude-code" });
     const NONE = "rgba(0, 0, 0, 0)";
     try {
       await resetPaneStore(request, []);
       await seedProjectPane(request, projectPath);
-      await seedProjectInnerChats(request, projectPath, [inner.id]);
+      await seedProjectInnerChats(request, projectPath, [inner.id, releaseNotes.id]);
       await goToApp(page);
       const project = projectRow(page, projectName);
       await expect(project).toBeVisible({ timeout: 20_000 });
@@ -598,6 +613,19 @@ test.describe("split, from zero", () => {
         await shot.mouse.move(width - 2, 899);
         await frames(shot, 12);
         await shot.screenshot({ path: test.info().outputPath(`rows-${width}.png`) });
+        if (width === 1440) {
+          // A closed tab under the pointer (25/11: "on hover the ground should
+          // appear for all of them"): closed from its row, the pointer leaves
+          // and comes back.
+          const notes = shot.getByRole("treeitem", { name: releaseNotes.name });
+          await notes.hover();
+          await notes.getByTestId("topic-row-close").click();
+          await expect(notes).toHaveAttribute("data-tab-state", "closed", { timeout: 15_000 });
+          await shot.mouse.move(width - 2, 899);
+          await notes.hover();
+          await frames(shot, 12);
+          await shot.screenshot({ path: test.info().outputPath("rows-1440-closed-hover.png") });
+        }
         if (width === 375) {
           phoneBoard = await board.evaluate((el) => ({ h: Math.round(el.getBoundingClientRect().height), ground: getComputedStyle(el).backgroundColor }));
         }
@@ -646,10 +674,50 @@ test.describe("split, from zero", () => {
       await page.getByTestId("identity-me-profile").click();
       await page.mouse.move(900, 500);
       await expect.poll(async () => (await measure()).me?.ground, { timeout: 5_000 }).not.toBe(NONE);
+      // The menu is lazy: an Escape sent before it mounts is lost, and the
+      // next outside click (the bell, below) would only close it, eaten by
+      // `useDismissable`. Wait for it, and for it to be gone.
+      await expect(page.getByTestId("profile-menu")).toBeVisible({ timeout: 10_000 });
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("profile-menu")).toHaveCount(0);
+
+      // The sidebar's buttons are tabs (25/11, the owner: "all the
+      // notification and sidebar buttons [must] have the tabs' behaviour, size
+      // and colours"): a row tall, no ground at rest, the hover ground under
+      // the pointer, an open tab's ground while their panel is open. And the
+      // column's toggle sits before the bell, the content's own gone while the
+      // column is open.
+      const HEAD = '[aria-label="Topics sidebar"] .sidebar-header';
+      const buttons = {
+        toggle: `${HEAD} [data-testid="sidebar-collapse"]`,
+        bell: `${HEAD} [data-testid="inbox-button"]`,
+        search: `${HEAD} [aria-label="Search, open the command palette"]`,
+        add: `${HEAD} [data-testid="pane-add-menu-trigger"]`,
+      };
+      const look = () => page.evaluate((sels) => Object.fromEntries(Object.entries(sels).map(([k, sel]) => {
+        const el = document.querySelector(sel)!;
+        const r = el.getBoundingClientRect();
+        return [k, { h: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right), ground: getComputedStyle(el).backgroundColor }];
+      })), buttons) as Promise<Record<keyof typeof buttons, { h: number; left: number; right: number; ground: string }>>;
+      await page.mouse.move(900, 500);
+      const atRest = await expect.poll(look, { timeout: 5_000 }).toMatchObject({
+        toggle: { h: 34, ground: NONE }, bell: { h: 34, ground: NONE }, search: { h: 34, ground: NONE }, add: { h: 34, ground: NONE },
+      }).then(look);
+      expect(atRest.toggle.right, "the column's toggle comes before the bell").toBeLessThanOrEqual(atRest.bell.left);
+      await expect(page.getByTestId("sidebar-reopen")).toBeHidden();
+      for (const k of Object.keys(buttons) as (keyof typeof buttons)[]) {
+        await page.locator(buttons[k]).hover();
+        await expect.poll(async () => (await look())[k].ground, { message: `${k} under the pointer` }).not.toBe(NONE);
+      }
+      await page.locator(buttons.bell).click();
+      await expect(page.getByTestId("inbox-panel")).toBeVisible();
+      await page.mouse.move(900, 500);
+      await expect.poll(async () => (await look()).bell.ground, { message: "the bell while its panel is open" }).not.toBe(NONE);
       await page.keyboard.press("Escape");
     } finally {
       await deleteTopic(request, inner.id).catch(() => {});
-      removeTmpDir(projectPath);
+      await deleteTopic(request, releaseNotes.id).catch(() => {});
+      removeTmpDir(scratch);
     }
   });
 });

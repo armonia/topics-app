@@ -55,4 +55,29 @@ describe("the stop of a card's agent says who stopped it", () => {
     expect(resp?.status).toBe(200);
     expect(c.causes).toEqual(["user"]);
   });
+
+  /**
+   * Review feedback 26/11, point 4: KANBAN-124's kickoff tells every agent to
+   * self-link its next step with `blockedByTaskId`, so this card ALMOST
+   * ALWAYS still "blocks a live dependent" by the time another machine
+   * revokes it. The card must stay unarchived (KANBAN-123 holds: the
+   * dependent keeps waiting), but "revoked" is a fact, not a request — the
+   * agent still has to stop. Red if the precheck's 409 keeps the agent wired.
+   */
+  test("a machine's revoke stops the agent even when the card cannot archive", async () => {
+    const c = await workingCard("top-rev-blocked");
+    await call(c.r, "POST", "/api/boards/pX/tasks", { text: "dipendente", blockedByTaskId: c.id });
+    const url = new URL(`http://localhost/api/boards/pX/tasks/${c.id}`);
+    const resp = await c.r(internalRequest(url, { method: "DELETE", headers: { [STOP_CAUSE_HEADER]: "superseded" } }), url, url.pathname, "DELETE");
+    expect(resp?.status).toBe(409);
+    expect(c.causes).toEqual(["superseded"]);
+  });
+
+  test("the person's own click still refuses with no side effect at all", async () => {
+    const c = await workingCard("top-human-blocked");
+    await call(c.r, "POST", "/api/boards/pX/tasks", { text: "dipendente", blockedByTaskId: c.id });
+    const resp = await call(c.r, "DELETE", `/api/boards/pX/tasks/${c.id}`);
+    expect(resp!.status).toBe(409);
+    expect(c.causes, "a human's refused click never touches the agent").toEqual([]);
+  });
 });

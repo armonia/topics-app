@@ -47,6 +47,20 @@ equivalente, le parole esatte di qualcuno) la riga finisce con
 `allow-italian: <perche>`. Per leggere il debito di un file:
 `bun run scripts/check-comment-language.ts --list <path>`.
 
+**«Già su main» è un fatto di git, non un'impressione (dal 27/11/2026).**
+`MAIN_CLAIM_RULE` chiede all'agente la prova PRIMA della frase: `git fetch origin
+main && git merge-base --is-ancestor <commit> origin/main` (exit 0 = sì, exit 1 =
+no), col comando e il suo esito nella consegna. Misurato il 27/11: due consegne
+nella stessa ora hanno scritto «già su main» o «si chiude senza land» per un
+commit che `origin/main` non aveva, portando lavoro vero (138 e 381 righe) — la
+worktree dell'agente, partita dal ramo di un'altra card, viene scambiata per
+main. Al passaggio in review il server riusa lo stesso controllo del ripasso a
+orario (`falseMainClaims`, nessun secondo rilevatore) sulle ultime parole
+dell'agente: se la consegna nega il land per un commit che main non ha, la card
+riceve una nota di sistema col numero di commit e di file propri
+(`mainClaimReviewNote`, in `noteFalseMainClaim`, `server/routes/tasks-ci-phase.ts`).
+L'approvazione resta possibile: la nota avvisa, non blocca.
+
 **La suite unit intera la fa girare la BOARD, non l'agente (dal 04/09/2026).**
 L'envelope chiede all'agente `bun test <i file toccati e i test che li importano>`;
 il `bun run test:unit` completo parte alla consegna, nel suo worktree, e l'esito
@@ -411,6 +425,22 @@ queste regole.
 7. **Lavoro futuro fuori scope → task top-level nel backlog** (senza `parent`), mai
    nuovi subtask del task in consegna. Un task con subtask aperti non è approvabile:
    i subtask sono la checklist dello STESSO task, non un modo per rimandare lavoro.
+   **Un passo futuro è una card con `blockedByTaskId`, mai una promessa in un
+   commento** (incidente 17-24/11: una card madre chiusa `done` con 11 figlie
+   aperte mai collegate come subtask veri, una figlia archiviata "unita in" una
+   card già archiviata, e i passi successivi che aspettavano una frase in un
+   commento invece di un legame strutturale — persi tutti). Il server tiene due
+   cancelli, entrambi con un codice proprio e una frase che dice cosa fare:
+   - `open_subtasks` (409) — una card non va in `done` mentre ha sottotask
+     diretti aperti (`parent_task_id`, non chiusi né archiviati).
+   - `blocks_live_dependent` (409) — una card non-`done` non si archivia mentre
+     è ancora il `blockedByTaskId` di una card viva (non `done`, non
+     archiviata): archiviarla sbloccherebbe in silenzio chi la aspettava,
+     perché il cancello di dispatch legge `archiviata` come `fatta`
+     (`server/services/tasks/shared-card-read.ts`). Si sblocca solo spostando
+     o azzerando `blockedByTaskId` sulla card dipendente, o chiudendola prima.
+     Una card già `done` si archivia comunque: i suoi dipendenti erano già
+     sbloccati da quello, non dall'archiviazione.
 
 Regola di prodotto (non numerata: è una riga di kickoff, non una regola di consegna).
 Topics è un prodotto per chiunque: niente nomi, percorsi, IP, account o server di una

@@ -64,6 +64,13 @@ export interface MergeOutcome {
   movedBlockers: number;
 }
 
+/**
+ * A change made by the system itself on a rule the board switched on, not by a person or an agent.
+ * `reason` signs a hand-over to review (`delivered_by = 'system'`: no summary, no approval row).
+ * `closeProof` is the only way a system closes a card: the verified proof, which must be in the thread.
+ */
+export interface SystemAction { reason: string; closeProof?: string }
+
 export interface TaskService {
   create(input: CreateTaskInput): Task;
   get(taskId: string, opts?: { projectId?: string }): { task: Task; comments: TaskComment[]; children: Task[] } | null;
@@ -106,7 +113,7 @@ export interface TaskService {
    * the route). It may write the question for the person on a card it did not
    * open (the card of a schedule or the board API has no chat to do it).
    */
-  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null; messageId?: string | null; origin?: TaskActionOrigin; asCoordinator?: boolean }): Task;
+  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null; messageId?: string | null; origin?: TaskActionOrigin; asCoordinator?: boolean; systemAction?: SystemAction }): Task;
   /**
    * `questionOptions` turns the comment into a human-decision request: the
    * SERVER composes the canonical ```question``` block (question = content,
@@ -450,7 +457,21 @@ export interface TaskService {
     rootsOnly?: boolean;
   }): Neighbour[];
 
-  archive(args: { taskId: string; projectId?: string }): Task;
+  /**
+   * The OPEN card (not done, not archived) of a board that already says this
+   * very thing: same normalized title, or same idempotency key. Exact only; the
+   * fuzzy neighbours stay with `findDuplicates`.
+   */
+  findOpenTwin(args: { projectId: string; text?: string; idempotencyKey?: string | null; rootsOnly?: boolean }): Task | null;
+
+  archive(args: { taskId: string; projectId?: string; excludeDependentIds?: readonly string[] }): Task;
+  /**
+   * Read-only precheck for `archive`: throws the same `blocks_live_dependent`
+   * error, without mutating anything. For a caller that must detach a live
+   * agent or open children BEFORE archiving (the board DELETE route) — run
+   * this FIRST, so a rejected archive leaves no side effect behind.
+   */
+  assertArchivable(args: { taskId: string; projectId?: string; detachingOpenChildren?: boolean }): void;
   /**
    * Unhooks the open children (not archived, not done) of `taskId` so they
    * become root cards again, keeping their status. Called by the board DELETE
@@ -556,11 +577,14 @@ export interface TaskService {
   /**
    * How many live cards name `machineId` (Todo or in progress, not archived),
    * across every board: what the overflow counts against a machine's slots.
-   * A card waiting for a silent node is in Todo, so it counts.
+   * A card waiting for a silent node is in Todo, so it counts. A run resting
+   * over there (in progress with a `waiting` or `needs_input` chip) does not.
    */
   countOnMachine(machineId: string): number;
-  /** Cards already running on the machine (in progress), not counting `exceptTaskId`. */
+  /** Cards already running on the machine (in progress, not resting), not counting `exceptTaskId`. */
   countRunningOnMachine(machineId: string, exceptTaskId?: string): number;
+  /** Ids of the runs resting on the machine: in progress with a `waiting` or `needs_input` chip, no turn alive. */
+  restingOnMachine(machineId: string): string[];
   /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
    *
@@ -615,7 +639,7 @@ export interface TaskService {
    * una persona, e il backlog non lo dispaccia nessuno. Vedi il commento nel
    * corpo per il guasto del 12/08.
    */
-  release(args: { taskId: string; requeue: boolean; reason?: string; by?: string; parkState?: string | null; rollbackAttempt?: boolean; keepStatus?: boolean }): Task;
+  release(args: { taskId: string; requeue: boolean; reason?: string; by?: string; parkState?: string | null; rollbackAttempt?: boolean; keepStatus?: boolean; keepInTodo?: boolean }): Task;
   /**
    * Agent-declared external-condition wait: release the slot and put the task
    * back in `todo` with chip `waiting` and a `dispatch_deferred_until` window,

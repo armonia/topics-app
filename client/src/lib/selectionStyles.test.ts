@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  SIDEBAR_INDENT_STEP, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sectionCard, sectionIsland, sidebarRowCard,
+  SIDEBAR_INDENT_STEP, SIDEBAR_HOVER, RESTING_SURFACE, TAB_BUTTON, TAB_BUTTON_SQUARE, TAB_BUTTON_H, TAB_BUTTON_PX, tabButton, CHROME_BAR, CHROME_BAR_H, CHROME_BAR_SIDE, CHROME_BAR_SIDE_STYLE, CHROME_ROW_SIDE_PX, CHROME_ROW_TAB_RESERVE_LEFT, chromeRowPx, trafficLightsRowPx, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, COLUMN_GAP, CARD_H, ROW_ACTION_BOX, ROW_GAP, ROW_H, ROW_INSET, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_LABEL_TYPE, sectionCard, sectionIsland, sidebarRowCard,
 } from './selectionStyles';
 
 /**
@@ -81,6 +81,43 @@ describe('la riga di chrome e il comando in coda', () => {
     expect(risolvi(CHROME_ROW_ACTION_RESERVE_LEFT, 'pl')).toEqual(
       risolvi(CHROME_ROW_ACTION_RESERVE, 'pr'),
     );
+  });
+});
+
+/**
+ * THE ROW WITH THE TABS AT THE SIDE (26/11): one step on all four sides.
+ * «non hanno spaziature fra di loro e ai lati coerenti su tutti e 4 i lati»:
+ * the row was the strip's 40 around 34 tall buttons, 3 above and below against
+ * 6 at the sides. These recompute the row from the button and the step.
+ */
+describe('the title row is a tab and one step above and below', () => {
+  test('the lights get the row the window draws: 46 at the side, 40 with the strip or on the phone', () => {
+    expect(trafficLightsRowPx(false, false)).toBe(CHROME_ROW_SIDE_PX);
+    expect(trafficLightsRowPx(false, true)).toBe(CHROME_BAR_H);
+    expect(trafficLightsRowPx(true, false)).toBe(CHROME_BAR_H);
+    expect(trafficLightsRowPx(true, true)).toBe(CHROME_BAR_H);
+  });
+
+  test('the number is the box plus a step on each side', () => {
+    expect(risolvi(TAB_BUTTON_H, 'h').wide).toBe(TAB_BUTTON_PX);
+    expect(CHROME_ROW_SIDE_PX).toBe(TAB_BUTTON_PX + 2 * ROW_INSET);
+    expect(chromeRowPx(false)).toBe(CHROME_ROW_SIDE_PX);
+    expect(chromeRowPx(true)).toBe(CHROME_BAR_H);
+  });
+
+  test('the bar and its variable say the same number, the strip keeps 40', () => {
+    expect(risolvi(CHROME_BAR_SIDE, 'h').wide).toBe(CHROME_ROW_SIDE_PX);
+    expect((CHROME_BAR_SIDE_STYLE as Record<string, string>)['--chrome-bar-h']).toBe(`${CHROME_ROW_SIDE_PX}px`);
+    expect(risolvi(CHROME_BAR, 'h').wide).toBe(CHROME_BAR_H);
+    // Below 768 the row is the phone's 40 in both.
+    expect(risolvi(CHROME_BAR_SIDE, 'h').compact).toBe(CHROME_BAR_H);
+  });
+
+  test("the room for the column's toggle is step + tab button + step", () => {
+    const box = { wide: risolvi(TAB_BUTTON_SQUARE, 'w').wide, compact: risolvi(TAB_BUTTON_SQUARE, 'w').compact };
+    const pl = risolvi(CHROME_ROW_TAB_RESERVE_LEFT, 'pl');
+    expect(pl.wide).toBe(ROW_INSET + box.wide + ROW_INSET);
+    expect(pl.compact).toBe(ROW_INSET + box.compact + ROW_INSET);
   });
 });
 
@@ -187,9 +224,30 @@ describe('le due famiglie di altezza, e le tre misure interne', () => {
     // Open, the island is the card, with the open tabs' resting ground.
     expect(atRest(sectionIsland(true))).toEqual(['bg-black/[0.05]']);
     expect(sectionIsland(true)).toContain('edge-lit');
-    // The pointer: a closed header lights its ink, an open one takes the rows' hover.
-    expect(sectionCard(false)).not.toContain('hover:bg-');
-    expect(sectionCard(true)).toContain('hover:bg-black/[0.05]');
+    // The pointer: every tab takes the rows' hover ground, a closed one too
+    // (25/11: "shouldn't the hover background appear for all of them?").
+    for (const cls of [sectionCard(false), sectionCard(true), sidebarRowCard({ tab: 'closed' }), sidebarRowCard({})]) {
+      expect(cls).toContain(SIDEBAR_HOVER);
+    }
+  });
+
+  test('a button beside the tabs is a tab: a row tall, no ground at rest, an open tab while open', () => {
+    // 25/11: "all the notification and sidebar buttons [must] have the tabs'
+    // behaviour, size and colours".
+    const heights = TAB_BUTTON.split(/\s+/).filter((c) => /^(?:md:|coarse:)?h-/.test(c));
+    expect(heights.join(' ')).toBe(TAB_BUTTON_H);
+    // A row's height without its touch step: the rows these buttons sit in
+    // are 40px from 768px up for every pointer.
+    expect(ROW_H.startsWith(TAB_BUTTON_H)).toBe(true);
+    expect(`${TAB_BUTTON} ${TAB_BUTTON_SQUARE}`).not.toContain('coarse:');
+    const atRest = (cls: string) => cls.split(/\s+/).filter((c) => /^(?:max-md:|md:)?bg-/.test(c));
+    expect(atRest(tabButton(false))).toEqual([]);
+    expect(tabButton(false)).not.toContain('edge-lit');
+    expect(tabButton(false)).toContain(SIDEBAR_HOVER);
+    expect(tabButton(true)).toContain(RESTING_SURFACE);
+    expect(tabButton(true)).toContain('edge-lit');
+    // Square, as wide as a row is tall at every width.
+    expect(TAB_BUTTON_SQUARE.replace(/w-/g, 'h-')).toBe(TAB_BUTTON_H);
   });
 
   test("l'aria DENTRO non è quella FRA: due domande, due numeri", () => {
