@@ -25,8 +25,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applyPendingPrimaryChange, commitIncoming, countRows, DB_NAME, type ReplicaCommands, replicaCommandsFromEnv,
-  REPLICA_START_ENV, REPLICA_STOP_ENV, snapshotDatabase, writeIncomingChunk,
+  snapshotDatabase, writeIncomingChunk,
 } from "./primary-switch";
+import { REPLICA_START_ENV, REPLICA_STOP_ENV } from "./primary-replica";
 
 const REPLICA_BIN = Bun.which("litestream");
 const migration = readFileSync(join(import.meta.dir, "../db/migrations/20261118110000-primary-state.sql"), "utf-8");

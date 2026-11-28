@@ -45,10 +45,10 @@ export const MANIFEST_FILE = "manifest.json";
 export const PRIMARY_STATE_FILE = "primary-state.json";
 // Their own modules, kept under this name for every caller of the switch.
 export {
-  clearRestoreStatus, confirmsRestore, readRestoreStatus, readRetired, RESTORE_STATUS_FILE, RETIRED_FILE, writeRetired,
+  clearRestoreStatus, confirmsRestore, readRestoreStatus, readRetired, RETIRED_FILE, writeRetired,
   type RetiredPhase, type RetiredState,
 } from "./primary-switch-markers";
-export { replicaCommandsFromEnv, REPLICA_START_ENV, REPLICA_STOP_ENV, type ReplicaCommands } from "./primary-replica";
+export { replicaCommandsFromEnv, type ReplicaCommands } from "./primary-replica";
 export const MOVED_CODE = "primary_moved";
 export const DB_NAME = LIVE_DB_NAME;
 

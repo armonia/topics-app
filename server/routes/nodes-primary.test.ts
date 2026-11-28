@@ -10,7 +10,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initPrimaryRole } from "../lib/primary-role";
-import { countRows, INCOMING_DIR, RESTORE_STATUS_FILE, sha256File, snapshotDatabase, type SwitchManifest } from "../lib/primary-switch";
+import { countRows, INCOMING_DIR, sha256File, snapshotDatabase, type SwitchManifest } from "../lib/primary-switch";
+import { RESTORE_STATUS_FILE } from "../lib/primary-switch-markers";
 import {
   createNodePrimaryRouter, isPrimaryConfirmPath, NODE_PRIMARY_COMMIT_PATH, NODE_PRIMARY_CONFIRM_PATH, NODE_PRIMARY_INCOMING_PATH, PRIMARY_CONFIRM_HEADER,
 } from "./nodes-primary";
