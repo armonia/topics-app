@@ -17,6 +17,7 @@ import { measureIntegration } from "../services/integration-measure";
 import { describeMainRed, MAIN_RED_MODEL, mainRedKey, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
 import { personPlace, scheduledReviewCmd } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
+import { createStaleChecksNoter } from "../services/stale-checks-note";
 import { MAIN_RED_NOTE, MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict, scheduledBounceMessage } from "../services/red-bounce";
 import { claimedMainShas, commitsSinceMain, deliveryClaimWords, landIsDeniedInWords, falseMainClaims, mainClaimReviewNote } from "../services/scheduled-review-sense";
 import { formatChecksComment } from "../services/review-checks";
@@ -145,14 +146,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
   /** The commit each card was measured on in the CI phase: it lands only if it still delivers that one. */
   const ciMeasured = new Map<string, string>();
 
-  /**
-   * A card with `landIntent` stuck because the bar measured another commit
-   * than the one it delivers (`returnToCiPhase`'s `from === deliveryCommit`
-   * branch below): one note per pair of shas, not one per sweep, or the card
-   * would get the same line again every few minutes while main keeps moving
-   * (card 0a3fed8f, 28/11).
-   */
-  const staleChecksNoted = new Map<string, string>();
+  const noteStaleChecks = createStaleChecksNoter(deps.svc);
 
   /**
    * The board's CI mode as far as it can act: `off` unless the board has what the phase needs (CI rows, a
@@ -698,27 +692,6 @@ export function createCiPhase(deps: CiPhaseDeps) {
    * decision holds for what they saw: a new commit whose changes since then
    * touch a person's place goes back to the person.
    */
-  /**
-   * One service comment per pair of shas: a card held by `landIntent` whose
-   * bar never measured the commit it actually delivers is not left mute
-   * (card 0a3fed8f, 28/11: `a467677d` sat 47 minutes, `968b6717` 33, neither
-   * one saying why). Called again on the SAME pair does nothing. The sweep
-   * that calls this runs every few seconds while the card is pending.
-   */
-  function noteStaleChecks(taskId: string, checksCommit: string | null, deliveryCommit: string): void {
-    const pair = `${checksCommit ?? "null"}->${deliveryCommit}`;
-    if (staleChecksNoted.get(taskId) === pair) return;
-    staleChecksNoted.set(taskId, pair);
-    const checksSha = checksCommit ? `\`${checksCommit.slice(0, 8)}\`` : "nessun commit";
-    try {
-      deps.svc.addComment({
-        taskId, author: "system", kind: "service",
-        content: `L'approvazione aspetta ancora un verdetto sul commit che consegna: la barra ha misurato ${checksSha}, ` + // allow-italian: board notes are written in Italian like every other service comment
-          `la consegna è ora su \`${deliveryCommit.slice(0, 8)}\`. Resta in review finché i due coincidono.`,
-      });
-    } catch { /* a trace, not a gate */ }
-  }
-
   async function returnToCiPhase(projectId: string, taskId: string): Promise<"ci" | "auto" | "person" | "no"> {
     const t = deps.svc.get(taskId, { projectId })?.task;
     if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return "no";
