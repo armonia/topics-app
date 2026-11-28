@@ -38,6 +38,10 @@
         {
           "text": "a wake is a continuation too; one list of machine marks for continuation and sentByPerson",
           "scope": "native"
+        },
+        {
+          "text": "close the race between retiring the orphan guard and re-arming it",
+          "scope": "tests"
         }
       ],
       "perf": []
@@ -57,6 +61,14 @@
         {
           "text": "move the spawn allowlist entry to where the install call now lives",
           "scope": "node-delivery"
+        },
+        {
+          "text": "the two-server test's roots outlive a normal run",
+          "scope": "tests"
+        },
+        {
+          "text": "retire the orphan guard right after the shared helper's server stops",
+          "scope": "tests"
         }
       ],
       "perf": []
@@ -342,8 +354,16 @@
           "scope": "node-delivery"
         },
         {
+          "text": "stop two-server test fully, loopback-only",
+          "scope": "tests"
+        },
+        {
           "text": "carry node attachments to the primary, read delivery commits against origin/main",
           "scope": "nodes"
+        },
+        {
+          "text": "the two-server test's cut-run cleanup never ran under bun test",
+          "scope": "tests"
         }
       ],
       "perf": []
