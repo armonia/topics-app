@@ -16,7 +16,7 @@ import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { getSubagent, insertSubagent, markSubagentRemote } from "../lib/subagent-store";
 import { SETTLE_TRIES, createRemoteSubagentWiring } from "../lib/subagent-remote-wiring";
 import { bundleBranch } from "../services/branch-on-origin";
-import { openPauseIfNeeded } from "../services/project-pause";
+import { openPauseWithLimit } from "../../tests/helpers/paused-project";
 import { projectIdOfFolder } from "../usage/project-folders";
 import { createTerminalRouter, disconnectBridge } from "./terminal";
 import { _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
@@ -416,7 +416,7 @@ test("spawn_agent in a paused project is refused before any worktree or process 
   mkdirSync(childRepo, { recursive: true });
 
   const projectId = projectIdOfFolder(getDatabase(), childRepo);
-  openPauseIfNeeded(getDatabase(), projectId, 999);
+  openPauseWithLimit(getDatabase(), projectId, 999);
 
   let created = 0;
   const ctx = baseCtx(tempRoot, "node-unused", "http://fake-node.test", {

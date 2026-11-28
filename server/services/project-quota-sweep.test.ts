@@ -14,6 +14,7 @@ const MIGRATION = await Bun.file(join(import.meta.dir, "../db/migrations/2026111
 function makeDb(): Database {
   const db = new Database(":memory:");
   db.exec(MIGRATION);
+  db.run("INSERT INTO project_quota (project_id, limit_24h_pct, updated_at) VALUES ('p', 10, 'x')");
   return db;
 }
 
@@ -36,13 +37,13 @@ describe("runProjectQuotaPauseSweep", () => {
   test("a project under its limit never opens a pause", () => {
     const db = makeDb();
     runProjectQuotaPauseSweep(db, { computeQuota: quotaOf([{ projectId: "p", points24h: 3, projectPath: "/p" }]) });
-    expect(readProjectQuotaRow(db, "p")).toBeNull();
+    expect(readProjectQuotaRow(db, "p")?.pausedAt ?? null).toBeNull();
   });
 
   test("the outside-projects bucket (projectId null) is never paused", () => {
     const db = makeDb();
     runProjectQuotaPauseSweep(db, { computeQuota: quotaOf([{ projectId: null, points24h: 999 }]) });
-    expect(readProjectQuotaRow(db, "p")).toBeNull();
+    expect(readProjectQuotaRow(db, "p")?.pausedAt ?? null).toBeNull();
   });
 
   test("a quota read that throws skips the round instead of crashing it", () => {

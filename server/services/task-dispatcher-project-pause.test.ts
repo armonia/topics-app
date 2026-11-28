@@ -15,7 +15,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { continueProject, openPauseIfNeeded } from "./project-pause";
+import { continueProject } from "./project-pause";
+import { openPauseWithLimit } from "../../tests/helpers/paused-project";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { fireProjectResumed, PERSON, resetHeldForTests } from "./turn-gate";
@@ -118,7 +119,7 @@ describe("a resume while the project is paused", () => {
   test("an automated resume starts no turn, keeps the card in progress and reads project-paused", async () => {
     const h = harness();
     boundCard(h.db, "held");
-    openPauseIfNeeded(h.db, PID, 10.4);
+    openPauseWithLimit(h.db, PID, 10.4);
 
     await resumeAndSettle(h, "held", "the checks went red, fix them");
 
@@ -133,7 +134,7 @@ describe("a resume while the project is paused", () => {
   test("a person's message is not held: the turn starts", async () => {
     const h = harness();
     boundCard(h.db, "person");
-    openPauseIfNeeded(h.db, PID, 10.4);
+    openPauseWithLimit(h.db, PID, 10.4);
 
     await resumeAndSettle(h, "person", "go on please", { origin: PERSON });
 
@@ -153,7 +154,7 @@ describe("a resume while the project is paused", () => {
   test("after Continua the card that was waiting starts by itself", async () => {
     const h = harness();
     boundCard(h.db, "waiting");
-    openPauseIfNeeded(h.db, PID, 10.4);
+    openPauseWithLimit(h.db, PID, 10.4);
     await resumeAndSettle(h, "waiting", "the checks went red, fix them");
     expect(h.turns).toHaveLength(0);
 
@@ -172,7 +173,7 @@ describe("a resume while the project is paused", () => {
   test("a pause of ANOTHER project does not wake this one", async () => {
     const h = harness();
     boundCard(h.db, "stays");
-    openPauseIfNeeded(h.db, PID, 10.4);
+    openPauseWithLimit(h.db, PID, 10.4);
     await resumeAndSettle(h, "stays", "the checks went red, fix them");
 
     fireProjectResumed("some-other-project");

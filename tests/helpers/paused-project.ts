@@ -28,6 +28,8 @@ export function pausedProjectDb(): Database {
 
 /** Opens the pause the way the sweep does (points over the default limit). */
 export function pauseFixtureProject(db: Database): void {
+  // A project with no row has no limit (until 64b1f052), so the fixture gets an explicit one.
+  db.run("INSERT OR IGNORE INTO project_quota (project_id, limit_24h_pct, updated_at) VALUES (?, 10, 'x')", [PAUSED_PROJECT_ID]);
   openPauseIfNeeded(db, PAUSED_PROJECT_ID, 50);
 }
 
@@ -35,4 +37,10 @@ export function pauseFixtureProject(db: Database): void {
 export function resumeFixtureProject(db: Database): void {
   continueProject(db, PAUSED_PROJECT_ID, 50);
   fireProjectResumed(PAUSED_PROJECT_ID);
+}
+
+/** Gives the project an explicit 10 point limit (no row means no limit until 64b1f052) and opens its pause. */
+export function openPauseWithLimit(db: Database, projectId: string, points24h: number, nowMs?: number): boolean {
+  db.run("INSERT OR IGNORE INTO project_quota (project_id, limit_24h_pct, updated_at) VALUES (?, 10, 'x')", [projectId]);
+  return openPauseIfNeeded(db, projectId, points24h, nowMs);
 }

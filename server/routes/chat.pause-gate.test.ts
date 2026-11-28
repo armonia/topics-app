@@ -8,7 +8,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
-import { continueProject, openPauseIfNeeded } from "../services/project-pause";
+import { continueProject } from "../services/project-pause";
+import { openPauseWithLimit } from "../../tests/helpers/paused-project";
 import { fireProjectResumed, heldCount, resetHeldForTests } from "../services/turn-gate";
 import { projectIdOfFolder } from "../usage/project-folders";
 import type { AIProvider, StreamHandler } from "../providers/types";
@@ -65,7 +66,7 @@ function chatInProject(paused: boolean): { sessionKey: string; projectId: string
     createdAt: now, updatedAt: now, archived: false, provider: "topics", projectPath: folder,
   } as Topic);
   const projectId = projectIdOfFolder(ctx.db as never, folder);
-  if (paused) openPauseIfNeeded(ctx.db as never, projectId, 999);
+  if (paused) openPauseWithLimit(ctx.db as never, projectId, 999);
   return { sessionKey, projectId };
 }
 

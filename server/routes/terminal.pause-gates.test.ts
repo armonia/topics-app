@@ -13,7 +13,8 @@ import { join, resolve } from "path";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { insertSubagent } from "../lib/subagent-store";
 import { resetHeldChildSendsForTests } from "../lib/held-child-send";
-import { continueProject, openPauseIfNeeded } from "../services/project-pause";
+import { continueProject } from "../services/project-pause";
+import { openPauseWithLimit } from "../../tests/helpers/paused-project";
 import { fireProjectResumed, heldCount, resetHeldForTests } from "../services/turn-gate";
 import { projectIdOfFolder } from "../usage/project-folders";
 import { createTerminalRouter, disconnectBridge } from "./terminal";
@@ -101,7 +102,7 @@ const call = (router: ReturnType<typeof createTerminalRouter>, path: string, bod
 
 test("spawn_agent: the paused project is the parent chat's, even when the child is pointed at another folder", async () => {
   const { projectId } = parentInProject("proj-paused");
-  openPauseIfNeeded(getDatabase(), projectId, 999);
+  openPauseWithLimit(getDatabase(), projectId, 999);
   const elsewhere = join(tempRoot, "unpaused-elsewhere");
   mkdirSync(elsewhere, { recursive: true });
 
@@ -119,7 +120,7 @@ test("send_to_agent: a paused project holds the message (zero turns), and Contin
     id: "child-held", parentSessionKey: PARENT_KEY, name: "worker", model: null, agentType: null, effort: null,
     promptSnippet: "work", cwd: tempRoot, branch: null, claudeSessionId: null, createdAt: new Date().toISOString(), runtime: "topics",
   });
-  openPauseIfNeeded(getDatabase(), projectId, 999);
+  openPauseWithLimit(getDatabase(), projectId, 999);
   const warn = spyOn(console, "warn").mockImplementation(() => {});
   try {
     const router = createTerminalRouter(makeCtx());
@@ -143,7 +144,7 @@ test("send_to_agent: a paused project holds the message (zero turns), and Contin
 
 test("send_to_agent to a child this caller does not own is not parked: it answers as before", async () => {
   const { projectId } = parentInProject("proj-paused-foreign");
-  openPauseIfNeeded(getDatabase(), projectId, 999);
+  openPauseWithLimit(getDatabase(), projectId, 999);
   const router = createTerminalRouter(makeCtx());
   const res = await call(router, `/api/sessions/${encodeURIComponent(PARENT_KEY)}/agents/nobody/send`, { input: "hi" });
   expect(res?.status).toBe(404);
@@ -154,7 +155,7 @@ test("spawn_agent: a parent in a running project is not refused because the chil
   parentInProject("proj-running");
   const pausedFolder = join(tempRoot, "paused-elsewhere");
   mkdirSync(pausedFolder, { recursive: true });
-  openPauseIfNeeded(getDatabase(), projectIdOfFolder(getDatabase(), pausedFolder), 999);
+  openPauseWithLimit(getDatabase(), projectIdOfFolder(getDatabase(), pausedFolder), 999);
 
   const router = createTerminalRouter(makeCtx());
   // `model` unknown: the call is refused later, by the launch checks, which proves the brake let it through without starting anything.

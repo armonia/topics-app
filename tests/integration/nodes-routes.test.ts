@@ -875,9 +875,10 @@ describe("nodes routes: a paused project starts no run", () => {
   });
 
   test("the node's own project is paused: 409 project_paused, and it runs again after Continua", async () => {
-    const { openPauseIfNeeded, continueProject } = await import("../../server/services/project-pause");
+    const { continueProject } = await import("../../server/services/project-pause");
+    const { openPauseWithLimit } = await import("../helpers/paused-project");
     const before = countTasks();
-    openPauseIfNeeded(ctx.db, boardId, 10.4);
+    openPauseWithLimit(ctx.db, boardId, 10.4);
     try {
       const resp = await call("POST", "/api/nodes/runs", {
         originTaskId: "origin-paused-on-node", originUrl: ORIGIN_HTTPS, text: "paused node project",

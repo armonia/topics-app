@@ -53,9 +53,9 @@ beforeEach(() => {
 afterEach(() => { db.close(); });
 
 describe("GET /api/projects/quota-limit", () => {
-  test("a project never configured reads the default (10)", async () => {
+  test("a project never configured reads no limit (until 64b1f052)", async () => {
     const res = await get("/proj/a");
-    expect(await res!.json()).toEqual({ limit: 10 });
+    expect(await res!.json()).toEqual({ limit: null });
   });
 });
 
