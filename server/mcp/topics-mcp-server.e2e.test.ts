@@ -131,6 +131,7 @@ describe("MCP stdio server (subprocess)", () => {
       // The two doors that leave the machine. Their schemas live in
       // `outbound-tools.ts` and are spread into the list here.
       "send_mail", "google_call",
+      "create_scheduled_job", "list_scheduled_jobs", "run_scheduled_job", "pause_scheduled_job", "delete_scheduled_job",
       "ask_user_question",
       "show_view",
       // Il canale di permesso, pubblicato sempre: lo designa
