@@ -30,6 +30,10 @@ function harness(over: Partial<PreviewManagerDeps> = {}): Harness {
     spawned: [], procs: [], deps: null as any,
   };
   h.deps = {
+    // Pinned: a machine can carry TOPICS_PREVIEW_PORTS in its environment
+    // (a node sharing itself with CI runners does), and these assertions are
+    // about the url, not about which pool the machine happens to declare.
+    portRange: [3400, 3450],
     worktreeOf: () => WT,
     resolveCommand: () => ({ cmd: ["bun", "run", "dev"], deepLinkPath: "/" }),
     spawn: (cmd, opts) => { h.spawned.push({ cmd, ...opts }); const p = fakeProc(); h.procs.push(p); return p; },
