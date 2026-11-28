@@ -2,16 +2,61 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.29 — 2026-11-28
+
+### Novità
+- **usage** · owner guard, live-session refusal, deadline and incremental scan for top sessions
+
+### Correzioni
+- **usage** · type the transcript line instead of any (any budget)
+- **node-delivery** · widen the install-call slice for the restored detached checkout
+- **schedule** · watchdog test signals the right subshell on macOS sh
+- **subagent** · worker profile inherits model outside board tasks
+- **design** · drop App.tsx raw-size drift past the check-design-system baseline
+- **ci** · run check-design-system --changed on pull requests too
+- **usage** · bytes-read counter as a scan argument, not a prod-dead export
+- **design-system** · TopSessionsSection uses Button/TextField primitives
+
+### Sotto il cofano
+- Give PreviewButton its own key: it shared topic.id with ChangedFilesStrip
+- **spawn-deadline** · list the detached session resume
+- Keep cards reachable when an aliased board id still holds cards
+- Chat previews: memory admission, cap on live chat previews (default 2), button closes the oldest
+- rename helper
+- fix helper calls
+- **design** · spec-flow 0.8.0 turns on check-design-system
+- Send a mail once even if the server restarts
+- design-baseline: registra TopSessionsSection (debito di un file nuovo di main)
+- il selettore del dropdown segue la classe max-h-75
+- Sidebar top sessions: use design-system Button and TextField, clearing the red design gate on main
+- Mark the ui kit exports that the production graph now reaches but does not use
+- Record pre-existing design-system debt for TopSessionsSection (main merge)
+- Revert "fix(design-system): TopSessionsSection uses Button/TextField primitives"
+- baseline follows the scores that rose tonight [skip ci]
+
+## 2.5.28 — 2026-11-28
+
+### Sotto il cofano
+- Extract chat preview flow into preview-chat.ts
+- Lavori programmati 3/8: job: spento dalla porta seen, esito di consegna nel giro, segreti fuori dall'adattatore
+- Native child braked only by the real memory floor; refusal counts the parent's live children (card a2459567)
+
 ## 2.5.27 — 2026-11-28
+
+### Correzioni
+- **ci-evidence test** · make the detached→branch integration test actually bite
+- **schedule** · watchdog TERM handler kills its sleep via $!, restore 20s test windows
 
 ### Sotto il cofano
 - Remove on-demand node-pool slots, keep the permanent node only
 - Preview seed: correct the proven cause and lock it with tests
+- Lavori programmati 3/8: registro di tool e spawn aggiornati per l'adattatore
 
 ## 2.5.25 — 2026-11-28
 
 ### Sotto il cofano
 - Make the walkFileTree yield test load-independent
+- **schedule** · widen real-command wait windows to stop CI flake
 - Trace the systemd-temp-entries test to GATE-13 so check:untraced-tests passes
 - Preview photo: the announced page is the contract, not the bare home
 
@@ -45,13 +90,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Trace the main-claim review check to KANBAN-11, not a card id
 - **openspec** · tetto-contesto-agenti, the ceiling at turn start and its three new scenarios
 - node-pool: repo copy gets the drain fix (needs_input and waiting cards do not count), with a regression test
+- Revert "Revert the detached node-check worktree: CI rows can no longer read a branch"
 - **openspec** · tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k
 - **openspec** · tetto-contesto-agenti, the ceiling skips continuations; a Discord message from Jarvis's channel gets it
 - picker keeps projects under ~/.claude, a queued card can move boards, merged parent header shows its name
 - Declare coverage of the merged-parent name test
 - **openspec** · tetto-contesto-agenti, wakes are continuations
+- awaitCiEvidence falls back to the planted branch when the checkout has none
 - secret-store: fix three more ways to lose a secret
 - node-pool: permanent node gets ci-governor files again (shared PERMANENT_FILES list), with a test
+- Fix ci-evidence.test.ts type error for the detached-branch fallback test
 
 ## 2.5.20 — 2026-11-27
 
@@ -206,6 +254,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **land** · close a card whose delivery already reached main
 
 ### Sotto il cofano
+- Lavori programmati 3/8: correzioni della revisione (pausa R26, timeout adattatore, campanella, ripiego, raffica 24 h, fuso)
 - Revisione del round 3: cancelli statici verdi, colonna che riapre l'isola giusta, semafori dalla sola finestra principale
 - Riga archiviata in due tempi: prima esce, poi le righe sotto risalgono
 - tolto l'aggancio di test che nessun test usa
@@ -255,6 +304,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Bloat baseline: task-dispatcher-overflow.test.ts at 1715 after two cards land together
 - Backlog triage test: declares KANBAN-123 and runs git with the isolated env
 - **bloat** · give the full-repo baseline check a 120s timeout
+- Lavori programmati 3/8: consegna fuori dall'app con un adattatore, avvisi di guasto e strumenti per gli agenti
+- Lavori programmati 3/8: gli elenchi degli strumenti includono quelli dei lavori
 
 ## 2.5.5 — 2026-11-26
 
@@ -346,6 +397,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Land via PR only on the current origin/main base, switch auto-merge off when the state is unreadable, treat any hook failure as a refusal
+- **usage** · top-sessions e2e captures light and dark shots with realistic names
 - ci-impact: untraceable files run the whole tier, a failed estimate leaves no judged mark, replay includes --only-changed
 - Fix ci-governor selftest race on SIGSTOP/SIGCONT delivery under load
 - ci-impact-measure: drop the node_modules junction, its removal followed the link
@@ -359,6 +411,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **ui** · the new comments quote the report in English
+- **client** · arbitrary px/rem utilities onto the Tailwind scale, design baseline 1681 to 1133
 - ci-impact-measure: an unreadable rerun list no longer aborts the replay
 - **ui** · the browser tab in the title row is a portal in flow, not a floating surface
 - Backlog triage: sorts subtasks (detach, then todo) and cards whose blocker is done
@@ -456,12 +509,19 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.4.103 — 2026-11-25
 
+### Novità
+- **preview** · live preview for chats in their own worktree (ensureForChat, idle and archive teardown, POST /api/topics/:id/preview)
+
+### Correzioni
+- **preview** · use the shared Spinner in the chat preview button
+
 ### Sotto il cofano
 - lower ci.slice memory ceiling and reserve memory for system.slice and topics (card 0ecda178)
 - Un figlio che rilancia senza wake il servizio fermato del genitore lo lascia al genitore
 - bloat baseline: record chat-handler as an exception after realign
 - Split server/services/tasks/shared.ts into six factory modules behind the same barrel
 - Split tasks/shared.ts: baselines and unused type exports
+- **usage** · trace top-sessions tests to USAGE-29, add the requirement to the usage spec
 - Land guard: a card's own branches include its spawned children and worktree branch
 - Main verde: covers del test usage-limit e baseline dopo i land della notte
 - Land refuses a delivery with null checks on a board that declares a bar
@@ -484,6 +544,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La spazzata del land-push spinge main una volta per repo, e ripete un rifiuto solo se cambia
 - Una corsa vecchia che il nodo non ha più non si scrive come errore
 - Un transcript troppo grande per cercarci un fork si dice una volta, non a ogni giro
+- Anteprima button and chat preview tests
+- **preview** · reword comments for the English-only gate
+- **preview** · declare what the chat preview tests cover
 - Land refuses an unmeasured delivery on every path, not only the automatic one
 - merge main inside a sibling worktree that already has it open
 - Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13
@@ -494,6 +557,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Point the preview-rule test at shared-previews.ts after the split
 
 ## 2.4.102 — 2026-11-25
+
+### Correzioni
+- **usage** · read transcripts as a stream, one line at a time, instead of holding them in memory
 
 ### Sotto il cofano
 - Replace real names in the client with fictitious ones, content (ORBIT, Alfa Impianti)
@@ -508,6 +574,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Novità
 - **main-ci** · red-main cards carry a fixed recipe and run on Sonnet
+- **usage** · who is spending, the heaviest sessions of the last 24 h
 - **native** · skip a spent account until its reset and retry the turn on the next one
 
 ### Correzioni

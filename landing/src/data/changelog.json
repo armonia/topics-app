@@ -1,5 +1,70 @@
 [
   {
+    "version": "2.5.29",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [
+        {
+          "text": "owner guard, live-session refusal, deadline and incremental scan for top sessions",
+          "scope": "usage"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "type the transcript line instead of any (any budget)",
+          "scope": "usage"
+        },
+        {
+          "text": "widen the install-call slice for the restored detached checkout",
+          "scope": "node-delivery"
+        },
+        {
+          "text": "watchdog test signals the right subshell on macOS sh",
+          "scope": "schedule"
+        },
+        {
+          "text": "worker profile inherits model outside board tasks",
+          "scope": "subagent"
+        },
+        {
+          "text": "drop App.tsx raw-size drift past the check-design-system baseline",
+          "scope": "design"
+        },
+        {
+          "text": "run check-design-system --changed on pull requests too",
+          "scope": "ci"
+        },
+        {
+          "text": "bytes-read counter as a scan argument, not a prod-dead export",
+          "scope": "usage"
+        },
+        {
+          "text": "TopSessionsSection uses Button/TextField primitives",
+          "scope": "design-system"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.27",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "make the detached→branch integration test actually bite",
+          "scope": "ci-evidence test"
+        },
+        {
+          "text": "watchdog TERM handler kills its sleep via $!, restore 20s test windows",
+          "scope": "schedule"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.22",
     "date": "2026-11-27",
     "sections": {
@@ -608,6 +673,39 @@
     }
   },
   {
+    "version": "2.4.103",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [
+        {
+          "text": "live preview for chats in their own worktree (ensureForChat, idle and archive teardown, POST /api/topics/:id/preview)",
+          "scope": "preview"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "use the shared Spinner in the chat preview button",
+          "scope": "preview"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.102",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "read transcripts as a stream, one line at a time, instead of holding them in memory",
+          "scope": "usage"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.101",
     "date": "2026-11-25",
     "sections": {
@@ -615,6 +713,10 @@
         {
           "text": "red-main cards carry a fixed recipe and run on Sonnet",
           "scope": "main-ci"
+        },
+        {
+          "text": "who is spending, the heaviest sessions of the last 24 h",
+          "scope": "usage"
         },
         {
           "text": "skip a spent account until its reset and retry the turn on the next one",

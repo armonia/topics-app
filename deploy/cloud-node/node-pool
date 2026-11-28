@@ -34,7 +34,7 @@ Claude).
 import base64, datetime, json, math, os, signal, ssl, subprocess, sys, time, urllib.request
 
 HOME = os.path.expanduser("~")
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))  # realpath: launchd runs a symlink to this file
 API = "https://api.hetzner.cloud/v1"
 MAC = os.environ.get("NODE_POOL_MAC", "https://127.0.0.1:3333")
 MAC_DB = os.environ.get("NODE_POOL_MAC_DB", os.path.join(HOME, "Projects/topics-app/data/topics.db"))
@@ -70,7 +70,9 @@ def rport(sl):
     return PERMANENT_RPORT if sl.get("fixed") else RPORT + sl["n"]
 PERMANENT_NAME = os.environ.get("NODE_POOL_PERMANENT", "topics-permanent-node")
 PERMANENT_SLOT = 1
-PERMANENT_SLOTS_CI, PERMANENT_SLOTS_IDLE = 2, 4
+# Permanent-node slots: CI-busy and idle. Env-overridable; defaults are the installed values.
+PERMANENT_SLOTS_CI = int(os.environ.get("NODE_POOL_PERMANENT_SLOTS_CI", "3"))
+PERMANENT_SLOTS_IDLE = int(os.environ.get("NODE_POOL_PERMANENT_SLOTS_IDLE", "6"))
 CI_RUNNERS = int(os.environ.get("NODE_POOL_CI_RUNNERS", "4"))
 CI_REPO = "armonia/topics-app"
 
@@ -134,7 +136,7 @@ def permanent_slots(ci_busy):
 
 def selftest():
     assert billed_hours(0, 20 * 60) == 1 and billed_hours(0, 61 * 60) == 2
-    assert permanent_slots(0) == 4 and permanent_slots(3) == 2, "card del nodo permanente: 2 con la CI, 4 senza"
+    assert permanent_slots(0) == PERMANENT_SLOTS_IDLE and permanent_slots(3) == PERMANENT_SLOTS_CI, "permanent node slots: CI-busy vs idle"
     t0 = time.mktime((2026, 11, 3, 10, 0, 0, 0, 0, -1))
     sd = spend_daily({"created": t0, "eur_h": 0.0}, t0 + 5 * 86400)
     assert sd[0]["day"].endswith("-01") and sd[0]["eur"] == 0 and len(sd) == 8, "dal primo del mese a oggi"
