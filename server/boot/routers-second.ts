@@ -38,7 +38,7 @@ import { createMachinesRouter } from "../routes/machines";
 import { createNodesRouter } from "../routes/nodes";
 import { createNodeWorktreesRouter } from "../routes/nodes-worktrees";
 import { createNodePrimaryRouter } from "../routes/nodes-primary";
-import { restartThisServerSoon } from "../lib/primary-fence";
+import { receiveChecksFor, restartThisServerSoon } from "../lib/primary-fence";
 import { createMachineWorktreesRouter } from "../routes/machine-worktrees";
 import { createWorktreeReportDeps } from "./worktree-node-wiring";
 import { createDelegatedRevocationRetry } from "../services/delegated-revocation-retry";
@@ -228,7 +228,9 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
   const worktreeReports = createWorktreeReportDeps(ctx, { worktreeGc, nodeClient });
   const machineWorktreesRouter = createMachineWorktreesRouter(ctx, worktreeReports.machine);
   const nodeWorktreesRouter = createNodeWorktreesRouter(ctx, worktreeReports.node);
-  const nodePrimaryRouter = createNodePrimaryRouter(ctx, { stateDir: ctx.STATE_DIR, restart: restartThisServerSoon });
+  const nodePrimaryRouter = createNodePrimaryRouter(ctx, {
+    stateDir: ctx.STATE_DIR, restart: restartThisServerSoon, receive: receiveChecksFor(ctx.STATE_DIR, ctx.APP_DATA_DIR),
+  });
 
   const machinesRouter = createMachinesRouter(ctx, { revocations: delegatedRevocations });
 

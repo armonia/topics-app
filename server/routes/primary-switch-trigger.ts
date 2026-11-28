@@ -12,10 +12,10 @@ import { getPrimaryRole } from "../lib/primary-role";
 import { reclaimPrimary, restartThisServerSoon, setPrimaryFence } from "../lib/primary-fence";
 import { resolveSecretsDir } from "../lib/data-dir";
 import type { RowCounts, SwitchManifest } from "../lib/primary-switch";
-import { NODE_PRIMARY_COMMIT_PATH, NODE_PRIMARY_INCOMING_PATH } from "./nodes-primary";
+import { NODE_PRIMARY_COMMIT_PATH, NODE_PRIMARY_CONFIRM_PATH, NODE_PRIMARY_INCOMING_PATH, PRIMARY_CONFIRM_HEADER } from "./nodes-primary";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
 import { isNodeSessionKey } from "../services/task-dispatcher-remote-node";
-import { runPrimarySwitch, type CommitAnswer, type SwitchTarget, type WorkInFlight } from "../services/primary-switch-run";
+import { runPrimarySwitch, type CommitAnswer, type ConfirmAnswer, type SwitchTarget, type WorkInFlight } from "../services/primary-switch-run";
 import type { StopCause } from "../lib/abort-cause";
 import { SERVER_VERSION } from "../ws-capabilities";
 
@@ -100,8 +100,39 @@ export function primaryTransport(baseUrl: string, token: string, doFetch: typeof
       }
       return { kind: "unknown", error: `HTTP ${res.status}` };
     },
+    /** No device credential: after the restore the receiver runs on our DB, so the commit's secret is the proof. */
+    async confirm(secret: string): Promise<ConfirmAnswer> {
+      try {
+        const res = await doFetch(`${baseUrl}${NODE_PRIMARY_CONFIRM_PATH}`, {
+          headers: { "User-Agent": `Topics/${SERVER_VERSION} (${osHostname()})`, [PRIMARY_CONFIRM_HEADER]: secret },
+          signal: AbortSignal.timeout(CONFIRM_TIMEOUT_MS),
+        });
+        const body = await res.json().catch(() => null) as { state?: string; primary?: boolean; error?: string; warning?: string } | null;
+        if (!res.ok || !body) return { kind: "waiting" };
+        if (body.state === "restored" && body.primary === true) return { kind: "restored", ...(body.warning ? { warning: body.warning } : {}) };
+        if (body.state === "failed") return { kind: "failed", error: body.error ?? "the restore failed" };
+        return { kind: "waiting" };
+      } catch {
+        // Restarting, or not listening yet: asked again at the next poll.
+        return { kind: "waiting" };
+      }
+    },
+    async abandon(secret: string): Promise<boolean> {
+      try {
+        const res = await doFetch(`${baseUrl}${NODE_PRIMARY_CONFIRM_PATH}`, {
+          method: "POST",
+          headers: { "User-Agent": `Topics/${SERVER_VERSION} (${osHostname()})`, [PRIMARY_CONFIRM_HEADER]: secret },
+          signal: AbortSignal.timeout(CONFIRM_TIMEOUT_MS),
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    },
   };
 }
+
+const CONFIRM_TIMEOUT_MS = 10_000;
 
 type Resolved = { ok: true; target: SwitchTarget; baseUrl: string; token: string } | { ok: false; error: string; code?: string };
 
@@ -178,6 +209,8 @@ export async function handlePrimarySwitch(req: Request, deps: PrimarySwitchTrigg
       setFence: setPrimaryFence,
       upload: transport.upload,
       commit: transport.commit,
+      confirm: transport.confirm,
+      abandon: transport.abandon,
       restartSelf: restartThisServerSoon,
       ...(typeof body.drainTimeoutMs === "number" && Number.isFinite(body.drainTimeoutMs) && body.drainTimeoutMs >= 0 ? { drainTimeoutMs: body.drainTimeoutMs } : {}),
     });

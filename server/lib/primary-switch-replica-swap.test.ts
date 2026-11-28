@@ -118,22 +118,31 @@ async function untilRestored(c: Computer, want: number, label: string): Promise<
 }
 type RestoredCounts = { counts: ReturnType<typeof countRows>; integrity: Array<{ integrity_check: string }> };
 
-/** The old primary hands its live DB to `to`: snapshot, stage, commit, then the receiver's boot applies it. */
-async function handOver(db: Database, from: Computer, to: Computer, epoch: number, replica: ReplicaCommands | undefined): Promise<void> {
+/** The old primary stages its live DB on `to` and asks for the commit, with every check of the receiving route. */
+async function commitOn(db: Database, from: Computer, to: Computer, epoch: number, replica: ReplicaCommands) {
   const copy = join(from.stateDir, "outgoing", DB_NAME);
   const counts = snapshotDatabase(db, copy);
   const bytes = new Uint8Array(readFileSync(copy));
   const sha256 = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
   writeIncomingChunk(to.stateDir, DB_NAME, 0, bytes);
-  const verdict = await commitIncoming(to.stateDir, {
+  return commitIncoming(to.stateDir, {
     version: 1, epoch, toMachineId: "m-to", toHostname: "to-host", fromMachineId: "m-from", createdAt: "2026-01-01T00:00:00.000Z",
-    counts, files: [{ name: DB_NAME, size: bytes.byteLength, sha256 }],
-  }, { hostname: "to-host", epoch: epoch - 1, freeBytes: () => Number.MAX_SAFE_INTEGER });
-  expect(verdict.ok).toBe(true);
-  expect(applyPendingPrimaryChange({
-    stateDir: to.stateDir, secretsDir: to.secretsDir, dbPath: to.dbPath, appDataDir: to.appDataDir, projectsDir: to.projectsDir,
-    replica, log: () => {},
-  })).toBe("restored");
+    counts, files: [{ name: DB_NAME, size: bytes.byteLength, sha256 }], confirmSha256: "c".repeat(64),
+  }, {
+    hostname: "to-host", epoch: epoch - 1, freeBytes: () => Number.MAX_SAFE_INTEGER,
+    receive: { secretsDir: to.secretsDir, appDataDir: to.appDataDir, dbPath: to.dbPath, projectsDir: to.projectsDir, replica },
+  });
+}
+
+const bootOf = (to: Computer, replica: ReplicaCommands) => applyPendingPrimaryChange({
+  stateDir: to.stateDir, secretsDir: to.secretsDir, dbPath: to.dbPath, appDataDir: to.appDataDir, projectsDir: to.projectsDir,
+  replica, log: () => {},
+});
+
+/** The old primary hands its live DB to `to`: snapshot, stage, commit, then the receiver's boot applies it. */
+async function handOver(db: Database, from: Computer, to: Computer, epoch: number, replica: ReplicaCommands): Promise<void> {
+  expect((await commitOn(db, from, to, epoch, replica)).ok).toBe(true);
+  expect(bootOf(to, replica)).toBe("restored");
 }
 
 describe.skipIf(!REPLICA_BIN)("primary switch with a real Litestream on the receiving computer", () => {
@@ -172,4 +181,44 @@ describe.skipIf(!REPLICA_BIN)("primary switch with a real Litestream on the rece
     expect(restoredA.counts).toEqual(handedBack);
     expect(restoredA.integrity).toEqual([{ integrity_check: "ok" }]);
   }, 120_000);
+
+  test("the default setting (no replica commands): the receiver refuses the commit and its replica stays readable", async () => {
+    const a = computer("a");
+    const b = computer("b");
+    const dbA = openDb(a.dbPath);
+    fill(dbA, "a", 20);
+    const dbB = openDb(b.dbPath);
+    fill(dbB, "b", 10);
+    startReplica(b);
+    await untilRestored(b, 10, "b-warm");
+    dbB.close();
+
+    const verdict = await commitOn(dbA, a, b, 2, {});
+    expect(verdict).toMatchObject({ ok: false, code: "replica_unmanaged" });
+    // Nothing committed: a boot has nothing to swap, and the replica still restores B's own data whole.
+    expect(bootOf(b, {})).toBeNull();
+    const restored = await untilRestored(b, 10, "b-after-refusal");
+    expect(restored.integrity).toEqual([{ integrity_check: "ok" }]);
+  }, 60_000);
+
+  test("a stop command that fails: the boot does not replace the DB under the running replica", async () => {
+    const a = computer("a");
+    const b = computer("b");
+    const dbA = openDb(a.dbPath);
+    fill(dbA, "a", 20);
+    const dbB = openDb(b.dbPath);
+    fill(dbB, "b", 10);
+    startReplica(b);
+    await untilRestored(b, 10, "b-warm");
+    dbB.close();
+
+    const broken = { stop: "exit 7", start: replicaCommandsFromEnv(b.env).start };
+    expect((await commitOn(dbA, a, b, 2, broken)).ok).toBe(true);
+    expect(() => bootOf(b, broken)).toThrow("the replica did not stop");
+    // The live file is still B's own, and its replica restores it whole.
+    const live = new Database(b.dbPath, { readonly: true });
+    try { expect(countRows(live).messages).toBe(10); } finally { live.close(); }
+    const restored = await untilRestored(b, 10, "b-after-failed-stop");
+    expect(restored.integrity).toEqual([{ integrity_check: "ok" }]);
+  }, 60_000);
 });

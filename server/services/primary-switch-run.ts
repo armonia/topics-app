@@ -10,8 +10,12 @@
  *  3. snapshot + `integrity_check` + row counts, which must equal the live DB's;
  *  4. ship the DB, the state files and the transcripts;
  *  5. the `sent` marker goes to disk, THEN the commit leaves: the new primary
- *     checks every hash, the integrity and the counts before it agrees;
- *  6. accepted: this server records the new primary at epoch+1, marks itself
+ *     checks every hash, the integrity and the counts, and that it can write
+ *     every folder and stop its replica, before it agrees;
+ *  6. accepted: this server waits, still fenced, until the receiver restarted
+ *     and says it is the primary. A restore that failed there is dropped and
+ *     this server stays the primary;
+ *  7. confirmed: this server records the new primary at epoch+1, marks itself
  *     `pending-set-aside` and restarts, and the boot sets its DB aside.
  *
  * A refusal before the commit, or an explicit no to it, undoes everything and
@@ -22,6 +26,7 @@
  * a person checks the other computer (`bun run primary reclaim`).
  */
 import type { Database } from "bun:sqlite";
+import { createHash, randomBytes } from "node:crypto";
 import { rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -45,6 +50,17 @@ export type CommitAnswer =
   | { kind: "refused"; code: string; error: string }
   | { kind: "unknown"; error: string };
 
+/**
+ * What the receiver says, asked with the commit's one-time secret, once it
+ * restarted: `restored` (it is the primary; `warning` when its replica did not
+ * start again), `failed` with the reason, or `waiting` (still restarting,
+ * unreachable, or not run the restore yet).
+ */
+export type ConfirmAnswer =
+  | { kind: "restored"; warning?: string }
+  | { kind: "failed"; error: string }
+  | { kind: "waiting" };
+
 export interface PrimarySwitchDeps {
   db: Pick<Database, "query">;
   stateDir: string;
@@ -65,8 +81,14 @@ export interface PrimarySwitchDeps {
   setFence: (retired: RetiredState | null) => void;
   upload: (name: string, offset: number, bytes: Uint8Array) => Promise<void>;
   commit: (manifest: SwitchManifest) => Promise<CommitAnswer>;
+  /** Asks the receiver how its restore went, with the commit's secret. */
+  confirm: (secret: string) => Promise<ConfirmAnswer>;
+  /** Tells the receiver to drop a restore that failed; true once it did. */
+  abandon: (secret: string) => Promise<boolean>;
   restartSelf: () => void;
   drainTimeoutMs?: number;
+  /** How long the receiver has to restart and restore before the switch is `uncertain`. */
+  confirmTimeoutMs?: number;
   pollMs?: number;
   chunkBytes?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -80,6 +102,8 @@ export interface SwitchReport {
   outcome: "switched" | "refused" | "uncertain";
   step: string;
   error?: string;
+  /** A switch that succeeded with something for a person to fix on the new primary (its replica did not start). */
+  warning?: string;
   epoch?: number;
   target: SwitchTarget;
   counts?: RowCounts;
@@ -93,6 +117,8 @@ export const SWITCH_REASON = "primary switch";
 export const PARK_NOTE = "Passaggio del principale in corso: la card riparte da capo sul nuovo principale."; // allow-italian: a card note the person reads on the board
 
 const DEFAULT_DRAIN_MS = 15 * 60_000;
+/** The receiver copies every attachment before it opens the DB: gigabytes of media take minutes. */
+const DEFAULT_CONFIRM_MS = 30 * 60_000;
 const DEFAULT_CHUNK = 32 * 1024 * 1024;
 
 async function shipFile(deps: PrimarySwitchDeps, name: string, source: string, chunk: number): Promise<void> {
@@ -193,9 +219,12 @@ export async function runPrimarySwitch(deps: PrimarySwitchDeps): Promise<SwitchR
       bytes += size;
       files.push({ name: s.name, size, sha256: await sha256File(s.source), mtimeMs });
     }
+    // Only its hash travels; the secret stays in this process and asks the receiver how the restore went.
+    const secret = randomBytes(32).toString("hex");
     const manifest: SwitchManifest = {
       version: 1, epoch, toMachineId: target.id, toHostname: target.hostname,
       fromMachineId: deps.localMachineId, createdAt: now(), counts, files,
+      confirmSha256: createHash("sha256").update(secret).digest("hex"),
     };
 
     step = "upload";
@@ -215,6 +244,24 @@ export async function runPrimarySwitch(deps: PrimarySwitchDeps): Promise<SwitchR
       return uncertain(`the new primary reports ${JSON.stringify(answer.counts)}, the copy ${JSON.stringify(counts)}`, counts);
     }
 
+    // Accepted is not restored: the receiver restarts and copies the files first. This server stays
+    // fenced (`sent`) and does not retire until the receiver says it IS the primary; a restore that
+    // failed is dropped there and this server stays the primary, so a failure never leaves none.
+    step = "confirm";
+    let warning: string | undefined;
+    const confirmBy = Date.now() + (deps.confirmTimeoutMs ?? DEFAULT_CONFIRM_MS);
+    for (;;) {
+      const status = await deps.confirm(secret);
+      if (status.kind === "restored") { warning = status.warning; break; }
+      if (status.kind === "failed") {
+        step = "abandon";
+        if (!(await deps.abandon(secret))) return uncertain(`the new primary could not restore (${status.error}) and did not drop the copy`, counts);
+        return undo(`the new primary could not restore: ${status.error}`);
+      }
+      if (Date.now() >= confirmBy) return uncertain("the new primary did not confirm the restore in time", counts);
+      await sleep(deps.pollMs ?? 2_000);
+    }
+
     step = "retire";
     // The retired marker before the role: a crash in between still boots fenced and sets the DB aside.
     const retired = marker("pending-set-aside");
@@ -223,12 +270,13 @@ export async function runPrimarySwitch(deps: PrimarySwitchDeps): Promise<SwitchR
     deps.role.adopt({ primaryMachineId: target.id, epoch });
     rmSync(outgoing, { recursive: true, force: true });
     log(`[primary] handed over to ${target.name} at epoch ${epoch}: ${JSON.stringify(counts)}, ${transcripts.length} transcript files; restarting to set this DB aside`);
+    if (warning) log(`[primary] the new primary ${target.name} needs a hand: ${warning}`);
     deps.restartSelf();
-    return { ...base, ok: true, outcome: "switched", step, epoch, counts, files: files.length, transcripts: transcripts.length, bytes };
+    return { ...base, ok: true, outcome: "switched", step, epoch, counts, files: files.length, transcripts: transcripts.length, bytes, ...(warning ? { warning } : {}) };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     // Before the commit was sent nothing left this computer for good: undo. During or after it, do not guess.
-    if (step === "commit" || step === "retire") return uncertain(error);
+    if (step === "commit" || step === "confirm" || step === "abandon" || step === "retire") return uncertain(error);
     return undo(error);
   }
 }

@@ -11,6 +11,7 @@ import { resolveDelegatedCredential, resolveIdentity } from "../lib/identity";
 import { isScreenAllowedRequest } from "../lib/screen-scope";
 import { isNodeAllowedRequest, markNodeDevice, shouldLearnNodeDevice } from "../lib/node-scope";
 import { isBillingWebhookPath } from "../routes/billing";
+import { isPrimaryConfirmPath } from "../routes/nodes-primary";
 import { evaluateAuth, isLoopbackAddress, isOriginGatedPath, resolveAllowedOrigins } from "../lib/auth-gate";
 import { isViaTunnel, isLocalTransport } from "../lib/tunnel";
 import type { Server } from "bun";
@@ -47,7 +48,8 @@ export function createAccessGate(scope: Pick<AfterHttp, "corsAllowOrigin" | "ctx
       // `isIdentityExemptPath` perché quella elenca i percorsi che servono a
       // OTTENERE un'identità: mescolarci un'autenticazione di altra natura
       // renderebbe più difficile accorgersi della prossima esenzione di troppo.
-      const identity = (isIdentityExemptPath(pathname, method) || isBillingWebhookPath(pathname))
+      // The primary switch confirmation authenticates itself the same way, with a one-time secret (`routes/nodes-primary.ts`).
+      const identity = (isIdentityExemptPath(pathname, method) || isBillingWebhookPath(pathname) || isPrimaryConfirmPath(pathname))
         ? undefined
         : (() => {
             const loopback = isLocalTransport(req, peerIp, isLoopbackAddress);

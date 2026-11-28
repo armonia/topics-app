@@ -9,7 +9,7 @@
  * `setPrimaryFence`: no lambda that only asks the role.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDatabase, initDatabase, isFencedWriteError } from "../db";
@@ -131,11 +131,14 @@ describe("primary switch fence: the live DB is read-only", () => {
 
   test("a set-aside server opens its service DB under another name: the live path stays empty", () => {
     closeDatabase();
-    rmSync(join(root, "data"), { recursive: true, force: true });
+    // A state folder with no DB yet, rather than deleting this one: Windows keeps the closed files locked a moment.
+    const fresh = join(root, "after-set-aside");
+    mkdirSync(fresh, { recursive: true });
+    process.env.DATA_DIR = join(fresh, "data");
     setPrimaryFence({ ...FENCE, phase: "set-aside" });
-    initDatabase(join(import.meta.dir, "..", ".."), root);
-    expect(existsSync(join(root, "data", "topics.db"))).toBe(false);
-    expect(existsSync(join(root, "data", "topics.retired.db"))).toBe(true);
+    initDatabase(join(import.meta.dir, "..", ".."), fresh);
+    expect(existsSync(join(fresh, "data", "topics.db"))).toBe(false);
+    expect(existsSync(join(fresh, "data", "topics.retired.db"))).toBe(true);
   });
 
   test("a scheduled run in flight at the drain is parked once and never starts again", () => {

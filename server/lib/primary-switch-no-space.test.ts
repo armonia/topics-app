@@ -74,6 +74,8 @@ describe("a commit refused with no_space", () => {
         const v = await commitIncoming(receiverState, manifest, { hostname: "new-host", epoch: 0, freeBytes: () => 0 });
         return v.ok ? { kind: "accepted", counts: v.counts } : { kind: "refused", code: v.code, error: v.error };
       },
+      // Never asked: the refusal comes at the commit.
+      confirm: async () => ({ kind: "waiting" }), abandon: async () => false,
       restartSelf: () => { restarts++; },
       sleep: async () => {}, pollMs: 0, log: () => {},
     });

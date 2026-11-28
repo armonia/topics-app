@@ -17,16 +17,35 @@
 import { hostname } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
 import { getPrimaryRole, guardNodesCall } from "../lib/primary-role";
-import { commitIncoming, discardIncoming, isSafeBundleName, writeIncomingChunk, type SwitchManifest } from "../lib/primary-switch";
+import {
+  clearRestoreStatus, commitIncoming, confirmsRestore, discardIncoming, isSafeBundleName, readRestoreStatus, writeIncomingChunk,
+  type ReceiveChecks, type SwitchManifest,
+} from "../lib/primary-switch";
 
 export const NODE_PRIMARY_INCOMING_PATH = "/api/nodes/primary/incoming";
 export const NODE_PRIMARY_COMMIT_PATH = "/api/nodes/primary/commit";
+/**
+ * GET: where the restore of the last commit stands. POST: drop a restore that
+ * failed, so the sender can stay the primary. Both answer only to the one-time
+ * secret of that commit (`PRIMARY_CONFIRM_HEADER`), never to a device: after
+ * the restore this server runs on the sender's DB, where the sender's node
+ * credential does not exist. Without the right secret the path does not exist (404).
+ */
+export const NODE_PRIMARY_CONFIRM_PATH = "/api/nodes/primary/confirm";
+export const PRIMARY_CONFIRM_HEADER = "x-topics-switch-confirm";
+
+/** The one path of the node surface that authenticates itself, like the billing webhook: the access gate lets it through. */
+export function isPrimaryConfirmPath(pathname: string): boolean {
+  return pathname === NODE_PRIMARY_CONFIRM_PATH;
+}
 
 export interface NodePrimaryDeps {
   stateDir: string;
   hostname?: () => string;
   /** Restarts this server once the commit answer is on its way. */
   restart: () => void;
+  /** This computer's folders and replica, checked before a commit is given. */
+  receive: ReceiveChecks;
 }
 
 type RequestIdentity = ReturnType<NonNullable<AppContext["requestIdentity"]>>;
@@ -45,7 +64,26 @@ export function createNodePrimaryRouter(ctx: AppContext, deps: NodePrimaryDeps):
   const { json, readJSON } = ctx;
   const host = deps.hostname ?? hostname;
 
+  function answerConfirm(req: Request, method: string): Response {
+    const status = readRestoreStatus(deps.receive.appDataDir);
+    const secret = req.headers.get(PRIMARY_CONFIRM_HEADER) ?? "";
+    if (!status || !secret || !confirmsRestore(status, secret)) return json({ error: "not found" }, 404);
+    if (method === "GET") {
+      const role = getPrimaryRole();
+      const primary = status.state === "restored" && (role ? role.isPrimary() && role.epoch() === status.epoch : true);
+      return json({ state: status.state, epoch: status.epoch, primary, ...(status.error ? { error: status.error } : {}), ...(status.warning ? { warning: status.warning } : {}) });
+    }
+    if (method !== "POST") return json({ error: "method not allowed" }, 405);
+    // Only a restore that failed is dropped: one still pending may yet succeed at the next boot.
+    if (status.state !== "failed") return json({ error: `the restore is ${status.state}`, code: "not_failed" }, 409);
+    discardIncoming(deps.stateDir);
+    clearRestoreStatus(deps.receive.appDataDir);
+    console.warn(`[primary] the sender dropped the failed restore of epoch ${status.epoch}: it stays the primary`);
+    return json({ ok: true });
+  }
+
   return async function nodePrimaryRouter(req, url, pathname, method) {
+    if (isPrimaryConfirmPath(pathname)) return answerConfirm(req, method);
     if (pathname !== NODE_PRIMARY_INCOMING_PATH && pathname !== NODE_PRIMARY_COMMIT_PATH) return null;
     const identity = ctx.requestIdentity?.(req) ?? null;
     const denied = authorizePrimaryReceive(identity);
@@ -71,7 +109,7 @@ export function createNodePrimaryRouter(ctx: AppContext, deps: NodePrimaryDeps):
 
     if (method !== "POST") return json({ error: "method not allowed" }, 405);
     const manifest = await readJSON(req) as SwitchManifest;
-    const verdict = await commitIncoming(deps.stateDir, manifest, { hostname: host(), epoch: getPrimaryRole()?.epoch() ?? 0 });
+    const verdict = await commitIncoming(deps.stateDir, manifest, { hostname: host(), epoch: getPrimaryRole()?.epoch() ?? 0, receive: deps.receive });
     if (!verdict.ok) {
       // A refused bundle is never committed later: its secrets leave the disk now.
       discardIncoming(deps.stateDir);

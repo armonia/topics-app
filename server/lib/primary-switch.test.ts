@@ -11,6 +11,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, st
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrimaryRole, isThisServerPrimary } from "./primary-role";
+import { localReceiver } from "./primary-switch-test-support";
 import { bootPrimaryChange, gatedRefusal, holdRetiredRole, reclaimPrimary, retiredRefusal, setPrimaryFence } from "./primary-fence";
 import {
   applyPendingPrimaryChange, commitIncoming, countRows, DB_NAME, INCOMING_DIR, isRefusedWhenRetired,
@@ -137,10 +138,9 @@ function harness(overrides: Partial<PrimarySwitchDeps> = {}) {
     // The real fence, so every check below asks what the front door would ask.
     setFence: (s) => { fence = s; setPrimaryFence(s); },
     upload: async (name, offset, bytes) => { writeIncomingChunk(receiver.stateDir, name, offset, bytes); },
-    commit: async (manifest) => {
-      const v = await commitIncoming(receiver.stateDir, manifest, { hostname: "new-host", epoch: 0 });
-      return v.ok ? { kind: "accepted", counts: v.counts } : { kind: "refused", code: v.code, error: v.error };
-    },
+    ...localReceiver(receiver, { hostname: "new-host" }),
+    // The fake sleep makes the wait a spin: a receiver that never restores gives up at the first look.
+    confirmTimeoutMs: 0,
     restartSelf: () => { restarts++; },
     sleep: async () => {},
     pollMs: 0,
@@ -166,7 +166,7 @@ describe("primary switch", () => {
   test("moves the DB, the state and the transcripts; counts equal, the drain write is there", async () => {
     const h = harness();
     const report = await runPrimarySwitch(h.deps);
-    expect(report.outcome).toBe("switched");
+    expect(report.outcome, report.error).toBe("switched");
     expect(report.epoch).toBe(2);
     expect(h.restarts()).toBe(1);
 

@@ -5,16 +5,21 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initPrimaryRole } from "../lib/primary-role";
-import { countRows, INCOMING_DIR, sha256File, snapshotDatabase, type SwitchManifest } from "../lib/primary-switch";
-import { createNodePrimaryRouter, NODE_PRIMARY_COMMIT_PATH, NODE_PRIMARY_INCOMING_PATH } from "./nodes-primary";
+import { countRows, INCOMING_DIR, RESTORE_STATUS_FILE, sha256File, snapshotDatabase, type SwitchManifest } from "../lib/primary-switch";
+import {
+  createNodePrimaryRouter, isPrimaryConfirmPath, NODE_PRIMARY_COMMIT_PATH, NODE_PRIMARY_CONFIRM_PATH, NODE_PRIMARY_INCOMING_PATH, PRIMARY_CONFIRM_HEADER,
+} from "./nodes-primary";
 import type { AppContext } from "../types";
 
 const migration = readFileSync(join(import.meta.dir, "../db/migrations/20261118110000-primary-state.sql"), "utf-8");
 const roots: string[] = [];
+/** The one-time secret of a commit, as the sender holds it. */
+const SECRET = "a".repeat(64);
 const open: Database[] = [];
 
 afterEach(() => {
@@ -40,10 +45,11 @@ function setup(deviceId: string | null) {
     json: (body: unknown, status = 200) => new Response(JSON.stringify(body), { status }),
     readJSON: (req: Request) => req.json(),
   } as unknown as AppContext;
-  const router = createNodePrimaryRouter(ctx, { stateDir: join(root, "state"), hostname: () => "node-host", restart: () => { restarts++; } });
-  const call = (path: string, method: string, body?: BodyInit) => {
+  const receive = { secretsDir: join(root, "state", ".topics-secrets"), appDataDir: join(root, "app-data"), dbPath: join(root, "state", "data", "topics.db"), projectsDir: join(root, "projects"), replica: {} };
+  const router = createNodePrimaryRouter(ctx, { stateDir: join(root, "state"), hostname: () => "node-host", restart: () => { restarts++; }, receive });
+  const call = (path: string, method: string, body?: BodyInit, headers?: Record<string, string>) => {
     const url = new URL(`http://node${path}`);
-    return router(new Request(url, { method, body }), url, url.pathname, method) as Promise<Response>;
+    return router(new Request(url, { method, body, headers }), url, url.pathname, method) as Promise<Response>;
   };
   return { root, db, call, restarts: () => restarts };
 }
@@ -87,11 +93,56 @@ describe("nodes-primary routes", () => {
     const manifest: SwitchManifest = {
       version: 1, epoch: 1, toMachineId: "m-node", toHostname: "node-host", fromMachineId: "m-primary",
       createdAt: "now", counts, files: [{ name: "topics.db", size: bytes.byteLength, sha256: await sha256File(copy) }],
+      confirmSha256: createHash("sha256").update(SECRET).digest("hex"),
     };
     const res = await s.call(NODE_PRIMARY_COMMIT_PATH, "POST", JSON.stringify(manifest));
     expect(res.status).toBe(200);
     expect(((await res.json()) as { counts: unknown }).counts).toEqual(countRows(s.db));
     expect(s.restarts()).toBe(1);
+  });
+
+  test("a commit with no confirmation hash is refused: its sender could never learn how the restore went", async () => {
+    const s = setup("dev-primary");
+    const copy = join(s.root, "copy.db");
+    const counts = snapshotDatabase(s.db, copy);
+    expect((await s.call(put("topics.db", 0), "PUT", readFileSync(copy))).status).toBe(200);
+    const manifest: SwitchManifest = {
+      version: 1, epoch: 1, toMachineId: "m-node", toHostname: "node-host", fromMachineId: "m-primary",
+      createdAt: "now", counts, files: [{ name: "topics.db", size: readFileSync(copy).byteLength, sha256: await sha256File(copy) }],
+    };
+    const res = await s.call(NODE_PRIMARY_COMMIT_PATH, "POST", JSON.stringify(manifest));
+    expect(res.status).toBe(409);
+    expect(s.restarts()).toBe(0);
+  });
+
+  test("the confirmation answers the commit's secret only, with no device, and drops only a failed restore", async () => {
+    const s = setup(null);
+    const status = (state: string) => writeFileSync(join(s.root, "app-data", RESTORE_STATUS_FILE), JSON.stringify({
+      epoch: 1, confirmSha256: createHash("sha256").update(SECRET).digest("hex"), state, error: "EACCES", at: "now",
+    }));
+    mkdirSync(join(s.root, "app-data"), { recursive: true });
+    status("committed");
+    const ask = (method: string, secret?: string) => s.call(NODE_PRIMARY_CONFIRM_PATH, method, undefined, secret ? { [PRIMARY_CONFIRM_HEADER]: secret } : {});
+    // Without the secret, or with another one, the path does not exist.
+    expect((await ask("GET")).status).toBe(404);
+    expect((await ask("GET", "f".repeat(64))).status).toBe(404);
+    expect(await (await ask("GET", SECRET)).json()).toMatchObject({ state: "committed", primary: false });
+    // A restore still pending may yet succeed: it is not dropped.
+    expect((await ask("POST", SECRET)).status).toBe(409);
+
+    status("failed");
+    mkdirSync(join(s.root, "state", INCOMING_DIR), { recursive: true });
+    expect(await (await ask("GET", SECRET)).json()).toMatchObject({ state: "failed", error: "EACCES" });
+    expect((await ask("POST", "f".repeat(64))).status).toBe(404);
+    expect((await ask("POST", SECRET)).status).toBe(200);
+    expect(existsSync(join(s.root, "state", INCOMING_DIR)), "the staged copy is gone: no later boot restores it").toBe(false);
+    expect((await ask("GET", SECRET)).status, "and the secret is spent").toBe(404);
+  });
+
+  test("the access gate lets the confirmation through without a device, and nothing else of the node surface", () => {
+    expect(isPrimaryConfirmPath(NODE_PRIMARY_CONFIRM_PATH)).toBe(true);
+    expect(isPrimaryConfirmPath(NODE_PRIMARY_COMMIT_PATH)).toBe(false);
+    expect(isPrimaryConfirmPath(NODE_PRIMARY_INCOMING_PATH)).toBe(false);
   });
 
   test("a commit for another host is refused and does not restart", async () => {

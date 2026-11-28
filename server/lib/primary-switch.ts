@@ -18,12 +18,12 @@
  */
 import { Database } from "bun:sqlite";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
   chmodSync, closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync,
-  readSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeSync,
+  readSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeFileSync, writeSync,
 } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import { writeFileAtomic } from "./atomic-write";
 import { LIVE_DB_NAME, RETIRED_DB_NAME } from "./data-dir";
 import {
@@ -44,6 +44,8 @@ export const MANIFEST_FILE = "manifest.json";
 /** Next to `primary-state.json`: present on a server that handed the primary over. */
 export const RETIRED_FILE = "primary-retired.json";
 export const PRIMARY_STATE_FILE = "primary-state.json";
+/** The receiver's answer to "did the restore of epoch N succeed?", read by the sender before it retires. */
+export const RESTORE_STATUS_FILE = "primary-restore.json";
 export const MOVED_CODE = "primary_moved";
 export const DB_NAME = LIVE_DB_NAME;
 
@@ -85,6 +87,12 @@ export interface SwitchManifest {
   createdAt: string;
   counts: RowCounts;
   files: ManifestFile[];
+  /**
+   * SHA-256 of a one-time secret only the sender holds. After the restore the
+   * receiver runs on the sender's DB, where the sender's node credential does
+   * not exist: the secret is how the sender asks "are you the primary now?".
+   */
+  confirmSha256?: string;
 }
 
 /**
@@ -375,7 +383,14 @@ export type CommitVerdict = { ok: true; counts: RowCounts } | { ok: false; code:
 export async function commitIncoming(
   stateDir: string,
   manifest: SwitchManifest,
-  local: { hostname: string; epoch: number; /** Free bytes on the volume of `dir`; the real `statfs` unless a test says otherwise. */ freeBytes?: (dir: string) => number },
+  local: {
+    hostname: string;
+    epoch: number;
+    /** Free bytes on the volume of `dir`; the real `statfs` unless a test says otherwise. */
+    freeBytes?: (dir: string) => number;
+    /** The checks of this computer's own folders and replica; the receiving route always passes them. */
+    receive?: ReceiveChecks;
+  },
 ): Promise<CommitVerdict> {
   if (manifest?.version !== 1 || !Array.isArray(manifest.files)) return { ok: false, code: "invalid_manifest", error: "unreadable manifest" };
   if (manifest.toHostname !== local.hostname) {
@@ -398,6 +413,10 @@ export async function commitIncoming(
     free = Number.POSITIVE_INFINITY;
   }
   if (free < needed) return { ok: false, code: "no_space", error: `the restore needs ${needed} free bytes, this computer has ${free}` };
+  if (local.receive) {
+    const refused = receiverRefusal(stateDir, manifest, local.receive, local.freeBytes ?? freeBytesOf);
+    if (refused) return { ok: false, ...refused };
+  }
   for (const f of manifest.files) {
     const path = stagedPath(stateDir, f.name);
     if (!existsSync(path) || statSync(path).size !== f.size) return { ok: false, code: "incomplete", error: `${f.name} is missing or short` };
@@ -413,6 +432,10 @@ export async function commitIncoming(
     return { ok: false, code: "count_mismatch", error: `counts ${JSON.stringify(counts)} differ from the declared ${JSON.stringify(manifest.counts)}` };
   }
   writeFileAtomic(join(stateDir, INCOMING_DIR, MANIFEST_FILE), JSON.stringify(manifest));
+  if (local.receive) {
+    const now = local.receive.now ?? (() => new Date().toISOString());
+    writeRestoreStatus(local.receive.appDataDir, { epoch: manifest.epoch, confirmSha256: manifest.confirmSha256!, state: "committed" }, now);
+  }
   return { ok: true, counts };
 }
 
@@ -437,6 +460,134 @@ export function readRetired(appDataDir: string): RetiredState | null {
 export function writeRetired(appDataDir: string, state: RetiredState): void {
   mkdirSync(appDataDir, { recursive: true });
   writeFileAtomic(join(appDataDir, RETIRED_FILE), JSON.stringify(state));
+}
+
+/**
+ * Where the receiver stands after a commit, for the sender that waits on it:
+ * `committed` until the boot ran the restore, then `restored` (with a warning
+ * when the replica did not start again) or `failed` with the reason.
+ */
+export interface RestoreStatus {
+  epoch: number;
+  confirmSha256: string;
+  state: "committed" | "restored" | "failed";
+  error?: string;
+  warning?: string;
+  at: string;
+}
+
+export function readRestoreStatus(appDataDir: string): RestoreStatus | null {
+  try {
+    const raw = JSON.parse(readFileSync(join(appDataDir, RESTORE_STATUS_FILE), "utf-8")) as Partial<RestoreStatus>;
+    if (!Number.isInteger(raw.epoch) || typeof raw.confirmSha256 !== "string") return null;
+    if (raw.state !== "committed" && raw.state !== "restored" && raw.state !== "failed") return null;
+    return raw as RestoreStatus;
+  } catch {
+    return null;
+  }
+}
+
+function writeRestoreStatus(appDataDir: string, status: Omit<RestoreStatus, "at">, now: () => string): void {
+  mkdirSync(appDataDir, { recursive: true });
+  writeFileAtomic(join(appDataDir, RESTORE_STATUS_FILE), JSON.stringify({ ...status, at: now() }));
+}
+
+export function clearRestoreStatus(appDataDir: string): void {
+  rmSync(join(appDataDir, RESTORE_STATUS_FILE), { force: true });
+}
+
+/** True when `secret` is the one whose hash the status carries; constant time. */
+export function confirmsRestore(status: Pick<RestoreStatus, "confirmSha256">, secret: string): boolean {
+  const a = Buffer.from(createHash("sha256").update(secret).digest("hex"));
+  const b = Buffer.from(status.confirmSha256);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** Process ids holding `path` open, by `lsof`. None where `lsof` is missing: then only the Litestream folder is looked for. */
+function lsofHolders(path: string): number[] {
+  if (process.platform === "win32" || !existsSync(path)) return [];
+  const r = spawnSync("lsof", ["-t", "--", path], { encoding: "utf-8", timeout: 10_000 });
+  if (r.error || typeof r.stdout !== "string") return [];
+  return r.stdout.split(/\s+/).filter(Boolean).map(Number).filter((pid) => Number.isInteger(pid));
+}
+
+/**
+ * Why the live DB looks replicated (a Litestream folder next to it, another
+ * process holding it open), or null. Replacing the file under such a process
+ * corrupts what it publishes, so the swap needs the replica stop and start commands.
+ */
+export function replicaWatching(dbPath: string, holdersOf: (path: string) => number[] = lsofHolders): string | null {
+  const sidecar = join(dirname(dbPath), `.${basename(dbPath)}-litestream`);
+  if (existsSync(sidecar)) return `a Litestream folder (${basename(sidecar)}) sits next to the DB`;
+  const pids = holdersOf(dbPath).filter((pid) => pid !== process.pid);
+  return pids.length > 0 ? `process ${pids.join(", ")} holds the DB open` : null;
+}
+
+/** Writes and removes a probe file in `dir`: the error message when this server cannot write there, else null. */
+function unwritable(dir: string): string | null {
+  const probe = join(dir, `.topics-write-probe-${process.pid}`);
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(probe, "");
+    rmSync(probe, { force: true });
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
+/** The folders of this computer a restore writes into, and its replica: what the receiver checks before it agrees. */
+export interface ReceiveChecks {
+  secretsDir: string;
+  appDataDir: string;
+  dbPath: string;
+  projectsDir: string;
+  replica: ReplicaCommands;
+  /** Process ids holding a file open; `lsof` unless a test says otherwise. */
+  holdersOf?: (path: string) => number[];
+  now?: () => string;
+}
+
+type RestoreRoots = Record<Exclude<BundleTarget["kind"], "db">, string>;
+
+/** The folder each kind of bundle file is restored into. */
+function restoreRoots(dirs: { stateDir: string; secretsDir: string; appDataDir: string; dbPath: string; projectsDir: string }): RestoreRoots {
+  const instance = { stateDir: dirs.stateDir, secretsDir: dirs.secretsDir, appDataDir: dirs.appDataDir, dataDir: dirname(dirs.dbPath) };
+  return Object.fromEntries(
+    [...INSTANCE_ENTRIES.map((e): [string, string] => [e.kind, instanceBaseDir(e, instance)]), ["transcripts", dirs.projectsDir]],
+  ) as RestoreRoots;
+}
+
+/**
+ * What the receiver checks on its own disk before it agrees, so a commit it
+ * gives is one its boot can carry out: a replica it can stop, folders it can
+ * write, room on every volume it writes to. A refusal here changes nothing and
+ * the sender stays the primary.
+ */
+function receiverRefusal(
+  stateDir: string, manifest: SwitchManifest, r: ReceiveChecks, freeBytes: (dir: string) => number,
+): { code: string; error: string } | null {
+  if (!/^[0-9a-f]{64}$/.test(manifest.confirmSha256 ?? "")) return { code: "invalid_manifest", error: "the manifest carries no confirmation hash" };
+  const watched = replicaWatching(r.dbPath, r.holdersOf);
+  if (watched && (!r.replica.stop || !r.replica.start)) {
+    return { code: "replica_unmanaged", error: `${watched}, and ${REPLICA_STOP_ENV} and ${REPLICA_START_ENV} are not both set: replacing the DB under it would corrupt the replica` };
+  }
+  const roots = restoreRoots({ stateDir, ...r });
+  const bytesByDir = new Map<string, number>([[dirname(r.dbPath), 0], [r.appDataDir, 0]]);
+  for (const f of manifest.files) {
+    const target = bundleTarget(f.name);
+    if (!target || target.kind === "db") continue;
+    const dir = roots[target.kind];
+    bytesByDir.set(dir, (bytesByDir.get(dir) ?? 0) + f.size);
+  }
+  for (const [dir, bytes] of bytesByDir) {
+    const why = unwritable(dir);
+    if (why) return { code: "not_writable", error: `the restore writes into ${dir}, which this server cannot write: ${why}` };
+    let free: number;
+    try { free = freeBytes(dir); } catch { free = Number.POSITIVE_INFINITY; }
+    if (free < bytes + SPACE_MARGIN_BYTES) return { code: "no_space", error: `the restore writes ${bytes} bytes into ${dir}, whose volume has ${free} free` };
+  }
+  return null;
 }
 
 /**
@@ -570,6 +721,8 @@ export interface PendingChangeInputs {
   projectsDir: string;
   /** Shell command lines that stop and start the replica of the live DB around its replacement. Empty or absent: no replica is managed. */
   replica?: ReplicaCommands;
+  /** Process ids holding a file open; `lsof` unless a test says otherwise. */
+  holdersOf?: (path: string) => number[];
   now?: () => string;
   log?: (line: string) => void;
 }
@@ -586,60 +739,59 @@ export function replicaCommandsFromEnv(env: NodeJS.ProcessEnv = process.env): Re
 
 /**
  * Runs one configured replica command through the shell (no arguments of ours,
- * so nothing secret is on a command line) and logs how it ended. It never
- * throws and never stops the switch: the commit is already given, and a replica
- * that did not stop is a thing to read in the log, not a reason to leave the
- * new primary without its DB.
+ * so nothing secret is on a command line), logs how it ended and returns why it
+ * failed, or null. A command that runs past the timeout counts as failed.
  */
-function runReplicaCommand(what: "stop" | "start", command: string | undefined, log: (line: string) => void): void {
-  if (!command) return;
+function runReplicaCommand(what: "stop" | "start", command: string, log: (line: string) => void): string | null {
   const shell = process.platform === "win32" ? ["cmd", "/c", command] : ["sh", "-c", command];
+  let failure: string | null;
   try {
     // stdio ignored: a replica started in the background must not keep a pipe of ours open.
-    const r = spawnSync(shell[0]!, shell.slice(1), { stdio: "ignore", timeout: 60_000 });
-    log(`[primary] replica ${what} command ${r.status === 0 ? "ok" : `failed (${r.error?.message ?? `exit ${r.status}, signal ${r.signal}`})`}`);
+    const r = spawnSync(shell[0]!, shell.slice(1), { stdio: "ignore", timeout: REPLICA_COMMAND_TIMEOUT_MS, killSignal: "SIGKILL" });
+    failure = r.status === 0 && !r.error ? null : (r.error?.message ?? `exit ${r.status}, signal ${r.signal}`);
   } catch (err) {
-    log(`[primary] replica ${what} command failed: ${err instanceof Error ? err.message : String(err)}`);
+    failure = err instanceof Error ? err.message : String(err);
   }
+  log(`[primary] replica ${what} command ${failure ? `failed (${failure})` : "ok"}`);
+  return failure;
 }
 
-/**
- * Runs at boot, BEFORE the DB is opened. Two cases, and only one can be pending:
- *
- *  - "restored": a committed bundle waits in `primary-incoming/`. The DB this
- *    server had goes aside, the shipped one takes its place, the state files
- *    and transcripts land where they belong, and `primary-state.json` names
- *    this computer at the new epoch (the file wins over the DB at boot).
- *  - "set-aside": this server handed the primary over. Its DB and the state
- *    entries that moved are renamed aside, so it starts on a service DB under
- *    another name as a secondary and never writes into the data it gave away.
- *    No file exists at the old DB path from then on: Litestream or any other
- *    replica of that path has nothing new to publish, and a restore "from the
- *    latest" still returns the data that was handed over.
- */
-export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restored" | "set-aside" | null {
-  const now = inputs.now ?? (() => new Date().toISOString());
-  const log = inputs.log ?? ((line: string) => console.warn(line));
-  const incoming = join(inputs.stateDir, INCOMING_DIR);
-  const manifestPath = join(incoming, MANIFEST_FILE);
+const REPLICA_COMMAND_TIMEOUT_MS = 60_000;
 
-  if (existsSync(manifestPath)) {
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as SwitchManifest;
-    const epoch = manifest.epoch;
-    // The commit checked the names; they are asked again here, where files are written, before anything moves.
-    const refused = manifest.files.find((f) => !bundleTarget(f.name));
-    if (refused) throw new Error(`refused bundle name in the manifest: ${refused.name}`);
-    mkdirSync(dirname(inputs.dbPath), { recursive: true });
-    let transcripts = 0;
-    let attachments = 0;
-    const dataDir = dirname(inputs.dbPath);
-    const dirs = { stateDir: inputs.stateDir, secretsDir: inputs.secretsDir, appDataDir: inputs.appDataDir, dataDir };
-    const roots = Object.fromEntries(
-      [...INSTANCE_ENTRIES.map((e): [string, string] => [e.kind, instanceBaseDir(e, dirs)]), ["transcripts", inputs.projectsDir]],
-    ) as Record<Exclude<BundleTarget["kind"], "db">, string>;
+/**
+ * The restore of one committed bundle. The replica of the live DB is stopped
+ * FIRST, before anything moves: a stop that fails or hangs throws with this
+ * computer untouched, because a DB replaced under a running Litestream is a
+ * corrupt replica. A replica found without the commands to stop it is the same
+ * refusal (the commit refuses it too; this is the boot asking again). The start
+ * runs whatever happens after the stop; when it fails the restore still stands
+ * and the reason comes back as the warning the sender reports.
+ */
+function restoreBundle(inputs: PendingChangeInputs, manifest: SwitchManifest, log: (line: string) => void, now: () => string): string | undefined {
+  const incoming = join(inputs.stateDir, INCOMING_DIR);
+  const epoch = manifest.epoch;
+  // The commit checked the names; they are asked again here, where files are written, before anything moves.
+  const refused = manifest.files.find((f) => !bundleTarget(f.name));
+  if (refused) throw new Error(`refused bundle name in the manifest: ${refused.name}`);
+  mkdirSync(dirname(inputs.dbPath), { recursive: true });
+  const stagedDb = stagedPath(inputs.stateDir, DB_NAME);
+  const swapping = existsSync(stagedDb);
+  const { stop, start } = inputs.replica ?? {};
+  if (swapping) {
+    const watched = replicaWatching(inputs.dbPath, inputs.holdersOf);
+    if (watched && (!stop || !start)) throw new Error(`${watched} and the replica commands are not both set: the DB is not replaced under it`);
+    const failed = stop ? runReplicaCommand("stop", stop, log) : null;
+    if (failed) throw new Error(`the replica did not stop (${failed}): the DB is not replaced under it`);
+  }
+  let warning: string | undefined;
+  let transcripts = 0;
+  let attachments = 0;
+  const roots = restoreRoots(inputs);
+  const aside = `${inputs.dbPath}.prima-${epoch}`;
+  try {
     // The files go BEFORE the DB and the role file. A copy that fails (no permission, no space) throws
     // here with the DB still the receiver's own and no `primary-state.json` written: the manifest stays
-    // staged, every boot tries again, and the receiver never runs as a primary without its files.
+    // staged and the receiver never runs as a primary without its files.
     // A boot that crashed half way runs this again: files already in place are the same bytes and stay.
     for (const f of manifest.files) {
       const target = bundleTarget(f.name)!;
@@ -658,29 +810,63 @@ export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restore
         kind: target.kind, epoch, shippedMtimeMs: f.mtimeMs ?? statSync(from).mtimeMs, tightenFolders: target.kind === "state",
       });
     }
-    const stagedDb = stagedPath(inputs.stateDir, DB_NAME);
-    const aside = `${inputs.dbPath}.prima-${epoch}`;
-    if (existsSync(stagedDb)) {
-      // A replica (Litestream) holds the old DB file open and a swap under it corrupts what it publishes:
-      // it is stopped before the file is replaced and started after, whatever happens in between.
-      runReplicaCommand("stop", inputs.replica?.stop, log);
-      try {
-        setDatabaseAside(inputs.dbPath, epoch);
-        // The service DB of an earlier hand-over goes with it: this server is the primary again.
-        setDatabaseAside(join(dirname(inputs.dbPath), RETIRED_DB_NAME), epoch);
-        renameSync(stagedDb, inputs.dbPath);
-      } finally {
-        runReplicaCommand("start", inputs.replica?.start, log);
-      }
+    if (swapping) {
+      setDatabaseAside(inputs.dbPath, epoch);
+      // The service DB of an earlier hand-over goes with it: this server is the primary again.
+      setDatabaseAside(join(dirname(inputs.dbPath), RETIRED_DB_NAME), epoch);
+      renameSync(stagedDb, inputs.dbPath);
     }
-    chmodSync(inputs.dbPath, SECRET_FILE_MODE);
-    writeFileAtomic(join(inputs.appDataDir, PRIMARY_STATE_FILE), JSON.stringify({
-      primaryMachineId: manifest.toMachineId, epoch, since: now(),
-    }));
-    rmSync(join(inputs.appDataDir, RETIRED_FILE), { force: true });
-    rmSync(incoming, { recursive: true, force: true });
-    log(`[primary] restored the primary from ${manifest.fromMachineId} at epoch ${epoch}: ${JSON.stringify(manifest.counts)}, ${transcripts} transcript files, ${attachments} attachment and view files; the previous DB is ${aside}`);
-    return "restored";
+  } finally {
+    if (swapping && start) {
+      const failed = runReplicaCommand("start", start, log);
+      if (failed) warning = `the replica of the DB did not start again (${failed}): this primary runs without it until it is started by hand`;
+    }
+  }
+  chmodSync(inputs.dbPath, SECRET_FILE_MODE);
+  writeFileAtomic(join(inputs.appDataDir, PRIMARY_STATE_FILE), JSON.stringify({
+    primaryMachineId: manifest.toMachineId, epoch, since: now(),
+  }));
+  rmSync(join(inputs.appDataDir, RETIRED_FILE), { force: true });
+  rmSync(incoming, { recursive: true, force: true });
+  log(`[primary] restored the primary from ${manifest.fromMachineId} at epoch ${epoch}: ${JSON.stringify(manifest.counts)}, ${transcripts} transcript files, ${attachments} attachment and view files; the previous DB is ${aside}`);
+  if (warning) log(`[primary] ${warning}`);
+  return warning;
+}
+
+/**
+ * Runs at boot, BEFORE the DB is opened. Two cases, and only one can be pending:
+ *
+ *  - "restored": a committed bundle waits in `primary-incoming/`. The DB this
+ *    server had goes aside, the shipped one takes its place, the state files
+ *    and transcripts land where they belong, and `primary-state.json` names
+ *    this computer at the new epoch (the file wins over the DB at boot). The
+ *    outcome, restored or failed, is written for the sender that waits on it
+ *    (`RESTORE_STATUS_FILE`).
+ *  - "set-aside": this server handed the primary over. Its DB and the state
+ *    entries that moved are renamed aside, so it starts on a service DB under
+ *    another name as a secondary and never writes into the data it gave away.
+ *    No file exists at the old DB path from then on: Litestream or any other
+ *    replica of that path has nothing new to publish, and a restore "from the
+ *    latest" still returns the data that was handed over.
+ */
+export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restored" | "set-aside" | null {
+  const now = inputs.now ?? (() => new Date().toISOString());
+  const log = inputs.log ?? ((line: string) => console.warn(line));
+  const incoming = join(inputs.stateDir, INCOMING_DIR);
+  const manifestPath = join(incoming, MANIFEST_FILE);
+
+  if (existsSync(manifestPath)) {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as SwitchManifest;
+    // A manifest of a sender that waits on the outcome: it learns it from this file, never from a guess.
+    const status = manifest.confirmSha256 ? { epoch: manifest.epoch, confirmSha256: manifest.confirmSha256 } : null;
+    try {
+      const warning = restoreBundle(inputs, manifest, log, now);
+      if (status) writeRestoreStatus(inputs.appDataDir, { ...status, state: "restored", ...(warning ? { warning } : {}) }, now);
+      return "restored";
+    } catch (err) {
+      if (status) writeRestoreStatus(inputs.appDataDir, { ...status, state: "failed", error: err instanceof Error ? err.message : String(err) }, now);
+      throw err;
+    }
   }
 
   // Staged files no manifest completed: an upload that failed or was abandoned.

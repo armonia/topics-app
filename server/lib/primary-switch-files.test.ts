@@ -15,8 +15,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrimaryRole } from "./primary-role";
+import { localReceiver } from "./primary-switch-test-support";
 import {
-  applyPendingPrimaryChange, collectAttachmentFiles, commitIncoming, DB_NAME, isSafeBundleName, writeIncomingChunk,
+  applyPendingPrimaryChange, collectAttachmentFiles, DB_NAME, isSafeBundleName, writeIncomingChunk,
 } from "./primary-switch";
 import { findCliTranscript } from "./subagent-migration";
 import { runPrimarySwitch } from "../services/primary-switch-run";
@@ -65,19 +66,17 @@ async function move(from: Computer, to: Computer): Promise<number> {
   db.query("INSERT INTO claude_code_sessions VALUES ('topic:topic-1', ?)").run(SESSION);
   const role = createPrimaryRole({ db, stateFile: join(from.appDataDir, "primary-state.json"), localMachineId: () => "m-old", log: () => {} });
   role.adopt({ primaryMachineId: "m-old", epoch: 1 });
+  let booted: unknown = null;
   const report = await runPrimarySwitch({
     db, stateDir: from.stateDir, secretsDir: from.secretsDir, appDataDir: from.appDataDir, projectsDir: from.projectsDir,
     dataDir: from.dataDir, role, localMachineId: "m-old", target: { id: "m-new", hostname: "new-host", name: "server" },
     drain: () => {}, undrain: () => {}, stillWorking: () => [], park: async () => {}, setFence: () => {},
     upload: async (name, offset, bytes) => { writeIncomingChunk(to.stateDir, name, offset, bytes); },
-    commit: async (manifest) => {
-      const v = await commitIncoming(to.stateDir, manifest, { hostname: "new-host", epoch: 0 });
-      return v.ok ? { kind: "accepted", counts: v.counts } : { kind: "refused", code: v.code, error: v.error };
-    },
+    ...localReceiver(to, { hostname: "new-host", onBoot: (outcome) => { booted = outcome; } }),
     restartSelf: () => {}, sleep: async () => {}, pollMs: 0, chunkBytes: 4096, log: () => {},
   });
   expect(report.outcome).toBe("switched");
-  expect(applyPendingPrimaryChange({ ...to, log: () => {} })).toBe("restored");
+  expect(booted).toBe("restored");
   return report.epoch!;
 }
 

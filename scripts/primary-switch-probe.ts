@@ -48,6 +48,7 @@ import { createAccessGate } from "../server/routes/access-gate";
 import { RETIRED_DB_NAME } from "../server/lib/data-dir";
 import { createPrimaryRole } from "../server/lib/primary-role";
 import { bootPrimaryChange, gatedRefusal, setPrimaryFence } from "../server/lib/primary-fence";
+import { localReceiver } from "../server/lib/primary-switch-test-support";
 import {
   applyPendingPrimaryChange, collectTranscripts, commitIncoming, countRows, DB_NAME, MOVED_CODE,
   snapshotDatabase, writeIncomingChunk,
@@ -177,6 +178,20 @@ try {
   const transcripts = collectTranscripts(db, projectsDir);
   let busy = true;
   let drainRow = "";
+  // The origin copy of the session goes BEFORE the receiver restores: only what the switch shipped can answer.
+  let originBytes: Buffer | null = null;
+  const resume: { mode: "cli" | "reader"; model?: string; answer: string; withoutCopyRefused?: boolean } = { mode: useCli ? "cli" : "reader", answer: "" };
+  const dropOriginCopy = async () => {
+    const origin = findCliTranscript(sessionId, projectsDir);
+    originBytes = origin ? readFileSync(origin) : null;
+    if (cliFolder) rmSync(cliFolder, { recursive: true, force: true });
+    checks.originGone = findCliTranscript(sessionId, projectsDir) === null;
+    if (useCli) {
+      const without = await claude(projectCwd, ["--resume", sessionId, "What was the secret word?"]);
+      resume.withoutCopyRefused = without.exitCode !== 0 && !without.result.includes(word);
+      checks.resumeNeedsTheShippedCopy = resume.withoutCopyRefused;
+    }
+  };
   const report = await runPrimarySwitch({
     db, stateDir: old.stateDir, secretsDir: old.secretsDir, appDataDir: old.appDataDir, projectsDir, role, localMachineId: local,
     target: { id: "probe-new", hostname: "probe-new-host", name: "probe" },
@@ -188,27 +203,16 @@ try {
     park: async () => {},
     setFence: setPrimaryFence,
     upload: async (name, offset, bytes) => { writeIncomingChunk(receiver.stateDir, name, offset, bytes); },
-    commit: async (manifest) => {
-      const v = await commitIncoming(receiver.stateDir, manifest, { hostname: "probe-new-host", epoch: 0 });
-      return v.ok ? { kind: "accepted", counts: v.counts } : { kind: "refused", code: v.code, error: v.error };
-    },
+    // The receiver's own commit and boot restore, onto the CLI projects folder: the transcript lands where the CLI looks for it.
+    ...localReceiver({ ...receiver, projectsDir }, {
+      hostname: "probe-new-host",
+      beforeBoot: dropOriginCopy,
+      onBoot: (outcome) => { checks.restored = outcome === "restored"; },
+    }),
     restartSelf: () => {}, sleep: async () => {}, pollMs: 0, log: () => {},
   });
   checks.switched = report.outcome === "switched";
   checks.sessionTranscriptShipped = transcripts.some((t) => t.name.endsWith(`${sessionId}.jsonl`));
-  // The origin copy of the session goes BEFORE the receiver restores: only what the switch shipped can answer.
-  const origin = findCliTranscript(sessionId, projectsDir);
-  const originBytes = origin ? readFileSync(origin) : null;
-  if (cliFolder) rmSync(cliFolder, { recursive: true, force: true });
-  checks.originGone = findCliTranscript(sessionId, projectsDir) === null;
-  const resume: { mode: "cli" | "reader"; model?: string; answer: string; withoutCopyRefused?: boolean } = { mode: useCli ? "cli" : "reader", answer: "" };
-  if (useCli) {
-    const without = await claude(projectCwd, ["--resume", sessionId, "What was the secret word?"]);
-    resume.withoutCopyRefused = without.exitCode !== 0 && !without.result.includes(word);
-    checks.resumeNeedsTheShippedCopy = resume.withoutCopyRefused;
-  }
-  // The receiver's own restore, onto the CLI projects folder: the transcript lands where the CLI looks for it.
-  checks.restored = applyPendingPrimaryChange({ ...receiver, projectsDir, log: () => {} }) === "restored";
   const restored = new Database(receiver.dbPath, { readonly: true });
   const after = countRows(restored);
   checks.countsEqual = after.tasks === before.tasks && after.topics === before.topics && after.messages === before.messages + 1;

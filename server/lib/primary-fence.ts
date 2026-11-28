@@ -14,7 +14,7 @@ import { rmSync } from "node:fs";
 import { resolveAppDataDir, resolveDataDir, resolveSecretsDir, resolveStateDir } from "./data-dir";
 import {
   applyPendingPrimaryChange, DB_NAME, isRefusedWhenRetired, movedResponse, readRetired, replicaCommandsFromEnv, RETIRED_FILE,
-  type ReplicaCommands, type RetiredState,
+  type ReceiveChecks, type ReplicaCommands, type RetiredState,
 } from "./primary-switch";
 import { fenceInternalWrites, type PrimaryRole } from "./primary-role";
 import { setDatabaseReadOnly, selectRetiredDatabaseFile } from "../db";
@@ -59,6 +59,20 @@ export interface BootPrimaryPaths {
 }
 
 /**
+ * The folders a restore writes into and the replica commands, as the boot
+ * resolves them: the commit checks the very paths the boot will write.
+ */
+export function receiveChecksFor(stateDir: string, appDataDir: string): ReceiveChecks {
+  return {
+    secretsDir: resolveSecretsDir(stateDir),
+    appDataDir,
+    dbPath: join(resolveDataDir(stateDir), DB_NAME),
+    projectsDir: join(homedir(), ".claude", "projects"),
+    replica: replicaCommandsFromEnv(),
+  };
+}
+
+/**
  * The boot half, BEFORE the DB opens: a committed bundle is restored, or the DB
  * of a server that handed over is set aside; then the fence is read from the
  * retired marker. A failure is logged and the server boots on what is there,
@@ -67,14 +81,15 @@ export interface BootPrimaryPaths {
 export function bootPrimaryChange(rootDir: string, paths?: BootPrimaryPaths): void {
   const stateDir = paths?.stateDir ?? resolveStateDir(rootDir);
   const appDataDir = paths?.appDataDir ?? resolveAppDataDir();
+  const defaults = receiveChecksFor(stateDir, appDataDir);
   try {
     applyPendingPrimaryChange({
       stateDir,
-      secretsDir: paths?.secretsDir ?? resolveSecretsDir(stateDir),
-      dbPath: paths?.dbPath ?? join(resolveDataDir(stateDir), DB_NAME),
+      secretsDir: paths?.secretsDir ?? defaults.secretsDir,
+      dbPath: paths?.dbPath ?? defaults.dbPath,
       appDataDir,
-      projectsDir: paths?.projectsDir ?? join(homedir(), ".claude", "projects"),
-      replica: paths?.replica ?? replicaCommandsFromEnv(),
+      projectsDir: paths?.projectsDir ?? defaults.projectsDir,
+      replica: paths?.replica ?? defaults.replica,
     });
   } catch (err) {
     console.error(`[primary] the pending primary change could not be applied: ${err instanceof Error ? err.message : String(err)}`);
