@@ -12,6 +12,7 @@
  * server-side (`server/routes/outbound.ts`), because a rule enforced inside the
  * agent's own subprocess is a rule the agent enforces on itself.
  */
+import { randomUUID } from "node:crypto";
 import { httpJson, HttpAnswerError, type ParsedArgs } from "./topics-http";
 
 /**
@@ -106,8 +107,11 @@ interface OutboundLegResponse {
    */
   hold?: string;
   refused?: boolean;
+  /** The server stopped while this mail was leaving: it may be out, and it is not sent again. */
+  unknown?: boolean;
   reason?: string;
   sent?: boolean;
+  messageId?: string;
   ok?: boolean;
   account?: string;
   to?: string;
@@ -188,6 +192,9 @@ async function pollOutbound(
       continue;
     }
     if (!body) throw new Error(`${tool}: empty response from topics-app`);
+    if (body.unknown) {
+      throw new Error(`${tool}: this mail may already have gone out and is NOT sent again - ${body.reason || "the server stopped while it was leaving"}. Check the sent folder before asking again.`);
+    }
     if (body.refused) {
       throw new Error(`${tool}: nothing was done - ${body.reason || "the person did not confirm"}`);
     }
@@ -220,7 +227,11 @@ export async function callSendMail(
   if (!subject.trim()) throw new Error("send_mail: 'subject' (string) is required");
   if (!body.trim()) throw new Error("send_mail: 'body' (string) is required");
 
-  const payload: Record<string, unknown> = { to, subject, body };
+  // THE KEY OF THIS CALL, born here and carried by every leg and every retry:
+  // the server answers a key it already decided from its register, so a lost
+  // answer or a restart never opens a second question for this mail. Random,
+  // never a digest of the content: the same message wanted twice is two calls.
+  const payload: Record<string, unknown> = { to, subject, body, key: randomUUID() };
   if (typeof toolArgs?.cc === "string" && toolArgs.cc.trim()) payload.cc = toolArgs.cc.trim();
   if (typeof toolArgs?.account === "string" && toolArgs.account.trim()) payload.account = toolArgs.account.trim();
   if (Array.isArray(toolArgs?.attachments)) {
@@ -236,7 +247,8 @@ export async function callSendMail(
     opts,
   );
   const traced = res.traced ? " A trace was left on the card." : "";
-  return `sent from ${res.account ?? "?"} to ${res.to ?? to} - subject "${res.subject ?? subject}".${traced}`;
+  const id = res.messageId ? ` Message id: ${res.messageId}.` : "";
+  return `sent from ${res.account ?? "?"} to ${res.to ?? to} - subject "${res.subject ?? subject}".${id}${traced}`;
 }
 
 /** One call onto Google. Reads answer immediately; writes wait for a person. */

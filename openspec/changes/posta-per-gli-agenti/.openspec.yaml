@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-20
+x-status: proposed
+x-richiesta: "la parte email dovrebbe essere gestito bene sia con la gestione email automatica sia se ad esempio c'è una sessione che aspetta una certa mail per ripartire, in maniera sempre solida"

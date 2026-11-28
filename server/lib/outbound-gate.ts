@@ -64,7 +64,16 @@ export type ConfirmOutcome =
    * only thing that keeps its own next leg from being turned away as a second
    * request: with a byte-identical payload nothing else tells the two apart.
    */
-  | { state: "pending"; hold: string }
+  | {
+    state: "pending";
+    hold: string;
+    /**
+     * The thread row of the question, when the card road drew it. The mail
+     * register keeps it in its `pending` row, so a press of the confirm label on that
+     * row after a restart can still be matched to the message it confirms.
+     */
+    askId?: string;
+  }
   | { state: "refused"; reason: string };
 
 /** What the gate answers a request that arrives on a card somebody else holds. */
@@ -386,7 +395,7 @@ export async function confirmOutbound(
 
   try {
     const outcome = await confirmHeld(deps, request, hold);
-    if (outcome.state === "pending") return { state: "pending", hold: hold.token };
+    if (outcome.state === "pending") return { state: "pending", hold: hold.token, ...(hold.askId ? { askId: hold.askId } : {}) };
     releaseHold(holdKey, hold.token);
     return outcome;
   } catch (err) {
