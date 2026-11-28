@@ -298,9 +298,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           })
         : null;
 
+      const bornAutoMergeIntent = input.autoMergeIntent === "yes" || input.autoMergeIntent === "no" ? input.autoMergeIntent : "board";
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch, created_source, origin_topic_id, channel_topic_id, bar, created_missing)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch, created_source, origin_topic_id, channel_topic_id, bar, created_missing, auto_merge_intent)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -317,6 +318,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         input.stayLocal ? 1 : 0,
         input.baseBranch?.trim() || null,
         bornSource, input.originTopicId?.trim() || null, input.channelTopicId?.trim() || null, bornBar, bornGaps ? bornGaps.join(",") : null,
+        bornAutoMergeIntent,
       );
       if (bornGaps?.length) {
         try {

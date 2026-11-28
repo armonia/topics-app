@@ -44,13 +44,22 @@
 import { agentAskInThread, askNeedsPerson, type PersonPath } from "../../shared/workflow";
 import { whoCloses } from "../../shared/task-labels";
 import { commentAuthorLabel } from "../../shared/comment-author";
-import { isThreadSpeech, type CheckRun } from "../../shared/board";
+import { isCiEvidenceCheck, isThreadSpeech, type CheckRun } from "../../shared/board";
 
 /** What the verdict reads off the card, and nothing else. */
 export interface AutoLandCard {
   status: string;
   archived?: boolean;
   labels: ReadonlyArray<{ label: string }>;
+  /**
+   * Per-card override of the board's switch (`board` is the default, follow
+   * it). `yes` lands even with the board's switch off, as long as the board
+   * declares its own bar; `no` stays in review even with the switch on. Either
+   * way everything below (the `invisibile` label, the whole bar green,
+   * `classifyDelivery`'s file-based reading in `decide()`) still applies —
+   * this only replaces the one line that reads the board's switch.
+   */
+  autoMergeIntent?: "board" | "yes" | "no";
   checksState: "running" | "pass" | "fail" | "unknown" | null;
   checksCommit: string | null;
   checks: ReadonlyArray<Pick<CheckRun, "ok"> & Partial<Pick<CheckRun, "cmd">>> | null;
@@ -107,7 +116,9 @@ export function autoLandVerdict(
 ): AutoLandVerdict {
   const no = (reason: string): AutoLandVerdict => ({ ok: false, reason });
   if (card.status !== "review" || card.archived) return no("the card is not in review");
-  if (!board.autoMerge) return no("the board's automatic merge is off");
+  const intent = card.autoMergeIntent ?? "board";
+  if (intent === "no") return no("the card's own auto-merge intent is off");
+  if (intent === "board" && !board.autoMerge) return no("the board's automatic merge is off");
   // A board with no bar has nothing that could be green: `null` is not a pass.
   if (board.declaredChecks < 1) return no("the board declares no bar");
   const labels = card.labels.map((l) => l.label);
@@ -119,6 +130,10 @@ export function autoLandVerdict(
   const all = card.checks ?? [];
   const runs = all.filter((r) => !(r.cmd ?? "").startsWith(SCHEDULED_REVIEW_PREFIX));
   if (runs.length < board.declaredChecks || !all.every((r) => r.ok)) return no("the bar is not green in full");
+  // A "yes" on a board whose switch is off needs the board's own CI: at least one green `github-ci:` row.
+  if (intent === "yes" && !board.autoMerge && !all.some((r) => isCiEvidenceCheck({ cmd: r.cmd ?? "" }) && r.ok)) {
+    return no("the board has no green CI row of its own");
+  }
   if (!card.deliveryBranch || !card.deliveryCommit) return no("the delivery has no branch and commit of its own");
   if (board.scheduledReview && !all.some((r) => r.cmd === scheduledReviewCmd(card.deliveryCommit!) && r.ok)) {
     return no("the scheduled review has not cleared this commit");

@@ -65,7 +65,7 @@
  * never throws.
  */
 import { spawn } from "node:child_process";
-import { GATES_CI_CHECK, NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
+import { ciEvidenceJobName, ciEvidenceWorkflow, E2E_CI_CHECK, GATES_CI_CHECK, NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
 import { lowPriorityArgv } from "../lib/low-priority";
 import { ChecksInterruptedError } from "./checks-gate";
 import { cardTag, supersedePreviousDelivery } from "./ci-supersede";
@@ -185,9 +185,10 @@ export const runAttempt = (run: GithubRun): number => {
 };
 
 /** The run whose verdict counts: ci.yml, `pull_request`, this very commit, highest id. */
-export function latestCiRun(sha: string, runs: GithubRun[]): GithubRun | null {
+export function latestCiRun(sha: string, runs: GithubRun[], workflowFile?: string | null): GithubRun | null {
+  const config = workflowFile ? `.github/workflows/${workflowFile}` : CI_CONFIG_PATH;
   const mine = runs.filter((r) => r.head_sha === sha && r.event === "pull_request"
-    && (r.path === CI_CONFIG_PATH || r.path.startsWith(`${CI_CONFIG_PATH}@`)));
+    && (r.path === config || r.path.startsWith(`${config}@`)));
   return mine.reduce<GithubRun | null>((best, r) => (!best || r.id > best.id ? r : best), null);
 }
 
@@ -362,10 +363,41 @@ function contradictedByItsRun(row: CheckRun, why: string): CheckRun {
 const isUnitRow = (check: ReviewCheck): boolean => check.cmd.trim() === UNIT_CI_CHECK.cmd;
 const isGatesRow = (check: ReviewCheck): boolean => check.cmd.trim() === GATES_CI_CHECK.cmd;
 
+/**
+ * The job-level outcome of ANY GitHub Actions job by name — the board's
+ * configuration for a repo that is not topics-app, which has its own CI and its
+ * own job names (a board whose repo has its own GitHub CI). Coarser than the three
+ * special readers above on purpose: it has no step of its own to look inside,
+ * only `job.conclusion`.
+ */
+export function readGenericJobEvidence(
+  jobName: string, sha: string, runs: GithubRun[], jobs: GithubJob[],
+  workflow: string | null = null, jobsOfRun: Map<number, GithubJob[]> = new Map(),
+): CiEvidence {
+  const run = latestCiRun(sha, runs, workflow);
+  if (run && workflow) jobs = jobsOfRun.get(run.id) ?? [];
+  if (!run) return { kind: "pending", run: null };
+  if (run.status === "completed" && run.conclusion === "cancelled") {
+    return { kind: "notMeasured", run, reason: "the latest CI run for this commit was cancelled or superseded" };
+  }
+  const job = jobs.find((j) => j.name === jobName);
+  if (!job) {
+    return run.status === "completed"
+      ? { kind: "notMeasured", run, reason: `the CI run finished without the job "${jobName}"` }
+      : { kind: "pending", run };
+  }
+  if (job.status !== "completed") return { kind: "pending", run };
+  if (job.conclusion === "success") return { kind: "pass", run, jobs: [job] };
+  if (job.conclusion === "failure") return { kind: "fail", run, jobs: [job], failed: [job] };
+  return { kind: "notMeasured", run, reason: `the job "${jobName}" concluded ${job.conclusion ?? "without a conclusion"}` };
+}
+
 /** The outcome a declared CI row reads from the same run. */
-export function readCiEvidence(check: ReviewCheck, sha: string, runs: GithubRun[], jobs: GithubJob[]): CiEvidence {
+export function readCiEvidence(check: ReviewCheck, sha: string, runs: GithubRun[], jobs: GithubJob[], jobsOfRun?: Map<number, GithubJob[]>): CiEvidence {
   if (isUnitRow(check)) return readUnitEvidence(sha, runs, jobs);
   if (isGatesRow(check)) return readGatesEvidence(sha, runs, jobs);
+  const genericJob = check.cmd.trim() === E2E_CI_CHECK.cmd ? null : ciEvidenceJobName(check);
+  if (genericJob) return readGenericJobEvidence(genericJob, sha, runs, jobs, ciEvidenceWorkflow(check), jobsOfRun);
   return readE2eEvidence(sha, runs, jobs);
 }
 
@@ -427,7 +459,8 @@ export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { ki
   if (outcome.kind === "notMeasured") return ciNotMeasured(check, outcome.reason, { ...ctx, ms, run: outcome.run });
   const unit = isUnitRow(check);
   const gates = isGatesRow(check);
-  const label = unit ? "unit tests" : gates ? "typecheck, lint and static guard rails" : "e2e";
+  const genericJob = unit || gates || check.cmd.trim() === E2E_CI_CHECK.cmd ? null : ciEvidenceJobName(check);
+  const label = unit ? "unit tests" : gates ? "typecheck, lint and static guard rails" : genericJob ? `job ${genericJob}` : "e2e";
   const gateSteps = gates ? Object.values(GATES_STEPS).map((name) => {
     const step = outcome.jobs.find((job) => job.name === GATES_JOB)?.steps?.find((candidate) => candidate.name === name);
     return `${name} ${step?.conclusion ?? "without a conclusion"}`;
@@ -819,16 +852,19 @@ export async function awaitCiEvidence(
   let errors = 0;
   let lastError = "";
   let conflictProbed = false;
-  let rerunTried = false;
+  /** Ids of the runs we asked GitHub to re-run: one rerun per run, whatever the number of workflows. */
+  const rerunIds = new Set<number>();
   let rerunError = "";
-  /** The attempt a rerun of ours has to beat before a read is conclusive again, 0 when none is pending. */
-  let rerunAwaitedAttempt = 0;
+  /** The attempts our reruns have to beat before a read is conclusive again (empty when none is pending). */
+  let rerunAwaited: Array<{ file: string | null; attempt: number }> = [];
   let rerunReadsLeft = 0;
+  /** The run a row reads, set on every pass of the loop below. */
+  let runOfRow: (c: ReviewCheck) => GithubRun | null = () => null;
   let lastRun: GithubRun | null = null;
   /** A row whose run ended without a verdict says what unblocks it, once the rerun is spent. */
   type Settled = Exclude<CiEvidence, { kind: "pending" }>;
-  const deadEnd = (outcome: Settled): Settled =>
-    outcome.kind === "notMeasured" && rerunTried
+  const deadEnd = (check: ReviewCheck, outcome: Settled): Settled =>
+    outcome.kind === "notMeasured" && rerunIds.has(runOfRow(check)?.id ?? -1)
       ? {
         ...outcome,
         reason: `${outcome.reason}; ${rerunError
@@ -839,16 +875,26 @@ export async function awaitCiEvidence(
   for (;;) {
     halt();
     const runs = await port.runs(repo.value, sha);
-    let read: { runs: GithubRun[]; jobs: GithubJob[] } | null = null;
+    let read: { runs: GithubRun[]; jobs: GithubJob[]; extra: Map<number, GithubJob[]> } | null = null;
     if (runs.ok) {
       const run = latestCiRun(sha, runs.value);
       const jobs = run ? await port.jobs(repo.value, run.id) : { ok: true as const, value: [] };
-      if (jobs.ok) {
+      // Rows that name another workflow file read the jobs of THAT run.
+      const extra = new Map<number, GithubJob[]>();
+      let extraError: string | null = null;
+      for (const file of new Set(checks.map(ciEvidenceWorkflow).filter((f): f is string => !!f))) {
+        const other = latestCiRun(sha, runs.value, file);
+        if (!other) continue;
+        const got = await port.jobs(repo.value, other.id);
+        if (got.ok) extra.set(other.id, got.value);
+        else extraError = got.error;
+      }
+      if (jobs.ok && !extraError) {
         errors = 0;
-        read = { runs: runs.value, jobs: jobs.value };
+        read = { runs: runs.value, jobs: jobs.value, extra };
       } else {
         errors += 1;
-        lastError = jobs.error;
+        lastError = jobs.ok ? (extraError ?? "") : jobs.error;
       }
     } else {
       errors += 1;
@@ -865,13 +911,18 @@ export async function awaitCiEvidence(
     // A REREAD THAT STILL SHOWS THE OLD ATTEMPT IS NOT A VERDICT. `gh run rerun`
     // answers when GitHub accepts the request, not when the new attempt is
     // listed, so the read right after it can still be the dead run.
-    if (page && rerunAwaitedAttempt > 0) {
-      if (run && runAttempt(run) > rerunAwaitedAttempt) rerunAwaitedAttempt = 0;
+    if (page && rerunAwaited.length > 0) {
+      // Still waiting while any rerun has not shown its new attempt.
+      const beaten = rerunAwaited.every((w) => {
+        const awaited = w.file ? latestCiRun(sha, page.runs, w.file) : run;
+        return !!awaited && runAttempt(awaited) > w.attempt;
+      });
+      if (beaten) rerunAwaited = [];
       else if (rerunReadsLeft > 0) rerunReadsLeft -= 1;
-      else rerunAwaitedAttempt = 0; // the grace is spent: read the run as it is
+      else rerunAwaited = []; // the grace is spent: read the run as it is
     }
-    if (page && rerunAwaitedAttempt === 0) {
-      const readNow = (check: ReviewCheck) => readCiEvidence(check, sha, page.runs, page.jobs);
+    if (page && rerunAwaited.length === 0) {
+      const readNow = (check: ReviewCheck) => readCiEvidence(check, sha, page.runs, page.jobs, page.extra);
       // Rows with no verdict on this run, the ones already closed included: a
       // row read as not measured while the run was still going (a `prepare-e2e`
       // that failed, a `check` job that died before its unit step) used to be
@@ -891,6 +942,11 @@ export async function awaitCiEvidence(
       // opposite of ONE RED ENDS THE ROUND a few lines down. Reachable: the
       // `check` job dies before its unit step (Setup Bun, typecheck,
       // `cancel-in-progress`) while an e2e shard fails for real.
+      // The run a row reads: ci.yml, or the workflow its row names.
+      const runOf = (c: ReviewCheck): GithubRun | null => {
+        const file = ciEvidenceWorkflow(c);
+        return file ? latestCiRun(sha, page.runs, file) : run;
+      };
       const redAlready = checks.some((c) => {
         const done = settled.get(c);
         return done ? !done.ok && !done.notMeasured : readNow(c).kind === "fail";
@@ -904,8 +960,15 @@ export async function awaitCiEvidence(
       // last 100 shas measured on 17/09/2026 were already parked there.
       // Only when the run itself is over, so a rerun cannot cut a shard still
       // running for the other row.
-      if (run && run.status === "completed" && !rerunTried && unmeasured.length > 0 && !redAlready) {
-        rerunTried = true;
+      runOfRow = runOf;
+      // One rerun per completed run that holds a row with no verdict.
+      const rerunTargets = new Map<number, { run: GithubRun; row: ReviewCheck }>();
+      for (const c of unmeasured) {
+        const r = runOf(c);
+        if (r && r.status === "completed" && !rerunIds.has(r.id) && !rerunTargets.has(r.id)) rerunTargets.set(r.id, { run: r, row: c });
+      }
+      if (rerunTargets.size > 0 && !redAlready) {
+        for (const id of rerunTargets.keys()) rerunIds.add(id);
         // Every row with no verdict is read again from here. The new attempt
         // re-measures it (a row already green or red measured something real on
         // this commit and is left alone), and when there is no new attempt the
@@ -915,22 +978,26 @@ export async function awaitCiEvidence(
         // above 1 the round used to close on that plain reason and the dead end
         // was mute again.
         for (const [check, row] of [...settled]) if (row.notMeasured) settled.delete(check);
-        // THE RERUN IS SPENT ONCE PER RUN, NOT ONCE PER CALL. `rerunTried` is a
+        // THE RERUN IS SPENT ONCE PER RUN, NOT ONCE PER CALL. `rerunIds` is a
         // local of this call, but the delivery it serves is a row on
         // `pending_deliveries` that `resumePendingDeliveries` re-issues on the
         // same commit at every boot, and this Mac restarted the server 44 times
         // in 25.7 hours against a CI wait of 15-25 minutes. The attempt number
         // is the state GitHub keeps for us: above 1 the rerun was already asked,
         // and this run is what it produced.
-        if (runAttempt(run) === 1) {
-          const again = await port.rerun(repo.value, run.id);
+        let asked = false;
+        for (const { run: target, row } of rerunTargets.values()) {
+          if (runAttempt(target) !== 1) continue;
+          const again = await port.rerun(repo.value, target.id);
           if (again.ok) {
-            rerunAwaitedAttempt = runAttempt(run);
-            rerunReadsLeft = errorsMax;
-            await pause(pollMs);
-            continue;
-          }
-          rerunError = again.error;
+            rerunAwaited.push({ file: ciEvidenceWorkflow(row), attempt: runAttempt(target) });
+            asked = true;
+          } else rerunError = again.error;
+        }
+        if (asked) {
+          rerunReadsLeft = errorsMax;
+          await pause(pollMs);
+          continue;
         }
       }
       const outcomes = open().map((check) => ({ check, outcome: readNow(check) }));
@@ -940,7 +1007,7 @@ export async function awaitCiEvidence(
           noRun ||= !outcome.run;
           continue;
         }
-        settled.set(check, ciCheckRun(check, deadEnd(outcome), elapsed(), ctx));
+        settled.set(check, ciCheckRun(check, deadEnd(check, outcome), elapsed(), ctx));
       }
       // ONE RED ENDS THE ROUND, like the local commands (`review-checks.ts`:
       // sequential, stop at the first red). An actionable red used to be
@@ -954,13 +1021,24 @@ export async function awaitCiEvidence(
       // A row without a verdict is not final while its run is still going: the
       // rerun above reopens it when the run completes, so leaving now would be
       // the dead end again with every row closed.
-      const mayStillRerun = !rerunTried && !!run && run.status !== "completed" && unmeasured.length > 0;
+      const mayStillRerun = unmeasured.some((c) => {
+        const r = runOf(c);
+        return !!r && r.status !== "completed";
+      });
       if (open().length === 0 && !mayStillRerun) {
         const rows = checks.map((c) => settled.get(c)!);
         // A CARD DOES NOT SAY GREEN ON A COMMIT WHOSE CI IS RED (KANBAN-86).
         // Only the all-green close can lie this way: a red row or a row with no
         // verdict already keeps the card's verdict off `pass`.
-        const why = rows.every((r) => r.ok) ? runRedElsewhere(run, page.jobs) : null;
+        // Every run a row read counts, not only ci.yml's.
+        let why: string | null = null;
+        if (rows.every((r) => r.ok)) {
+          why = runRedElsewhere(run, page.jobs);
+          for (const other of page.runs) {
+            const otherJobs = page.extra.get(other.id);
+            if (!why && otherJobs && other !== run) why = runRedElsewhere(other, otherJobs);
+          }
+        }
         return why ? rows.map((r) => contradictedByItsRun(r, why)) : rows;
       }
     }

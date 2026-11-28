@@ -23,6 +23,7 @@ import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { LandingQueue, LandingTicket } from "../services/landing-queue";
 import { checkDispatchMachine } from "../services/board-dispatch-machine";
 import { canonicalProjectIdentity } from "../lib/project-identity";
+import { ciEvidenceNamesAJob } from "../../shared/board";
 import { MAX_CHECKS, STATIC_RAILS_CHECK, parseReviewChecks } from "../services/review-checks";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { isTaskLabel } from "../../shared/task-labels";
@@ -407,6 +408,18 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             400,
           );
         }
+        // A `github-ci:` row with no job name would read the e2e jobs instead
+        // of the job the board meant: refuse it rather than save a wrong gate.
+        if (Array.isArray(body?.reviewChecks)) {
+          const emptyJob = body.reviewChecks.some((c: unknown) => {
+            const cmd = typeof c === "string" ? c : (c as { cmd?: unknown } | null)?.cmd;
+            return typeof cmd === "string" && cmd.trim().startsWith("github-ci:")
+              && !ciEvidenceNamesAJob({ cmd: cmd.trim() });
+          });
+          if (emptyJob) {
+            return json({ error: "a github-ci check needs a job name: github-ci:<job> or github-ci:<file>.yml/<job>", code: "review_checks_empty_ci_job" }, 400);
+          }
+        }
         // The default machine is checked BEFORE it is saved: a card born on a
         // board pointing at a machine that cannot run it is parked forever.
         // null or "" clears the rule and needs no check.
@@ -603,6 +616,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             // A card born in review: the question for the person.
             humanAsk: typeof body?.human_ask === "string" ? body.human_ask
               : typeof body?.humanAsk === "string" ? body.humanAsk : undefined,
+            // "Follow the board" / "yes" / "no" at birth; anything else = the
+            // default ("board") the service already falls back to.
+            autoMergeIntent: (() => {
+              const v = body?.autoMergeIntent ?? body?.auto_merge_intent;
+              return v === "yes" || v === "no" ? v : undefined;
+            })(),
           });
           // THE BIRTH ATTACHMENTS, BEFORE THE DISPATCH.
           //

@@ -667,6 +667,13 @@ export interface BoardTask {
   stayLocal?: boolean;
   /** When the overflow moved it off this machine because the Mac was full. */
   overflowedAt?: string;
+  /**
+   * Per-card override of the board's auto-merge switch: `'board'` (follow the
+   * board's own switch, the default), `'yes'` (land on its own even with the
+   * switch off), `'no'` (stay in review even with the switch on). Absent on an
+   * older server reads the same as `'board'`.
+   */
+  autoMergeIntent?: 'board' | 'yes' | 'no';
   /** Who opened the card: `human`, `agent:<name>`, `cron:<name>` (`shared/created-by.ts`); absent/null = born before the field. */
   createdBy?: string | null;
   /** Channel or session the card was opened from; absent on old cards. */
@@ -951,6 +958,8 @@ export interface UpdateTaskBody {
   machineId?: string | null;
   /** "This Mac only": the overflow never moves the card when the Mac is full. */
   stayLocal?: boolean;
+  /** Per-card override of the board's auto-merge switch; see `BoardTask.autoMergeIntent`. */
+  autoMergeIntent?: 'board' | 'yes' | 'no';
   /** Gate: don't dispatch until this root task is done; null clears it. */
   blockedByTaskId?: string | null;
   /** When blocked, hand the new agent the blocker's session context. */

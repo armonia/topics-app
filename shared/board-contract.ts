@@ -163,9 +163,45 @@ export const UNIT_CI_CHECK: ReviewCheck = { name: "unit-ci", cmd: "github-ci:uni
 /** The typecheck, lint and static guard-rail evidence row from the `gates` CI job. */
 export const GATES_CI_CHECK: ReviewCheck = { name: "gates-ci", cmd: "github-ci:gates" };
 
+/**
+ * Any prefix, not just the three fixed values: a board other than topics-app
+ * declares its OWN GitHub job name as the check's `cmd` (`github-ci:<job>`),
+ * read generically by `readCiEvidence` (server/services/ci-evidence.ts). The
+ * three constants above stay the well-known ones topics-app's own CI reads in
+ * detail (job + step); every other `github-ci:` cmd is still CI evidence, read
+ * at the coarser job-level pass/fail. A repo whose CI is not in `ci.yml`
+ * writes `github-ci:<workflow-file>.yml/<job>`; the job name match is exact
+ * (`build (20)` of a matrix is not `build`).
+ */
+const CI_EVIDENCE_PREFIX = "github-ci:";
+
 export function isCiEvidenceCheck(check: { cmd: string }): boolean {
+  return check.cmd.trim().startsWith(CI_EVIDENCE_PREFIX);
+}
+
+/** `github-ci:<workflow-file>.yml/<job>`: the workflow file is part of the declaration. */
+const WORKFLOW_JOB = /^([^/\s]+\.ya?ml)\/(.+)$/;
+
+/** False for a `github-ci:` declaration with no job (`github-ci:`, `github-ci:chain.yml/`): it must not be saved. */
+export function ciEvidenceNamesAJob(check: { cmd: string }): boolean {
+  if (!isCiEvidenceCheck(check)) return true;
+  const job = ciEvidenceJobName(check)?.trim() ?? "";
+  return job !== "" && !job.endsWith("/");
+}
+
+/** The GitHub Actions job name a `github-ci:<job>` or `github-ci:<workflow>.yml/<job>` check declares, or `null` when it isn't one. */
+export function ciEvidenceJobName(check: { cmd: string }): string | null {
   const cmd = check.cmd.trim();
-  return cmd === E2E_CI_CHECK.cmd || cmd === UNIT_CI_CHECK.cmd || cmd === GATES_CI_CHECK.cmd;
+  if (!cmd.startsWith(CI_EVIDENCE_PREFIX)) return null;
+  const rest = cmd.slice(CI_EVIDENCE_PREFIX.length);
+  return WORKFLOW_JOB.exec(rest)?.[2] ?? rest;
+}
+
+/** The workflow file (`chain.yml`) a `github-ci:<workflow>.yml/<job>` check names, or `null` for the default `ci.yml`. */
+export function ciEvidenceWorkflow(check: { cmd: string }): string | null {
+  const cmd = check.cmd.trim();
+  if (!cmd.startsWith(CI_EVIDENCE_PREFIX)) return null;
+  return WORKFLOW_JOB.exec(cmd.slice(CI_EVIDENCE_PREFIX.length))?.[1] ?? null;
 }
 
 /**

@@ -117,6 +117,15 @@ const asScheduled = (raw: unknown): FieldRead => {
   return ok({ by: by.trim().slice(0, 60), at: at ? new Date(at as string).toISOString() : null });
 };
 
+const AUTO_MERGE_INTENTS = ["board", "yes", "no"] as const;
+/** Per-card "follow the board / yes / no": a closed domain of three values. */
+const asAutoMergeIntent = (raw: unknown): FieldRead => {
+  const read = asString(raw);
+  if (!read.ok) return read;
+  const v = read.value as string;
+  return (AUTO_MERGE_INTENTS as readonly string[]).includes(v) ? ok(v) : no(`expected one of: ${AUTO_MERGE_INTENTS.join(", ")}, got "${v}"`);
+};
+
 /** Stato: uno dei cinque della board. */
 const asStatus = (raw: unknown): FieldRead => {
   const read = asString(raw);
@@ -168,6 +177,11 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   machine_id: { to: "machineId", read: asRefOrNull },
   // "This Mac only": the overflow dispatch never moves the card elsewhere.
   stayLocal: { to: "stayLocal", read: asBoolean },
+  // Per-card auto-merge override ("follow the board" / "yes" / "no");
+  // human-only, same reasoning as `stayLocal` just above: an agent does not
+  // get to grant itself (or deny itself) its own card's automatic land.
+  autoMergeIntent: { to: "autoMergeIntent", read: asAutoMergeIntent },
+  auto_merge_intent: { to: "autoMergeIntent", read: asAutoMergeIntent },
   // Why a permanent (no `stayLocalUntil`) pin holds — recorded on the thread
   // by `tasks.ts`'s update path, not applied here by itself.
   stayLocalReason: { to: "stayLocalReason", read: asStringOrNull },

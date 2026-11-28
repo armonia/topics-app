@@ -287,6 +287,17 @@ export interface Task {
   landIntent?: "human" | "auto";
   /** The commit the decision to land was taken on. */
   landIntentCommit?: string;
+  /**
+   * Per-card override of the board's `dispatchAutoMerge` switch, chosen BEFORE
+   * the land (unlike `landIntent`, which records who decided AFTER one
+   * happened). `board` (the default) follows the board's switch; `yes` lands
+   * the card on its own even with the switch off; `no` keeps it in review even
+   * with the switch on. Set at birth (`create_task`, the API) or from the
+   * card's drawer; an agent cannot change it (`server/routes/task-patch.ts`,
+   * human-only field). `classifyDelivery`'s file-based reading and the
+   * `invisibile` label still decide ahead of it either way.
+   */
+  autoMergeIntent: "board" | "yes" | "no";
   /** The effort the task actually ran with (from the agent's topic). Read
    *  only: with the board on `auto` this is the only place the choice shows. */
   effort: string | null;
@@ -553,6 +564,8 @@ export interface CreateTaskInput {
    * The question for the person a card born in review carries.
    */
   humanAsk?: string | null;
+  /** Per-card auto-merge override at birth; omitted = `"board"` (follow the board's switch). */
+  autoMergeIntent?: "board" | "yes" | "no";
 }
 
 export interface UpdateTaskPatch {
@@ -606,6 +619,8 @@ export interface UpdateTaskPatch {
   stayLocalReason?: string | null;
   /** The node the overflow skips for this card, and until when (ISO). Set only by the dispatcher. */
   overflowSkip?: { machineId: string; until: string } | null;
+  /** Per-card auto-merge override; human-only field, see `Task.autoMergeIntent`. */
+  autoMergeIntent?: "board" | "yes" | "no";
   /** The executable acceptance bar; null clears. */
   bar?: string | null;
   /** Where the card comes from (session or channel), added after birth to clear the incomplete flag. */

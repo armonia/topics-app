@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { E2E_CI_CHECK, UNIT_CI_CHECK } from "../../shared/board";
+import { E2E_CI_CHECK, isCiEvidenceCheck, UNIT_CI_CHECK } from "../../shared/board";
 import {
   CI_BASE_BRANCH,
   CI_E2E_DEADLINE_MS,
@@ -19,7 +19,9 @@ import {
   closeCiDraft,
   githubPort,
   listField,
+  readCiEvidence,
   readE2eEvidence,
+  readGenericJobEvidence,
   readUnitEvidence,
   UNIT_STEP,
   repoFromRemote,
@@ -96,6 +98,50 @@ describe("readE2eEvidence", () => {
     expect(repoFromRemote("git@github.com:armonia/topics-app.git")).toBe("armonia/topics-app");
     expect(repoFromRemote("https://github.com/armonia/topics-app")).toBe("armonia/topics-app");
     expect(repoFromRemote("git@gitlab.com:a/b.git")).toBeNull();
+  });
+});
+
+describe("readGenericJobEvidence / a board that is not topics-app", () => {
+  const CHECK = { name: "other-board-ci", cmd: "github-ci:build" };
+
+  test("isCiEvidenceCheck recognizes any github-ci: cmd, not only the three fixed ones", () => {
+    expect(isCiEvidenceCheck(CHECK)).toBe(true);
+    expect(isCiEvidenceCheck({ cmd: "bun run build" })).toBe(false);
+  });
+
+  test("the declared job green is a pass", () => {
+    const out = readGenericJobEvidence("build", SHA, [run()], [job("build", "success")]);
+    expect(out.kind).toBe("pass");
+  });
+
+  test("the declared job red is a fail", () => {
+    const out = readGenericJobEvidence("build", SHA, [run({ conclusion: "failure" })], [job("build", "failure")]);
+    expect(out.kind).toBe("fail");
+  });
+
+  test("a finished run without that job is not measured, never green", () => {
+    const out = readGenericJobEvidence("build", SHA, [run()], [job("other", "success")]);
+    expect(out.kind).toBe("notMeasured");
+  });
+
+  test("the job still running is pending", () => {
+    const out = readGenericJobEvidence("build", SHA, [run({ status: "in_progress", conclusion: null })], [job("build", null)]);
+    expect(out.kind).toBe("pending");
+  });
+
+  // MUTATION: `readCiEvidence` dispatching a `github-ci:build` check to the
+  // generic reader is the thing that makes this a pass. Fall back to
+  // `readE2eEvidence` for it (the old, three-checks-only behaviour) and this
+  // goes red, because `readE2eEvidence` looks for e2e-shaped job names
+  // ("e2e (N)") that this fixture does not have.
+  test("readCiEvidence routes a board's own github-ci: job to the generic reader", () => {
+    const out = readCiEvidence(CHECK, SHA, [run()], [job("build", "success")]);
+    expect(out.kind).toBe("pass");
+  });
+
+  test("readCiEvidence still reads the red job as a fail", () => {
+    const out = readCiEvidence(CHECK, SHA, [run({ conclusion: "failure" })], [job("build", "failure")]);
+    expect(out.kind).toBe("fail");
   });
 });
 

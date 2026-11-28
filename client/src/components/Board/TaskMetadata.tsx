@@ -107,9 +107,10 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   );
 }
 
-export function MetadataCard({ boardDispatchModel, busy, changeModel, changeNode, changePriority, changeTopicsRouting, drawerRouting, labelBtnRef, labelMenuOpen, machines, modelBtnRef, modelMenuOpen, modelTrigger, nodeBtnRef, nodeMenuOpen, nodePickerLocked, nodes, onOpenTask, prioBtnRef, prioMenuOpen, setLabelMenuOpen, setModelMenuOpen, setNodeMenuOpen, setPrioMenuOpen, shownEffort, task, toggleLabel, toggleStayLocal, tr, workAncestorId, workChip }: {
+export function MetadataCard({ boardDispatchModel, busy, changeAutoMergeIntent, changeModel, changeNode, changePriority, changeTopicsRouting, drawerRouting, labelBtnRef, labelMenuOpen, machines, modelBtnRef, modelMenuOpen, modelTrigger, nodeBtnRef, nodeMenuOpen, nodePickerLocked, nodes, onOpenTask, prioBtnRef, prioMenuOpen, setLabelMenuOpen, setModelMenuOpen, setNodeMenuOpen, setPrioMenuOpen, shownEffort, task, toggleLabel, toggleStayLocal, tr, workAncestorId, workChip }: {
   boardDispatchModel: string | null;
   busy: boolean;
+  changeAutoMergeIntent: (next: 'board' | 'yes' | 'no') => Promise<void>;
   changeModel: (model: string | null) => Promise<void>;
   changeNode: (machineId: string | null) => Promise<void>;
   changePriority: (p: number) => Promise<void>;
@@ -321,6 +322,19 @@ export function MetadataCard({ boardDispatchModel, busy, changeModel, changeNode
                 <span className="min-w-0 flex-1">{tr('board.task.node.stayLocal')}</span>
                 {task.stayLocal && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
+              <p className="px-2.5 pb-1 pt-1.5 text-mini font-semibold uppercase tracking-wide text-app-text-muted border-t border-white/10">{tr('board.task.autoMerge.heading')}</p>
+              {(['board', 'yes', 'no'] as const).map((v) => (
+                <button
+                  key={v} role="menuitemradio" aria-checked={(task.autoMergeIntent ?? 'board') === v} disabled={busy}
+                  data-testid={`task-auto-merge-${v}`}
+                  onClick={() => changeAutoMergeIntent(v)}
+                  title={tr(`board.task.autoMerge.${v}Title`)}
+                  className={`${POPOVER_ITEM} disabled:opacity-40`}
+                >
+                  <span className="min-w-0 flex-1">{tr(`board.task.autoMerge.${v}`)}</span>
+                  {(task.autoMergeIntent ?? 'board') === v && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              ))}
             </Menu>
             {/* Who is working it stays in the row for the same reason the wait
                 does: on a card in progress with no topic and no chip, this is
@@ -498,12 +512,13 @@ export function SubtasksCard({ addSubtask, addingSub, children, doneCount, onOpe
   );
 }
 
-export function TaskDetailsPanel({ addSubtask, addingSub, boardDispatchModel, busy, cancelKey, changeModel, changeNode, changePriority, changeTopicsRouting, children, descDraft, descOpen, detailsOpen, doneCount, drawerRouting, editingDesc, labelBtnRef, labelMenuOpen, locale, machines, modelBtnRef, modelMenuOpen, modelTrigger, nodeBtnRef, nodeMenuOpen, nodePickerLocked, nodes, onOpenTask, prioBtnRef, prioMenuOpen, projectId, saveDesc, setDescDraft, setEditingDesc, setLabelMenuOpen, setModelMenuOpen, setNodeMenuOpen, setPrioMenuOpen, setSubDraft, shownEffort, subDraft, subtaskComposerOpen, subtasksOpen, task, toggleDescOpen, toggleLabel, toggleStayLocal, toggleSubtasksOpen, tr, workAncestorId, workChip }: {
+export function TaskDetailsPanel({ addSubtask, addingSub, boardDispatchModel, busy, cancelKey, changeAutoMergeIntent, changeModel, changeNode, changePriority, changeTopicsRouting, children, descDraft, descOpen, detailsOpen, doneCount, drawerRouting, editingDesc, labelBtnRef, labelMenuOpen, locale, machines, modelBtnRef, modelMenuOpen, modelTrigger, nodeBtnRef, nodeMenuOpen, nodePickerLocked, nodes, onOpenTask, prioBtnRef, prioMenuOpen, projectId, saveDesc, setDescDraft, setEditingDesc, setLabelMenuOpen, setModelMenuOpen, setNodeMenuOpen, setPrioMenuOpen, setSubDraft, shownEffort, subDraft, subtaskComposerOpen, subtasksOpen, task, toggleDescOpen, toggleLabel, toggleStayLocal, toggleSubtasksOpen, tr, workAncestorId, workChip }: {
   addSubtask: () => Promise<void>;
   addingSub: boolean;
   boardDispatchModel: string | null;
   busy: boolean;
   cancelKey: (e: React.KeyboardEvent) => void;
+  changeAutoMergeIntent: (next: 'board' | 'yes' | 'no') => Promise<void>;
   changeModel: (model: string | null) => Promise<void>;
   changeNode: (machineId: string | null) => Promise<void>;
   changePriority: (p: number) => Promise<void>;
@@ -558,7 +573,7 @@ detailsOpen && task ? (
           same answer as the load screen and the Processes view. Nothing while it is not running. */}
       {task.status === 'in_progress' && <div className="px-3 pt-3"><CardConsumption cardId={task.id} /></div>}
       {(task.agentTokens > 0 || task.agentCacheReadTokens > 0) && <div className="px-3 pt-3"><TaskSessionWeight assignedTopicId={task.assignedTopicId} counterTokens={task.agentTokens} cacheReadTokens={task.agentCacheReadTokens} costCents={task.agentCostCents} /></div>}
-      <MetadataCard boardDispatchModel={boardDispatchModel} busy={busy} changeModel={changeModel} changeNode={changeNode}
+      <MetadataCard boardDispatchModel={boardDispatchModel} busy={busy} changeAutoMergeIntent={changeAutoMergeIntent} changeModel={changeModel} changeNode={changeNode}
         changePriority={changePriority} changeTopicsRouting={changeTopicsRouting} drawerRouting={drawerRouting} labelBtnRef={labelBtnRef}
         labelMenuOpen={labelMenuOpen} machines={machines} modelBtnRef={modelBtnRef} modelMenuOpen={modelMenuOpen} modelTrigger={modelTrigger}
         nodeBtnRef={nodeBtnRef} nodeMenuOpen={nodeMenuOpen} nodePickerLocked={nodePickerLocked} nodes={nodes} onOpenTask={onOpenTask}

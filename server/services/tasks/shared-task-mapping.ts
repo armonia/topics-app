@@ -367,6 +367,8 @@ function mapRow(r: any, b: TaskBatch): Task {
       // A pin with a deadline (`stay_local_until`, set after an empty node run)
       // reads as unmarked once the deadline is past.
       stayLocal: !!r.stay_local && !(r.stay_local_until && r.stay_local_until <= now()),
+      // A row written before the column (old harness) reads as "board" too.
+      autoMergeIntent: r.auto_merge_intent === "yes" || r.auto_merge_intent === "no" ? r.auto_merge_intent : "board",
       ...(r.overflow_skip_machine && r.overflow_skip_until && r.overflow_skip_until > now() ? { overflowSkipMachine: String(r.overflow_skip_machine).split(",").at(-1), overflowSkipMachines: String(r.overflow_skip_machine).split(",") } : {}),
       // Only while it still runs where the overflow sent it.
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),

@@ -67,6 +67,16 @@ describe("card origin and agent-card contract", () => {
     expect(auto.body.createdMissing).toContain("directory");
   });
 
+  test("a creator can set the per-card auto-merge intent at birth, on the session door", async () => {
+    const session = await post("/api/sessions/s1/tasks", { text: "from a chat", autoMergeIntent: "yes" });
+    expect(session.status).toBe(201);
+    expect(session.body.autoMergeIntent).toBe("yes");
+    const no = await post("/api/sessions/s1/tasks", { text: "other chat card", auto_merge_intent: "no" });
+    expect(no.body.autoMergeIntent).toBe("no");
+    const plain = await post("/api/sessions/s1/tasks", { text: "default one", autoMergeIntent: "bogus" });
+    expect(plain.body.autoMergeIntent).toBe("board");
+  });
+
   test("an incomplete agent card carries a system comment saying what is missing", async () => {
     const t = await post("/api/boards/pX/tasks", { text: "bare" });
     const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.body.id}`))!.json();

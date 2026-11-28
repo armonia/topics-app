@@ -1,0 +1,11 @@
+-- 20261126190000-auto-merge-intent.sql
+--
+-- tasks.auto_merge_intent: a per-card override of the board's
+-- `board_settings.dispatch_auto_merge` switch, chosen BEFORE a land happens
+-- (unlike `land_intent`, which records who decided AFTER one did). 'board'
+-- (the default) follows the board's switch; 'yes' lands the card on its own
+-- even with the switch off (as long as the board declares its own CI bar);
+-- 'no' keeps it in review even with the switch on. Set at birth or from the
+-- card's drawer; an agent cannot change it on its own card
+-- (server/routes/task-patch.ts keeps it out of the agent-facing field list).
+ALTER TABLE tasks ADD COLUMN auto_merge_intent TEXT NOT NULL DEFAULT 'board' CHECK (auto_merge_intent IN ('board', 'yes', 'no'));
