@@ -39,6 +39,7 @@ import { bootDeliveryAudit } from "./server/boot/delivery-audit";
 import { bootRelay } from "./server/boot/relay";
 import { bootPostListen } from "./server/boot/post-listen";
 import { bootTimersShutdown } from "./server/boot/timers-shutdown";
+import { applyFencedReadOnly, isFencedWriteError } from "./server/db";
 
 
 // The checkout's HEAD when this process started. Read once: the scripts that
@@ -100,7 +101,21 @@ process.on("SIGINT", () => onTermSignal("SIGINT"));
 // this file already learned once that a too-wide guard is worse than none.
 const SURVIVABLE_IO = new Set(["EPIPE", "ECONNRESET", "ECONNABORTED", "ERR_STREAM_DESTROYED", "ERR_STREAM_WRITE_AFTER_END"]);
 
+// A write refused by a primary switch's read-only fence (server/db.ts) is the
+// fence doing its job, not a bug: a timer that writes without catching must
+// not take the fenced server down in the middle of the upload. Every other
+// unhandled rejection still ends the process, as it does without a listener.
+function logFencedWrite(err: unknown): void {
+  console.warn(`[primary] a write was refused by the switch fence: ${err instanceof Error ? err.message : String(err)}`);
+}
+process.on("unhandledRejection", (reason: unknown) => {
+  if (isFencedWriteError(reason)) { logFencedWrite(reason); return; }
+  console.error("[Shutdown] unhandled promise rejection:", reason);
+  process.exit(1);
+});
+
 process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
+  if (isFencedWriteError(err)) { logFencedWrite(err); return; }
   const code = err?.code ?? "";
   if (!SURVIVABLE_IO.has(code)) {
     // Not ours to absorb: restore the default disposition and let it kill the
@@ -207,6 +222,8 @@ const afterDeliveryAudit = { ...afterReattach, ...(bootDeliveryAudit(afterReatta
 const afterRelay = { ...afterDeliveryAudit, ...(await bootRelay(afterDeliveryAudit)) };
 bootPostListen(afterRelay);
 const afterTimersShutdown = { ...afterRelay, ...(bootTimersShutdown(afterRelay)) };
+// A server that handed the primary over: its DB turns read-only now that the boot has run (server/db.ts).
+applyFencedReadOnly();
 
 
 

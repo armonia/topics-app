@@ -24,6 +24,7 @@ export const API_ROUTER_ORDER = [
   "worktreesRouter",
   "machineWorktreesRouter",
   "machinesRouter",
+  "nodePrimaryRouter",
   "nodeWorktreesRouter",
   "nodesRouter",
   "filesRouter",

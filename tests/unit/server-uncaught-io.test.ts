@@ -27,6 +27,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readServerSource } from "../helpers/server-source";
 
+const DB_MODULE = join(import.meta.dir, "..", "..", "server", "db.ts");
 const dir = mkdtempSync(join(process.env.JCODE_SCRATCH_DIR ?? tmpdir(), "uncaught-"));
 // An `afterAll`, not `process.on("exit")`: `bun test` never calls an exit
 // handler, and on 28/09 this file had left 211 `uncaught-*` folders in the
@@ -42,11 +43,15 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
  * measured to be worthless - a mutation of the real condition left all nine
  * tests green.
  */
-function runChild(code: string | null, message = "boom"): { status: number | null; out: string } {
-  const file = join(dir, `child-${code ?? "nocode"}.ts`);
+function runChild(code: string | null, message = "boom", fenced = false): { status: number | null; out: string } {
+  const file = join(dir, `child-${code ?? "nocode"}${fenced ? "-fenced" : ""}.ts`);
+  // The handler asks the REAL `isFencedWriteError` of server/db.ts; only the log line is stubbed.
   writeFileSync(
     file,
-    `${handlerSource()}
+    `import { isFencedWriteError, setDatabaseReadOnly } from ${JSON.stringify(DB_MODULE)};
+const logFencedWrite = () => console.error("FENCED");
+${fenced ? "setDatabaseReadOnly(true);" : ""}
+${handlerSource()}
 process.nextTick(() => {
   const e = new Error(${JSON.stringify(message)});
   ${code === null ? "" : `e.code = ${JSON.stringify(code)};`}
@@ -99,6 +104,21 @@ describe("the server survives a peer hanging up", () => {
       expect(r.status).toBe(0);
     });
   }
+});
+
+describe("a write refused by the primary switch fence", () => {
+  test("is absorbed while the fence is up: the fenced server stays alive", () => {
+    const r = runChild("SQLITE_READONLY", "attempt to write a readonly database", true);
+    expect(r.out).toContain("FENCED");
+    expect(r.out).toContain("STILL ALIVE");
+    expect(r.status).toBe(0);
+  });
+
+  test("is a real bug without the fence: re-thrown", () => {
+    const r = runChild("SQLITE_READONLY", "attempt to write a readonly database");
+    expect(r.out).toContain("RETHROWN");
+    expect(r.status).not.toBe(0);
+  });
 });
 
 describe("the server still dies of a real bug", () => {
