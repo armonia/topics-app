@@ -6155,3 +6155,11 @@ leaving it in review with no photo and no explanation.
 #### Scenario: a machine with no capture browser
 - **GIVEN** a launch that answers that the browser executable does not exist
 - **THEN** the browser SHALL be downloaded once, and a failed download SHALL leave a one-line reason for the card
+
+### Requirement: KANBAN-127 — Auto-merge can be set per card: follow the board, yes, no
+
+A card SHALL carry an auto-merge intent of `board` (default), `yes` or `no`, changed only by a person (card creation, API, drawer), never by the agent on its own card. `yes` lands a technical card on green CI even when the board switch is off; `no` keeps it in review even when the switch is on. Labels and `classifyDelivery` rules always win over `yes`.
+
+#### Scenario: the drawer shows the three choices
+- **GIVEN** an open task drawer
+- **THEN** the three choices SHALL sit next to the "Mac only" switch at phone and desktop widths

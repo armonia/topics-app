@@ -35,6 +35,7 @@ test.describe("Task drawer: per-card auto-merge intent", () => {
 
   for (const width of WIDTHS) {
     test(`the three choices sit next to "Mac only" at ${width}px`, async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "KANBAN-127" });
       await page.setViewportSize({ width, height: 900 });
       await goToApp(page);
       await page.goto(`/task/${taskId}`);
