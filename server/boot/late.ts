@@ -25,6 +25,8 @@ export const late = {
   // Assigned just below (after worktreeOfTask is defined); the dispatcher only
   // calls it lazily at review-time, so the late binding is safe.
   previewManager: undefined as PreviewManager | undefined,
+  /** The dispatcher's resource floor, for chat previews (lazy: read when one is about to start). */
+  resourceBlock: undefined as (() => string | null) | undefined,
   /**
    * Assegnata piu' in basso, dov'e' possibile costruirla (servono gli sguardi sul
    * worktree). Il dispatcher nasce prima e la chiama solo a turno finito, quindi
