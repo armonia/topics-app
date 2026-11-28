@@ -24,20 +24,20 @@ export const MAX_LIST_ITEMS = 40;
 export const MAX_KV_FIELDS = 24;
 const MAX_CELL = 160;
 
-export type Tone = 'neutral' | 'success' | 'danger' | 'warning';
+export type ViewTone = 'neutral' | 'success' | 'danger' | 'warning';
 /**
  * One value, typed enough for the renderer to draw it well: a status as a
  * coloured chip, an array as a row of chips, an ISO date as a readable time
  * (the client formats it: `text` keeps the raw ISO so this stays pure).
  */
-export interface Cell { text: string; kind?: 'status' | 'chips' | 'date' | 'empty'; tone?: Tone; items?: string[] }
+export interface Cell { text: string; kind?: 'status' | 'chips' | 'date' | 'empty'; tone?: ViewTone; items?: string[] }
 export interface KvField { label: string; value: Cell }
 export interface KvView { kind: 'kv'; fields: KvField[] }
 export interface CardView { kind: 'card'; title: string; status?: Cell; labels: string[]; fields: KvField[] }
 export interface TableView { kind: 'table'; columns: string[]; rows: Cell[][] }
 export interface ListItem { text: string; href?: string }
 export interface ListView { kind: 'list'; items: ListItem[] }
-export interface ChipView { kind: 'chip'; text: string; tone?: Tone }
+export interface ChipView { kind: 'chip'; text: string; tone?: ViewTone }
 export interface CounterView { kind: 'counter'; label: string; value: Cell }
 export interface ErrorView { kind: 'error'; message: string }
 
@@ -53,13 +53,13 @@ function clip(text: string): string {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
 const STATUS_KEY = /^(status|state|conclusion|stato)$/i;
-const TONE_WORDS: Array<[RegExp, Tone]> = [
+const TONE_WORDS: Array<[RegExp, ViewTone]> = [
   [/^(done|success|succeeded|passed?|ok|merged|completed?|green|healthy|ready|open|approved)$/i, 'success'],
   [/^(fail(ed|ure)?|error|errored|cancell?ed|rejected|red|blocked|broken|down)$/i, 'danger'],
   [/^(in[ _-]?progress|pending|review|running|queued|waiting|todo|backlog|needs[ _-]input|draft)$/i, 'warning'],
 ];
 
-function statusTone(v: string): Tone {
+function statusTone(v: string): ViewTone {
   for (const [re, tone] of TONE_WORDS) if (re.test(v)) return tone;
   return 'neutral';
 }

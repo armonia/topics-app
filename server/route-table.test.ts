@@ -62,6 +62,7 @@ const GOLDEN_ORDER = [
   "providersRouter",
   "appSettingsRouter",
   "reasoningTranslationRouter",
+  "readableViewRouter",
   "calendarRouter",
   "heavySlotRouter",
   "scheduledJobsRouter",
