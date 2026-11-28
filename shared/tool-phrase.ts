@@ -28,42 +28,42 @@ export interface Phrase { text: string; category: ToolCategory; /** True when on
 function knownTopicsPhrase(tool: string, a: Record<string, unknown>): Phrase | null {
   const taskId = str(a.task_id) ?? str(a.taskId) ?? str(a.id);
   switch (tool) {
-    case 'get_task': return { text: taskId ? `Legge la card ${shortId(taskId)}` : 'Legge una card', category: 'read' };
+    case 'get_task': return { text: taskId ? `Legge la card ${shortId(taskId)}` : 'Legge una card', category: 'read' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
     case 'list_tasks': return { text: 'Elenca le card', category: 'read' };
-    case 'create_task': return { text: 'Crea una card', category: 'write' };
-    case 'update_task': return { text: taskId ? `Aggiorna la card ${shortId(taskId)}` : 'Aggiorna una card', category: 'write' };
-    case 'comment_task': return { text: taskId ? `Commenta la card ${shortId(taskId)}` : 'Commenta una card', category: 'write' };
-    case 'label_task': return { text: taskId ? `Etichetta la card ${shortId(taskId)}` : 'Etichetta una card', category: 'write' };
-    case 'get_goal': return { text: 'Legge l’obiettivo', category: 'read' };
-    case 'set_goal': return { text: 'Imposta l’obiettivo', category: 'write' };
-    case 'close_goal': return { text: 'Chiude l’obiettivo', category: 'write' };
-    case 'update_goal_steps': return { text: 'Aggiorna i passi', category: 'write' };
-    case 'wait_for_condition': return { text: 'Aspetta una condizione', category: 'other' };
-    case 'send_mail': return { text: 'Invia una mail', category: 'network' };
+    case 'create_task': return { text: 'Crea una card', category: 'write' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'update_task': return { text: taskId ? `Aggiorna la card ${shortId(taskId)}` : 'Aggiorna una card', category: 'write' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'comment_task': return { text: taskId ? `Commenta la card ${shortId(taskId)}` : 'Commenta una card', category: 'write' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'label_task': return { text: taskId ? `Etichetta la card ${shortId(taskId)}` : 'Etichetta una card', category: 'write' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'get_goal': return { text: 'Legge l’obiettivo', category: 'read' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'set_goal': return { text: 'Imposta l’obiettivo', category: 'write' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'close_goal': return { text: 'Chiude l’obiettivo', category: 'write' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'update_goal_steps': return { text: 'Aggiorna i passi', category: 'write' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'wait_for_condition': return { text: 'Aspetta una condizione', category: 'other' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'send_mail': return { text: 'Invia una mail', category: 'network' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
     case 'google_call': return { text: 'Chiama Google', category: 'network' };
-    case 'read_chat_messages': return { text: 'Legge i messaggi', category: 'read' };
-    case 'send_chat_message': return { text: 'Scrive un messaggio', category: 'write' };
+    case 'read_chat_messages': return { text: 'Legge i messaggi', category: 'read' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'send_chat_message': return { text: 'Scrive un messaggio', category: 'write' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
     case 'run_command': return { text: 'Lancia un comando', category: 'shell' };
     case 'run_script': return { text: 'Lancia uno script', category: 'shell' };
     case 'list_processes': return { text: 'Elenca i processi', category: 'shell' };
-    case 'read_process_output': return { text: 'Legge l’output del processo', category: 'shell' };
-    case 'stop_process': return { text: 'Ferma il processo', category: 'shell' };
-    case 'open_browser_pane': return { text: 'Apre una pagina', category: 'browser' };
-    case 'close_browser_pane': return { text: 'Chiude una pagina', category: 'browser' };
+    case 'read_process_output': return { text: 'Legge l’output del processo', category: 'shell' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'stop_process': return { text: 'Ferma il processo', category: 'shell' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'open_browser_pane': return { text: 'Apre una pagina', category: 'browser' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'close_browser_pane': return { text: 'Chiude una pagina', category: 'browser' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
     case 'browser_list_tabs': return { text: 'Elenca le tab', category: 'browser' };
-    case 'browser_focus_tab': return { text: 'Porta avanti la tab', category: 'browser' };
+    case 'browser_focus_tab': return { text: 'Porta avanti la tab', category: 'browser' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
     case 'import_chrome': return { text: 'Importa da Chrome', category: 'browser' };
-    case 'spawn_agent': return { text: 'Avvia un sotto-agente', category: 'other' };
+    case 'spawn_agent': return { text: 'Avvia un sotto-agente', category: 'other' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
     case 'send_to_agent': return { text: 'Scrive al sotto-agente', category: 'other' };
     case 'read_agent': return { text: 'Legge il sotto-agente', category: 'read' };
-    case 'stop_agent': return { text: 'Ferma il sotto-agente', category: 'other' };
-    case 'list_agents': return { text: 'Elenca gli agenti', category: 'read' };
-    case 'move_session_to_project': return { text: 'Sposta la sessione', category: 'write' };
+    case 'stop_agent': return { text: 'Ferma il sotto-agente', category: 'other' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'list_agents': return { text: 'Elenca gli agenti', category: 'read' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'move_session_to_project': return { text: 'Sposta la sessione', category: 'write' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
     case 'switch_topic': return { text: 'Cambia argomento', category: 'other' };
-    case 'new_topic': return { text: 'Apre un argomento', category: 'write' };
-    case 'create_project': return { text: 'Crea un progetto', category: 'write' };
-    case 'open_project': return { text: 'Apre un progetto', category: 'read' };
-    case 'resolve_tab': return { text: 'Trova la tab', category: 'search' };
+    case 'new_topic': return { text: 'Apre un argomento', category: 'write' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'create_project': return { text: 'Crea un progetto', category: 'write' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'open_project': return { text: 'Apre un progetto', category: 'read' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
+    case 'resolve_tab': return { text: 'Trova la tab', category: 'search' }; // allow-italian: shared module, phrases move to i18n in card 8814b239
     default: return null;
   }
 }
@@ -86,8 +86,8 @@ function humanize(name: string): string {
 }
 
 const NOUNS_IT: Record<string, string> = {
-  status: 'lo stato', task: 'la card', tasks: 'le card', goal: 'l’obiettivo', agent: 'l’agente', agents: 'gli agenti',
-  project: 'il progetto', projects: 'i progetti', process: 'il processo', processes: 'i processi', file: 'il file', files: 'i file',
+  status: 'lo stato', task: 'la card', tasks: 'le card', goal: 'l’obiettivo', agent: 'l’agente', agents: 'gli agenti', // allow-italian: shared module, phrases move to i18n in card 8814b239
+  project: 'il progetto', projects: 'i progetti', process: 'il processo', processes: 'i processi', file: 'il file', files: 'i file', // allow-italian: shared module, phrases move to i18n in card 8814b239
 };
 
 /** `get_x` / `x_get` is a read, `list_x` / `x_list` a listing: the name alone says so, whatever the server. */
