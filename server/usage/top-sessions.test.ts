@@ -80,13 +80,13 @@ describe("scanTranscripts is incremental", () => {
   test("a second scan does not reopen unchanged files and reads only appended bytes", async () => {
     const root = setup();
     const f = join(root, "proj", "aaaa1111.jsonl");
-    writeFileSync(f, head(3, "/w/x", "cli") + "\n" + rec(1, 100));
+    writeFileSync(f, head(3, "/w/x", "cli") + "\n" + record(1, 100));
     const first = await scanTranscripts(root, NOW);
     const afterFirst = transcriptBytesRead();
     expect(afterFirst).toBeGreaterThan(0);
     await scanTranscripts(root, NOW);
     expect(transcriptBytesRead()).toBe(afterFirst);
-    const added = rec(0.5, 200);
+    const added = record(0.5, 200);
     appendFileSync(f, added);
     future(f);
     const third = await scanTranscripts(root, NOW);
@@ -97,9 +97,9 @@ describe("scanTranscripts is incremental", () => {
   test("a file that shrinks is read again from the start", async () => {
     const root = setup();
     const f = join(root, "proj", "bbbb2222.jsonl");
-    writeFileSync(f, rec(2, 500) + rec(1, 500));
+    writeFileSync(f, record(2, 500) + record(1, 500));
     await scanTranscripts(root, NOW);
-    writeFileSync(f, rec(1, 10));
+    writeFileSync(f, record(1, 10));
     future(f);
     const [s] = aggregate(await scanTranscripts(root, NOW), NOW).sessions;
     expect(s.points24h).toBe(10 * 5 + 1000 * 0.1);
