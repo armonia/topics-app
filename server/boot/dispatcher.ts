@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { countAttachedTerminalSessions } from "../routes/terminal";
 import { createAgentWorktree, worktreeReadyMs } from "../services/worktree-for-agent";
 import { mainRedStop, realMainCiPort } from "../services/main-ci-watch";
+import { AGENT_COST_FLOOR_MEM_GB } from "../../shared/board";
 import { createTaskDispatcher } from "../services/task-dispatcher";
 import { dispatcherLogLine } from "../services/task-dispatcher-support";
 import { budgetSample, computeDispatchCapacity } from "../services/dispatch-capacity";
@@ -526,6 +527,13 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     broadcast: ctx.broadcastToAll,
   });
   late.taskDispatcher = taskDispatcher;
+  // A chat preview asks the same floor as a card, priced as one more card.
+  const chatPreviewFloor = createDispatchResourceBlockFromInputs({
+    worktreesPath: () => ctx.worktreeManager.worktreesDir(),
+    inputs: dispatchMemoryInputs,
+    memoryOwners: () => memoryOwners.latest(),
+  });
+  late.resourceBlock = () => chatPreviewFloor({ cardGB: AGENT_COST_FLOOR_MEM_GB, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: true }).reason;
 
   const scheduledCardsTimer = scheduleEngine.start(isThisServerPrimary, announceTick);
   // A command that was running when the server stopped is read again now, not 15 s from now (R12).

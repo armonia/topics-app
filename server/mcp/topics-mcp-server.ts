@@ -26,6 +26,7 @@
 import { createInterface } from "readline";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { callGoogleCall, callSendMail } from "./outbound-tools";
+import { callCreateScheduledJob, callDeleteScheduledJob, callListScheduledJobs, callPauseScheduledJob, callRunScheduledJob } from "./schedule-tools";
 import { RUN_COMMAND_BOARD_DESCRIPTION, callRunCommand, isBoardProfile } from "./command-tools";
 import { answerResourceMethod, callShowView, showViewCallResult } from "./view-tools";
 import { hasCommandShell } from "../lib/command-process";
@@ -347,6 +348,11 @@ export const TOOL_HANDLERS: Record<
   import_chrome: (a, t) => callImportChrome(a, t as { domains?: unknown; profile?: unknown; dry_run?: unknown; browser?: unknown }),
   run_script: (a, t) => callRunScript(a, t),
   run_command: (a, t) => callRunCommand(a, t),
+  create_scheduled_job: (a, t) => callCreateScheduledJob(a, t),
+  list_scheduled_jobs: (a, t) => callListScheduledJobs(a, t),
+  run_scheduled_job: (a, t) => callRunScheduledJob(a, t),
+  pause_scheduled_job: (a, t) => callPauseScheduledJob(a, t),
+  delete_scheduled_job: (a, t) => callDeleteScheduledJob(a, t),
   list_processes: (a, t) => callListProcesses(a, t),
   read_process_output: (a, t) => callReadProcessOutput(a, t),
   wait_for_process: (a, t) => callWaitForProcess(a, t),

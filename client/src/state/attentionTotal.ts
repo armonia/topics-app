@@ -19,9 +19,9 @@
  */
 import type { Topic, TerminalSessionInfo } from '../types';
 import { attentionOf, type AttentionRows } from './attention';
-import { TASK_SUBJECT_PREFIX, TERMINAL_SUBJECT_PREFIX, TOPIC_SUBJECT_PREFIX, taskSubject, topicSubject } from '../../../shared/attention';
+import { JOB_SUBJECT_PREFIX, TASK_SUBJECT_PREFIX, TERMINAL_SUBJECT_PREFIX, TOPIC_SUBJECT_PREFIX, taskSubject, topicSubject } from '../../../shared/attention';
 
-export type ChromeSubjectKind = 'chat' | 'terminal' | 'card';
+export type ChromeSubjectKind = 'chat' | 'terminal' | 'card' | 'job';
 
 /** One lit subject the Dock, the tray, the PWA badge and the inbox count. */
 export interface ChromeSubject {
@@ -34,6 +34,8 @@ function kindOf(subject: string): { kind: ChromeSubjectKind; id: string } | null
   if (subject.startsWith(TOPIC_SUBJECT_PREFIX)) return { kind: 'chat', id: subject.slice(TOPIC_SUBJECT_PREFIX.length) };
   if (subject.startsWith(TERMINAL_SUBJECT_PREFIX)) return { kind: 'terminal', id: subject.slice(TERMINAL_SUBJECT_PREFIX.length) };
   if (subject.startsWith(TASK_SUBJECT_PREFIX)) return { kind: 'card', id: subject.slice(TASK_SUBJECT_PREFIX.length) };
+  // A scheduled job's failure (R24): lit until seen, like a chat that ended in error.
+  if (subject.startsWith(JOB_SUBJECT_PREFIX)) return { kind: 'job', id: subject.slice(JOB_SUBJECT_PREFIX.length) };
   return null;
 }
 
