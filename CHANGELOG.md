@@ -2,10 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.27 — 2026-11-28
+
+### Sotto il cofano
+- Preview seed: correct the proven cause and lock it with tests
+
 ## 2.5.25 — 2026-11-28
 
 ### Sotto il cofano
 - Make the walkFileTree yield test load-independent
+- Trace the systemd-temp-entries test to GATE-13 so check:untraced-tests passes
+- Preview photo: the announced page is the contract, not the bare home
 
 ## 2.5.24 — 2026-11-28
 
@@ -57,10 +64,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - secret-store: mutex per file, derived recipient, Keychain limit and read-back, no env identity, secrets dir, CI age retry
+- Preview seed: make the example topic standalone, not project-bound
+- Cloud node: install WebKit so a card there can get a live preview screenshot
 - review-checks brakes: load gets its own budget clock, only the load reason is released by it (card 9fecea98)
 - review-checks brakes test: complete the spent clocks literal (card 9fecea98)
 - age is a spawned test binary, not dead code
 - Prove "already on main" before writing it, and warn review of a false claim
+- Preview seed test: declare the requirement it covers (KANBAN-126)
+- Exclude systemd PrivateTmp entries from the real-tmp-folder check
 - **native** · the ceiling reaches the loop inside the turn's own process
 - **openspec** · tetto-contesto-agenti, CHAT-COMPACT-06 and its bar; token-audit measures an agent's calls
 - **openspec** · no machine path in the proposal
