@@ -119,6 +119,7 @@
     "check:disk-budget": "bun run scripts/disk-budget-check.ts",
     "review:open-prs": "bun run scripts/review-open-prs.ts",
     "report:webcontent": "bun run scripts/webcontent-owners.ts",
+    "check:renderer-growth": "bun run scripts/renderer-growth-check.ts",
     "report:branches": "bun run scripts/branch-audit.ts",
     "report:landed": "bun run scripts/check-done-landed.ts",
     "measure:task-tabs": "bun run scripts/measure-task-tab-teardown.ts",
