@@ -42,7 +42,7 @@ export function ToastStack({ toasts, onDismiss, onAction, dismissLabel }: {
             key={t.id}
             role={t.tone === 'error' ? 'alert' : 'status'}
             data-tone={t.tone}
-            className="glass-surface popover-enter pointer-events-auto flex w-full max-w-[380px] items-start gap-2.5 rounded-lg border border-app-border py-2.5 pl-3 pr-2 shadow-lg"
+            className="glass-surface popover-enter pointer-events-auto flex w-full max-w-95 items-start gap-2.5 rounded-lg border border-app-border py-2.5 pl-3 pr-2 shadow-lg"
           >
             <Icon size={15} className={clsx('mt-0.5 shrink-0', NOTICE_TEXT[t.tone])} aria-hidden="true" />
             <div className="min-w-0 flex-1">

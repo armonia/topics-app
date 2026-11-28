@@ -150,7 +150,7 @@ export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-
       {/* Open: the same rows as always, indented under the line that summed
           them up. Mounted only when open (or closing), so a closed transcript
           does not pay for the tool bodies it is not showing. */}
-      <DisclosureBody open={open} id={bodyId} testId="task-work-body" className="ml-[9px] mt-0.5 border-l border-app-border/50 pl-3">
+      <DisclosureBody open={open} id={bodyId} testId="task-work-body" className="ml-2.25 mt-0.5 border-l border-app-border/50 pl-3">
         {label
           // «Session details» of a board task opens onto the steps as ONE strip
           // (a single soft band, rows flat inside), not a stack of boxed tool cards.

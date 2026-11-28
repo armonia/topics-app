@@ -1,10 +1,10 @@
 {
   "files": {
     "client/src/App.tsx": {
-      "raw-size": 14
+      "raw-size": 13
     },
     "client/src/app/AppSidebar.tsx": {
-      "raw-size": 6
+      "raw-size": 5
     },
     "client/src/app/FirstRunAndUpdates.tsx": {
       "raw-size": 1
@@ -13,22 +13,21 @@
       "raw-size": 12
     },
     "client/src/app/TopicsMenuPortal.tsx": {
-      "raw-size": 3
+      "raw-size": 2
     },
     "client/src/components/Accounts/AccountInsights.tsx": {
-      "raw-size": 9,
+      "raw-size": 3,
       "raw-control": 1
     },
     "client/src/components/Accounts/AccountQuotasPane.tsx": {
-      "raw-size": 10,
-      "raw-control": 10
+      "raw-control": 10,
+      "raw-size": 1
     },
     "client/src/components/Accounts/ClaudeAccountCard.tsx": {
-      "raw-size": 4,
       "raw-control": 9
     },
     "client/src/components/Accounts/accountCardParts.tsx": {
-      "raw-size": 9,
+      "raw-size": 4,
       "raw-control": 1
     },
     "client/src/components/Agents/AgentConfigPieces.tsx": {
@@ -51,21 +50,21 @@
       "raw-control": 1
     },
     "client/src/components/Auth/PairingApproval.tsx": {
-      "raw-size": 2
+      "raw-size": 1
     },
     "client/src/components/Auth/PairingGate.tsx": {
       "raw-size": 3
     },
     "client/src/components/Automations/AutomationDetail.tsx": {
-      "raw-size": 2,
+      "raw-size": 1,
       "raw-control": 6
     },
     "client/src/components/Automations/AutomationFacts.tsx": {
-      "raw-size": 2
+      "raw-size": 1
     },
     "client/src/components/Automations/AutomationGraphPart.tsx": {
       "one-sided-border": 1,
-      "raw-size": 3,
+      "raw-size": 1,
       "raw-control": 1
     },
     "client/src/components/Automations/AutomationMarks.tsx": {
@@ -73,22 +72,18 @@
       "raw-color": 1
     },
     "client/src/components/Automations/AutomationRunsPart.tsx": {
-      "raw-size": 2,
+      "raw-size": 1,
       "raw-control": 1
     },
     "client/src/components/Automations/AutomationTable.tsx": {
-      "raw-size": 4,
+      "raw-size": 1,
       "raw-control": 4
     },
     "client/src/components/Automations/AutomationsCalendar.tsx": {
-      "raw-size": 3
-    },
-    "client/src/components/Automations/AutomationsHead.tsx": {
       "raw-size": 1
     },
     "client/src/components/Automations/AutomationsPane.tsx": {
-      "raw-control": 7,
-      "raw-size": 4
+      "raw-control": 7
     },
     "client/src/components/Automations/DecideList.tsx": {
       "raw-control": 2
@@ -107,27 +102,18 @@
     "client/src/components/Board/BoardToolbarControls.tsx": {
       "raw-control": 1
     },
-    "client/src/components/Board/BoardViewControls.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Board/BrakeChip.tsx": {
       "raw-size": 1
     },
     "client/src/components/Board/Card.tsx": {
-      "raw-size": 27,
+      "raw-size": 21,
       "raw-control": 3,
       "emoji": 1,
       "dash-heading": 2,
       "one-sided-border": 1
     },
-    "client/src/components/Board/ChannelChipView.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Board/CiPhaseControl.tsx": {
       "raw-control": 1
-    },
-    "client/src/components/Board/DispatchDashboard.tsx": {
-      "raw-size": 1
     },
     "client/src/components/Board/DropNotice.tsx": {
       "raw-size": 3
@@ -137,14 +123,10 @@
       "raw-size": 2,
       "raw-control": 3
     },
-    "client/src/components/Board/FilterTokenField.tsx": {
-      "raw-size": 3
-    },
     "client/src/components/Board/FloatingTaskComposer.tsx": {
-      "raw-size": 5
+      "raw-size": 2
     },
     "client/src/components/Board/IntakePlanPanel.tsx": {
-      "raw-size": 1,
       "raw-control": 2
     },
     "client/src/components/Board/KanbanBoardPane.tsx": {
@@ -155,18 +137,12 @@
     "client/src/components/Board/OrchestratorDrawer.tsx": {
       "raw-size": 1
     },
-    "client/src/components/Board/OriginChipView.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Board/OriginFilterBar.tsx": {
-      "raw-size": 4,
+      "raw-size": 3,
       "raw-control": 7
     },
     "client/src/components/Board/PreviewMedia.tsx": {
       "raw-size": 3
-    },
-    "client/src/components/Board/ProjectFilterPicker.tsx": {
-      "raw-size": 1
     },
     "client/src/components/Board/ScheduledCardsControl.tsx": {
       "raw-size": 1,
@@ -175,18 +151,12 @@
     "client/src/components/Board/SessionPeek.tsx": {
       "raw-size": 1
     },
-    "client/src/components/Board/SystemNoteFold.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Board/TaskChoiceRow.tsx": {
-      "raw-size": 2
-    },
-    "client/src/components/Board/TaskComments.tsx": {
       "raw-size": 1
     },
     "client/src/components/Board/TaskDeliveryBand.tsx": {
       "raw-control": 2,
-      "raw-size": 2
+      "raw-size": 1
     },
     "client/src/components/Board/TaskDetail.tsx": {
       "raw-size": 3,
@@ -194,15 +164,13 @@
     },
     "client/src/components/Board/TaskHeader.tsx": {
       "emoji": 1,
-      "raw-size": 1,
       "raw-control": 6
     },
     "client/src/components/Board/TaskMetadata.tsx": {
-      "raw-control": 1,
-      "raw-size": 2
+      "raw-control": 1
     },
     "client/src/components/Board/TaskThread.tsx": {
-      "raw-size": 2,
+      "raw-size": 1,
       "raw-control": 6,
       "raw-color": 2
     },
@@ -217,7 +185,6 @@
       "raw-color": 1
     },
     "client/src/components/Browser/BrowserDevControls.tsx": {
-      "raw-size": 4,
       "raw-control": 1
     },
     "client/src/components/Browser/BrowserFavicon.tsx": {
@@ -229,39 +196,24 @@
     "client/src/components/Browser/BrowserPaneChip.tsx": {
       "raw-control": 1
     },
-    "client/src/components/Browser/BrowserTabChrome.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Browser/DomCoBrowse.tsx": {
       "raw-size": 1
     },
     "client/src/components/Browser/DownloadsMenu.tsx": {
-      "raw-size": 5
-    },
-    "client/src/components/Browser/NewTabPage.tsx": {
       "raw-size": 2
     },
     "client/src/components/Browser/PausedPane.tsx": {
       "raw-control": 2
     },
-    "client/src/components/Browser/TopicBrowserWindow.tsx": {
-      "raw-size": 2
-    },
     "client/src/components/ChangelogModal.tsx": {
-      "raw-size": 3
-    },
-    "client/src/components/Chat/BrowserOpenMarker.tsx": {
-      "raw-size": 2
+      "raw-size": 1
     },
     "client/src/components/Chat/ChatInput.tsx": {
       "raw-control": 5,
-      "raw-size": 14
+      "raw-size": 11
     },
     "client/src/components/Chat/ChatPane.tsx": {
       "raw-size": 2
-    },
-    "client/src/components/Chat/CheckpointTimeline.tsx": {
-      "raw-size": 1
     },
     "client/src/components/Chat/CodeBlockRunControls.tsx": {
       "raw-control": 2
@@ -272,19 +224,12 @@
       "raw-size": 1
     },
     "client/src/components/Chat/ContextPills.tsx": {
-      "raw-size": 1,
       "raw-control": 1
-    },
-    "client/src/components/Chat/DictationStrip.tsx": {
-      "raw-size": 2
-    },
-    "client/src/components/Chat/GoalBar.tsx": {
-      "raw-size": 2
     },
     "client/src/components/Chat/MessageBubble.tsx": {
       "raw-control": 5,
       "emoji": 1,
-      "raw-size": 6
+      "raw-size": 5
     },
     "client/src/components/Chat/MessageList.tsx": {
       "raw-size": 3,
@@ -293,18 +238,11 @@
     "client/src/components/Chat/ProviderModelPicker.tsx": {
       "raw-size": 1
     },
-    "client/src/components/Chat/QuestionAnswer.tsx": {
-      "raw-size": 5
-    },
     "client/src/components/Chat/ReasoningRow.tsx": {
       "one-sided-border": 1
     },
     "client/src/components/Chat/ResumePicker.tsx": {
-      "raw-size": 1,
       "raw-control": 2
-    },
-    "client/src/components/Chat/SessionConfigPopover.tsx": {
-      "raw-size": 1
     },
     "client/src/components/Chat/SideQuestionPanel.tsx": {
       "raw-control": 1
@@ -316,14 +254,10 @@
       "one-sided-border": 1
     },
     "client/src/components/Chat/SubAgentsStrip.tsx": {
-      "raw-control": 2,
-      "raw-size": 1
-    },
-    "client/src/components/Chat/TaskWorkAccordion.tsx": {
-      "raw-size": 1
+      "raw-control": 2
     },
     "client/src/components/Chat/ToolCallRow.tsx": {
-      "raw-size": 4,
+      "raw-size": 3,
       "dash-heading": 1
     },
     "client/src/components/Chat/ToolCards.tsx": {
@@ -331,10 +265,10 @@
       "raw-control": 1
     },
     "client/src/components/Chat/ToolGroupRow.tsx": {
-      "raw-size": 2
+      "raw-size": 1
     },
     "client/src/components/Chat/ToolInputForm.tsx": {
-      "raw-size": 3,
+      "raw-size": 1,
       "raw-control": 3
     },
     "client/src/components/Chat/ToolPermissionRow.tsx": {
@@ -347,37 +281,28 @@
       "raw-control": 1
     },
     "client/src/components/Context/ContextSourceRow.tsx": {
-      "raw-color": 6,
-      "raw-size": 1
-    },
-    "client/src/components/Dashboard/DashboardPane.tsx": {
-      "raw-size": 1
+      "raw-color": 6
     },
     "client/src/components/Dashboard/HubUsageBoxes.tsx": {
-      "raw-size": 4,
+      "raw-size": 2,
       "raw-control": 2
     },
     "client/src/components/Dashboard/HubUsageMore.tsx": {
-      "raw-control": 2,
-      "raw-size": 6
+      "raw-control": 2
     },
     "client/src/components/Dashboard/HubUsageSection.tsx": {
-      "raw-size": 6,
-      "raw-control": 3
+      "raw-control": 3,
+      "raw-size": 1
     },
     "client/src/components/Dashboard/PeopleUsageBox.tsx": {
-      "raw-control": 2,
-      "raw-size": 2
+      "raw-control": 2
     },
     "client/src/components/Dashboard/TimeSeriesChart.tsx": {
       "raw-color": 3
     },
     "client/src/components/Dashboard/hubUsageUi.tsx": {
-      "raw-size": 8,
+      "raw-size": 1,
       "raw-control": 1
-    },
-    "client/src/components/Editor/BreadcrumbNav.tsx": {
-      "raw-size": 1
     },
     "client/src/components/Editor/CodeEditor.tsx": {
       "raw-size": 15,
@@ -390,76 +315,55 @@
       "one-sided-border": 1
     },
     "client/src/components/Editor/EditorTabs.tsx": {
-      "raw-size": 1,
       "raw-control": 2
     },
     "client/src/components/Editor/ToolbarButtons.tsx": {
       "raw-control": 3
     },
     "client/src/components/Editor/fileMedia.tsx": {
-      "raw-control": 3,
-      "raw-size": 2
+      "raw-control": 3
     },
     "client/src/components/Features/FeaturesPane.tsx": {
-      "raw-size": 13,
-      "raw-control": 2
+      "raw-control": 2,
+      "raw-size": 1
     },
     "client/src/components/Features/FeaturesPyramid.tsx": {
-      "raw-size": 3
+      "raw-size": 1
     },
     "client/src/components/FirstRun/FirstRunHost.tsx": {
-      "raw-size": 1,
       "raw-control": 7
     },
-    "client/src/components/Git/BranchList.tsx": {
-      "raw-size": 8
-    },
     "client/src/components/Git/CommitHistory.tsx": {
-      "raw-size": 7
-    },
-    "client/src/components/Git/HunkActions.tsx": {
-      "raw-size": 2
-    },
-    "client/src/components/Layout/CellSubStack.tsx": {
-      "raw-size": 2
+      "raw-size": 3
     },
     "client/src/components/Layout/GroupLayout.tsx": {
       "raw-size": 3
     },
     "client/src/components/Layout/InsertDividers.tsx": {
-      "raw-size": 8
-    },
-    "client/src/components/Layout/PaneSkeletons.tsx": {
       "raw-size": 2
     },
     "client/src/components/Layout/PaneTabBar.tsx": {
       "raw-color": 1,
-      "raw-size": 4
+      "raw-size": 3
     },
     "client/src/components/Layout/PanelGrid.tsx": {
       "raw-size": 3,
       "dash-heading": 1
     },
-    "client/src/components/Layout/SpaceElsewherePanel.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Layout/SquareTabMark.tsx": {
       "raw-color": 5
     },
     "client/src/components/Layout/StandaloneChatGroup.tsx": {
-      "raw-size": 3
+      "raw-size": 2
     },
     "client/src/components/Layout/TabSlot.tsx": {
-      "raw-size": 1
-    },
-    "client/src/components/Layout/UnsentBanner.tsx": {
       "raw-size": 1
     },
     "client/src/components/LoadScreen/LoadScreen.tsx": {
       "raw-size": 2
     },
     "client/src/components/MediaBlocks.tsx": {
-      "raw-size": 2,
+      "raw-size": 1,
       "raw-color": 2,
       "raw-control": 1
     },
@@ -484,62 +388,43 @@
       "raw-control": 1,
       "raw-size": 2
     },
-    "client/src/components/Notifications/InAppBanners.tsx": {
-      "raw-size": 2
-    },
-    "client/src/components/Notifications/PushEnrollPrompt.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Processes/Gauge.tsx": {
-      "raw-size": 4
+      "raw-size": 1
     },
     "client/src/components/Processes/MachineProcessesPane.tsx": {
-      "raw-size": 26,
-      "raw-control": 7
-    },
-    "client/src/components/Processes/RemoteMachineSection.tsx": {
-      "raw-size": 2
-    },
-    "client/src/components/Processes/SessionConsumption.tsx": {
-      "raw-size": 4,
-      "raw-control": 4
-    },
-    "client/src/components/Profile/ProfileDropdown.tsx": {
+      "raw-control": 7,
       "raw-size": 1
     },
+    "client/src/components/Processes/SessionConsumption.tsx": {
+      "raw-size": 1,
+      "raw-control": 4
+    },
     "client/src/components/Project/FileExplorer.tsx": {
-      "raw-size": 7,
       "raw-control": 5,
       "raw-color": 1
     },
     "client/src/components/Project/FileSearch.tsx": {
-      "raw-size": 3,
+      "raw-size": 2,
       "raw-control": 1
     },
     "client/src/components/Project/GitChanges.tsx": {
-      "raw-size": 21,
-      "raw-control": 9
+      "raw-control": 9,
+      "raw-size": 7
     },
     "client/src/components/Project/GitSectionSkeleton.tsx": {
-      "raw-size": 3
+      "raw-size": 1
     },
     "client/src/components/Project/ProjectSidebar.tsx": {
       "dash-heading": 3,
-      "raw-size": 36,
       "raw-control": 4,
+      "raw-size": 7,
       "emoji": 2
-    },
-    "client/src/components/Project/ScriptRunner.tsx": {
-      "raw-size": 10
     },
     "client/src/components/Settings/AgentToolsPage.tsx": {
       "raw-control": 9
     },
     "client/src/components/Settings/ApiProviderSetup.tsx": {
       "raw-control": 1
-    },
-    "client/src/components/Settings/CalendarSection.tsx": {
-      "raw-size": 1
     },
     "client/src/components/Settings/DiscordSection.tsx": {
       "raw-size": 3,
@@ -548,15 +433,12 @@
     "client/src/components/Settings/HomePanel.tsx": {
       "raw-size": 1
     },
-    "client/src/components/Settings/IdentitySection.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Settings/NodesSection.tsx": {
       "raw-size": 1,
       "raw-control": 1
     },
     "client/src/components/Settings/OrgProjectsSection.tsx": {
-      "raw-size": 3
+      "raw-size": 2
     },
     "client/src/components/Settings/PlanSection.tsx": {
       "raw-control": 3
@@ -565,25 +447,19 @@
       "raw-size": 2
     },
     "client/src/components/Settings/ProviderDetail.tsx": {
-      "raw-size": 2,
+      "raw-size": 1,
       "raw-control": 6
     },
     "client/src/components/Settings/ProvidersView.tsx": {
       "raw-control": 2,
-      "raw-size": 2
+      "raw-size": 1
     },
     "client/src/components/Settings/RemoteNodeRequests.tsx": {
       "raw-size": 1,
       "raw-control": 3
     },
-    "client/src/components/Settings/SettingSelect.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Settings/WorktreesPreview.tsx": {
       "raw-control": 1
-    },
-    "client/src/components/Settings/WorktreesSection.tsx": {
-      "raw-size": 1
     },
     "client/src/components/Share/AgentStartControl.tsx": {
       "raw-size": 2,
@@ -597,7 +473,7 @@
       "raw-size": 1
     },
     "client/src/components/Shared/CommandPalette.tsx": {
-      "raw-size": 3
+      "raw-size": 2
     },
     "client/src/components/Shared/ContextMenuPortal.tsx": {
       "raw-size": 1
@@ -605,22 +481,16 @@
     "client/src/components/Shared/ContextRing.tsx": {
       "raw-color": 4
     },
-    "client/src/components/Shared/LiveTerminalsLevel.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Shared/Menu.tsx": {
       "raw-size": 1
     },
     "client/src/components/Shared/ModelSelector/ModelList.tsx": {
       "raw-color": 1,
-      "raw-size": 2
-    },
-    "client/src/components/Shared/NotificationBadge.tsx": {
       "raw-size": 1
     },
     "client/src/components/Shared/PaneAddMenu.tsx": {
       "raw-color": 1,
-      "raw-size": 7,
+      "raw-size": 6,
       "dash-heading": 1
     },
     "client/src/components/Shared/PendingActionRing.tsx": {
@@ -630,9 +500,6 @@
       "raw-size": 1
     },
     "client/src/components/Shared/Segmented.tsx": {
-      "raw-size": 1
-    },
-    "client/src/components/Shared/Select.tsx": {
       "raw-size": 1
     },
     "client/src/components/Shared/SharedOrgBadge.tsx": {
@@ -647,9 +514,6 @@
     "client/src/components/Shared/SplitMiniMap.tsx": {
       "raw-size": 1
     },
-    "client/src/components/Shared/Stepper.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Shared/SwapFreezeLabel.tsx": {
       "raw-color": 1
     },
@@ -659,56 +523,33 @@
     "client/src/components/Shared/Toast.tsx": {
       "raw-size": 1
     },
-    "client/src/components/Shared/TokenPill.tsx": {
-      "raw-size": 1
-    },
     "client/src/components/Shared/TopicColorDot.tsx": {
       "raw-size": 1
     },
     "client/src/components/Shared/WindowControls.tsx": {
-      "raw-size": 3,
-      "raw-color": 1
+      "raw-color": 1,
+      "raw-size": 1
     },
     "client/src/components/Sidebar/AccountPanel.tsx": {
       "raw-control": 1
     },
     "client/src/components/Sidebar/AgentsJobsLevel.tsx": {
-      "raw-control": 8,
-      "raw-size": 4
-    },
-    "client/src/components/Sidebar/AppearanceLevelBody.tsx": {
-      "raw-size": 1
-    },
-    "client/src/components/Sidebar/AutomationsRow.tsx": {
-      "raw-size": 1
+      "raw-control": 8
     },
     "client/src/components/Sidebar/BellHistory.tsx": {
-      "raw-control": 1,
-      "raw-size": 2
-    },
-    "client/src/components/Sidebar/BellHistoryTools.tsx": {
-      "raw-size": 2
+      "raw-control": 1
     },
     "client/src/components/Sidebar/BellRows.tsx": {
-      "raw-size": 9,
+      "raw-size": 2,
       "raw-control": 6
     },
-    "client/src/components/Sidebar/BoardBrakeTag.tsx": {
-      "raw-size": 1
-    },
-    "client/src/components/Sidebar/CalendarTilePreview.tsx": {
-      "raw-size": 2
-    },
     "client/src/components/Sidebar/ContextFiles.tsx": {
-      "raw-size": 3,
       "raw-control": 1
     },
     "client/src/components/Sidebar/ContextLevel.tsx": {
-      "raw-control": 6,
-      "raw-size": 3
+      "raw-control": 6
     },
     "client/src/components/Sidebar/DevicesLevel.tsx": {
-      "raw-size": 2,
       "raw-control": 1
     },
     "client/src/components/Sidebar/FormLevel.tsx": {
@@ -718,24 +559,21 @@
       "raw-control": 3
     },
     "client/src/components/Sidebar/IdentityBlock.tsx": {
-      "raw-size": 3
+      "raw-size": 1
     },
     "client/src/components/Sidebar/IdentityMenuItems.tsx": {
-      "raw-size": 2,
+      "raw-size": 1,
       "raw-control": 2
     },
     "client/src/components/Sidebar/InboxPanel.tsx": {
-      "raw-size": 7,
+      "raw-size": 2,
       "raw-control": 5
     },
     "client/src/components/Sidebar/JobProjectIcon.tsx": {
       "raw-size": 1
     },
     "client/src/components/Sidebar/MobileChromeBar.tsx": {
-      "raw-size": 5
-    },
-    "client/src/components/Sidebar/NotificationsLevelBody.tsx": {
-      "raw-size": 2
+      "raw-size": 3
     },
     "client/src/components/Sidebar/PerfSection.tsx": {
       "raw-color": 1,
@@ -743,10 +581,9 @@
     },
     "client/src/components/Sidebar/PinnedTile.tsx": {
       "raw-color": 3,
-      "raw-size": 18
+      "raw-size": 17
     },
     "client/src/components/Sidebar/PresenceList.tsx": {
-      "raw-size": 1,
       "raw-control": 1
     },
     "client/src/components/Sidebar/ProfileMenu.tsx": {
@@ -756,12 +593,6 @@
       "raw-control": 5
     },
     "client/src/components/Sidebar/ProjectHub.tsx": {
-      "raw-size": 2
-    },
-    "client/src/components/Sidebar/ProjectHubAgents.tsx": {
-      "raw-size": 2
-    },
-    "client/src/components/Sidebar/ProjectUsagePanel.tsx": {
       "raw-size": 1
     },
     "client/src/components/Sidebar/ProviderLimitNotice.tsx": {
@@ -775,15 +606,14 @@
       "raw-control": 1
     },
     "client/src/components/Sidebar/SpaceGroups.tsx": {
-      "raw-size": 2,
       "raw-control": 1
     },
     "client/src/components/Sidebar/TopicItem.tsx": {
-      "raw-size": 8
+      "raw-size": 7
     },
     "client/src/components/Sidebar/TopicTree.tsx": {
       "raw-control": 3,
-      "raw-size": 27,
+      "raw-size": 16,
       "raw-color": 1
     },
     "client/src/components/Sidebar/TopicsLoadDot.tsx": {
@@ -795,9 +625,6 @@
     },
     "client/src/components/Sidebar/VersionPanel.tsx": {
       "raw-control": 5
-    },
-    "client/src/components/Sidebar/WorktreeChip.tsx": {
-      "raw-size": 1
     },
     "client/src/components/System/SystemHarness.tsx": {
       "raw-control": 3
@@ -813,10 +640,10 @@
     },
     "client/src/components/Terminal/SingleTerminalPane.tsx": {
       "raw-color": 45,
-      "raw-size": 8
+      "raw-size": 6
     },
     "client/src/components/Terminal/TerminalCover.tsx": {
-      "raw-size": 2
+      "raw-size": 1
     },
     "client/src/components/Views/TimelineView.tsx": {
       "raw-size": 1
@@ -826,19 +653,12 @@
       "one-sided-border": 1
     },
     "client/src/ui/board/BoardScreen.tsx": {
-      "raw-size": 3
-    },
-    "client/src/ui/board/OrgPage.tsx": {
       "raw-size": 1
     },
     "client/src/ui/channels/ChannelsScreen.tsx": {
       "raw-control": 4
     },
-    "client/src/ui/chat/ChatList.tsx": {
-      "raw-size": 1
-    },
     "client/src/ui/chat/ChatPanel.tsx": {
-      "raw-size": 4,
       "one-sided-border": 1
     },
     "client/src/ui/contracts/ComparePane.tsx": {
@@ -861,108 +681,63 @@
       "raw-size": 2
     },
     "client/src/ui/contracts/Signatures.tsx": {
-      "raw-size": 2
-    },
-    "client/src/ui/contracts/VariantDialog.tsx": {
       "raw-size": 1
     },
     "client/src/ui/data/DeadlinesView.tsx": {
-      "raw-size": 3,
       "raw-control": 1
     },
-    "client/src/ui/data/FieldsView.tsx": {
-      "raw-size": 1
-    },
-    "client/src/ui/data/FilterBar.tsx": {
-      "raw-size": 2
-    },
-    "client/src/ui/data/GroupChart.tsx": {
-      "raw-size": 1
-    },
     "client/src/ui/data/MonthCalendar.tsx": {
-      "raw-size": 1,
       "raw-control": 1
     },
     "client/src/ui/data/RowPeek.tsx": {
-      "raw-size": 2
+      "raw-size": 1
     },
     "client/src/ui/data/SchemaView.tsx": {
       "raw-control": 2,
-      "raw-size": 3
+      "raw-size": 1
     },
     "client/src/ui/data/SelectionToolbar.tsx": {
       "raw-color": 1,
       "raw-size": 1,
       "raw-control": 4
     },
-    "client/src/ui/data/StatusBoard.tsx": {
-      "raw-size": 2
-    },
     "client/src/ui/data/TableGrid.tsx": {
       "raw-size": 3
     },
     "client/src/ui/data/TablesNav.tsx": {
-      "raw-control": 3,
-      "raw-size": 1
+      "raw-control": 3
     },
     "client/src/ui/filters/FilterBar.tsx": {
-      "raw-size": 2
-    },
-    "client/src/ui/filters/FilterToken.tsx": {
       "raw-size": 1
     },
     "client/src/ui/filters/PickList.tsx": {
       "raw-size": 1
     },
-    "client/src/ui/flowrun/AiPanel.tsx": {
-      "raw-size": 1
-    },
     "client/src/ui/flowrun/ClassifyPanel.tsx": {
-      "raw-control": 1,
-      "raw-size": 1
-    },
-    "client/src/ui/flowrun/DecidesPanel.tsx": {
-      "raw-size": 3
-    },
-    "client/src/ui/flowrun/GenericPanel.tsx": {
-      "raw-size": 2
+      "raw-control": 1
     },
     "client/src/ui/flowrun/RobotPanel.tsx": {
-      "raw-size": 8
-    },
-    "client/src/ui/flowrun/RulePanel.tsx": {
-      "raw-size": 5
+      "raw-size": 3
     },
     "client/src/ui/flowrun/RunPanel.tsx": {
-      "raw-size": 4
+      "raw-size": 3
     },
     "client/src/ui/flowrun/RunsPanel.tsx": {
-      "raw-color": 1,
-      "raw-size": 2
+      "raw-color": 1
     },
     "client/src/ui/flowrun/TryPanel.tsx": {
-      "raw-size": 3
+      "raw-size": 2
     },
     "client/src/ui/flowrun/VersionsPanel.tsx": {
       "raw-size": 1
     },
     "client/src/ui/flowrun/common.tsx": {
-      "raw-size": 2,
       "raw-control": 1
     },
     "client/src/ui/flows/FlowCanvas.tsx": {
-      "raw-size": 4,
+      "raw-size": 2,
       "raw-color": 3,
       "raw-control": 1
-    },
-    "client/src/ui/flows/FlowList.tsx": {
-      "raw-size": 2
-    },
-    "client/src/ui/flows/Interview.tsx": {
-      "raw-size": 1
-    },
-    "client/src/ui/flows/NewFlow.tsx": {
-      "raw-size": 3
     },
     "client/src/ui/inbox/ClassificationField.tsx": {
       "raw-control": 4
@@ -971,46 +746,29 @@
       "raw-size": 1
     },
     "client/src/ui/inbox/PhoneInbox.tsx": {
-      "raw-size": 1,
       "raw-control": 4
     },
-    "client/src/ui/inbox/QueueList.tsx": {
-      "raw-size": 2
-    },
-    "client/src/ui/inbox/ValueOrigin.tsx": {
-      "raw-size": 4
-    },
     "client/src/ui/kanban/BoardStrip.tsx": {
-      "raw-size": 3
+      "raw-size": 1
     },
     "client/src/ui/kanban/CardDetail.tsx": {
       "raw-color": 1,
-      "raw-size": 3
+      "raw-size": 1
     },
     "client/src/ui/kanban/CardGroups.tsx": {
       "raw-size": 1
     },
-    "client/src/ui/kanban/FlowReadonly.tsx": {
-      "raw-size": 1
-    },
     "client/src/ui/kanban/KanbanBoard.tsx": {
-      "raw-size": 4
-    },
-    "client/src/ui/kanban/OriginalPage.tsx": {
       "raw-size": 2
     },
     "client/src/ui/kanban/OriginalSheet.tsx": {
-      "raw-size": 4
+      "raw-size": 2
     },
     "client/src/ui/kanban/StagesView.tsx": {
-      "raw-size": 3
+      "raw-size": 1
     },
     "client/src/ui/kanban/parts.tsx": {
-      "raw-size": 2,
       "raw-color": 1
-    },
-    "client/src/ui/knowledge/AnswerCard.tsx": {
-      "raw-size": 1
     },
     "client/src/ui/knowledge/AskBox.tsx": {
       "raw-control": 1
@@ -1019,15 +777,13 @@
       "raw-control": 5
     },
     "client/src/ui/knowledge/KnowledgeScreen.tsx": {
-      "raw-size": 1,
       "raw-control": 4
     },
     "client/src/ui/knowledge/MapScreen.tsx": {
-      "raw-size": 1,
       "raw-control": 1
     },
     "client/src/ui/knowledge/OriginalScreen.tsx": {
-      "raw-size": 5,
+      "raw-size": 1,
       "raw-control": 3
     },
     "client/src/ui/knowledge/PartCard.tsx": {
@@ -1038,60 +794,29 @@
     "client/src/ui/knowledge/ProcedureScreen.tsx": {
       "raw-control": 1
     },
-    "client/src/ui/orbit/CallCenterScreen.tsx": {
-      "raw-size": 2
-    },
-    "client/src/ui/orbit/CallDetail.tsx": {
-      "raw-size": 2
-    },
     "client/src/ui/orbit/OpsFlowsList.tsx": {
       "raw-control": 1
     },
     "client/src/ui/orbit/OpsStepScreen.tsx": {
-      "raw-control": 2,
-      "raw-size": 2
-    },
-    "client/src/ui/orbit/OrbitFlowsList.tsx": {
-      "raw-size": 2
+      "raw-control": 2
     },
     "client/src/ui/orbit/OrbitLogPage.tsx": {
       "raw-color": 1
-    },
-    "client/src/ui/orbit/OrbitOverview.tsx": {
-      "raw-size": 1
-    },
-    "client/src/ui/orbit/TicketDetail.tsx": {
-      "raw-size": 1
     },
     "client/src/ui/orbit/WorkParts.tsx": {
       "raw-color": 1
     },
     "client/src/ui/overview/DayBars.tsx": {
       "raw-color": 2,
-      "raw-size": 7
-    },
-    "client/src/ui/overview/OverviewScreen.tsx": {
-      "raw-size": 2
-    },
-    "client/src/ui/primitives/Button.tsx": {
-      "raw-size": 1
+      "raw-size": 4
     },
     "client/src/ui/primitives/Chip.tsx": {
       "raw-color": 1,
       "raw-size": 1
     },
-    "client/src/ui/primitives/DatePicker.tsx": {
-      "raw-size": 1
-    },
-    "client/src/ui/primitives/Dialog.tsx": {
-      "raw-size": 3
-    },
     "client/src/ui/primitives/DocumentViewer.tsx": {
-      "raw-size": 5,
+      "raw-size": 2,
       "raw-color": 1
-    },
-    "client/src/ui/primitives/EmptyState.tsx": {
-      "raw-size": 2
     },
     "client/src/ui/primitives/Field.tsx": {
       "raw-size": 2
@@ -1112,9 +837,6 @@
     "client/src/ui/primitives/Source.tsx": {
       "raw-size": 1
     },
-    "client/src/ui/primitives/States.tsx": {
-      "raw-size": 4
-    },
     "client/src/ui/primitives/Stepper.tsx": {
       "raw-size": 1
     },
@@ -1122,78 +844,54 @@
       "raw-size": 1
     },
     "client/src/ui/primitives/Toast.tsx": {
-      "raw-size": 2
+      "raw-size": 1
     },
     "client/src/ui/programs/DesktopFrame.tsx": {
       "raw-color": 16,
-      "raw-size": 6
-    },
-    "client/src/ui/programs/MigrationScreen.tsx": {
       "raw-size": 3
     },
     "client/src/ui/programs/PcAgentScreen.tsx": {
-      "raw-size": 4,
       "raw-control": 1
     },
     "client/src/ui/programs/ProgramSearchScreen.tsx": {
-      "raw-size": 2
-    },
-    "client/src/ui/programs/ProgramsScreen.tsx": {
-      "raw-size": 3
+      "raw-size": 1
     },
     "client/src/ui/programs/RemoteControlScreen.tsx": {
       "raw-color": 9,
-      "raw-control": 3,
-      "raw-size": 3
-    },
-    "client/src/ui/quality/QualityParts.tsx": {
-      "raw-size": 2
-    },
-    "client/src/ui/quality/QuarantineView.tsx": {
-      "raw-size": 1
-    },
-    "client/src/ui/record/DocumentList.tsx": {
-      "raw-size": 1
+      "raw-control": 3
     },
     "client/src/ui/record/DraftEditor.tsx": {
-      "raw-size": 3,
+      "raw-size": 2,
       "one-sided-border": 1,
       "raw-control": 2
     },
     "client/src/ui/record/PhaseTrack.tsx": {
-      "raw-size": 3
+      "raw-size": 2
     },
     "client/src/ui/record/SectionBodies.tsx": {
-      "raw-control": 4,
-      "raw-size": 1
+      "raw-control": 4
     },
     "client/src/ui/settings/Anonymization.tsx": {
-      "raw-size": 3
+      "raw-size": 2
     },
     "client/src/ui/settings/Appearance.tsx": {
       "raw-color": 2,
-      "raw-size": 3
-    },
-    "client/src/ui/settings/Block.tsx": {
-      "raw-size": 2
+      "raw-size": 1
     },
     "client/src/ui/settings/Compliance.tsx": {
       "raw-size": 1
     },
     "client/src/ui/settings/Hosting.tsx": {
-      "raw-size": 2
+      "raw-size": 1
     },
     "client/src/ui/settings/Product.tsx": {
       "raw-size": 2
     },
     "client/src/ui/settings/Sector.tsx": {
-      "raw-size": 3
-    },
-    "client/src/ui/settings/SettingsLayout.tsx": {
       "raw-size": 2
     },
     "client/src/ui/settings/Startup.tsx": {
-      "raw-size": 3
+      "raw-size": 2
     },
     "client/src/ui/shell/CommandPalette.tsx": {
       "raw-size": 3
@@ -1201,57 +899,31 @@
     "client/src/ui/shell/Marked.tsx": {
       "raw-size": 1
     },
-    "client/src/ui/shell/NewTabScreen.tsx": {
-      "raw-size": 1
-    },
-    "client/src/ui/shell/NoAccess.tsx": {
-      "raw-size": 2
-    },
     "client/src/ui/shell/NotificationsPanel.tsx": {
       "raw-size": 2,
       "raw-color": 1
     },
-    "client/src/ui/shell/PaneHeader.tsx": {
-      "raw-size": 2
-    },
     "client/src/ui/shell/PersonaMenu.tsx": {
-      "raw-size": 3
+      "raw-size": 2
     },
     "client/src/ui/shell/PhoneShell.tsx": {
       "raw-size": 1
     },
-    "client/src/ui/shell/SearchButton.tsx": {
-      "raw-size": 1
-    },
     "client/src/ui/shell/Sidebar.tsx": {
-      "raw-size": 5,
       "raw-control": 1
-    },
-    "client/src/ui/shell/SidebarRows.tsx": {
-      "raw-size": 1
     },
     "client/src/ui/shell/TabBar.tsx": {
       "raw-color": 1,
-      "raw-size": 1
-    },
-    "client/src/ui/shell/UserMenu.tsx": {
       "raw-size": 1
     },
     "client/src/ui/team/ConnectionsPage.tsx": {
       "raw-control": 1
     },
     "client/src/ui/team/LogPage.tsx": {
-      "raw-color": 1,
-      "raw-size": 3
-    },
-    "client/src/ui/team/PeopleTable.tsx": {
-      "raw-size": 2
+      "raw-color": 1
     },
     "client/src/ui/team/PermissionMatrix.tsx": {
       "raw-size": 2
-    },
-    "client/src/ui/team/TestAllScreen.tsx": {
-      "raw-size": 1
     },
     "client/src/ui/team/TestTables.tsx": {
       "raw-control": 1
@@ -1261,7 +933,7 @@
     },
     "client/src/ui/views/CadViewScreen.tsx": {
       "raw-color": 4,
-      "raw-size": 6,
+      "raw-size": 5,
       "raw-control": 3
     },
     "client/src/ui/views/ParcelMap.tsx": {
@@ -1269,12 +941,11 @@
       "raw-size": 17
     },
     "client/src/ui/views/ParcelViewScreen.tsx": {
-      "raw-control": 1,
-      "raw-size": 1
+      "raw-control": 1
     },
     "client/src/ui/views/PresentationScreen.tsx": {
       "raw-color": 4,
-      "raw-size": 11,
+      "raw-size": 4,
       "raw-control": 3
     },
     "client/src/ui/views/SlideView.tsx": {
@@ -1284,18 +955,11 @@
     "client/src/ui/views/ViewCard.tsx": {
       "raw-control": 1
     },
-    "client/src/ui/views/ViewsListScreen.tsx": {
-      "raw-size": 2
-    },
     "client/src/ui/work/DocSummary.tsx": {
       "raw-size": 1
     },
-    "client/src/ui/work/DocumentScreen.tsx": {
-      "raw-size": 2
-    },
     "client/src/ui/work/RecordSheet.tsx": {
-      "raw-control": 1,
-      "raw-size": 3
+      "raw-control": 1
     },
     "client/src/ui/work/TodayScreen.tsx": {
       "raw-size": 1

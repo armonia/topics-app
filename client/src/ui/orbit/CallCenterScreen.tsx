@@ -11,7 +11,7 @@ import type { CallRowModel, IncomingCallModel } from './model';
 
 function Row({ row, onSelect }: { row: CallRowModel; onSelect: (id: string) => void }) {
   return (
-    <li className={clsx('relative border-b border-app-border', row.selected ? 'bg-sky-500/[0.08] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary' : 'hover:bg-app-hover')}>
+    <li className={clsx('relative border-b border-app-border', row.selected ? 'bg-sky-500/[0.08] before:absolute before:inset-y-0 before:left-0 before:w-0.75 before:bg-primary' : 'hover:bg-app-hover')}>
       <button
         type="button"
         aria-current={row.selected || undefined}
@@ -50,7 +50,7 @@ export function CallCenterScreen({ incoming, onSelectIncoming, queue, recent, on
     <div className="flex h-full min-h-0 flex-col">
       <PaneHeader crumbs={[{ label: copy.shell.nav.callcenter, detail: copy.orgs.orbit.orgName }]} status={<Count value={queue.length} tone="blue" />} />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <div className={clsx('flex shrink-0 flex-col overflow-y-auto border-app-border md:w-[340px] md:border-r', phone && 'max-h-[40dvh] border-b')}>
+        <div className={clsx('flex shrink-0 flex-col overflow-y-auto border-app-border md:w-85 md:border-r', phone && 'max-h-[40dvh] border-b')}>
           {incoming && (
             <div className="border-b border-app-border p-3">
               <button

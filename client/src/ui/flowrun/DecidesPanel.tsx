@@ -74,8 +74,8 @@ export function DecidesPanel({ copy, view, handlers, editable, deniedTitle, job 
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <div className="min-w-0 flex-1 space-y-4 p-5 md:overflow-y-auto">
         <div className="flex flex-wrap items-end gap-3">
-          <Select label={c.pickRun} className="min-w-[220px] flex-1" value={view.runId} options={view.runOptions} onChange={handlers.onRun} />
-          <Select label={c.pickStep} className="min-w-[220px] flex-1" value={view.stepId} options={view.stepOptions} onChange={handlers.onStep} />
+          <Select label={c.pickRun} className="min-w-55 flex-1" value={view.runId} options={view.runOptions} onChange={handlers.onRun} />
+          <Select label={c.pickStep} className="min-w-55 flex-1" value={view.stepId} options={view.stepOptions} onChange={handlers.onStep} />
         </div>
         <Card title={c.contextTitle} actions={<Chip tone={view.complete ? 'green' : 'amber'}>{view.complete ? c.complete : c.incomplete}</Chip>}>
           <Table ariaLabel={c.contextTitle} columns={columns} rows={rows} empty={c.noContext} dense />
@@ -120,7 +120,7 @@ export function DecidesPanel({ copy, view, handlers, editable, deniedTitle, job 
           </div>
         </Card>
       </div>
-      <SidePanel width={360} className="w-full border-t md:w-[360px] md:border-t-0">
+      <SidePanel width={360} className="w-full border-t md:w-90 md:border-t-0">
         <div className="border-b border-app-border px-4 pb-4 pt-4">
           <Chip tone="pink" icon={Sparkles} strong>{c.answerTag}</Chip>
           <h3 className="mt-2 text-body-lg font-semibold leading-5 text-app-text">{view.answer.title}</h3>

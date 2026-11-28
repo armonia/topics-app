@@ -19,7 +19,7 @@ import { PLAN_CHIP } from './featureStyles';
 
 type Tr = ReturnType<typeof useT>;
 
-export const SECTION = 'mb-1.5 mt-[18px] flex items-center gap-2 text-mini font-semibold uppercase tracking-[0.04em] text-app-text-tertiary';
+export const SECTION = 'mb-1.5 mt-4.5 flex items-center gap-2 text-mini font-semibold uppercase tracking-[0.04em] text-app-text-tertiary';
 export const SECTION_COUNT = 'font-medium normal-case tracking-normal text-app-text-muted tabular-nums';
 export const SECTION_REST = 'ml-auto truncate font-normal normal-case tracking-normal text-app-text-muted';
 export const BOX = 'overflow-hidden rounded border border-app-border bg-surface';
@@ -107,7 +107,7 @@ function LevelRow({ level, tr, width, open, onToggle }: { level: PyramidLevel; t
         style={{ '--py-w': `${width}%` } as React.CSSProperties}
         className={`flex h-7 w-[var(--py-w)] items-center gap-2.5 rounded-sm px-2 text-left hover:bg-app-hover @max-2xl:h-9 @max-2xl:w-full ${open ? 'bg-primary/[0.06] shadow-[0_0_0_1px_var(--border)]' : ''}`}
       >
-        <span className="w-[112px] flex-none truncate text-compact text-app-text">
+        <span className="w-28 flex-none truncate text-compact text-app-text">
           <span className="mr-1.5 tabular-nums text-app-text-muted">{level.n}</span>{level.name}
         </span>
         <span className="flex h-1.5 min-w-0 flex-1 gap-px overflow-hidden rounded-full bg-app-border" data-testid="features-pyramid-bar">
@@ -122,7 +122,7 @@ function LevelRow({ level, tr, width, open, onToggle }: { level: PyramidLevel; t
           {level.desc && <p className="m-0 mb-1.5 text-compact text-app-text-body">{level.desc}</p>}
           {level.items.map((i, x) => (
             <div key={x} data-testid="features-pyramid-item" data-status={i.status} className="flex items-start gap-2.5 border-t border-app-border-subtle py-1.5 first-of-type:border-t-0">
-              <span className={`mt-px w-[92px] flex-none truncate rounded-xs px-1.5 py-px text-center font-medium ${BAND_CHIP[BAND_OF[i.status]]}`}>{tr(`feat.pyr.st.${i.status}`)}</span>
+              <span className={`mt-px w-23 flex-none truncate rounded-xs px-1.5 py-px text-center font-medium ${BAND_CHIP[BAND_OF[i.status]]}`}>{tr(`feat.pyr.st.${i.status}`)}</span>
               <span className="min-w-0 flex-1">
                 <span className="block text-compact text-app-text">{i.name}</span>
                 {i.outcome && <span className="mt-0.5 block text-app-text-body">{i.outcome}</span>}

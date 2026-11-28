@@ -32,7 +32,7 @@ export function QueueItem({ item, selected, copy, onSelect }: {
       className={clsx(
         'relative border-b border-app-border',
         !onSelect && 'px-4 py-3',
-        selected ? 'bg-sky-500/[0.08] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary' : onSelect && 'hover:bg-app-hover',
+        selected ? 'bg-sky-500/[0.08] before:absolute before:inset-y-0 before:left-0 before:w-0.75 before:bg-primary' : onSelect && 'hover:bg-app-hover',
       )}
     >
       {onSelect ? (
@@ -64,7 +64,7 @@ export function QueueList({ items, selectedId, counts, filter = 'all', onFilterC
   empty?: ReactNode;
 }) {
   return (
-    <section className="flex h-full w-[400px] shrink-0 flex-col border-r border-app-border">
+    <section className="flex h-full w-100 shrink-0 flex-col border-r border-app-border">
       <div className="flex h-11 shrink-0 items-center border-b border-app-border px-4">
         <SegmentedControl
           value={filter}

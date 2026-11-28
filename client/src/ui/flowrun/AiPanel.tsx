@@ -78,7 +78,7 @@ export function AiPanel({ copy, view, handlers, editable, deniedTitle }: {
       <div className="flex min-w-0 flex-col gap-4">
         <Card title={c.fieldsTitle}>
           <div className="-mx-1 overflow-x-auto px-1">
-            <table className="w-full min-w-[420px] text-prose">
+            <table className="w-full min-w-105 text-prose">
               <thead>
                 <tr className="text-left text-compact font-medium text-app-text-secondary">
                   <th className="py-1.5 pr-2 font-medium">{c.colField}</th>

@@ -56,7 +56,7 @@ export function RunBanner({ strong, rest, actionLabel, onAction, tone = 'red' }:
 function SeenPage({ page }: { page: NonNullable<RunSideView['page']> }) {
   return (
     <div className="overflow-hidden rounded-lg border border-app-border-input bg-white text-slate-700">
-      <div className="flex h-[22px] items-center gap-1.5 bg-blue-700 px-2 text-mini font-bold text-white">
+      <div className="flex h-5.5 items-center gap-1.5 bg-blue-700 px-2 text-mini font-bold text-white">
         {page.program}<span className="font-medium opacity-75">· {page.title}</span><span className="flex-1" /><span className="font-medium opacity-75">{page.time}</span>
       </div>
       <div className="grid grid-cols-[70px_minmax(0,1fr)] items-center gap-2 px-4 py-3 text-mini">

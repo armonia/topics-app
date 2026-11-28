@@ -54,7 +54,7 @@ export function SettingsLayout({ crumbs, groups, activeId, onSelect, actions, ph
       ) : null}
       <div className="flex min-h-0 flex-1">
         {!phone && (
-          <nav aria-label={crumbs[0]?.label} className="w-[220px] shrink-0 overflow-y-auto border-r border-app-border px-2 py-3">
+          <nav aria-label={crumbs[0]?.label} className="w-55 shrink-0 overflow-y-auto border-r border-app-border px-2 py-3">
             {groups.map((g) => (
               <div key={g.label} className="mb-3">
                 <SectionLabel className="mb-1 px-2">{g.label}</SectionLabel>
@@ -83,7 +83,7 @@ export function SettingsLayout({ crumbs, groups, activeId, onSelect, actions, ph
           </nav>
         )}
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[880px] px-4 py-5 md:px-8">{children}</div>
+          <div className="mx-auto w-full max-w-220 px-4 py-5 md:px-8">{children}</div>
         </div>
       </div>
     </div>

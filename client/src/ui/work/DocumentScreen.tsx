@@ -91,13 +91,13 @@ export function DocumentScreen({ model, copy, mode, onMode, page, onPage, zoom, 
       ? <div className="min-h-0 flex-1 overflow-y-auto">{summary}</div>
       : viewer(mode === 'original' ? undefined : summary);
   } else if (mode === 'summary') {
-    body = <div className="min-h-0 flex-1 overflow-y-auto"><div className="mx-auto max-w-[860px]">{summary}</div></div>;
+    body = <div className="min-h-0 flex-1 overflow-y-auto"><div className="mx-auto max-w-215">{summary}</div></div>;
   } else if (mode === 'original') {
     body = viewer();
   } else {
     body = (
       <div className="flex min-h-0 min-w-0 flex-1">
-        <div className="min-h-0 w-[440px] shrink-0 overflow-y-auto border-r border-app-border bg-surface">{summary}</div>
+        <div className="min-h-0 w-110 shrink-0 overflow-y-auto border-r border-app-border bg-surface">{summary}</div>
         {viewer()}
       </div>
     );

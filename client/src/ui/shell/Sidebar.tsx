@@ -12,7 +12,7 @@ import { FOCUS_RING, pressable } from './pressable';
 /** Width of the product's sidebar, measured on the live app (256px). */
 export const SIDEBAR_WIDTH = 256;
 
-const TILE_CLASS = 'flex h-[34px] min-w-0 cursor-pointer items-center justify-center rounded-lg bg-black/[0.05] hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.10]';
+const TILE_CLASS = 'flex h-8.5 min-w-0 cursor-pointer items-center justify-center rounded-lg bg-black/[0.05] hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.10]';
 
 /** The colour of a tile is drawn for the light theme; on the dark one it is lightened toward white so the letters keep a readable contrast (4.5:1 or more on the tile's fill). */
 const TILE_COLOR = 'text-[color:var(--pin)] dark:text-[color:color-mix(in_srgb,var(--pin)_45%,white)]';
@@ -105,7 +105,7 @@ export function Sidebar({ model, copy, onSelect, onToggleOrg, onOrgMenu, onNotif
 
         {model.pinned?.length ? (
           /* Monograms sit four to a row; names, which are longer, two to a row. */
-          <div data-sidebar-pins="" className={clsx('my-[3px] grid gap-1.5 px-1.5', model.pinned.some(isNamed) ? 'grid-cols-2' : 'grid-cols-4')} aria-label={s.pinned}>
+          <div data-sidebar-pins="" className={clsx('my-0.75 grid gap-1.5 px-1.5', model.pinned.some(isNamed) ? 'grid-cols-2' : 'grid-cols-4')} aria-label={s.pinned}>
             {model.pinned.map((t) => <PinnedTile key={t.id} tile={t} onClick={select(t.id)} />)}
           </div>
         ) : null}
@@ -146,7 +146,7 @@ export function Sidebar({ model, copy, onSelect, onToggleOrg, onOrgMenu, onNotif
       {model.note && <p className="shrink-0 px-3.5 pb-2 text-mini leading-4 text-app-text-tertiary">{model.note}</p>}
 
       {model.system && (
-        <div className="shrink-0 px-3 py-[7px]" data-sidebar-system="">
+        <div className="shrink-0 px-3 py-1.75" data-sidebar-system="">
           <div className="flex items-center gap-1.5 text-prose leading-5">
             <span className={clsx('h-2 w-2 shrink-0 rounded-full', model.system.tone === 'ok' ? 'bg-emerald-500' : 'bg-amber-500')} aria-hidden="true" />
             <span className="min-w-0 truncate whitespace-nowrap font-semibold text-app-text">{model.system.headline}</span>
@@ -165,7 +165,7 @@ export function Sidebar({ model, copy, onSelect, onToggleOrg, onOrgMenu, onNotif
             aria-expanded={identityOpen ?? false}
             data-sidebar-identity="true"
             data-tip={model.identity.tip ?? model.identity.name}
-            className={clsx('flex min-h-[34px] w-full items-center gap-2 rounded-lg bg-black/[0.05] px-2 py-1 text-left text-mini hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.10]', FOCUS_RING)}
+            className={clsx('flex min-h-8.5 w-full items-center gap-2 rounded-lg bg-black/[0.05] px-2 py-1 text-left text-mini hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.10]', FOCUS_RING)}
           >
             <Avatar text={model.identity.monogram} color={model.identity.color} />
             <span className="min-w-0 flex-1">
@@ -175,7 +175,7 @@ export function Sidebar({ model, copy, onSelect, onToggleOrg, onOrgMenu, onNotif
             <ChevronsUpDown size={12} className="shrink-0 text-app-text-tertiary" aria-hidden="true" />
           </button>
         ) : (
-          <div className="flex min-h-[34px] items-center gap-2 rounded-lg bg-black/[0.05] px-2 py-1 text-mini dark:bg-white/[0.06]">
+          <div className="flex min-h-8.5 items-center gap-2 rounded-lg bg-black/[0.05] px-2 py-1 text-mini dark:bg-white/[0.06]">
             <Avatar text={model.identity.monogram} color={model.identity.color} />
             <span className="min-w-0 flex-1">
               <span className="block truncate leading-4 text-app-text">{model.identity.name}</span>
