@@ -37,6 +37,7 @@ const LONG_LIVED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/routes/terminal-bridge-socket.ts", snippet: "spawn(cmd, [...baseArgs", why: "start of the pty-bridge daemon" },
   { file: "server/browser-chromium-sidecar.ts", snippet: "spawn(engine.executablePath", why: "the browser: lives as long as the pane" },
   { file: "server/services/preview-manager.ts", snippet: "spawn(cmd: string[]", why: "a type declaration, not a call" },
+  { file: "server/schedule/deliver/adapter.ts", snippet: "const child = Bun.spawn(call.argv", why: "the deadline is `createSpawnAdapter` itself: Promise.race on `timeoutMs`, then the group is killed" },
   { file: "server/routes/processes-commands.ts", snippet: "proc = Bun.spawn(argv, { cwd: o.cwd", why: "run_command: the user stops it (Stop), its duration is the command's own" },
   { file: "server/routes/processes.ts", snippet: "const proc = Bun.spawn(argv, {", why: "project script launched from the panel: lives until the user stops it" },
   { file: "server/services/review-checks.ts", snippet: "proc = Bun.spawn(lowPriorityArgv", why: "pre-review checks have their own cap and tree kill (`killCheckTree`)" },
