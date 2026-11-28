@@ -96,7 +96,7 @@ export function WindowControls({ visible }: { visible: boolean }) {
   // to the system red — it is the one of the three that cannot be undone, and it
   // shows.
   const cellClass =
-    'h-[18px] w-[18px] rounded inline-flex items-center justify-center text-app-text/80 ' +
+    'h-4.5 w-4.5 rounded inline-flex items-center justify-center text-app-text/80 ' +
     'transition-colors hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer';
   // `-1` while invisible: `aria-hidden` removes the name, but on its own it does
   // not take the button out of the Tab order — and focus landing on something
@@ -120,7 +120,7 @@ export function WindowControls({ visible }: { visible: boolean }) {
       // `windowControlsGeometry.ts`, which is where the why lives and which
       // derives the title inset from it. Written out as a literal because
       // Tailwind scans the source, and pinned to the constant by the test.
-      className={`app-no-drag absolute left-[6px] top-1/2 -translate-y-1/2 z-10 flex items-center gap-[4px] transition-opacity duration-fast ${
+      className={`app-no-drag absolute left-1.5 top-1/2 -translate-y-1/2 z-10 flex items-center gap-1 transition-opacity duration-fast ${
         // `pointer-events-auto` quando visibili: la riga madre sul telefono è
         // `pointer-events-none` coi soli bottoni riaccesi (A1), e senza questo
         // i tre comandi erediterebbero il `none` e morirebbero.

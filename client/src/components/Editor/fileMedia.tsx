@@ -45,7 +45,7 @@ export function MediaViewer({ filePath, mediaType, filename }: { filePath: strin
           <button onClick={() => setZoom(z => Math.max(0.1, z - 0.25))} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted" title="Zoom out">
             <ZoomOut size={14} />
           </button>
-          <button onClick={resetZoom} className="px-1.5 h-6 flex items-center justify-center rounded hover:bg-app-hover text-mini text-app-text-muted tabular-nums min-w-[40px]" title="Reset zoom">
+          <button onClick={resetZoom} className="px-1.5 h-6 flex items-center justify-center rounded hover:bg-app-hover text-mini text-app-text-muted tabular-nums min-w-10" title="Reset zoom">
             {Math.round(zoom * 100)}%
           </button>
           <button onClick={() => setZoom(z => Math.min(5, z + 0.25))} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted" title="Zoom in">
@@ -95,7 +95,7 @@ export function MediaViewer({ filePath, mediaType, filename }: { filePath: strin
       <div className="flex-1 flex flex-col items-center justify-center gap-4 h-full">
         <div className="text-display-xl opacity-30">&#9835;</div>
         <span className="text-prose text-app-text-muted">{filename}</span>
-        <audio src={mediaUrl} controls preload="metadata" className="w-[320px] max-w-full" />
+        <audio src={mediaUrl} controls preload="metadata" className="w-80 max-w-full" />
         <a href={mediaUrl} download={filename} className="text-compact text-primary hover:underline flex items-center gap-1">
           <Download size={12} /> Download
         </a>

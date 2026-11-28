@@ -89,7 +89,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
     <div className="border-t border-app-border">
       {/* Expanded timeline */}
       {/* Above the bar, in its flow: see `DockedStripPanel`. */}
-      <DockedStripPanel open={expanded} testId="checkpoint-panel" className="px-3 py-2 bg-surface max-h-[200px] overflow-y-auto">
+      <DockedStripPanel open={expanded} testId="checkpoint-panel" className="px-3 py-2 bg-surface max-h-50 overflow-y-auto">
           {error && <p className="text-red-500 text-mini mb-2">{error}</p>}
 
           <div className="flex items-center justify-between mb-2">

@@ -45,7 +45,7 @@ export function SpaceElsewherePanel({ spaceId, windowLabel }: Props) {
       <div className="text-prose text-app-text">
         <b>{name}</b> {tr('space.elsewhere')}
       </div>
-      <div className="max-w-[380px] text-compact text-app-text-secondary">
+      <div className="max-w-95 text-compact text-app-text-secondary">
         {tr('space.elsewhere.blurb')}
       </div>
       <div className="flex items-center gap-2 pt-1">

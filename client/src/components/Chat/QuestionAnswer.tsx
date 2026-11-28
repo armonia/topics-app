@@ -61,7 +61,7 @@ function RecapLine({ question, answer, testId }: { question?: string; answer: st
   const firstLine = question?.split('\n')[0];
   return (
     <div data-testid={testId} className="flex items-start gap-1.5 min-w-0 leading-snug">
-      <CornerDownRight size={11} className="mt-[3px] flex-shrink-0 text-app-text-muted" aria-hidden="true" />
+      <CornerDownRight size={11} className="mt-0.75 flex-shrink-0 text-app-text-muted" aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5">
         {firstLine && (
           <span className="flex min-w-0 max-w-full items-center gap-1.5 text-app-text-muted">
@@ -147,7 +147,7 @@ export function QuestionAnswerCard({ toolCallId, asked, response, schema }: {
                   {/* The tick's slot is always there, or the options not picked
                       would start from a different column than the picked one. */}
                   {o.chosen
-                    ? <Check size={12} className="mt-[2px] flex-shrink-0 text-primary" aria-label={tr('chat.question.answer.chosen')} />
+                    ? <Check size={12} className="mt-0.5 flex-shrink-0 text-primary" aria-label={tr('chat.question.answer.chosen')} />
                     : <span className="w-3 flex-shrink-0" aria-hidden="true" />}
                   <span className="min-w-0 break-words">{o.label}</span>
                 </li>
@@ -159,7 +159,7 @@ export function QuestionAnswerCard({ toolCallId, asked, response, schema }: {
                   data-chosen="true"
                   className="flex items-start gap-1.5 text-mini font-medium text-app-text"
                 >
-                  <Check size={12} className="mt-[2px] flex-shrink-0 text-primary" aria-label={tr('chat.question.answer.chosen')} />
+                  <Check size={12} className="mt-0.5 flex-shrink-0 text-primary" aria-label={tr('chat.question.answer.chosen')} />
                   <span className="min-w-0 break-words">
                     <span className="font-normal text-app-text-muted">{tr('ask.other')}: </span>
                     {tr('chat.question.answer.freeText', { text: p.text })}
@@ -182,7 +182,7 @@ export function QuestionAnswerCard({ toolCallId, asked, response, schema }: {
                 data-testid="question-answer-field"
                 className="flex items-start gap-1.5 text-mini font-medium text-app-text"
               >
-                <Check size={12} className="mt-[2px] flex-shrink-0 text-primary" aria-hidden="true" />
+                <Check size={12} className="mt-0.5 flex-shrink-0 text-primary" aria-hidden="true" />
                 <span className="min-w-0 whitespace-pre-wrap break-words">
                   {f.label && <span className="font-normal text-app-text-muted">{f.label}: </span>}
                   {fieldText(f.value, tr)}
@@ -194,7 +194,7 @@ export function QuestionAnswerCard({ toolCallId, asked, response, schema }: {
       )}
       {raw && (
         <div className="flex items-start gap-1.5 text-mini font-medium text-app-text">
-          <Check size={12} className="mt-[2px] flex-shrink-0 text-primary" aria-label={tr('chat.question.answer.chosen')} />
+          <Check size={12} className="mt-0.5 flex-shrink-0 text-primary" aria-label={tr('chat.question.answer.chosen')} />
           <span className="min-w-0 whitespace-pre-wrap break-words">{raw}</span>
         </div>
       )}

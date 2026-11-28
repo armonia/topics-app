@@ -101,7 +101,7 @@ export function VariantDialog({ title, clauses, valueClause, currentValue, value
             ariaLabel={t.valueMode}
             options={[{ value: 'same', label: t.modes.same }, { value: 'amount', label: t.modes.amount }, { value: 'share', label: t.modes.share }]}
           />
-          <div className="mt-2.5 max-w-[320px]">
+          <div className="mt-2.5 max-w-80">
             {mode === 'amount' && <TextField label={t.amount} value={amount} onChange={setAmount} placeholder={valueText(currentValue)} hint={t.amountHint} />}
             {mode === 'share' && <TextField label={t.share} value={share} onChange={setShare} placeholder="4,2" hint={t.shareHint} />}
           </div>

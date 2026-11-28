@@ -378,7 +378,7 @@ function QuestionsForm({
                   checked={picked(q.question, opt.label)}
                   onChange={() => toggle(q, opt.label)}
                   disabled={submitting}
-                  className="mt-[3px]"
+                  className="mt-0.75"
                 />
                 <div className="flex-1 min-w-0">
                   <div className="text-app-text flex items-center gap-1.5 flex-wrap">
@@ -427,7 +427,7 @@ function QuestionsForm({
                 checked={picked(q.question, OTHER)}
                 onChange={() => toggle(q, OTHER)}
                 disabled={submitting}
-                className="mt-[3px]"
+                className="mt-0.75"
               />
               <div className="flex-1 min-w-0">
                 <div className="text-app-text">{tr(OTHER_LABEL_KEY)}</div>

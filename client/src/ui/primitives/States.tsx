@@ -23,7 +23,7 @@ export function LoadingState({ title, lines = 3, className }: { title: string; l
         <Spinner size={14} />
         {title}
       </div>
-      <div className="flex max-w-[560px] flex-col gap-2.5">
+      <div className="flex max-w-140 flex-col gap-2.5">
         <Skeleton className="h-4 w-1/3" />
         {Array.from({ length: Math.max(0, lines) }, (_, i) => <Skeleton key={i} className={LINE_WIDTHS[i % LINE_WIDTHS.length]} />)}
       </div>
@@ -50,11 +50,11 @@ export function ErrorState({ title, body, action, details, className }: {
       <span className="mb-1 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400">
         <CircleAlert size={18} aria-hidden="true" />
       </span>
-      <p className="max-w-[440px] text-body-lg font-semibold text-app-text">{title}</p>
-      {body && <div className="max-w-[440px] text-prose leading-6 text-app-text-secondary">{body}</div>}
+      <p className="max-w-110 text-body-lg font-semibold text-app-text">{title}</p>
+      {body && <div className="max-w-110 text-prose leading-6 text-app-text-secondary">{body}</div>}
       {action && <div className="mt-2 flex flex-wrap items-center justify-center gap-2">{action}</div>}
       {details && (
-        <div className="mt-3 max-h-32 w-full max-w-[440px] select-text overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/[0.04] px-3 py-2 text-left font-mono text-mini leading-4 text-app-text-secondary dark:bg-white/[0.06]">
+        <div className="mt-3 max-h-32 w-full max-w-110 select-text overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/[0.04] px-3 py-2 text-left font-mono text-mini leading-4 text-app-text-secondary dark:bg-white/[0.06]">
           {details}
         </div>
       )}

@@ -69,7 +69,7 @@ export function QuarantineView({ model, copy, phone, actions, side }: {
         <Card title={t.whyProblem}><p className="leading-6">{model.risk}</p></Card>
         {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
       </div>
-      <aside className={clsx('flex shrink-0 flex-col border-app-border bg-surface', phone ? 'w-full border-t' : 'h-full w-[320px] border-l')}>
+      <aside className={clsx('flex shrink-0 flex-col border-app-border bg-surface', phone ? 'w-full border-t' : 'h-full w-80 border-l')}>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <PanelHeading tag={t.heldTag} title={model.held.title}>{model.held.body}</PanelHeading>
           <PanelSection label={t.history}>

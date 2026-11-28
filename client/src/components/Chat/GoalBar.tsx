@@ -168,7 +168,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
           pointer. The line keeps its place and its single row. */}
       <DockedStripPanel open={expanded && (truncated || rows.length > 0)} testId="goal-bar-panel">
         {truncated && (
-          <p data-testid="goal-bar-full-text" className={`whitespace-pre-wrap break-words px-2.5 pt-1.5 pl-[38px] text-compact font-medium text-app-text ${rows.length ? '' : 'pb-1.5'}`}>
+          <p data-testid="goal-bar-full-text" className={`whitespace-pre-wrap break-words px-2.5 pt-1.5 pl-9.5 text-compact font-medium text-app-text ${rows.length ? '' : 'pb-1.5'}`}>
             {goal.content}
           </p>
         )}
@@ -308,7 +308,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
 
       {/* Open or closed: dropping it on open would pull the line above down. */}
       {active && (
-        <div className="truncate px-2.5 pb-1.5 pl-[38px] text-mini text-app-text-secondary">
+        <div className="truncate px-2.5 pb-1.5 pl-9.5 text-mini text-app-text-secondary">
           {active.content}
         </div>
       )}

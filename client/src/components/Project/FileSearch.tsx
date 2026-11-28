@@ -329,7 +329,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
         aria-label={mode === 'name' ? tr('fileSearch.dialogOpen') : tr('fileSearch.dialogSearch')}
         className={isMobile
           ? MODAL_PAGE_PANEL
-          : `w-[600px] max-w-[92vw] max-h-[70vh] ${MODAL_PANEL} flex flex-col`}
+          : `w-150 max-w-[92vw] max-h-[70vh] ${MODAL_PANEL} flex flex-col`}
         onClick={e => e.stopPropagation()}
         style={isMobile ? MODAL_PAGE_INSET : undefined}
       >

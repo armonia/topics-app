@@ -157,12 +157,12 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
 
       {errore && <div className="px-3 pb-1 text-mini text-red-500">{errore}</div>}
 
-      <div className="max-h-[140px] overflow-y-auto">
+      <div className="max-h-35 overflow-y-auto">
         {hunks.map(h => (
           <div
             key={h.index}
             data-testid="hunk-row"
-            className="flex items-center gap-1.5 px-3 py-[3px] group/hunk hover:bg-app-hover transition-colors"
+            className="flex items-center gap-1.5 px-3 py-0.75 group/hunk hover:bg-app-hover transition-colors"
           >
             <span className="text-mini font-mono text-app-text-muted flex-shrink-0 tabular-nums">
               :{h.oldStart}
