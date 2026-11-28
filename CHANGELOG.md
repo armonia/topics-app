@@ -5,6 +5,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.5.27 — 2026-11-28
 
 ### Sotto il cofano
+- Remove on-demand node-pool slots, keep the permanent node only
 - Preview seed: correct the proven cause and lock it with tests
 
 ## 2.5.25 — 2026-11-28
