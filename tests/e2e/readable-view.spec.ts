@@ -78,7 +78,7 @@ test("the Readable / Original switch leaves the original text identical", async 
   await page.reload();
   await goToApp(page);
   await page.locator(`[data-testid="tool-call-row-${callId}"] > button`).click();
-  await expect(page.getByTestId("readable-result").getByTestId("readable-mode-original")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("readable-result").getByTestId("readable-mode-original")).toHaveAttribute("aria-checked", "true");
 
   for (const width of [375, 768, 1440, 3440]) {
     await page.setViewportSize({ width, height: 900 });

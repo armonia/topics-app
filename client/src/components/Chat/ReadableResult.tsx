@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { Segmented } from '../Shared/Segmented';
 import type { ReactNode } from 'react';
 import { deterministicReadableView, type Cell, type KvField, type ReadableView } from '../../../../shared/readable-view';
 import { unwrapStoredToolResult } from '../../../../shared/tool-result-text';
@@ -68,7 +69,7 @@ function ReadableViewBody({ view }: { view: ReadableView }) {
     case 'table':
       return (
         <>
-          <div className="hidden min-[480px]:block overflow-x-auto rounded border border-app-border">
+          <div className="hidden sm:block overflow-x-auto rounded border border-app-border">
             <table data-testid="readable-table" className="w-full text-mini text-left">
               <thead className="bg-app-hover/60 text-app-text-secondary">
                 <tr>{view.columns.map((c, i) => <th key={i} className="px-2 py-1 font-medium whitespace-nowrap">{c}</th>)}</tr>
@@ -82,7 +83,7 @@ function ReadableViewBody({ view }: { view: ReadableView }) {
               </tbody>
             </table>
           </div>
-          <div data-testid="readable-table-cards" className="space-y-1.5 min-[480px]:hidden">
+          <div data-testid="readable-table-cards" className="space-y-1.5 sm:hidden">
             {view.rows.map((row, r) => (
               <div key={r} className="rounded border border-app-border px-2 py-1.5">
                 <FieldList fields={row.map((cell, c) => ({ label: view.columns[c], value: cell }))} />
@@ -153,15 +154,13 @@ export function ReadableResult({ text, toolName, original }: { text: string; too
   if (!view) return <>{original}</>;
   return (
     <div className="space-y-1" data-testid="readable-result">
-      <div role="group" aria-label={tr('tool.readable.switchLabel')} className="inline-flex rounded border border-app-border text-mini overflow-hidden">
-        {(['readable', 'original'] as const).map((m) => (
-          <button key={m} type="button" data-testid={`readable-mode-${m}`} aria-pressed={prefs.mode === m}
-            className={`px-2 py-0.5 ${prefs.mode === m ? 'bg-app-hover text-app-text' : 'text-app-text-muted hover:text-app-text'}`}
-            onClick={() => setReadableViewPrefs({ mode: m })}>
-            {tr(m === 'readable' ? 'tool.readable.readable' : 'tool.readable.original')}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        value={prefs.mode}
+        options={(['readable', 'original'] as const).map((m) => ({ value: m, label: tr(m === 'readable' ? 'tool.readable.readable' : 'tool.readable.original') }))}
+        onChange={(m) => setReadableViewPrefs({ mode: m })}
+        ariaLabel={tr('tool.readable.switchLabel')}
+        testId="readable-mode"
+      />
       {prefs.mode === 'readable' ? <ReadableViewBody view={view} /> : original}
     </div>
   );
