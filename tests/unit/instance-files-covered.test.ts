@@ -43,7 +43,7 @@ const ROOT = join(import.meta.dir, "..", "..");
 const NOT_CARRIED: Record<string, string> = {
   "data": "the folder of the DB: the DB travels as `topics.db`, the rest (usage meters) belongs to the machine",
   ".topics-secrets": "the secrets folder: only `installation-id` travels (it is on the list), provider keys reach a primary through its own store",
-  "secrets": "the secret store (`secrets.age`): provider keys are never copied between machines, by design",
+  "secrets.age": "the age-encrypted secret store file of a non-macOS machine: provider keys are never copied between machines, by design",
   "mcp-oauth.json": "OAuth grants issued to one machine's sign-in: the new primary signs in again, like for provider keys",
   "primary-state.json": "the role file the receiver writes itself at the end of the restore",
   "workspace": "project folders and working trees: code lives in git and every machine has its clone",
