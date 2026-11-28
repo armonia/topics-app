@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { isAbsolute, relative, resolve, sep } from "path";
+import { instanceEntryPath, TOPIC_MEMORY } from "../lib/instance-files";
 import type { AppContext, RouteHandler } from "../types";
 import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 
@@ -24,7 +25,7 @@ function releaseLock(filepath: string) {
 
 export function createMemoryRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, matchRoute, broadcastToAll, getTopicById } = ctx;
-  const MEMORY_DIR = resolve(ctx.STATE_DIR, "memory");
+  const MEMORY_DIR = resolve(instanceEntryPath(TOPIC_MEMORY, { stateDir: ctx.STATE_DIR }));
   mkdirSync(MEMORY_DIR, { recursive: true });
 
   /**

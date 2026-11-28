@@ -31,6 +31,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { writeNumberedCli } from "../../tests/helpers/numbered-fake-cli";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 let tempDir = "";
@@ -272,11 +273,8 @@ describe("claude-code provider · a re-adoption refused past its scan", () => {
 const { BridgeAckStalled } = await import("../lib/ai-bridge-errors");
     const sessionKey = "topic:live-mark-rewind-capped";
     await seedTopic(sessionKey, "t-live-mark-rewind-capped");
-    setEnv("TOPICS_CLAUDE_CLI_PATH", writeCli("rewind-capped.sh", `while read line; do
-  i=1
-  while [ $i -le 400 ]; do printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%d,"}]}}\\n' $i; sleep 0.005; i=$((i+1)); done
-  printf '%s\\n' '${RESULT}'
-done`));
+    // Paced by a timer in the CLI's own process: a shell loop of `sleep 0.005` outlived the test's window on a loaded Mac.
+    setEnv("TOPICS_CLAUDE_CLI_PATH", writeNumberedCli(join(tempDir, "rewind-capped.sh"), { count: 400, intervalMs: 5, result: RESULT }));
     const client: any = getAiBridgeClient();
     // Server 1: the CLI writes a number every 5 ms.
     const first = await newProvider();
