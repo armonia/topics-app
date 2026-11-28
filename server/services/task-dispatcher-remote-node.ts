@@ -36,6 +36,7 @@ import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } fro
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
 import { createRunWithBundle } from "./node-bundle-ladder";
+import { type LaunchEntry, type ParkDeps, parkRun, runsOn } from "./task-dispatcher-remote-node-park";
 
 /**
  * THE REMOTE LANE'S HOST CAPABILITY: how this board talks to a paired node, and
@@ -361,13 +362,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
 
   /**
    * Cards whose launch this process started and has not finished yet (see `remoteLaunch`), with the
-   * machine each one is launching on: a switch to that machine has to see the launch from the moment
-   * it starts, not from the moment the node answers. `parked` is set when a primary switch put the
-   * card back in the queue: the launch is still in the air but no longer counts, and it must stop
-   * at the first point where it would claim the card. One object per launch, so a launch that
-   * outlives its park never clears the entry of the next one.
+   * machine each one is launching on (see `LaunchEntry`): a switch to that machine has to see the
+   * launch from the moment it starts, not from the moment the node answers. One object per launch,
+   * so a launch that outlives its park never clears the entry of the next one.
    */
-  type LaunchEntry = { machineId: string; parked: boolean };
   const launching = new Map<string, LaunchEntry>();
 
   /**
@@ -1760,66 +1758,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     return true;
   }
 
-  /** The machine of a slot whose run the node has not named yet (`node:<machine>:pending`), else null. */
-  function pendingMachineOf(sessionKey: string): string | null {
-    return sessionKey.startsWith("node:") && sessionKey.endsWith(":pending") ? sessionKey.slice("node:".length, -":pending".length) : null;
-  }
+  const parkDeps: ParkDeps = { host, launching, lastNodeRun };
 
-  /**
-   * A launch counts as running on its machine FROM THE MOMENT IT STARTS: the slot carries a
-   * `node:<machine>:pending` key until the node names the run, and the window before the slot
-   * (origin lookup, branch push) is `launching`. Waiting only for slots with a run id let a switch
-   * snapshot and fence while `createRun` was still answering.
-   */
-  function runsOn(machineId: string): Array<{ taskId: string; sessionKey: string }> {
-    const rows = [...inFlight.entries()]
-      .filter(([, slot]) => (slot.node?.machineId ?? pendingMachineOf(slot.sessionKey)) === machineId)
-      .map(([taskId, slot]) => ({ taskId, sessionKey: slot.sessionKey }));
-    for (const [taskId, entry] of launching) {
-      if (entry.machineId === machineId && !entry.parked && !inFlight.has(taskId)) rows.push({ taskId, sessionKey: nodeSessionKey(machineId, "pending") });
-    }
-    return rows;
-  }
-
-  async function parkRun(taskId: string, note: string): Promise<boolean | null> {
-    const slot = inFlight.get(taskId);
-    const node = slot?.node;
-    const client = host.client;
-    if (node) {
-      if (client) {
-        try {
-          await client.cancelRun({ baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation });
-        } catch (err) { log(`node: run ${node.runId} of card ${taskId} was not cancelled while parking it`, err); }
-      }
-      inFlight.delete(taskId);
-    } else {
-      // A launch still on its way to the node: no run id to cancel yet. The launch notices it no
-      // longer owns the card and cancels the run it creates (`createRun` answering after the park).
-      const entry = launching.get(taskId);
-      const machineId = (slot ? pendingMachineOf(slot.sessionKey) : null) ?? entry?.machineId ?? null;
-      if (!machineId) return null;
-      if (entry) entry.parked = true;
-      if (slot) host.endRun(taskId, slot.runId);
-      // The previous run of the card is still linked when the launch has not got to cancel it.
-      const previous = svc.nodeRunOf(taskId);
-      const baseUrl = client?.baseUrlOf(machineId);
-      const token = client?.tokenOf(machineId);
-      if (client && previous && baseUrl && token) {
-        try { await client.cancelRun({ baseUrl, token, runId: previous }); }
-        catch (err) { log(`node: previous run ${previous} of card ${taskId} was not cancelled while parking it`, err); }
-      }
-    }
-    // The id goes with the run: the card must never point at a run that no longer exists.
-    lastNodeRun.delete(taskId);
-    try {
-      svc.claimInterruption({ taskId, note });
-      releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true });
-      return true;
-    } catch (err) {
-      log(`node: card ${taskId} was not put back in the queue`, err);
-      return false;
-    }
-  }
-
-  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask, runsOn, parkRun };
+  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask, runsOn: (machineId) => runsOn(parkDeps, machineId), parkRun: (taskId, note) => parkRun(parkDeps, taskId, note) };
 }
