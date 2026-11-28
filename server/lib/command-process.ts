@@ -131,6 +131,19 @@ export function commandArgv(command: string, exitPath: string, stopPath: string,
 }
 
 /**
+ * What the watchdog subshell does on TERM: kill its `sleep` and leave.
+ *
+ * It reads `$!`, not the variable the subshell assigns from it. A TERM that
+ * lands after the `sleep` forked and before `_topics_sleep=$!` runs the trap
+ * with the variable still empty: `kill ""` kills nothing, the `sleep` outlives
+ * the subshell inside the group, and the leader's drain waits for it until the
+ * time limit, so the exit code of a command that ended in milliseconds is never
+ * written (64 of 300 wrappers on a loaded Linux machine). `$!` is set by the
+ * fork itself, so there is no window.
+ */
+export const WATCHDOG_TERM_HANDLER = 'kill "$!" 2>/dev/null; exit 0';
+
+/**
  * The wrapper of a scheduled command (R11, R13): argv instead of a shell line,
  * the exit code written beside the log, and a time limit the wrapper enforces
  * itself, so it holds with the server stopped. At the limit it marks the
@@ -145,7 +158,7 @@ export function jobArgv(argv: string[], exitPath: string, stopPath: string, time
     waitForGroupMembersScript(platform),
     "_topics_exit=$1; _topics_stop=$2; _topics_mark=$3; _topics_limit=$4; shift 4",
     "trap ':' TERM",
-    '( trap \'kill "$_topics_sleep" 2>/dev/null; exit 0\' TERM; sleep "$_topics_limit" & _topics_sleep=$!; wait "$_topics_sleep" && { printf 1 > "$_topics_mark"; kill -TERM "-$$"; } ) &',
+    `( trap '${WATCHDOG_TERM_HANDLER}' TERM; sleep "$_topics_limit" & _topics_sleep=$!; wait "$_topics_sleep" && { printf 1 > "$_topics_mark"; kill -TERM "-$$"; } ) &`,
     "_topics_watchdog=$!",
     `trap 'rc=$?; trap - EXIT; kill "$_topics_watchdog" 2>/dev/null; ${DRAIN_IGNORES_TERM}; wait; _topics_wait_for_group_members; printf "%s\\n" "$rc" > "$_topics_exit"; exit "$rc"' EXIT`,
     `${START_UNLESS_STOPPING} "$_topics_stop" "$@"; exit "$?"`,
