@@ -643,7 +643,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       // A dispatched agent works a worktree/topic of the SOURCE project; moving
       // the task under it would strand the binding. Finish or release it first.
-      if (row.assigned_topic_id || isAgentWorking(row.dispatch_state)) {
+      // `queued` is only a queue entry (no attempt exists yet): it does not block the move.
+      if (row.assigned_topic_id || (isAgentWorking(row.dispatch_state) && row.dispatch_state !== "queued")) {
         throw new TaskServiceError("invalid_transition", "task has a live agent. Let it reach review (or park it) before moving boards.");
       }
       const ts = now();

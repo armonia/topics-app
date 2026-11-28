@@ -96,6 +96,9 @@ printf '[Service]\nCPUWeight=100\n' > /etc/systemd/system/topics.service.d/prece
 # The node answers only on loopback (the Mac comes through the ssh tunnel): a server made
 # from an older recipe listened on *:3333, on the public address.
 printf '[Service]\nEnvironment=SERVER_HOST=127.0.0.1\n' > /etc/systemd/system/topics.service.d/locale.conf
+# The AI broker keeps native turns alive across a restart: healthz then says losslessRestart:true
+# and the pool realigns the node without waiting for zero turns.
+printf '[Service]\nEnvironment=TOPICS_AI_BRIDGE=1\n' > /etc/systemd/system/topics.service.d/ai-bridge.conf
 # Its agent browser and its previews below 3342 too: privileged ports the runners can
 # neither take nor reach. The e2e servers keep CDP 199xx and previews 3400-3450.
 printf '[Service]\nEnvironment=TOPICS_CDP_PORT=3302\nEnvironment=TOPICS_PREVIEW_PORTS=3303-3340\n' > /etc/systemd/system/topics.service.d/porte-nodo.conf

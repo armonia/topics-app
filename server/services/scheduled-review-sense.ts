@@ -6,10 +6,19 @@
  * impossible and nothing it prints can act on the machine.
  */
 import { randomBytes } from "node:crypto";
+import { commentAuthorLabel } from "../../shared/comment-author";
 import { runBounded, SPAWN_TIMEOUT } from "../lib/bounded-spawn";
 import { resolveClaudeBin } from "../lib/claude-bin";
 import { runGit } from "../lib/run-git";
 import type { SenseVerdict } from "./scheduled-review";
+
+/** Author kinds the delivery's own words never come from: a claim is the agent's, not a reviewer's or a person's. */
+const NOT_A_WRITER = new Set(["user", "guest", "system", "dispatcher", "verifier"]);
+
+/** The agent's own last words on the card: what `falseMainClaims` reads a "the land is settled" claim from. */
+export function deliveryClaimWords(thread: readonly { author: string; content: string }[]): string {
+  return thread.filter((c) => !NOT_A_WRITER.has(commentAuthorLabel(c.author).kind)).slice(-3).map((c) => c.content).join("\n");
+}
 
 /** Defaults of the two reviewer models; a board overrides them in its workflow rules (`reviewerModels`). */
 export const SENSE_MODEL = "claude-haiku-5-5";
@@ -150,6 +159,20 @@ export async function isOnMain(repoPath: string, commit: string): Promise<boolea
 const ON_MAIN_CLAIM = /(gi[aà] (su|in) main|already (on|in) main)/i;
 const SHA = /\b[0-9a-f]{7,40}\b/g;
 
+/**
+ * The words a delivery uses to deny the land, with no sha to check: "no new commit, closing without
+ * landing" names nothing `falseMainClaims` can look up, but the sentence is just as much a claim.
+ * Card 8b958524, 27/11: "no new commits, the fix is already on main, closing without landing" carried a
+ * 381-line fix that was not on main at all. Four Italian phrases from the card plus their English
+ * equivalents; the sha-named claim above stays the stricter, separate check.
+ */
+const LAND_DENIAL_WORDS = /(gi[aà] (su|in) main|nessun commit nuovo|senza land|duplicat[oa]|already (on|in) main|no new commit|no land needed|nothing to land|duplicate)/i;
+
+/** Does `text` deny the land in words, with nothing named to check against `origin/main`? */
+export function landIsDeniedInWords(text: string): boolean {
+  return LAND_DENIAL_WORDS.test(text);
+}
+
 /** Shas named in the same sentence as an "already on main" claim: pure, the text is the agent's last word. */
 export function claimedMainShas(text: string): string[] {
   const out: string[] = [];
@@ -177,4 +200,32 @@ export async function falseMainClaims(repoPath: string, text: string): Promise<s
     if (on === false) bad.push(sha);
   }
   return answered === 0 ? null : bad;
+}
+
+/** How much of `commit` is not yet on origin/main: its own commits and the files they touch. `null` = git could not say. */
+export async function commitsSinceMain(repoPath: string, commit: string): Promise<{ commits: number; files: number } | null> {
+  if (!(await fetchMain(repoPath))) return null;
+  const base = await runGit(repoPath, ["merge-base", "origin/main", commit], { timeoutMs: SPAWN_TIMEOUT.query });
+  if (base.code !== 0) return null;
+  const range = `${base.stdout.trim()}..${commit}`;
+  const log = await runGit(repoPath, ["log", "--oneline", range], { timeoutMs: SPAWN_TIMEOUT.query });
+  const diff = await runGit(repoPath, ["diff", "--name-only", range], { timeoutMs: SPAWN_TIMEOUT.query });
+  if (log.code !== 0 || diff.code !== 0) return null;
+  const commits = log.stdout.trim() ? log.stdout.trim().split("\n").length : 0;
+  const files = diff.stdout.trim() ? diff.stdout.trim().split("\n").length : 0;
+  return { commits, files };
+}
+
+/**
+ * The review-entry note (reused `falseMainClaims`, nothing new to detect it): a delivery that denied
+ * the land naming a commit origin/main does not have, but whose own commit carries real work. The
+ * approval stays as always — this only tells the human what the agent's words got wrong.
+ */
+export function mainClaimReviewNote(claims: readonly string[], commits: number, files: number): string {
+  const n = commits === 1 ? "1 commit" : `${commits} commit`;
+  const f = files === 1 ? "1 file" : `${files} file`;
+  if (claims.length === 0) {
+    return `Verifica automatica: la consegna nega il land, ma il ramo porta ${n} propri su ${f} che \`origin/main\` non ha. L'approvazione resta possibile, controlla prima di landare.`;
+  }
+  return `Verifica automatica: la consegna dice che ${claims.slice(0, 5).join(", ")} è già su main, ma \`origin/main\` non ce l'ha. Il ramo porta ${n} propri su ${f}. L'approvazione resta possibile, controlla prima di landare.`;
 }
