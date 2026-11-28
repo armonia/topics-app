@@ -4,7 +4,6 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
 import { storedLimit } from "../usage/project-limit";
 import {
   CONTINUE_GRACE_PCT, continueProject, nextLocalMidnight, openPauseIfNeeded,

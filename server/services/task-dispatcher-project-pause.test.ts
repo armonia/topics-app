@@ -14,7 +14,6 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
 import { continueProject } from "./project-pause";
 import { openPauseWithLimit } from "../../tests/helpers/paused-project";
 import { createTaskService, type TaskService } from "./tasks";

@@ -12,7 +12,6 @@ import {
 } from "./project-pause";
 import { parseOwnerAlertCommand, pauseAlertText, sendOwnerAlert } from "./project-pause-alerts";
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
 import { PROJECT_QUOTA_SCHEMA } from "../../tests/helpers/project-quota-schema";
 
 describe("parseOwnerAlertCommand", () => {

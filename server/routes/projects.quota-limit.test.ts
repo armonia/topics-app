@@ -5,7 +5,6 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createProjectsRouter } from "./projects";
 import { PROJECT_QUOTA_SCHEMA } from "../../tests/helpers/project-quota-schema";

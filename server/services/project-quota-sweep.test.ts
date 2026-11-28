@@ -4,7 +4,6 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
 import type { ProjectQuotaRow } from "../../shared/usage-shapes";
 import { readProjectQuotaRow } from "./project-pause";
 import { resetPausePointsForTests, runProjectQuotaPauseSweep } from "./project-quota-sweep";
