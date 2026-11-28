@@ -315,7 +315,7 @@ function GroupChips({ groups, onPick }: { groups: BellGroup[]; onPick: (key: Bel
           type="button"
           tabIndex={-1}
           onClick={() => onPick(g.key)}
-          className={`flex items-center gap-[5px] whitespace-nowrap flex-shrink-0 ${isTouch ? 'h-8 px-1.5' : 'h-6 px-2'} rounded-xs text-compact font-medium transition-colors ${CHIP_TONE[g.key] ?? 'bg-black/[0.05] dark:bg-white/[0.06] text-app-text-secondary hover:text-app-text'}`}
+          className={`flex items-center gap-1.25 whitespace-nowrap flex-shrink-0 ${isTouch ? 'h-8 px-1.5' : 'h-6 px-2'} rounded-xs text-compact font-medium transition-colors ${CHIP_TONE[g.key] ?? 'bg-black/[0.05] dark:bg-white/[0.06] text-app-text-secondary hover:text-app-text'}`}
           data-testid="bell-chip"
           data-group={g.key}
           data-count={g.entries.length}
@@ -343,8 +343,8 @@ function GroupSection({ group, action, children }: {
   const capped = group.key !== 'finished' && group.key !== 'decide' && !all && group.entries.length > BELL_GROUP_PREVIEW;
   const shown = capped ? group.entries.slice(0, BELL_GROUP_PREVIEW) : group.entries;
   return (
-    <section className="pt-px pb-[3px]" data-testid={GROUP_TEST_ID[group.key] ?? `bell-group-${group.key}`} data-bell-group={group.key} data-count={group.entries.length}>
-      <h3 className={`flex items-center gap-1.5 ${isTouch ? 'h-[34px] px-3.5 pt-1 text-compact' : 'h-[26px] px-3 pt-0.5 text-mini'} font-semibold uppercase tracking-[.04em] ${head.tone}`}>
+    <section className="pt-px pb-0.75" data-testid={GROUP_TEST_ID[group.key] ?? `bell-group-${group.key}`} data-bell-group={group.key} data-count={group.entries.length}>
+      <h3 className={`flex items-center gap-1.5 ${isTouch ? 'h-8.5 px-3.5 pt-1 text-compact' : 'h-6.5 px-3 pt-0.5 text-mini'} font-semibold uppercase tracking-[.04em] ${head.tone}`}>
         <Icon size={13} aria-hidden="true" />
         {tr(head.label)}
         <span className="tabular-nums font-medium tracking-normal">{group.entries.length}</span>
@@ -501,7 +501,7 @@ function FinishedRow({ item, first, onOpen, onMarkSeen }: { item: InboxItem; fir
           data-subject={item.subject}
           tabIndex={first ? 0 : -1}
           onClick={() => { if (dx === 0) onOpen(item); }}
-          className={`flex-1 min-w-0 flex items-center gap-2.5 text-left outline-none ${isMobile ? 'min-h-11 pl-3.5 pr-1' : 'min-h-[30px] pl-3 pr-1'}`}
+          className={`flex-1 min-w-0 flex items-center gap-2.5 text-left outline-none ${isMobile ? 'min-h-11 pl-3.5 pr-1' : 'min-h-7.5 pl-3 pr-1'}`}
         >
           <Icon size={isMobile ? 16 : 15} className={`flex-shrink-0 ${tint}`} aria-hidden="true" />
           <span className={`min-w-0 flex-1 ${isMobile ? 'block' : 'flex items-baseline gap-1.5'}`}>
@@ -609,7 +609,7 @@ function QuietLine({ working, outside, hubDown, downSince, onClose }: {
         disabled={!busy}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={busy ? open : undefined}
-        className={`w-full flex items-center gap-2 ${isTouch ? 'min-h-11 px-3.5 text-prose' : 'min-h-[34px] px-3 text-compact'} text-left text-app-text-secondary enabled:hover:bg-app-hover focus-visible:bg-app-hover outline-none transition-colors disabled:cursor-default`}
+        className={`w-full flex items-center gap-2 ${isTouch ? 'min-h-11 px-3.5 text-prose' : 'min-h-8.5 px-3 text-compact'} text-left text-app-text-secondary enabled:hover:bg-app-hover focus-visible:bg-app-hover outline-none transition-colors disabled:cursor-default`}
       >
         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${busy ? 'bg-green-500' : 'bg-app-text-muted'}`} aria-hidden="true" />
         <span className="flex-1 truncate tabular-nums">{busy ? tr('inbox.quiet.working', { n: total }) : tr('bell.footer.idle')}</span>

@@ -123,7 +123,7 @@ function InlineInput({ depth, icon, onSubmit, onCancel }: {
 
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] text-compact bg-app-hover"
+      className="flex items-center gap-1.5 px-2 py-0.75 md:py-0.75 min-h-7 text-compact bg-app-hover"
       style={{ paddingLeft: `${depth * 16 + 12}px` }}
     >
       <span className="w-4 h-4 flex-shrink-0" />
@@ -247,7 +247,7 @@ const TreeNode = memo(function TreeNodeRow({ node, depth, selectedPath, expanded
         // `--bg-surface` mentre questa colonna è `--chrome-bg` — cioè una fascia
         // da bordo a bordo sotto un'intestazione che è una card rientrata.
         // Il passo verticale resta quello denso dell'albero: vedi la costante.
-        className={`group/node ${TREE_ROW_CARD} flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-compact select-none ${
+        className={`group/node ${TREE_ROW_CARD} flex items-center gap-1.5 px-2 py-0.75 md:py-0.75 min-h-7 cursor-pointer text-compact select-none ${
           isSelected
             ? SELECTED_SURFACE
             : isMultiSelected
@@ -386,7 +386,7 @@ const TreeNode = memo(function TreeNodeRow({ node, depth, selectedPath, expanded
           {node.children === undefined && loadingDirs.has(node.path) && (
             // Senza questa riga una cartella oltre il terzo livello si apriva e
             // restava BIANCA: indistinguibile da una cartella vuota.
-            <div className="flex items-center gap-1.5 py-[2px] text-mini text-app-text-tertiary" style={{ paddingLeft: `${(depth + 1) * 12 + 8}px` }}>
+            <div className="flex items-center gap-1.5 py-0.5 text-mini text-app-text-tertiary" style={{ paddingLeft: `${(depth + 1) * 12 + 8}px` }}>
               <Spinner size="xs" tone="current" />
             </div>
           )}
@@ -440,7 +440,7 @@ const TreeNode = memo(function TreeNodeRow({ node, depth, selectedPath, expanded
                     // Stessa forma e stessa indentazione delle righe che
                     // segue: era l'unica riga dell'albero rimasta full-bleed,
                     // con un hover tinto di primary invece del rialzo neutro.
-                    className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-mini text-primary`}
+                    className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-0.75 md:py-0.75 min-h-7 cursor-pointer text-mini text-primary`}
                     style={{ paddingLeft: `${(depth + 1) * SIDEBAR_INDENT_STEP + 8}px` }}
                     onClick={() => onExpandOverflow(node.path)}
                   >
@@ -1349,7 +1349,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     return (
       <SkeletonRows
         count={12}
-        rowClassName={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px] min-h-[28px]`}
+        rowClassName={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-0.75 min-h-7`}
         glyph={14}
         indentStep={SIDEBAR_INDENT_STEP}
         depths={[0, 0, 1, 1, 2, 1, 0, 1, 2, 2, 1, 0]}
@@ -1623,7 +1623,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           // misure giuste (stessa altezza di riga, stesso passo di rientro),
           // quindi non c'e' niente da far crescere: c'e' solo da non accendere
           // il contenuto sopra il grigio che pulsava.
-          className={`reveal-in flex-shrink-0 overflow-y-auto border-b border-app-border ${selectedFile ? 'max-h-[200px]' : ''}`}
+          className={`reveal-in flex-shrink-0 overflow-y-auto border-b border-app-border ${selectedFile ? 'max-h-50' : ''}`}
           // La stessa radice della variante compatta qui sopra, stesso `into` e
           // stessa cessione alla riga sotto al puntatore.
           data-drop-active={rootDragOver && !dragOverPath ? 'into' : undefined}
@@ -1692,7 +1692,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         </div>
 
         {/* Editor tabs */}
-        <div className="flex-1 min-w-0 min-h-[300px] flex flex-col overflow-hidden">
+        <div className="flex-1 min-w-0 min-h-75 flex flex-col overflow-hidden">
           <Suspense fallback={<SpinnerFallback />}>
             <EditorTabs ref={editorTabsRef} projectPath={projectPath} />
           </Suspense>

@@ -51,7 +51,7 @@ export interface OriginalModel {
 function PaperPage({ paper, copy }: { paper: OriginalPaperModel; copy: UiCopy }) {
   const o = copy.knowledgeMore.original;
   return (
-    <div className="mx-auto max-w-[720px] rounded-lg bg-white px-6 py-8 font-serif text-body-lg leading-7 text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.12)] ring-1 ring-black/5 md:px-14" data-paper="true">
+    <div className="mx-auto max-w-180 rounded-lg bg-white px-6 py-8 font-serif text-body-lg leading-7 text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.12)] ring-1 ring-black/5 md:px-14" data-paper="true">
       <div className="font-sans text-mini font-medium tracking-[0.06em] text-neutral-500">{paper.heading}</div>
       {paper.paragraphs ? (
         <div className="mt-3 space-y-2.5">
@@ -116,7 +116,7 @@ export function OriginalScreen({
   const center = (() => {
     if (tab === 'card') {
       return (
-        <div className="mx-auto max-w-[720px] space-y-4">
+        <div className="mx-auto max-w-180 space-y-4">
           <h2 className="text-headline font-semibold tracking-[-0.01em] text-app-text">{m.title}</h2>
           <Card title={o.cardFacts}>
             {m.facts.map((f) => <KeyValue key={f.label} label={f.label} value={f.pending ? <Chip tone="amber">{f.value}</Chip> : <span className="font-semibold">{f.value}</span>} />)}
@@ -142,7 +142,7 @@ export function OriginalScreen({
     }
     if (tab === 'text') {
       return (
-        <div className="mx-auto max-w-[720px] space-y-3">
+        <div className="mx-auto max-w-180 space-y-3">
           <h2 className="text-headline font-semibold tracking-[-0.01em] text-app-text">{o.extractedTitle}</h2>
           <p className="text-prose text-app-text-secondary">{o.extractedNote}</p>
           {m.extracted.map((e) => (
@@ -157,7 +157,7 @@ export function OriginalScreen({
       <div>
         <PaperPage paper={m.paper} copy={copy} />
         {!m.paper.paragraphs && onLoadOriginal && (
-          <div className="mx-auto mt-4 flex max-w-[720px] flex-wrap items-center gap-3">
+          <div className="mx-auto mt-4 flex max-w-180 flex-wrap items-center gap-3">
             <Button variant="primary" onClick={onLoadOriginal}>{o.loadOriginal}</Button>
             <span className="text-compact text-app-text-tertiary">{o.loadOriginalHint}</span>
           </div>

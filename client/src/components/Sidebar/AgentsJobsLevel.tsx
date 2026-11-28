@@ -602,8 +602,8 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
           </span>
         )}
         {row.steps && row.steps.length > 0 && (
-          <span data-testid="agents-jobs-steps" className="mt-1.5 flex gap-[3px]" aria-hidden="true">
-            {row.steps.map((m, i) => <i key={i} data-step={m} className={`h-[3px] flex-1 rounded-full ${STEP_FILL[m]}`} />)}
+          <span data-testid="agents-jobs-steps" className="mt-1.5 flex gap-0.75" aria-hidden="true">
+            {row.steps.map((m, i) => <i key={i} data-step={m} className={`h-0.75 flex-1 rounded-full ${STEP_FILL[m]}`} />)}
           </span>
         )}
         {failedWithdraw && <span className={`block text-mini ${DANGER_TEXT}`}>{tr('agentsJobs.withdrawFailed')}</span>}
@@ -619,10 +619,10 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
       <div data-testid={rowTestId(row)} data-kind={row.source} data-tone={row.tone}>
         <div className={rowClass}>{body}</div>
         {row.question && (
-          <div data-testid="agents-jobs-question" className={`${isMobile ? 'ml-[46px] text-body' : 'ml-[38px] text-compact'} mr-3 text-app-text`}>“{row.question}”</div>
+          <div data-testid="agents-jobs-question" className={`${isMobile ? 'ml-11.5 text-body' : 'ml-9.5 text-compact'} mr-3 text-app-text`}>“{row.question}”</div>
         )}
         {(onOpen || onAutomation) && (
-          <div className={`${isMobile ? 'ml-[46px]' : 'ml-[38px]'} mt-2 flex flex-wrap gap-1.5`}>
+          <div className={`${isMobile ? 'ml-11.5' : 'ml-9.5'} mt-2 flex flex-wrap gap-1.5`}>
             {onOpen && (
               <button type="button" data-testid="agents-jobs-open" onClick={onOpen} className={act}>
                 {tr(row.source === 'terminal' ? 'agentsJobs.openTerminal' : 'agentsJobs.openChat')}

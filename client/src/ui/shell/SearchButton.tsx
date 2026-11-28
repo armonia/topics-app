@@ -28,7 +28,7 @@ export function SearchButton({ label, shortcut, onClick, compact, className }: {
       className={clsx(
         'raised-control inline-flex h-7 shrink-0 items-center rounded-lg text-app-text-secondary transition-colors hover:text-app-text',
         FOCUS_RING,
-        compact ? 'w-7 justify-center' : 'w-[240px] min-w-[150px] max-w-full shrink gap-2 pl-2.5 pr-1.5',
+        compact ? 'w-7 justify-center' : 'w-60 min-w-37.5 max-w-full shrink gap-2 pl-2.5 pr-1.5',
         className,
       )}
     >

@@ -70,7 +70,7 @@ interface SelectProps<T extends string> {
 
 const TRIGGER_BASE =
   'flex items-center gap-1.5 rounded-md border border-app-border bg-surface px-2 py-1 ' +
-  'coarse:min-h-[44px] coarse:px-3 coarse:text-body-lg text-compact text-app-text ' +
+  'coarse:min-h-11 coarse:px-3 coarse:text-body-lg text-compact text-app-text ' +
   'outline-none transition-colors hover:bg-app-hover focus-visible:border-primary ' +
   'disabled:cursor-not-allowed disabled:opacity-50';
 

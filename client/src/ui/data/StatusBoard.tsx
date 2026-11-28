@@ -18,7 +18,7 @@ export function StatusBoard({ columns, copy, onOpen }: {
   return (
     <div className="scrollbar-none -mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
       {columns.map((col) => (
-        <section key={col.id} aria-label={col.label} className="flex w-[240px] shrink-0 flex-col gap-2 rounded-xl bg-black/[0.03] p-2 dark:bg-white/[0.04]">
+        <section key={col.id} aria-label={col.label} className="flex w-60 shrink-0 flex-col gap-2 rounded-xl bg-black/[0.03] p-2 dark:bg-white/[0.04]">
           <header className="flex items-center gap-2 px-1.5 py-1">
             {col.glyph ? <StageIcon glyph={col.glyph} /> : <span className={clsx('h-2 w-2 rounded-full', TONE_CHIP[col.tone])} aria-hidden="true" />}
             <h3 className="min-w-0 flex-1 truncate text-prose font-semibold text-app-text">{col.label}</h3>
@@ -38,7 +38,7 @@ export function StatusBoard({ columns, copy, onOpen }: {
                   FOCUS_RING,
                 )}
               >
-                {c.stuck && <span aria-hidden="true" className={clsx('absolute bottom-2 left-0 top-2 w-[3px] rounded-r-full', c.stuck.tone === 'red' ? 'bg-rose-500' : 'bg-amber-500')} />}
+                {c.stuck && <span aria-hidden="true" className={clsx('absolute bottom-2 left-0 top-2 w-0.75 rounded-r-full', c.stuck.tone === 'red' ? 'bg-rose-500' : 'bg-amber-500')} />}
                 <span className="text-prose font-medium leading-5 text-app-text">{c.title}</span>
                 <span className="text-compact text-app-text-secondary">{c.detail}</span>
                 {c.deadline && <span className={clsx('text-compact tabular-nums', dueTone === 'red' || dueTone === 'amber' ? `font-medium ${TONE_TEXT[dueTone]}` : 'text-app-text-tertiary')}>{t.deadline(c.deadline)}</span>}

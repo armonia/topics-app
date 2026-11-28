@@ -19,7 +19,7 @@ import { MAIN_CONTAINER } from './model';
  */
 const RAIL = 'left-[13.5px]';
 /** One lane is this wide on a screen; on a phone a lane fills the strip but for a peek of the next. */
-const LANE_WIDTH = 'w-[17.5rem]';
+const LANE_WIDTH = 'w-70';
 const LANE_WIDTH_PHONE = 'w-[calc(100%-2.75rem)]';
 /** The gap between two lanes: the fork and the join bars run across it. */
 const LANE_GAP = 'gap-3';
@@ -277,7 +277,7 @@ function Lane({ lane, first, last, joins, off, phone, row }: {
 }) {
   const c = row.copy.flows.canvas;
   const only = first && last;
-  const bar = only ? undefined : first ? clsx(RAIL, BAR_ACROSS_GAP) : last ? 'left-0 w-[14px]' : clsx('left-0', BAR_ACROSS_GAP);
+  const bar = only ? undefined : first ? clsx(RAIL, BAR_ACROSS_GAP) : last ? 'left-0 w-3.5' : clsx('left-0', BAR_ACROSS_GAP);
   const tail = !joins && lane.steps.length === 0 && !lane.handoff;
   return (
     <section

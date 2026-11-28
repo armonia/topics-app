@@ -40,12 +40,12 @@ export function GenericPanel({ copy, view, handlers, editable, deniedTitle }: {
   const off = editable ? undefined : deniedTitle;
   const timed = view.kind === 'person';
   return (
-    <div className="mx-auto flex w-full max-w-[920px] min-w-0 flex-col gap-4 p-5">
+    <div className="mx-auto flex w-full max-w-230 min-w-0 flex-col gap-4 p-5">
       <div className="flex flex-wrap items-center gap-2">
         <KindChip kind={view.kind} program={view.program} copy={copy} />
         <h2 className="min-w-0 text-title font-semibold text-app-text">{view.title}</h2>
       </div>
-      <p className="max-w-[720px] text-prose leading-6 text-app-text-secondary">{c.lead[view.kind]}</p>
+      <p className="max-w-180 text-prose leading-6 text-app-text-secondary">{c.lead[view.kind]}</p>
       <div className="grid gap-4 md:grid-cols-2">
         <Card title={c.who}>
           <SettingRow label={c.office}>

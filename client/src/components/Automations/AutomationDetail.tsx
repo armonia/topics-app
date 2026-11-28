@@ -112,7 +112,7 @@ export function AutomationDetail({ row, now, clock, hubDown, gatewayDown, fixing
           <h3 className={PART_TITLE}><MessageSquare size={12} />{tr('auto.notes.title')}<span className={PART_REST}>{row.feedback.notes.length}</span></h3>
           <div className="flex flex-col gap-1.5">
             {row.feedback.notes.map((n, i) => (
-              <div key={i} className="min-h-[52px] rounded-sm border border-app-border-input bg-app-input px-2.5 py-2 text-compact leading-[1.45] text-app-text-body" data-testid="automation-note">
+              <div key={i} className="min-h-13 rounded-sm border border-app-border-input bg-app-input px-2.5 py-2 text-compact leading-[1.45] text-app-text-body" data-testid="automation-note">
                 {n.note}
                 <span className="mt-1 block text-mini tabular-nums text-app-text-muted">
                   {n.kind === 'complaint' ? `${tr('auto.notes.complaint')} · ` : ''}{n.at ? clock.date(Date.parse(n.at)) : ''}

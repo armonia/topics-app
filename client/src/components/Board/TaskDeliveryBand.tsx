@@ -339,7 +339,7 @@ deliveryOpen && task ? (
                       className="flex items-center gap-1.5 px-2 py-1"
                     >
                       <Globe className="h-3 w-3 shrink-0" />
-                      <span className="max-w-[10rem] truncate">{label}</span>
+                      <span className="max-w-40 truncate">{label}</span>
                       <span className="text-mini uppercase tracking-wide text-app-text-faint">{tr('board.task.closedTab')}</span>
                     </button>
                     {/* The ONLY call site of `removeTab`, and it was hover-only:

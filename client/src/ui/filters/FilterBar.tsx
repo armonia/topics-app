@@ -313,7 +313,7 @@ function SearchBox({ copy, size, phone, query, placeholder, onQuery, suggestions
   };
 
   return (
-    <div className={clsx('relative flex min-w-0 items-center', phone ? 'flex-1' : 'w-[15rem] max-w-full shrink')}>
+    <div className={clsx('relative flex min-w-0 items-center', phone ? 'flex-1' : 'w-60 max-w-full shrink')}>
       <ListFilter size={s.icon} className="pointer-events-none absolute left-2.5 text-app-text-tertiary" aria-hidden="true" />
       <input
         ref={input}
@@ -362,7 +362,7 @@ function SearchBox({ copy, size, phone, query, placeholder, onQuery, suggestions
           id={listId}
           role="listbox"
           aria-label={c.suggestionsLabel}
-          className={clsx(FLOAT_SURFACE, LAYER_FLOAT, 'absolute left-0 top-full mt-1 max-h-[min(360px,50dvh)] w-max min-w-[22rem] max-w-[min(32rem,calc(100vw-16px))] overflow-y-auto py-1')}
+          className={clsx(FLOAT_SURFACE, LAYER_FLOAT, 'absolute left-0 top-full mt-1 max-h-[min(360px,50dvh)] w-max min-w-88 max-w-[min(32rem,calc(100vw-16px))] overflow-y-auto py-1')}
         >
           {suggestions.map((sug, i) => {
             const head = i === 0 || suggestions[i - 1].group !== sug.group;

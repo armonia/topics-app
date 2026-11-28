@@ -241,7 +241,7 @@ describe("3. i suggerimenti progetto stanno dentro il selettore", () => {
   });
 
   test("i chip hanno UNA misura sola, dichiarata una volta", () => {
-    const declarations = [...PICKER.matchAll(/max-w-\[[\d.]+rem\]/g)].map((m) => m[0]);
+    const declarations = [...PICKER.matchAll(/max-w-(?:\[[\d.]+rem\]|\d+)/g)].map((m) => m[0]);
     expect(declarations.length, "nessuna larghezza dichiarata: i chip tornano a misura variabile").toBeGreaterThan(0);
     expect(new Set(declarations).size, `misure diverse fra loro: ${[...new Set(declarations)].join(", ")}`).toBe(1);
   });
