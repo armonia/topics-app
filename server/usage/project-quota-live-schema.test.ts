@@ -4,6 +4,7 @@
  * reach a live database through its own, additive migration. This starts from
  * the table exactly as the first migration created it, with that file marked
  * as applied, then applies the migrations that came after.
+ * @covers USAGE-29
  */
 import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
