@@ -68,7 +68,7 @@ const MAX_MB_PER_MIN_TERMINAL = 15;
 const MAX_MB_PER_MIN_SCROLL = 3;
 
 /** Sum of `VmRSS` (kB) across every live `WPEWebProcess`, converted to MB. */
-function webProcessRSSMB(): number {
+function webProcessResidentSize(): number {
   let pids: string[];
   try {
     pids = execSync("pgrep -f WPEWebProcess", { encoding: "utf-8" }).trim().split("\n").filter(Boolean);
@@ -90,7 +90,7 @@ function webProcessRSSMB(): number {
 
 async function sampleAfterSettle(): Promise<number> {
   await new Promise((r) => setTimeout(r, SETTLE_MS));
-  return webProcessRSSMB();
+  return webProcessResidentSize();
 }
 
 function report(name: string, series: FootprintPoint[], maxMBPerMin: number) {
