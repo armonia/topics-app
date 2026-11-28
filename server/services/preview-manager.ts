@@ -283,6 +283,10 @@ export interface PreviewManagerDeps {
   portRange?: [number, number];
   /** Idle time after which a chat's preview is switched off, ms. Default 30 minutes. */
   chatIdleMs?: number;
+  /** Cap on live chat previews (cards are not counted). Default 2. */
+  maxChatPreviews?: number;
+  /** Same admission as the cards (memory floor): a sentence when a new chat preview must not start, else null. */
+  admitChatPreview?(): string | null;
   /** Ms to wait for the server to answer before giving up. Default 40000. */
   readyTimeoutMs?: number;
   /** Poll interval while waiting for readiness. Default 500. */

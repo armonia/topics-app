@@ -103,3 +103,38 @@ describe("chat preview", () => {
     expect(pm.listChats().map((c) => c.topicId)).toEqual(["c1"]);
   });
 });
+
+describe("chat preview consumption limits", () => {
+  it("with a cap of 2, the third automatic start does not boot", async () => {
+    const h = harness({ maxChatPreviews: 2, touchesInterface: async () => true });
+    const pm = createPreviewManager(h.deps);
+    await pm.ensureForChat("c1", { auto: true });
+    await pm.ensureForChat("c2", { auto: true });
+    await pm.ensureForChat("c3", { auto: true });
+    expect(h.procs.length).toBe(2);
+    expect(pm.listChats().map((c) => c.topicId)).toEqual(["c1", "c2"]);
+  });
+
+  it("the button closes the oldest chat preview when over the cap", async () => {
+    const h = harness({ maxChatPreviews: 2 });
+    const pm = createPreviewManager(h.deps);
+    await pm.ensureForChat("c1");
+    await pm.ensureForChat("c2");
+    await pm.ensureForChat("c3");
+    expect(pm.listChats().map((c) => c.topicId).sort()).toEqual(["c2", "c3"]);
+  });
+
+  it("a denied admission starts nothing and says why, once for automatic starts", async () => {
+    const h = harness({ touchesInterface: async () => true, admitChatPreview: () => "Memoria quasi finita." });
+    const pm = createPreviewManager(h.deps);
+    await pm.ensureForChat("c1", { auto: true });
+    await pm.ensureForChat("c1", { auto: true });
+    expect(h.procs.length).toBe(0);
+    expect(h.posted.length).toBe(1);
+    expect(h.posted[0].content).toContain("Memoria quasi finita.");
+    expect(h.posted[0].content).toContain("«Anteprima»");
+    await pm.ensureForChat("c1");
+    expect(h.procs.length).toBe(0);
+    expect(h.posted.length).toBe(2);
+  });
+});

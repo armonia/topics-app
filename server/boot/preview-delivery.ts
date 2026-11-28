@@ -29,6 +29,12 @@ import { auditOneLanding as auditOneLandingPass, type AuditWiring } from "../ser
 import type { AfterQuiescence } from "./scope";
 import { late } from "./late";
 
+/** Cap on live chat previews: TOPICS_MAX_CHAT_PREVIEWS, default 2. */
+function chatPreviewCap(): number {
+  const n = Number(process.env.TOPICS_MAX_CHAT_PREVIEWS);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 2;
+}
+
 export function bootPreviewDelivery(scope: AfterQuiescence) {
   const { DISPATCH_WORKSPACE_DIR, broadcastToAll, ctx, dispatchExtraPaths, dispatcherSvc, scheduledCardsTimer, taskAttemptStore, worktreeOfTask } = scope;
   scheduledCardsTimer.unref?.();
@@ -90,6 +96,9 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       if (!wt) return null;
       return { id: wt.id, absPath: wt.absPath, branchName: wt.branchName, projectId: wt.projectId, mode: wt.mode };
     },
+    maxChatPreviews: chatPreviewCap(),
+    // Same memory floor as the cards; `ourWorkRunning` so the one-card exemption does not apply.
+    admitChatPreview: () => late.resourceBlock?.() ?? null,
     touchesInterface: (wt) => worktreeTouchesInterface(wt.absPath),
     postChatMessage: (topicId, { content, media }) => {
       const topic = ctx.getTopicById(topicId);

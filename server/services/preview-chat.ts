@@ -25,6 +25,9 @@ export function createChatPreviews(ctx: ChatPreviewContext) {
   const chatIdleMs = ctx.deps.chatIdleMs ?? 30 * 60_000;
   const chatTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const chatBooting = new Set<string>();
+  /** Chats already told why the automatic start was refused: one line per reason, not one per turn. */
+  const toldDenied = new Map<string, string>();
+  const maxLive = Math.max(1, ctx.deps.maxChatPreviews ?? 2);
 
   function armChatTimer(topicId: string): void {
     const key = chatSourceId(topicId);
@@ -59,6 +62,25 @@ export function createChatPreviews(ctx: ChatPreviewContext) {
         try { ui = (await ctx.deps.touchesInterface?.(wt)) === true; } catch { ui = false; }
         if (!ui) return;
         if (!ctx.deps.resolveCommand(key, wt)) return; // no start command: stay quiet
+      }
+      if (!ctx.live.has(key)) {
+        if (auto) {
+          // Chats do not go through the dispatcher: the cap keeps them from piling up servers.
+          if (listChats().length >= maxLive) return;
+        } else {
+          // The button: make room by closing the oldest chat preview.
+          const live = listChats();
+          if (live.length >= maxLive) await ctx.teardown(chatSourceId(live[0].topicId));
+        }
+        const denied = ctx.deps.admitChatPreview?.() ?? null;
+        if (denied) {
+          if (!auto || toldDenied.get(key) !== denied) {
+            toldDenied.set(key, denied);
+            say(`${notePrefix} non avviata: ${denied}${auto ? " Il pulsante «Anteprima» resta disponibile." : ""}`);
+          }
+          return;
+        }
+        toldDenied.delete(key);
       }
       const res = await ctx.bootPreview(key);
       if (!res.preview) {
