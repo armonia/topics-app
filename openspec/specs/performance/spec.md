@@ -270,6 +270,25 @@ verde.
 - **WHEN** il giudizio li valuta
 - **THEN** la curva piatta esce zero, e la serie troppo corta lo dice invece di dare un verdetto
 
+### Requirement: LEAK-03 — Un click su una tab già aperta non riscrive lo store dei pannelli
+
+Il renderer salvava l'intero snapshot `pane-store-v2` in `localStorage` a ogni
+cambio di tab, anche quando nulla di persistito era cambiato: 161 scritture su
+160 click. WebKit non fa il checkpoint del WAL mentre la sessione vive, quindi
+le scritture ripetute gonfiano la memoria del processo, non solo il disco. Il
+difetto stava nell'osservare `lastSeq` (che si muove a ogni azione) invece di
+`localSeq` (che si muove solo quando cambia lo stato da persistere).
+
+Il sistema DEVE scrivere lo store locale **solo quando `localSeq` avanza**, e
+la prova DEVE essere il conteggio delle scritture più la pendenza dell'RSS del
+processo web sullo stesso giro.
+
+#### Scenario: un giro di switch non scrive e non cresce oltre il limite
+
+- **GIVEN** 16 tab aperte e un giro di 10 cambi di tab
+- **WHEN** si contano le scritture di `pane-store-v2` e si misura l'RSS del processo web
+- **THEN** le scritture sono zero e la pendenza resta sotto il limite scritto nella spec
+
 ### Requirement: LEAK-04 — Una callback che pulisce DEVE scattare una volta per ogni contesto che se ne va
 
 `BrowserService` riceve un `onDestroy(contextId)`, e il server ci appende lo
