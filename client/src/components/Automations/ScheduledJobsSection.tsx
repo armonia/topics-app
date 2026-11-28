@@ -17,11 +17,12 @@ import { boardApi, type BoardProjectRef } from '../../lib/board';
 import { previewOccurrences, type JobRun, type ScheduledJob } from '../../lib/scheduledJobs';
 import { Segmented } from '../Shared/Segmented';
 import { Select } from '../Shared/Select';
-import { BOX, BUTTON, BUTTON_PRIMARY, ICON_BUTTON, SECTION, SECTION_COUNT, SECTION_REST } from './automationsUi';
-import { draftOf, emptyDraft, inputOf, scheduleOf, type JobDraft, type WhenKind } from './scheduledJobForm';
+import { Button, IconButton } from '../../ui/primitives/Button';
+import { TextField } from '../../ui/primitives/Field';
+import { BOX, SECTION, SECTION_COUNT, SECTION_REST } from './automationsUi';
+import { draftOf, emptyDraft, inputOf, isEditable, scheduleOf, type JobDraft, type WhenKind } from './scheduledJobForm';
 import { useScheduledJobs, type ScheduledJobsData } from './useScheduledJobs';
 
-const INPUT = 'h-8 w-full rounded-sm border border-app-border-input bg-app-input px-2 text-compact text-app-text outline-none placeholder:text-app-text-muted focus-visible:border-primary';
 const WHEN_KINDS: WhenKind[] = ['daily', 'weekly', 'hourly', 'every', 'once', 'custom'];
 const KNOWN_CAUSES = new Set(['overlap', 'down']);
 const DELIVERY_STATES = new Set(['delivered', 'delivering', 'delivery_failed', 'empty', 'not_delivered']);
@@ -46,9 +47,7 @@ export function ScheduledJobsSection() {
         <span className={SECTION_COUNT}>{jobs.length}</span>
         <span className={SECTION_REST}>{tr('sj.note')}</span>
         {!editing && (
-          <button type="button" className={`${BUTTON} ml-auto normal-case tracking-normal`} data-testid="sj-new" onClick={() => setEditing({ id: null, draft: emptyDraft() })}>
-            <Plus size={13} aria-hidden="true" />{tr('sj.new')}
-          </button>
+          <span className="ml-auto normal-case tracking-normal" data-testid="sj-new"><Button icon={Plus} onClick={() => setEditing({ id: null, draft: emptyDraft() })}>{tr('sj.new')}</Button></span>
         )}
       </h2>
       {data.failing && <p role="alert" className="m-0 mb-1.5 text-mini text-app-text-secondary" data-testid="sj-failing">{tr('sj.failing')}</p>}
@@ -87,20 +86,13 @@ function JobRow({ job, data, onEdit, onRemove }: { job: ScheduledJob; data: Sche
   const when = useDateWords();
   const [open, setOpen] = useState(false);
   const last = job.lastRun;
-  const editable = job.action.kind === 'command' || job.action.kind === 'card';
+  const editable = isEditable(job);
   const schedule = job.schedule;
   const rule = schedule.kind === 'cron' ? `${schedule.expr} · ${schedule.tz}` : schedule.kind === 'every' ? tr('sj.everyN', { n: schedule.minutes }) : when(schedule.at);
   return (
     <li data-testid="sj-row" data-job-id={job.id} data-enabled={job.enabled} className="border-b border-app-border-subtle last:border-b-0">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-label={tr('sj.history', { name: job.name })}
-          data-testid="sj-toggle"
-          onClick={() => setOpen((v) => !v)}
-          className={ICON_BUTTON}
-        >{open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}</button>
+        <span data-testid="sj-toggle" data-open={open}><IconButton icon={open ? ChevronDown : ChevronRight} label={tr('sj.history', { name: job.name })} pressed={open} onClick={() => setOpen((v) => !v)} /></span>
         <div className="min-w-0 flex-1 basis-48">
           <div className="truncate text-compact font-medium text-app-text" data-testid="sj-name">{job.name}</div>
           <div className="truncate text-mini text-app-text-muted">
@@ -112,16 +104,10 @@ function JobRow({ job, data, onEdit, onRemove }: { job: ScheduledJob; data: Sche
           {last ? <RunStatus run={last} /> : tr('sj.neverRan')}
         </span>
         <span className="ml-auto flex flex-none items-center gap-1">
-          <button type="button" className={BUTTON} data-testid="sj-run" onClick={() => { void data.runNow(job.id).then(() => setOpen(true)); }}>
-            <Zap size={13} aria-hidden="true" />{tr('sj.runNow')}
-          </button>
-          <button type="button" className={ICON_BUTTON} data-testid="sj-pause" aria-label={tr(job.enabled ? 'sj.pause' : 'sj.resume', { name: job.name })} onClick={() => { void data.update(job.id, { enabled: !job.enabled }); }}>
-            {job.enabled ? <Pause size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
-          </button>
-          {editable && (
-            <button type="button" className={ICON_BUTTON} data-testid="sj-edit" aria-label={tr('sj.edit', { name: job.name })} onClick={onEdit}><Pencil size={14} aria-hidden="true" /></button>
-          )}
-          <button type="button" className={ICON_BUTTON} data-testid="sj-delete" aria-label={tr('sj.deleteNamed', { name: job.name })} onClick={onRemove}><Trash2 size={14} aria-hidden="true" /></button>
+          <span data-testid="sj-run"><Button icon={Zap} onClick={() => { void data.runNow(job.id).then(() => setOpen(true)); }}>{tr('sj.runNow')}</Button></span>
+          <span data-testid="sj-pause"><IconButton icon={job.enabled ? Pause : Play} label={tr(job.enabled ? 'sj.pause' : 'sj.resume', { name: job.name })} onClick={() => { void data.update(job.id, { enabled: !job.enabled }); }} /></span>
+          {editable && <span data-testid="sj-edit"><IconButton icon={Pencil} label={tr('sj.edit', { name: job.name })} onClick={onEdit} /></span>}
+          <span data-testid="sj-delete"><IconButton icon={Trash2} label={tr('sj.deleteNamed', { name: job.name })} onClick={onRemove} /></span>
         </span>
       </div>
       {open && <RunHistory job={job} data={data} />}
@@ -179,14 +165,6 @@ function RunHistory({ job, data }: { job: ScheduledJob; data: ScheduledJobsData 
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex min-w-0 flex-col gap-1 text-mini text-app-text-secondary">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
 
 function JobForm({ initial, id, data, onDone }: { initial: JobDraft; id: string | null; data: ScheduledJobsData; onDone(): void }) {
   const tr = useT();
@@ -203,8 +181,8 @@ function JobForm({ initial, id, data, onDone }: { initial: JobDraft; id: string 
   // The preview is read from the shared schedule module on every keystroke: it is the same arithmetic the server does.
   const preview = useMemo(() => previewOccurrences(scheduleOf(draft), new Date(), id === null), [draft, id]);
   const needsZone = draft.whenKind === 'daily' || draft.whenKind === 'weekly' || draft.whenKind === 'hourly' || draft.whenKind === 'custom';
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async (event?: React.FormEvent) => {
+    event?.preventDefault();
     setBusy(true);
     const input = inputOf(draft);
     const ok = id ? await data.update(id, input) : await data.create(input);
@@ -216,33 +194,27 @@ function JobForm({ initial, id, data, onDone }: { initial: JobDraft; id: string 
   return (
     <form onSubmit={(e) => { void submit(e); }} data-testid="sj-form" aria-label={tr(id ? 'sj.editTitle' : 'sj.newTitle')} className={`mb-3 grid gap-3 p-3 ${BOX}`}>
       <h3 className="m-0 text-compact font-medium text-app-text">{tr(id ? 'sj.editTitle' : 'sj.newTitle')}</h3>
-      <Field label={tr('sj.name')}>
-        <input required maxLength={120} className={INPUT} data-testid="sj-name-input" value={draft.name} onChange={(e) => set('name', e.target.value)} placeholder={tr('sj.namePlaceholder')} />
-      </Field>
-      <Field label={tr('sj.command')}>
-        <input required className={`${INPUT} font-mono`} data-testid="sj-command" value={draft.commandLine} onChange={(e) => set('commandLine', e.target.value)} placeholder={tr('sj.commandPlaceholder')} />
-      </Field>
-      <Field label={tr('sj.cwd')}>
-        <input required={!draft.projectId} className={`${INPUT} font-mono`} data-testid="sj-cwd" value={draft.cwd} onChange={(e) => set('cwd', e.target.value)} placeholder={tr('sj.cwdPlaceholder')} />
-      </Field>
+      <div data-testid="sj-name-input"><TextField label={tr('sj.name')} value={draft.name} onChange={(v) => set('name', v)} placeholder={tr('sj.namePlaceholder')} /></div>
+      <div data-testid="sj-command"><TextField label={tr('sj.command')} value={draft.commandLine} onChange={(v) => set('commandLine', v)} placeholder={tr('sj.commandPlaceholder')} /></div>
+      <div data-testid="sj-cwd"><TextField label={tr('sj.cwd')} value={draft.cwd} onChange={(v) => set('cwd', v)} placeholder={tr('sj.cwdPlaceholder')} /></div>
       <div className="grid gap-1.5">
         <span className="text-mini text-app-text-secondary">{tr('sj.when')}</span>
         <Segmented<WhenKind> value={draft.whenKind} ariaLabel={tr('sj.when')} testId="sj-when" onChange={(v) => set('whenKind', v)} options={WHEN_KINDS.filter((value) => id === null || (value === 'once') === (initial.whenKind === 'once')).map((value) => ({ value, label: tr(`sj.when.${value}`) }))} />
         <div className="grid grid-cols-2 gap-2 @max-2xl:grid-cols-1">
           {(draft.whenKind === 'daily' || draft.whenKind === 'weekly') && (
-            <Field label={tr('sj.time')}><input type="time" required className={INPUT} data-testid="sj-time" value={draft.time} onChange={(e) => set('time', e.target.value)} /></Field>
+            <div data-testid="sj-time"><TextField label={tr('sj.time')} value={draft.time} onChange={(v) => set('time', v)} type="time" /></div>
           )}
           {draft.whenKind === 'every' && (
-            <Field label={tr('sj.everyLabel')}><input type="number" min={1} required className={INPUT} data-testid="sj-every" value={draft.everyMinutes} onChange={(e) => set('everyMinutes', e.target.value)} /></Field>
+            <div data-testid="sj-every"><TextField label={tr('sj.everyLabel')} value={draft.everyMinutes} onChange={(v) => set('everyMinutes', v)} type="number" /></div>
           )}
           {draft.whenKind === 'once' && (
-            <Field label={tr('sj.onceLabel')}><input type="datetime-local" required className={INPUT} data-testid="sj-once" value={draft.onceAt} onChange={(e) => set('onceAt', e.target.value)} /></Field>
+            <div data-testid="sj-once"><TextField label={tr('sj.onceLabel')} value={draft.onceAt} onChange={(v) => set('onceAt', v)} type="datetime-local" /></div>
           )}
           {draft.whenKind === 'custom' && (
-            <Field label={tr('sj.cron')}><input required className={`${INPUT} font-mono`} data-testid="sj-cron" value={draft.cron} onChange={(e) => set('cron', e.target.value)} placeholder="0 9 * * 1" /></Field>
+            <div data-testid="sj-cron"><TextField label={tr('sj.cron')} value={draft.cron} onChange={(v) => set('cron', v)} placeholder="0 9 * * 1" /></div>
           )}
           {needsZone && (
-            <Field label={tr('sj.zone')}><input required className={INPUT} data-testid="sj-zone" value={draft.timeZone} onChange={(e) => set('timeZone', e.target.value)} /></Field>
+            <div data-testid="sj-zone"><TextField label={tr('sj.zone')} value={draft.timeZone} onChange={(v) => set('timeZone', v)} /></div>
           )}
         </div>
         <div className="text-mini" data-testid="sj-preview" aria-live="polite">
@@ -270,8 +242,8 @@ function JobForm({ initial, id, data, onDone }: { initial: JobDraft; id: string 
       </div>
       {data.error && <p role="alert" className="m-0 text-mini text-red-600 dark:text-red-400" data-testid="sj-form-error">{data.error}</p>}
       <div className="flex justify-end gap-2">
-        <button type="button" className={BUTTON} onClick={() => { data.clearError(); onDone(); }}>{tr('sj.cancel')}</button>
-        <button type="submit" className={BUTTON_PRIMARY} disabled={busy || !preview.ok} data-testid="sj-save">{tr(id ? 'sj.save' : 'sj.create')}</button>
+        <Button onClick={() => { data.clearError(); onDone(); }}>{tr('sj.cancel')}</Button>
+        <span data-testid="sj-save"><Button variant="primary" onClick={busy || !preview.ok ? false : () => { void submit(); }}>{tr(id ? 'sj.save' : 'sj.create')}</Button></span>
       </div>
     </form>
   );

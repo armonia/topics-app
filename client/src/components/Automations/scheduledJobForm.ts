@@ -69,3 +69,8 @@ export function inputOf(draft: JobDraft): JobInput {
     deliver: draft.deliver === 'owner' ? { to: 'owner' } : null,
   };
 }
+
+/** Only a command job can be saved from the form: the server never changes the kind of an action. */
+export function isEditable(job: ScheduledJob): boolean {
+  return job.action.kind === 'command';
+}

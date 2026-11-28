@@ -68,25 +68,25 @@ test.describe("scheduled jobs in the Automations view, no hub", () => {
 
     await section.getByTestId("sj-new").click();
     const form = section.getByTestId("sj-form");
-    await form.getByTestId("sj-name-input").fill("Saluto");
-    await form.getByTestId("sj-command").fill("echo ciao-lavori");
-    await form.getByTestId("sj-cwd").fill(canonicalTmpRoot());
+    await form.getByTestId("sj-name-input").locator("input").fill("Saluto");
+    await form.getByTestId("sj-command").locator("input").fill("echo ciao-lavori");
+    await form.getByTestId("sj-cwd").locator("input").fill(canonicalTmpRoot());
 
     // The preview follows the time field.
-    await form.getByTestId("sj-time").fill("09:00");
+    await form.getByTestId("sj-time").locator("input").fill("09:00");
     const items = form.getByTestId("sj-preview-item");
     await expect(items).toHaveCount(3);
     const before = await items.evaluateAll((els) => els.map((e) => e.getAttribute("data-at")));
-    await form.getByTestId("sj-time").fill("18:30");
+    await form.getByTestId("sj-time").locator("input").fill("18:30");
     await expect.poll(async () => items.evaluateAll((els) => els.map((e) => e.getAttribute("data-at")))).not.toEqual(before);
     await expect(items.first()).toContainText("18:30");
     // A rule the server would refuse says so before saving.
     await form.getByTestId("sj-when-custom").click();
-    await form.getByTestId("sj-cron").fill("61 * * * *");
+    await form.getByTestId("sj-cron").locator("input").fill("61 * * * *");
     await expect(form.getByTestId("sj-preview-error")).toBeVisible();
     await expect(form.getByTestId("sj-save")).toBeDisabled();
     await form.getByTestId("sj-when-every").click();
-    await form.getByTestId("sj-every").fill("1");
+    await form.getByTestId("sj-every").locator("input").fill("1");
     await expect(items).toHaveCount(3);
     await form.getByTestId("sj-save").click();
 
