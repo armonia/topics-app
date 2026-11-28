@@ -8,6 +8,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Remove on-demand node-pool slots, keep the permanent node only",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Preview seed: correct the proven cause and lock it with tests",
           "en": "",
           "scope": null
