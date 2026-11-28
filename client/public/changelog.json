@@ -75,6 +75,11 @@
           "breaking": false
         },
         {
+          "it": "Record the land guard's size as a live exception, not a silent bump",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Keep cards reachable when an aliased board id still holds cards",
           "en": "",
           "scope": null
@@ -108,7 +113,27 @@
           "scope": null
         },
         {
+          "it": "Primary switch: launches on their way to any machine are parked before the snapshot, the VAPID keys live in the state folder the switch collects, and nothing a switch leaves in a checkout is seen by git",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Primary switch: the receiver refuses before the commit a replica it cannot stop or a folder it cannot write, a failed replica stop throws before anything moves, and the sender retires only once the new primary confirms its restore; a failed restore is dropped and the sender stays the primary",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "design-baseline: registra TopSessionsSection (debito di un file nuovo di main)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "node-pool: resolve HERE through symlinks, slots from env",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Primary switch: the receiver asks again after the replica stop and right before the rename whether anyone holds the DB, the CLI prints a switch warning and exits 3, the legacy VAPID keys are copied and left in place, and the owner-only restore test runs on the new flow",
           "en": "",
           "scope": null
         },
@@ -124,6 +149,27 @@
           "scope": null
         },
         {
+          "it": "Review checks: put the repo's pinned Bun first in the child PATH",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare what the pinned-bun test covers",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "REVIEW-BUN-01",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Primary switch: the replica and the marker files get modules of their own so the switch stays under the size threshold, the lsof spawn is listed with its reason, the gitignore test runs git in the isolated env, and the CLI test names what it covers",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Mark the ui kit exports that the production graph now reaches but does not use",
           "en": "",
           "scope": null
@@ -134,7 +180,17 @@
           "scope": null
         },
         {
+          "it": "Primary switch: the tests import the replica settings and the restore status file from their own modules, so production keeps no export only a test reads",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Revert \"fix(design-system): TopSessionsSection uses Button/TextField primitives\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Primary switch: after the rename the copy set aside is asked who holds it, and a replica a supervisor restarted while lsof answered undoes the rename and refuses",
           "en": "",
           "scope": null
         },
@@ -195,6 +251,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Adatta i test di task-automerge alla guardia del land per sovrapposizione",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Remove on-demand node-pool slots, keep the permanent node only",
           "en": "",
           "scope": null
@@ -206,6 +267,11 @@
         },
         {
           "it": "Lavori programmati 3/8: registro di tool e spawn aggiornati per l'adattatore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Run the foreign-probe of a mixed-ancestry land on an isolated worktree, never on the live checkout",
           "en": "",
           "scope": null
         }
@@ -221,6 +287,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Primary switch receiver: replica stopped and started around the DB swap, files before the DB with the role file last, room checked before the commit, one list of instance files (topic memory, waiting items, cloud runs, VAPID keys now travel)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Make the walkFileTree yield test load-independent",
           "en": "",
           "scope": null
@@ -232,7 +303,28 @@
           "breaking": false
         },
         {
+          "it": "Primary switch: context files and agent engine settings travel with the instance list, a no_space refusal leaves the sender the primary (test), the probe resumes by session id and asks the real door",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dispatcher node lane: the primary switch park and runsOn logic moves to its own module, bringing task-dispatcher-remote-node.ts back under the bloat ceiling",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "merge in an open checkout unless the index is dirty or a modified file overlaps the merge",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Trace the systemd-temp-entries test to GATE-13 so check:untraced-tests passes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Primary switch: the replica command spawn is listed with its reason, and the secret store file from main is named among the files that never travel",
           "en": "",
           "scope": null
         },
@@ -264,7 +356,28 @@
           "breaking": false
         },
         {
+          "it": "Primary switch: a node launch counts as running on its machine from the moment it starts, is waited for or parked, and a run born under the fence is cancelled",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "node-pool: AI bridge on the nodes and a cap on new cards when behind",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.23",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Primary switch: destination runs parked, new primary id on the epoch, newer transcript wins, primary_moved under the fence, attachments travel, retired DB under another name, real-fence probe",
           "en": "",
           "scope": null
         }
@@ -371,6 +484,11 @@
           "en": "",
           "scope": "openspec",
           "breaking": false
+        },
+        {
+          "it": "Primary switch: the fence turns the live DB read-only; scheduled runs drained and parked",
+          "en": "",
+          "scope": null
         },
         {
           "it": "tetto-contesto-agenti, the ceiling skips continuations; a Discord message from Jarvis's channel gets it",
@@ -903,6 +1021,21 @@
           "scope": null
         },
         {
+          "it": "Primary switch: the fence stops internal writers and node polls too",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Primary switch: node runs reattach on the new primary, ignore switch leftovers, finite drain timeout",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Primary switch: declare the requirement the node-run switch test covers",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "rerun the review check",
           "en": "",
           "scope": null,
@@ -1415,10 +1548,65 @@
           "scope": null
         },
         {
+          "it": "Primary switch: gate fixes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Primary switch: guard the owner-only mode of the restored DB",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "primary-role-two-servers: boot the children with the worktree opt-out",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pace the fake CLI of two re-adoption tests with an in-process timer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "pty-bridge-mjs: attach the probe listeners before connecting",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "late-scan-route-grace: keep the daemon socket under Bun's 104 byte limit",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "the refusal to archive names the card, and stops refusing for a blocker that stays",
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Child watch: skip the stale sweep while the database is closed",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "task-diff-file git-hung: give the complete-blob case a long git deadline",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "git-watcher test: widen the wait for a broadcast with the machine's time slack",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cache-keepalive test: turn the event loop while settling, the token read is real I/O",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "numbered fake CLI: English name for the line end index",
+          "en": "",
+          "scope": null
         },
         {
           "it": "no new command starts while the Mac load is over 2 per core (card 9fecea98)",
@@ -1630,6 +1818,21 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Primary switch: hand the primary to another computer with a drain, nothing lost",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "wip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "wip2",
+          "en": "",
+          "scope": null
         }
       ]
     }
