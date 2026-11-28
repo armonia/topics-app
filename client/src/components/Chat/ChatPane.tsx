@@ -1084,7 +1084,7 @@ function ChatPaneComponent({
           coordinator, which by invariant has no project path and no worktree:
           its rows would have no tree to open a diff against. */}
       {!isGlobalOrchestrator && <ChangedFilesStrip key={topic.id} topic={topic} onWSMessage={onWSMessage} />}
-      {!isGlobalOrchestrator && <PreviewButton key={topic.id} topic={topic} />}
+      {!isGlobalOrchestrator && <PreviewButton key={`preview-${topic.id}`} topic={topic} />}
     </>
   );
   const stripsInTranscript = currentMessages.length > 0;
