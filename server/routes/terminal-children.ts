@@ -56,22 +56,19 @@ configureSubagentRuntime({
 });
 
 /**
- * Room for one more child, decided by memory and not by a number: the cards'
- * admission priced for a child, read ONLY on its memory axes (`floor` = the
- * RAM and disk floor, `memory` = the free-memory quota). Not the CPU: a native
- * child spends its turn waiting on the model, and a busy Mac must not come
- * back as a fixed cap under another name.
+ * Room for one more child, decided by real memory and not by a number: the
+ * cards' admission priced for a child, read ONLY on its `floor` (the RAM and
+ * disk floor). Not the free-memory quota: that one is net of what in-flight
+ * cards reserved, and a native child weighs ~0.1 GB inside the server that is
+ * already alive. Not the CPU either: a native child spends its turn waiting
+ * on the model, and a busy machine must not come back as a fixed cap under
+ * another name.
  */
 function childMachineRoom(): { admit: boolean; reason: string } | null {
   const a = childAdmissionPreview?.() ?? null;
-  if (!a || a.admit || (a.blockedBy !== "memory" && a.blockedBy !== "floor")) return a ? { admit: true, reason: "" } : null;
-  const gb = (n: number | null | undefined) => (typeof n === "number" ? `${n.toFixed(1)} GB` : "?");
-  const reason = a.blockedBy === "floor"
-    ? (a.reason ?? "memory or disk floor")
-    : a.memClause === "footprint"
-      ? `Topics holds ${gb(a.ourMemGB)} of its ${gb(a.usableMemGB)} ceiling`
-      : `a child needs ${gb(a.costMemGB)}, ${gb(a.freeQuotaMemGB)} free for Topics`;
-  return { admit: false, reason };
+  if (!a) return null;
+  if (a.admit || a.blockedBy !== "floor") return { admit: true, reason: "" };
+  return { admit: false, reason: a.reason ?? "memory or disk floor" };
 }
 
 
