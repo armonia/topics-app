@@ -29,7 +29,7 @@ test.skip(({ browserName }) => browserName !== "webkit", "RSS of the real WPEWeb
  * substitute for footprint on a system that HAS footprint.
  *
  * THE CANDIDATES. The card names four classes of suspect: "pane vive, tab
- * browser, store, liste non virtualizzate". Of those, only two produce a
+ * browser, store, unvirtualised lists". Of those, only two produce a
  * client-side loop reachable without a native WKWebView (the browser-pane and
  * project-switch panes render their real content only under Tauri's
  * `useTauriBrowser`/`useTauriProjectWindow`, which need `window.__TAURI_INTERNALS__`
