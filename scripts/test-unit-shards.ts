@@ -443,6 +443,20 @@ export function newEntries(before: ReadonlySet<string>, dir: string): string[] {
   return [...snapshotEntries(dir)].filter((name) => !before.has(name)).sort();
 }
 
+/**
+ * Entries a self-hosted runner's own system services leave in the real temp
+ * folder, not a test: `systemd-private-*` is `PrivateTmp` for a systemd unit
+ * (e.g. systemd-timedated), `snap-private-tmp` is the snap equivalent. A
+ * closed, name-only list (rule zero): no machine name, and an unlisted entry
+ * still fails the check.
+ */
+const SYSTEM_TEMP_ENTRY_PATTERNS: readonly RegExp[] = [/^systemd-private-/, /^snap-private-tmp/];
+
+/** Whether `name` is a known system entry (a CI runner's own service), not a test leak. */
+export function isSystemTempEntry(name: string): boolean {
+  return SYSTEM_TEMP_ENTRY_PATTERNS.some((pattern) => pattern.test(name));
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 if (import.meta.main) {
   const argv = process.argv.slice(2);
@@ -566,6 +580,8 @@ if (import.meta.main) {
         newEntries(outerBefore[i]!, dir)
           // The short base `testTmpDir` makes on purpose: what is INSIDE it is judged by the second root.
           .filter((name) => !(dir === tmpdir() && name === TEST_TMP_BASE_NAME))
+          // A self-hosted runner is a whole server with its own services.
+          .filter((name) => !isSystemTempEntry(name))
           .map((name) => join(dir, name)))
     : [];
 

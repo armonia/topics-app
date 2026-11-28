@@ -9,6 +9,7 @@ import {
   listOwnCommits,
   mergeNameStatus,
   otherLocalBranches,
+  resolveMainRef,
   splitAheadCommits,
   type GitRunResult,
 } from "./own-commits";
@@ -365,6 +366,10 @@ describe("own-commits — il cablaggio della consegna in server.ts", () => {
   // lasciarlo puntato a un blocco ormai vuoto, dove sarebbe passato verde a
   // vuoto per sempre.
   const backfillSrc = readFileSync(join(import.meta.dir, "delivery-backfill.ts"), "utf8");
+  // THE WIRING MOVED HERE TOO on 26/11 (`task-delivery-reference.ts`), when the
+  // test on the `mainRef` wiring at the call site asked for a testable home:
+  // same spirit as the backfill move above, the gate follows the code.
+  const deliveryRefSrc = readFileSync(join(import.meta.dir, "task-delivery-reference.ts"), "utf8");
 
   function blockIn(testo: string, from: string, to: string): string {
     const start = testo.indexOf(from);
@@ -386,8 +391,11 @@ describe("own-commits — il cablaggio della consegna in server.ts", () => {
     // da entrambi. Il cancello non cambia: quello che sorveglia e' che si
     // continui a chiedere il commit PROPRIO.
     const capture = block("const taskDeliveryRef = async (taskId: string)", "const taskCheckoutRef");
-    expect(capture).toContain("deliveryPointer(");
+    expect(capture).toContain("resolveDeliveryReference(");
     expect(capture).not.toContain("resolveCommit(");
+    const wired = blockIn(deliveryRefSrc, "export async function resolveDeliveryReference", "");
+    expect(wired).toContain("deliveryPointer(");
+    expect(wired).not.toContain("resolveCommit(");
   });
 
   test("il backfill periodico dell'audit fa la stessa domanda", () => {
@@ -586,5 +594,63 @@ describe("own-commits: repeated deliveries of one card", () => {
     const others = await otherLocalBranches(repo, "topics/del-d", { ownRefs: ["topics/del-a", "topics/del-b", "topics/del-c"] });
     expect(others).toContain("refs/heads/topics/stranger");
     expect(await countOwnCommits(repo, "topics/del-d", { others: others! })).toBe(1);
+  });
+});
+
+describe("resolveMainRef — the base a card's own branch is measured against", () => {
+  let remote: string;
+  let repo: string;
+  let ownCommit: string;
+
+  beforeAll(() => {
+    // A bare "origin" ahead of what this checkout keeps as its own local `main`:
+    // the shape of a board's own checkout, which only moves `main` at land time,
+    // against a node that always forks from the `origin/main` IT just fetched.
+    remote = mkdtempSync(join(tmpdir(), "own-commits-origin-"));
+    git(remote, "init", "-q", "--bare", "-b", "main");
+
+    repo = mkdtempSync(join(tmpdir(), "own-commits-planted-"));
+    git(repo, "init", "-q", "-b", "trunk"); // this checkout never created a local `main` of its own
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    git(repo, "remote", "add", "origin", remote);
+    commit(repo, "a.txt", "base\n", "base");
+    git(repo, "push", "-q", "origin", "trunk:main");
+    git(repo, "fetch", "-q", "origin");
+
+    // The planted branch: one commit of its own, forked straight off `origin/main`.
+    git(repo, "checkout", "-q", "-b", "topics/velvet-quasar", "origin/main");
+    commit(repo, "spec.txt", "GAUGE-10\n", "e6b0218c97-equivalent: own work");
+    ownCommit = git(repo, "rev-parse", "topics/velvet-quasar");
+  }, 60_000);
+
+  afterAll(() => {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(remote, { recursive: true, force: true });
+  });
+
+  test("picks origin/main when this checkout has one", async () => {
+    expect(await resolveMainRef(repo)).toBe("origin/main");
+  });
+
+  test("falls back to the local main when there is no origin/main", async () => {
+    const noOrigin = mkdtempSync(join(tmpdir(), "own-commits-no-origin-"));
+    git(noOrigin, "init", "-q", "-b", "main");
+    expect(await resolveMainRef(noOrigin)).toBe("main");
+    rmSync(noOrigin, { recursive: true, force: true });
+  });
+
+  test("the wrong base reads a planted branch's own commit as none; origin/main does not", async () => {
+    // The literal `main` this checkout never created: not "zero commits",
+    // NOT COUNTABLE. That is exactly what used to read on the delivery sheet
+    // as "the branch carries no commit yet, the work is not delivered".
+    expect(await listOwnCommits(repo, "topics/velvet-quasar")).toBeNull();
+    expect(await deliveryPointer(repo, "topics/velvet-quasar")).toBeNull();
+
+    const mainRef = await resolveMainRef(repo);
+    const own = await listOwnCommits(repo, "topics/velvet-quasar", { mainRef });
+    expect(own).toEqual([ownCommit]);
+    const pointer = await deliveryPointer(repo, "topics/velvet-quasar", { mainRef });
+    expect(pointer).toEqual({ branch: "topics/velvet-quasar", commit: ownCommit });
   });
 });

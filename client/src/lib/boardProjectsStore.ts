@@ -306,3 +306,17 @@ export function resolveProjectRefs(
     })
     .sort(byName);
 }
+
+/**
+ * Display names for the group headers of a board: the projects of the loaded
+ * cards PLUS the parents they are merged under. A parent with no card of its
+ * own among the loaded ones still heads its group, and must read as a name.
+ */
+export function projectNamesForBoard(
+  cardProjectIds: readonly string[],
+  parentIds: Iterable<string>,
+  index: BoardProjectRef[] | null,
+): Map<string, string> {
+  const ids = [...new Set([...cardProjectIds, ...parentIds])];
+  return new Map(resolveProjectRefs(ids, index).map((p) => [p.projectId, p.name]));
+}

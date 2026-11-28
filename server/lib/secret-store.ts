@@ -3,12 +3,12 @@
  * Keychain, and an age-encrypted file on every other platform (the server
  * this fleet runs on once it becomes the primary, `nodo-principale-a-mano`
  * T3). Callers never know which one answered: they ask for
- * `keychain:<service>/<use>`, the same key jarvis-channels already reads on
- * the Mac.
+ * a name from the allowlist (the Keychain backend stores it as the account of
+ * the fixed service `topics-secrets`).
  *
  * The closed list of names an installation accepts is NOT in this file
  * (regola zero: this source ships to every installation). It comes from the
- * caller, or from `<stateDir>/secrets/allowed-secret-names.json` by default —
+ * caller, or from `allowed-secret-names.json` in the secrets dir (`resolveSecretsDir`) by default —
  * missing or empty, the store rejects every name, which is the safe default.
  * No real secret of this fleet is packed by this task; the acceptance bar
  * exercises a test value and a test allowlist only.
@@ -26,16 +26,16 @@
  *
  * The age identity (the private key) is sourced once, lazily, from
  * `$CREDENTIALS_DIRECTORY` (systemd `LoadCredentialEncrypted=`, a tmpfs
- * mount that is gone once the unit stops) or from an environment variable
- * holding the key material itself; an explicit file path is accepted for
- * manual/dev use only, and is refused if its permissions let anyone but its
- * owner read it. Whichever source answers, the material stays in memory for
+ * mount that is gone once the unit stops); an explicit file path is accepted
+ * for manual/dev use only, and is refused if its permissions let anyone but
+ * its owner read it. There is deliberately NO environment-variable source: an
+ * env var of the server is inherited by every child it spawns. Whichever source answers, the material stays in memory for
  * the life of the store and this module never writes it back to disk.
  */
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { writeFileAtomic } from "./atomic-write";
-import { resolveStateDir } from "./data-dir";
+import { resolveSecretsDir, resolveStateDir } from "./data-dir";
 import { runBounded, SPAWN_TIMEOUT } from "./bounded-spawn";
 
 export type SecretName = string;
@@ -79,7 +79,7 @@ const ALLOWED_NAMES_FILE = "allowed-secret-names.json";
 
 /** Reads the installation's own list from its state dir; a missing or malformed file answers empty, never a guess. */
 export function loadAllowlistFromStateDir(stateDir: string): SecretAllowlist {
-  const path = join(stateDir, "secrets", ALLOWED_NAMES_FILE);
+  const path = join(resolveSecretsDir(stateDir), ALLOWED_NAMES_FILE);
   if (!existsSync(path)) return EMPTY_ALLOWLIST;
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -133,11 +133,27 @@ function decodePayload(raw: string, name: string): string {
   return Buffer.from(raw.slice(PAYLOAD_PREFIX.length), "base64").toString("utf8");
 }
 
-/** The stored text as the Keychain holds it; decoding is the caller's step. */
+/** `security` exit status for "item could not be found". */
+const KEYCHAIN_NOT_FOUND_STATUS = 44;
+
+/**
+ * The stored text as the Keychain holds it; decoding is the caller's step.
+ * Null means missing; any other failure (locked Keychain, timeout) is logged
+ * as a read error, by name only, before it answers null.
+ */
 function keychainFindRaw(runner: CommandRunner, name: string): string | null {
   const r = runner("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", name, "-w"]);
-  return r.status === 0 ? r.stdout.replace(/\n$/, "") : null;
+  if (r.status === 0) return r.stdout.replace(/\n$/, "");
+  if (r.status !== KEYCHAIN_NOT_FOUND_STATUS) console.warn(`[secret-store] keychain read error for "${name}": exit ${r.status}`);
+  return null;
 }
+
+/**
+ * One line of `security -i` is cut at a fixed buffer (4096 bytes in the
+ * tool's own source); `-U` would then replace the old secret with a cut copy.
+ * Stay well under it and refuse anything longer before `security` runs.
+ */
+const MAX_COMMAND_LINE = 3500;
 
 function keychainRead(runner: CommandRunner, name: string): string | null {
   const raw = keychainFindRaw(runner, name);
@@ -155,13 +171,23 @@ function quoteForSecurityStdin(value: string): string {
  * life of the call. This is the only path `pack` uses to write a value.
  */
 function keychainAdd(runner: CommandRunner, name: string, value: string): CommandRunResult {
+  const payload = encodePayload(value);
   const command = [
     "add-generic-password", "-U",
     "-s", quoteForSecurityStdin(KEYCHAIN_SERVICE),
     "-a", quoteForSecurityStdin(name),
-    "-w", quoteForSecurityStdin(encodePayload(value)),
+    "-w", quoteForSecurityStdin(payload),
   ].join(" ");
-  return runner("security", ["-i"], `${command}\n`);
+  const line = `${command}\n`;
+  // `security -i` cuts a line at a byte count, not a character count: a
+  // non-ASCII name can be under MAX_COMMAND_LINE in UTF-16 units and still
+  // be over it once encoded.
+  if (Buffer.byteLength(line, "utf8") > MAX_COMMAND_LINE) throw new Error(`secret "${name}" is too long for the Keychain backend: nothing was written`);
+  const r = runner("security", ["-i"], line);
+  if (r.status !== 0) return r;
+  // Read it back: a write that "succeeded" but stored something else is a failure.
+  if (keychainFindRaw(runner, name) !== payload) throw new Error(`keychain write for "${name}" did not read back identically`);
+  return r;
 }
 
 export function createKeychainSecretStore(allowlist: SecretAllowlist, runner: CommandRunner = defaultCommandRunner): SecretStore {
@@ -205,21 +231,31 @@ function recipientFromIdentity(identity: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Parses the whole ciphertext content without filtering: the gate is on the outputs (`read`, `unpack`) and on `pack`. */
-function parseSecretMap(json: string): SecretMap {
+/** The one failure `read`/`unpack` answer empty for; any other error (an insecure identity file, a runner that throws) still surfaces. */
+class DecryptFailedError extends Error {}
+
+/**
+ * The whole ciphertext content, strictly: anything that isn't a plain
+ * object of strings is a decrypt failure, not "no secrets yet" — a caller
+ * that merged on top of a silently-dropped value (`pack`) would otherwise
+ * throw away everything that didn't fit the shape.
+ */
+function parseSecretMapStrict(json: string): SecretMap {
   let parsed: unknown;
-  try { parsed = JSON.parse(json); } catch { return {}; }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  try { parsed = JSON.parse(json); } catch { throw new DecryptFailedError("decrypted plaintext is not valid JSON"); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new DecryptFailedError("decrypted plaintext is not a JSON object");
+  }
   const out: SecretMap = {};
   for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (typeof value === "string") out[name] = value;
+    if (typeof value !== "string") throw new DecryptFailedError(`decrypted plaintext has a non-string value for "${name}"`);
+    out[name] = value;
   }
   return out;
 }
 
 const CREDENTIALS_DIR_ENV = "CREDENTIALS_DIRECTORY";
 const IDENTITY_CREDENTIAL_NAME = "secret-store-identity";
-const IDENTITY_ENV_NAME = "TOPICS_SECRET_AGE_IDENTITY";
 
 /** A file readable by anyone but its owner is refused outright: never trusted as an identity source. */
 function readIdentityFile(path: string): string {
@@ -229,16 +265,13 @@ function readIdentityFile(path: string): string {
 }
 
 /**
- * In order: key material handed in directly, the env var holding the
- * material itself, `$CREDENTIALS_DIRECTORY` (systemd's decrypted-at-startup
+ * In order: key material handed in directly, `$CREDENTIALS_DIRECTORY` (systemd's decrypted-at-startup
  * tmpfs credential), then an explicit path for manual/dev use. No source
  * here is a default that points at a real, pre-existing file: an
  * unprovisioned installation answers null.
  */
 function resolveIdentity(opts: AgeSecretStoreOptions): string | null {
   if (opts.identity) return opts.identity;
-  const envValue = process.env[IDENTITY_ENV_NAME];
-  if (envValue) return envValue;
   const credentialsDir = process.env[CREDENTIALS_DIR_ENV];
   if (credentialsDir) {
     const credentialPath = join(credentialsDir, IDENTITY_CREDENTIAL_NAME);
@@ -259,6 +292,35 @@ export interface AgeSecretStoreOptions {
   run?: AgeRunner;
 }
 
+/** One queue per file path, shared by every store instance in the process. */
+const pathLocks = new Map<string, Promise<unknown>>();
+
+/**
+ * The file's own identity, not the string that named it: `dir/x` and
+ * `dir/./x`, or a path reached through a symlinked folder, must collapse to
+ * the same key or two concurrent `pack`s on "the same" file never serialise.
+ * The file itself may not exist yet, so only its folder is resolved through
+ * the filesystem.
+ */
+function lockKeyFor(path: string): string {
+  const dir = dirname(path);
+  const resolvedDir = existsSync(dir) ? realpathSync(dir) : resolve(dir);
+  return join(resolvedDir, basename(path));
+}
+
+async function withPathLock<T>(path: string, task: () => Promise<T>): Promise<T> {
+  const key = lockKeyFor(path);
+  const previous = pathLocks.get(key) ?? Promise.resolve();
+  const result = previous.then(task, task);
+  const tail = result.catch(() => undefined);
+  pathLocks.set(key, tail);
+  try {
+    return await result;
+  } finally {
+    if (pathLocks.get(key) === tail) pathLocks.delete(key);
+  }
+}
+
 export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
   const run = opts.run ?? defaultAgeRunner;
   let cachedIdentity: string | null = null;
@@ -273,17 +335,15 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
   /** The decrypted map, kept after the first `unpack`; `pack` replaces it with the fresh truth instead of leaving it stale. */
   let cachedMap: SecretMap | null = null;
 
-  /** The one failure `read`/`unpack` answer empty for; any other error (an insecure identity file, a runner that throws) still surfaces. */
-  class DecryptFailedError extends Error {}
-
   /**
    * Throws when the file exists but did not decrypt (bad exit, timeout, wrong
-   * identity): a caller that would otherwise merge on top of this result —
-   * `pack` — must never treat that failure as "no secrets yet" and overwrite
-   * the file with only what it just packed.
+   * identity, or plaintext that isn't a plain object of strings): a caller
+   * that would otherwise merge on top of this result — `pack` — must never
+   * treat that failure as "no secrets yet" and overwrite the file with only
+   * what it just packed.
    */
-  const decryptOrThrow = async (): Promise<SecretMap> => {
-    if (cachedMap) return cachedMap;
+  const decryptOrThrow = async (readOpts: { fresh?: boolean } = {}): Promise<SecretMap> => {
+    if (cachedMap && !readOpts.fresh) return cachedMap;
     const id = identity();
     if (!id || !existsSync(opts.secretsPath)) return {};
     // Identity travels via stdin ("-i -"); the ciphertext path is the only
@@ -294,7 +354,7 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
     }
     // The WHOLE file map: names outside the current allowlist stay in it, so a
     // narrower store never destroys them on rewrite. The outputs filter instead.
-    cachedMap = parseSecretMap(stdout);
+    cachedMap = parseSecretMapStrict(stdout);
     return cachedMap;
   };
 
@@ -303,7 +363,11 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
     try {
       return await decryptOrThrow();
     } catch (err) {
-      if (err instanceof DecryptFailedError) return {};
+      if (err instanceof DecryptFailedError) {
+        // Missing and unreadable are different things: say which one this is.
+        console.warn(`[secret-store] read error: ${err.message}`);
+        return {};
+      }
       throw err;
     }
   };
@@ -316,20 +380,28 @@ export function createAgeSecretStore(opts: AgeSecretStoreOptions): SecretStore {
     async pack(entries) {
       const id = identity();
       if (!id) throw new Error("age identity is not unlocked: nothing was packed");
-      const recipient = recipientFromIdentity(id);
-      if (!recipient) throw new Error("age identity has no public-key comment");
-      const next: SecretMap = { ...(await decryptOrThrow()) };
-      let changed = false;
+      const admitted: SecretMap = {};
       for (const [name, value] of Object.entries(entries)) {
         if (!opts.allowlist.has(name)) { console.warn("[secret-store] refused to pack a name outside the allowlist"); continue; }
-        if (value !== undefined) { next[name] = value; changed = true; }
+        if (value !== undefined) admitted[name] = value;
       }
       // Nothing admitted: leave the file untouched instead of rewriting it.
-      if (!changed) return;
-      const { stdout, exitCode } = await run(["age", "-a", "-r", recipient], JSON.stringify(next));
-      if (exitCode !== 0 || !stdout) throw new Error("age encryption failed");
-      writeFileAtomic(opts.secretsPath, stdout, { mode: 0o600 });
-      cachedMap = next;
+      if (Object.keys(admitted).length === 0) return;
+      await withPathLock(opts.secretsPath, async () => {
+        // The recipient is DERIVED from the key, never trusted from its comment.
+        const derived = await run(["age-keygen", "-y", "-"], id);
+        const recipient = derived.stdout.trim();
+        if (derived.exitCode !== 0 || !recipient.startsWith("age1")) throw new Error("could not derive the age recipient from the identity: nothing was packed");
+        const commented = recipientFromIdentity(id);
+        if (commented && commented !== recipient) throw new Error("age identity does not match its own public-key comment: nothing was packed");
+        // Re-read from disk inside the lock: another pack may have written since the cache was filled.
+        const next: SecretMap = { ...(await decryptOrThrow({ fresh: true })), ...admitted };
+        const { stdout, exitCode } = await run(["age", "-a", "-r", recipient], JSON.stringify(next));
+        if (exitCode !== 0 || !stdout) throw new Error("age encryption failed");
+        mkdirSync(dirname(opts.secretsPath), { recursive: true, mode: 0o700 });
+        writeFileAtomic(opts.secretsPath, stdout, { mode: 0o600 });
+        cachedMap = next;
+      });
     },
     async unpack() {
       const out: SecretMap = {};
@@ -360,6 +432,6 @@ export function createSecretStore(opts: CreateSecretStoreOptions = {}): SecretSt
     allowlist,
     identity: opts.identity,
     identityPath: opts.identityPath,
-    secretsPath: opts.secretsPath ?? join(stateDir, "secrets", "secrets.age"),
+    secretsPath: opts.secretsPath ?? join(resolveSecretsDir(stateDir), "secrets.age"),
   });
 }
