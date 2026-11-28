@@ -61,8 +61,8 @@ export function draftOf(job: ScheduledJob): JobDraft {
 export function scheduleOf(draft: JobDraft): JobSchedule {
   if (draft.whenKind === 'every') return { kind: 'every', minutes: Number(draft.everyMinutes) };
   if (draft.whenKind === 'once') return { kind: 'at', at: draft.onceAt ? new Date(draft.onceAt).toISOString() : '' };
-  const expr = draft.whenKind === 'custom' ? draft.cron : presetCron(draft.whenKind, draft.time);
-  return { kind: 'cron', expr, tz: draft.timeZone };
+  const rule = draft.whenKind === 'custom' ? draft.cron : presetCron(draft.whenKind, draft.time);
+  return { kind: 'cron', expr: rule, tz: draft.timeZone };
 }
 
 export function inputOf(draft: JobDraft): JobInput {
