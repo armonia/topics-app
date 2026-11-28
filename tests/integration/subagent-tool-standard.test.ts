@@ -452,14 +452,18 @@ describe("limits counted from the rows (SUBAGENT-15)", () => {
     expect(status).toBe(200);
   }, 30_000);
 
-  test("the machine's memory decides: no room for a child is a 429 that says so", async () => {
+  test("the real memory floor decides: no room for a child is a 429 that says so, counting this parent's children", async () => {
     const terminal = await import("../../server/routes/terminal");
-    terminal.setChildAdmissionPreview(() => ({ admit: false, blockedBy: "memory", firstAgentExempt: false, costCoreUnits: 0.5, costMemGB: 1, freeQuotaMemGB: 0.4, memClause: "quota" }));
+    terminal.setChildAdmissionPreview(() => ({ admit: false, blockedBy: "floor", firstAgentExempt: false, costCoreUnits: 0.5, reason: "RAM floor reached" }));
     try {
       const { status, body } = await spawn(SONNET_CHAT, {});
       expect(status).toBe(429);
       expect(body.error).toContain("no memory for another sub-agent");
-      expect(body.error).toContain("a child needs 1.0 GB, 0.4 GB free for Topics");
+      expect(body.error).toContain("RAM floor reached");
+      expect(body.error).toContain("0 live for this parent");
+      // The free-memory quota (net of the cards' reservations) is not a child's cap either.
+      terminal.setChildAdmissionPreview(() => ({ admit: false, blockedBy: "memory", firstAgentExempt: false, costCoreUnits: 0.5, costMemGB: 0.1, freeQuotaMemGB: 0, memClause: "quota" }));
+      expect((await spawn(SONNET_CHAT, {})).status).toBe(200);
       // The CPU axis is not a child's cap: a busy Mac still lets it start.
       terminal.setChildAdmissionPreview(() => ({ admit: false, blockedBy: "cpu", firstAgentExempt: false, costCoreUnits: 0.5 }));
       expect((await spawn(SONNET_CHAT, {})).status).toBe(200);

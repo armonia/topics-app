@@ -626,6 +626,11 @@ describe("handleMessage", () => {
       "comment_task",
       "send_mail",
       "google_call",
+      "create_scheduled_job",
+      "list_scheduled_jobs",
+      "run_scheduled_job",
+      "pause_scheduled_job",
+      "delete_scheduled_job",
       "ask_user_question",
       "show_view", // GENUI-01: a designed view in the chat
       // Il canale di permesso: pubblicato sempre. Lo designa
@@ -695,7 +700,7 @@ describe("handleMessage", () => {
       // Aspettare la fine di un processo non lo tocca: è una lettura che dura.
       "wait_for_process",
       "list_tasks", "get_task", "get_goal", "read_agent", "list_agents",
-      "list_global_tasks", "get_global_task",
+      "list_global_tasks", "get_global_task", "list_scheduled_jobs",
       "read_chat_messages", "resolve_tab",
       // Chiedere a una persona non cambia niente: è la lettura più pura che ci sia.
       "ask_user_question", "approval_prompt",
@@ -712,6 +717,7 @@ describe("handleMessage", () => {
       // It reloads or navigates the page before it reads it.
       "browser_verify",
       "run_script", "run_command", "stop_process",
+      "create_scheduled_job", "run_scheduled_job", "pause_scheduled_job", "delete_scheduled_job",
       "create_task", "update_task", "close_goal", "set_goal", "update_goal_steps",
       "comment_task", "label_task", "wait_for_condition",
       "create_global_task", "update_global_task", "comment_global_task",

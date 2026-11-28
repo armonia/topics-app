@@ -39,6 +39,20 @@ const hasCards = (db: Database, projectId: string): boolean => {
   }
 };
 
+/**
+ * Moves the cards of a redirected board id onto its target. Only `tasks` moves:
+ * board_settings, board_memory and board_workflow_rules are per-board config
+ * keyed by project_id (settings is the primary key), and the target already
+ * owns its own. Moving them would collide or overwrite live config, and the
+ * old board's copy is dead once the alias redirects. A task whose own parent
+ * lives elsewhere is untouched by this: parent links go by task id.
+ */
+function moveCardsToBoard(db: Database, oldId: string, newId: string): void {
+  try {
+    db.query("UPDATE tasks SET project_id = ? WHERE project_id = ?").run(newId, oldId);
+  } catch { /* read-only or very old DB: the cards stay where they are */ }
+}
+
 /** Board id of a path, following symlinks to the real directory. */
 export function canonicalBoardIdForPath(projectPath: string): string {
   return projectIdForPath(canonicalProjectPath(projectPath) || projectPath);
@@ -113,9 +127,28 @@ export function resolveBoardAlias(db: Database, projectId: string): string {
     if (!next || next === current) break;
     // A board still holding its own cards while the target is empty is not "moved".
     if (hasCards(db, current) && !hasCards(db, next)) break;
+    // Both boards hold cards: the old id is redirected from now on, so its cards
+    // would be unreachable from every route. Bring them along.
+    if (hasCards(db, current)) moveCardsToBoard(db, current, next);
     current = next;
   }
+  adoptStrandedCards(db, current);
   return current;
+}
+
+/**
+ * Cards left under an old id that aliases to `boardId` (the live DB already has
+ * such rows, and a request may name the new id directly, so the hop above never
+ * runs for them).
+ */
+function adoptStrandedCards(db: Database, boardId: string): void {
+  if (!boardId || boardId.startsWith("_") || boardId === "*") return;
+  try {
+    const olds = db.query("SELECT old_id FROM board_aliases WHERE new_id = ?").all(boardId) as { old_id: string }[];
+    for (const { old_id } of olds) {
+      if (old_id !== boardId && hasCards(db, old_id) && hasCards(db, boardId)) moveCardsToBoard(db, old_id, boardId);
+    }
+  } catch { /* alias table missing on a very old DB */ }
 }
 
 /** Rewrites `/api/boards/<old id>/...` to the current id; other paths pass through. */
