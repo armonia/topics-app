@@ -179,6 +179,14 @@ describe("overflow: la card prende un posto libero altrove appena ce n'è uno", 
     expect(h.task(CARD).status).toBe("todo");
   });
 
+  it("una card «solo Mac» con la macchina di un nodo del giro prima riparte qui, non sul nodo", async () => {
+    const h = harness({ floor: false });
+    h.seed(CARD, { machineId: PC, stayLocal: true });
+    await h.tick();
+    expect(h.turns).toEqual(["topic:topic-1"]);
+    expect(h.created).toEqual([]);
+  });
+
   it("una card assegnata a mano a una macchina offline che non si può accendere torna qui", async () => {
     const h = harness({ pcOnline: false });
     h.seed(CARD, { machineId: PC });

@@ -89,6 +89,9 @@ export function createOverflow(ctx: DispatcherCtx) {
   }
   function isRemoteTask(task: Task): boolean {
     if (!task.machineId) return false;
+    // «This Mac only» beats a leftover machine from an earlier node run: the card starts here
+    // from the next round (a node run already alive is not touched, it is not a todo card).
+    if (task.stayLocal) return false;
     let localMachine: string | null = null;
     let address: string | null = null;
     try { localMachine = deps.node?.localMachineId?.() ?? null; } catch { /* Treat an unknown local id conservatively. */ }
