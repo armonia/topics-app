@@ -1,5 +1,38 @@
 [
   {
+    "version": "2.5.31",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-28 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.30",
+    "date": "2026-11-28",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Pane store snapshot: exit flush always writes, dedupe tests, LEAK-03 spec describes the real mechanism",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.5.29",
     "date": "2026-11-28",
     "sections": {
@@ -75,12 +108,33 @@
           "breaking": false
         },
         {
+          "it": "Comment in English in the rss growth spec",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Record the land guard's size as a live exception, not a silent bump",
           "en": "",
           "scope": null
         },
         {
           "it": "Keep cards reachable when an aliased board id still holds cards",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rename an identifier the language gate did not know",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "LEAK-03, the pane store is written only when localSeq moves",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "RSS growth spec: keep only the topic-switch loop that CI can drive",
           "en": "",
           "scope": null
         },
@@ -108,6 +162,11 @@
           "breaking": false
         },
         {
+          "it": "RSS growth spec: the bar is the snapshot write count, the RSS slope is informational",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Send a mail once even if the server restarts",
           "en": "",
           "scope": null
@@ -118,7 +177,17 @@
           "scope": null
         },
         {
+          "it": "Pane store snapshot: write on every sequence tick but skip identical content (fixes remote updates not persisting)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Primary switch: the receiver refuses before the commit a replica it cannot stop or a folder it cannot write, a failed replica stop throws before anything moves, and the sender retires only once the new primary confirms its restore; a failed restore is dropped and the sender stays the primary",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pane store snapshot: leave the lastSeq counter out of the content comparison",
           "en": "",
           "scope": null
         },
@@ -129,6 +198,16 @@
         },
         {
           "it": "node-pool: resolve HERE through symlinks, slots from env",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mail inbox: declared mailboxes, a receiving round with a cursor, a Gmail reference adapter",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Node delivery meter runs up to 3 checkouts at once; review remeasure count persists on the card",
           "en": "",
           "scope": null
         },
@@ -175,7 +254,17 @@
           "scope": null
         },
         {
+          "it": "Remeasure store: fix reserved-word alias, add real-DB test, regenerate manifest, order TASKS_DDL columns",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Record pre-existing design-system debt for TopSessionsSection (main merge)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mail inbox tests declare the requirements they cover",
           "en": "",
           "scope": null
         },
@@ -186,6 +275,16 @@
         },
         {
           "it": "Revert \"fix(design-system): TopSessionsSection uses Button/TextField primitives\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Review sweep: remeasure store is required, tasks.test fixture covers remeasure columns",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mail inbox: Gmail reads in chunks, the lease outlasts the longest round, tests catch doubles",
           "en": "",
           "scope": null
         },
@@ -208,7 +307,14 @@
     "date": "2026-11-28",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "stop the local pane-store write storm on every tab switch",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -529,6 +635,11 @@
           "scope": null
         },
         {
+          "it": "Renderer growth bar: name the requirement it covers, and wait for the eviction instead of the clock",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Fix ci-evidence.test.ts type error for the detached-branch fallback test",
           "en": "",
           "scope": null
@@ -602,6 +713,11 @@
           "breaking": false
         },
         {
+          "it": "Renderer heap growth bar: on-demand snapshot hook + e2e guard",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Prove \"already on main\" before writing it, and warn review of a false claim",
           "en": "",
           "scope": null
@@ -633,6 +749,11 @@
           "en": "",
           "scope": "openspec",
           "breaking": false
+        },
+        {
+          "it": "Renderer growth: weigh the churn lap in bytes, and give the footprint curve a verdict",
+          "en": "",
+          "scope": null
         }
       ]
     }

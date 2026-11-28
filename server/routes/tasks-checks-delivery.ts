@@ -474,7 +474,11 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
     if (opts.realignForChecks && !sameDelivery) {
       const re = await opts.realignForChecks(taskId)
         .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` })); // allow-italian: board notes are written in Italian like every other service comment
-      if (!re.ok) {
+      if (!re.ok && re.unmeasured) {
+        // The gates could not measure the merge: nothing for the agent to fix, the checks run on the tree as it is.
+        try { svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineamento su main non misurato, check partiti sul ramo com'è: ${re.reason}` }); } // allow-italian: board notes are written in Italian like every other service comment
+        catch { /* a trace, not the gate */ }
+      } else if (!re.ok) {
         const comment =
           `**Riallineamento su main fallito, check non partiti**: ${re.reason}. ` + // allow-italian: board notes are written in Italian like every other service comment
           "Nel worktree fai `git fetch origin && git merge origin/main` (su un nodo il `main` locale è vecchio e non mostra il conflitto), risolvi, committa, poi rimetti in review con update_task(status=\"review\")."; // allow-italian: board notes are written in Italian like every other service comment
@@ -489,7 +493,7 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
         } catch { /* the verdict counts more than its record */ }
         return { ok: false, comment };
       }
-      if (re.note) {
+      if (re.ok && re.note) {
         try { svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato su main prima dei check: ${re.note}` }); } // allow-italian: board notes are written in Italian like every other service comment
         catch { /* a trace, not the gate */ }
       }

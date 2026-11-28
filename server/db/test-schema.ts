@@ -214,7 +214,11 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   ci_after TEXT,
   -- 20261120100000: the plain-words summary of a card in Review and its key.
   for_you TEXT,
-  for_you_key TEXT
+  for_you_key TEXT,
+  -- 20261128090000: the review sweep's measure count, per delivered commit.
+  remeasure_commit TEXT,
+  remeasure_tries INTEGER NOT NULL DEFAULT 0,
+  remeasure_at INTEGER NOT NULL DEFAULT 0
 )`;
 
 /**
