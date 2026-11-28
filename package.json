@@ -184,7 +184,7 @@
     "zod": "^4.6.6"
   },
   "devDependencies": {
-    "@armonia-io/spec-flow": "0.7.0",
+    "@armonia-io/spec-flow": "0.8.0",
     "@hughescr/stryker-bun-runner": "1.6.0",
     "@playwright/test": "^1.58.2",
     "@stryker-mutator/core": "10.1.1",

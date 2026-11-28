@@ -123,7 +123,7 @@ function FriendChipsRow({ chips }: { chips: ReturnType<typeof friendChips> }) {
       // `overflow-x-auto` with `scrollbar-hide`: the bar itself would be a
       // permanent grey line under the last row of the column, and the content
       // it would describe is faces that are already cut in half at the edge.
-      className="flex flex-nowrap items-center gap-1 my-[3px] overflow-x-auto scrollbar-hide"
+      className="flex flex-nowrap items-center gap-1 my-half overflow-x-auto scrollbar-hide"
     >
       {chips.map((c) => (
         <button
