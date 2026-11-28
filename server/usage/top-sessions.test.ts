@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { aggregateSessions as aggregate, modelFactor, addLine, scanTranscripts, transcriptBytesRead, type SessionTotals } from "./top-sessions";
+import { aggregateSessions as aggregate, modelFactor, addLine, scanTranscripts, type ScanStats, type SessionTotals } from "./top-sessions";
 
 const NOW = Date.parse("2026-11-25T12:00:00Z");
 const ago = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
@@ -81,16 +81,17 @@ describe("scanTranscripts is incremental", () => {
     const root = setup();
     const f = join(root, "proj", "aaaa1111.jsonl");
     writeFileSync(f, head(3, "/w/x", "cli") + "\n" + record(1, 100));
-    const first = await scanTranscripts(root, NOW);
-    const afterFirst = transcriptBytesRead();
+    const stats: ScanStats = { bytesRead: 0 };
+    const first = await scanTranscripts(root, NOW, stats);
+    const afterFirst = stats.bytesRead;
     expect(afterFirst).toBeGreaterThan(0);
-    await scanTranscripts(root, NOW);
-    expect(transcriptBytesRead()).toBe(afterFirst);
+    await scanTranscripts(root, NOW, stats);
+    expect(stats.bytesRead).toBe(afterFirst);
     const added = record(0.5, 200);
     appendFileSync(f, added);
     future(f);
-    const third = await scanTranscripts(root, NOW);
-    expect(transcriptBytesRead() - afterFirst).toBe(Buffer.byteLength(added));
+    const third = await scanTranscripts(root, NOW, stats);
+    expect(stats.bytesRead - afterFirst).toBe(Buffer.byteLength(added));
     expect(aggregate(third, NOW).sessions[0].points24h).toBeGreaterThan(aggregate(first, NOW).sessions[0].points24h);
   });
 

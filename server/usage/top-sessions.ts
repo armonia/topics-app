@@ -232,19 +232,13 @@ interface FileState {
 
 /** Per transcript folder, per file; a scan reads only what a file gained since the last one. */
 const fileCaches = new Map<string, Map<string, FileState>>();
-let bytesRead = 0;
-
-/** Bytes the scans have read from disk so far (a counter for tests and diagnostics). */
-export function transcriptBytesRead(): number {
-  return bytesRead;
-}
 
 /** Streams the complete lines of `path` from `state.offset` into its sums: the file is never held in memory. */
-async function readFrom(state: FileState, subagent: boolean, path: string, now: number): Promise<void> {
+async function readFrom(state: FileState, subagent: boolean, path: string, now: number, stats?: ScanStats): Promise<void> {
   let carry: Buffer = Buffer.alloc(0);
   const own: SessionTotals = new Map([[state.sessionId, state.sums]]);
   for await (const chunk of createReadStream(path, { start: state.offset })) {
-    bytesRead += (chunk as Buffer).length;
+    if (stats) stats.bytesRead += (chunk as Buffer).length;
     carry = carry.length ? Buffer.concat([carry, chunk as Buffer]) : (chunk as Buffer);
     let from = 0;
     for (let nl = carry.indexOf(10, from); nl !== -1; nl = carry.indexOf(10, from)) {
@@ -268,7 +262,10 @@ async function listNames(path: string): Promise<string[]> {
  * file seen before is read only past its last offset when it grew; one that
  * shrank, or changed without growing, is read again from the start.
  */
-export async function scanTranscripts(root: string, now: number): Promise<SessionTotals> {
+/** Optional counter a caller passes to learn how many bytes a scan really read. */
+export interface ScanStats { bytesRead: number }
+
+export async function scanTranscripts(root: string, now: number, stats?: ScanStats): Promise<SessionTotals> {
   const known = fileCaches.get(root) ?? new Map<string, FileState>();
   fileCaches.set(root, known);
   const seen = new Set<string>();
@@ -288,7 +285,7 @@ export async function scanTranscripts(root: string, now: number): Promise<Sessio
     if (!same) {
       state.size = st.size;
       state.mtimeMs = st.mtimeMs;
-      try { await readFrom(state, subagent, path, now); } catch { /* unreadable now: the next scan retries from the offset */ }
+      try { await readFrom(state, subagent, path, now, stats); } catch { /* unreadable now: the next scan retries from the offset */ }
     }
     const into = totals.get(sessionId) ?? blank(sessionId);
     totals.set(sessionId, into);
