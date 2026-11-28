@@ -79,7 +79,7 @@ test("Write posts the message to the listed session", async ({ page }) => {
   await openDashboard(page);
   const row = page.getByTestId("top-session-row").first();
   await row.getByTestId("top-session-write").click();
-  await row.getByTestId("top-session-input").fill("please stop");
+  await row.getByTestId("top-session-input").getByRole("textbox").fill("please stop");
   await row.getByRole("button", { name: /send|invia/i }).click();
   await expect.poll(() => posted).toEqual({ sessionId: "11111111-aaaa", text: "please stop" });
 });
