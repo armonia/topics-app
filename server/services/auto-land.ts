@@ -44,7 +44,7 @@
 import { agentAskInThread, askNeedsPerson, type PersonPath } from "../../shared/workflow";
 import { whoCloses } from "../../shared/task-labels";
 import { commentAuthorLabel } from "../../shared/comment-author";
-import { isThreadSpeech, type CheckRun } from "../../shared/board";
+import { isCiEvidenceCheck, isThreadSpeech, type CheckRun } from "../../shared/board";
 
 /** What the verdict reads off the card, and nothing else. */
 export interface AutoLandCard {
@@ -130,6 +130,10 @@ export function autoLandVerdict(
   const all = card.checks ?? [];
   const runs = all.filter((r) => !(r.cmd ?? "").startsWith(SCHEDULED_REVIEW_PREFIX));
   if (runs.length < board.declaredChecks || !all.every((r) => r.ok)) return no("the bar is not green in full");
+  // A "yes" on a board whose switch is off needs the board's own CI: at least one green `github-ci:` row.
+  if (intent === "yes" && !board.autoMerge && !all.some((r) => isCiEvidenceCheck({ cmd: r.cmd ?? "" }) && r.ok)) {
+    return no("the board has no green CI row of its own");
+  }
   if (!card.deliveryBranch || !card.deliveryCommit) return no("the delivery has no branch and commit of its own");
   if (board.scheduledReview && !all.some((r) => r.cmd === scheduledReviewCmd(card.deliveryCommit!) && r.ok)) {
     return no("the scheduled review has not cleared this commit");

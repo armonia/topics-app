@@ -35,7 +35,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown; human_ask?: unknown; bar?: unknown; source?: unknown; blockedByTaskId?: unknown; blocked_by_task_id?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown; human_ask?: unknown; bar?: unknown; source?: unknown; blockedByTaskId?: unknown; blocked_by_task_id?: unknown; auto_merge_intent?: unknown },
   fetchImpl: typeof fetch = fetch,
   /**
    * Le manopole del ciclo a gambe: servono quando la consegna fa girare i check
@@ -180,7 +180,7 @@ export const CHECKS_MAX_LEGS = 240;
 
 export async function callCreateTask(
   args: ParsedArgs,
-  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown; bar?: unknown; wait_reason?: unknown; wait_minutes?: unknown; blockedByTaskId?: unknown; blocked_by_task_id?: unknown },
+  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown; bar?: unknown; wait_reason?: unknown; wait_minutes?: unknown; blockedByTaskId?: unknown; blocked_by_task_id?: unknown; auto_merge_intent?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.text !== "string" || !toolArgs.text.trim()) {
@@ -208,6 +208,8 @@ export async function callCreateTask(
   // scavalcare un falso positivo è riscrivere il titolo storto finché passa,
   // cioè esattamente il guasto che il cancello doveva impedire.
   if (typeof toolArgs.bar === "string" && toolArgs.bar.trim()) reqBody.bar = toolArgs.bar;
+  // "yes" / "no" per card; absent follows the board. An agent cannot change it later, only set it at birth.
+  if (toolArgs.auto_merge_intent === "yes" || toolArgs.auto_merge_intent === "no") reqBody.autoMergeIntent = toolArgs.auto_merge_intent;
   if (toolArgs.allow_duplicate === true) reqBody.allow_duplicate = true;
   if (typeof toolArgs.wait_reason === "string" && toolArgs.wait_reason.trim()) reqBody.wait_reason = toolArgs.wait_reason;
   if (typeof toolArgs.wait_minutes === "number") reqBody.wait_minutes = toolArgs.wait_minutes;

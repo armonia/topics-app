@@ -105,6 +105,13 @@ function reservedKeyRejection(body: { idempotency_key?: unknown } | null): { err
   return null;
 }
 
+/** The per-card auto-merge intent a creator picks at birth: "yes" or "no"; anything else follows the board. */
+function birthAutoMergeIntent(body: unknown): "yes" | "no" | undefined {
+  const b = body as { autoMergeIntent?: unknown; auto_merge_intent?: unknown } | null;
+  const v = b?.autoMergeIntent ?? b?.auto_merge_intent;
+  return v === "yes" || v === "no" ? v : undefined;
+}
+
 // These moved to sibling modules; this path stays their public home.
 /**
  * Scheduled or waiting work an agent opens (a cron, "recheck after 02:00", an
@@ -1269,6 +1276,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             createdSource: resolveCreatedSource(req, body) ?? `session:${sk}`,
             originTopicId: sess.topicId,
             bar: typeof body?.bar === "string" ? body.bar : null,
+            autoMergeIntent: birthAutoMergeIntent(body),
             // A future step is a card with a real `blockedByTaskId` link, never a
             // promise in a comment (`buildKickoff`, docs/board-protocol.md). The
             // MCP `create_task` tool already sends this field; it was silently

@@ -852,18 +852,19 @@ export async function awaitCiEvidence(
   let errors = 0;
   let lastError = "";
   let conflictProbed = false;
-  let rerunTried = false;
+  /** Ids of the runs we asked GitHub to re-run: one rerun per run, whatever the number of workflows. */
+  const rerunIds = new Set<number>();
   let rerunError = "";
-  /** The attempt a rerun of ours has to beat before a read is conclusive again, 0 when none is pending. */
-  let rerunAwaitedAttempt = 0;
+  /** The attempts our reruns have to beat before a read is conclusive again (empty when none is pending). */
+  let rerunAwaited: Array<{ file: string | null; attempt: number }> = [];
   let rerunReadsLeft = 0;
-  /** The workflow file whose run our rerun asked for (null = ci.yml): the attempt to beat is read from that run. */
-  let rerunFile: string | null = null;
+  /** The run a row reads, set on every pass of the loop below. */
+  let runOfRow: (c: ReviewCheck) => GithubRun | null = () => null;
   let lastRun: GithubRun | null = null;
   /** A row whose run ended without a verdict says what unblocks it, once the rerun is spent. */
   type Settled = Exclude<CiEvidence, { kind: "pending" }>;
-  const deadEnd = (outcome: Settled): Settled =>
-    outcome.kind === "notMeasured" && rerunTried
+  const deadEnd = (check: ReviewCheck, outcome: Settled): Settled =>
+    outcome.kind === "notMeasured" && rerunIds.has(runOfRow(check)?.id ?? -1)
       ? {
         ...outcome,
         reason: `${outcome.reason}; ${rerunError
@@ -910,13 +911,17 @@ export async function awaitCiEvidence(
     // A REREAD THAT STILL SHOWS THE OLD ATTEMPT IS NOT A VERDICT. `gh run rerun`
     // answers when GitHub accepts the request, not when the new attempt is
     // listed, so the read right after it can still be the dead run.
-    if (page && rerunAwaitedAttempt > 0) {
-      const awaited = rerunFile ? latestCiRun(sha, page.runs, rerunFile) : run;
-      if (awaited && runAttempt(awaited) > rerunAwaitedAttempt) rerunAwaitedAttempt = 0;
+    if (page && rerunAwaited.length > 0) {
+      // Still waiting while any rerun has not shown its new attempt.
+      const beaten = rerunAwaited.every((w) => {
+        const awaited = w.file ? latestCiRun(sha, page.runs, w.file) : run;
+        return !!awaited && runAttempt(awaited) > w.attempt;
+      });
+      if (beaten) rerunAwaited = [];
       else if (rerunReadsLeft > 0) rerunReadsLeft -= 1;
-      else rerunAwaitedAttempt = 0; // the grace is spent: read the run as it is
+      else rerunAwaited = []; // the grace is spent: read the run as it is
     }
-    if (page && rerunAwaitedAttempt === 0) {
+    if (page && rerunAwaited.length === 0) {
       const readNow = (check: ReviewCheck) => readCiEvidence(check, sha, page.runs, page.jobs, page.extra);
       // Rows with no verdict on this run, the ones already closed included: a
       // row read as not measured while the run was still going (a `prepare-e2e`
@@ -955,10 +960,15 @@ export async function awaitCiEvidence(
       // last 100 shas measured on 17/09/2026 were already parked there.
       // Only when the run itself is over, so a rerun cannot cut a shard still
       // running for the other row.
-      const rerunRow = unmeasured.find((c) => runOf(c)?.status === "completed");
-      const rerunTarget = rerunRow ? runOf(rerunRow) : null;
-      if (rerunRow && rerunTarget && !rerunTried && !redAlready) {
-        rerunTried = true;
+      runOfRow = runOf;
+      // One rerun per completed run that holds a row with no verdict.
+      const rerunTargets = new Map<number, { run: GithubRun; row: ReviewCheck }>();
+      for (const c of unmeasured) {
+        const r = runOf(c);
+        if (r && r.status === "completed" && !rerunIds.has(r.id) && !rerunTargets.has(r.id)) rerunTargets.set(r.id, { run: r, row: c });
+      }
+      if (rerunTargets.size > 0 && !redAlready) {
+        for (const id of rerunTargets.keys()) rerunIds.add(id);
         // Every row with no verdict is read again from here. The new attempt
         // re-measures it (a row already green or red measured something real on
         // this commit and is left alone), and when there is no new attempt the
@@ -968,23 +978,26 @@ export async function awaitCiEvidence(
         // above 1 the round used to close on that plain reason and the dead end
         // was mute again.
         for (const [check, row] of [...settled]) if (row.notMeasured) settled.delete(check);
-        // THE RERUN IS SPENT ONCE PER RUN, NOT ONCE PER CALL. `rerunTried` is a
+        // THE RERUN IS SPENT ONCE PER RUN, NOT ONCE PER CALL. `rerunIds` is a
         // local of this call, but the delivery it serves is a row on
         // `pending_deliveries` that `resumePendingDeliveries` re-issues on the
         // same commit at every boot, and this Mac restarted the server 44 times
         // in 25.7 hours against a CI wait of 15-25 minutes. The attempt number
         // is the state GitHub keeps for us: above 1 the rerun was already asked,
         // and this run is what it produced.
-        if (runAttempt(rerunTarget) === 1) {
-          const again = await port.rerun(repo.value, rerunTarget.id);
+        let asked = false;
+        for (const { run: target, row } of rerunTargets.values()) {
+          if (runAttempt(target) !== 1) continue;
+          const again = await port.rerun(repo.value, target.id);
           if (again.ok) {
-            rerunFile = ciEvidenceWorkflow(rerunRow);
-            rerunAwaitedAttempt = runAttempt(rerunTarget);
-            rerunReadsLeft = errorsMax;
-            await pause(pollMs);
-            continue;
-          }
-          rerunError = again.error;
+            rerunAwaited.push({ file: ciEvidenceWorkflow(row), attempt: runAttempt(target) });
+            asked = true;
+          } else rerunError = again.error;
+        }
+        if (asked) {
+          rerunReadsLeft = errorsMax;
+          await pause(pollMs);
+          continue;
         }
       }
       const outcomes = open().map((check) => ({ check, outcome: readNow(check) }));
@@ -994,7 +1007,7 @@ export async function awaitCiEvidence(
           noRun ||= !outcome.run;
           continue;
         }
-        settled.set(check, ciCheckRun(check, deadEnd(outcome), elapsed(), ctx));
+        settled.set(check, ciCheckRun(check, deadEnd(check, outcome), elapsed(), ctx));
       }
       // ONE RED ENDS THE ROUND, like the local commands (`review-checks.ts`:
       // sequential, stop at the first red). An actionable red used to be
@@ -1008,7 +1021,7 @@ export async function awaitCiEvidence(
       // A row without a verdict is not final while its run is still going: the
       // rerun above reopens it when the run completes, so leaving now would be
       // the dead end again with every row closed.
-      const mayStillRerun = !rerunTried && unmeasured.some((c) => {
+      const mayStillRerun = unmeasured.some((c) => {
         const r = runOf(c);
         return !!r && r.status !== "completed";
       });

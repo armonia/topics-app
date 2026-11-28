@@ -1713,6 +1713,19 @@ describe("callCreateTask", () => {
     expect(JSON.parse(String(seen.init?.body)).allow_duplicate).toBe(true);
   });
 
+  test("auto_merge_intent reaches the request body, and only yes or no", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchImpl = stubFetch(async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ id: "t9", status: "backlog" }), { status: 201 });
+    });
+    const args = { baseUrl: "http://x", sessionKey: "s" };
+    await callCreateTask(args, { text: "one card", auto_merge_intent: "yes" }, fetchImpl);
+    await callCreateTask(args, { text: "two card", auto_merge_intent: "maybe" }, fetchImpl);
+    expect(bodies[0]!.autoMergeIntent).toBe("yes");
+    expect(bodies[1]!.autoMergeIntent).toBeUndefined();
+  });
+
   test("senza allow_duplicate il corpo resta pulito", async () => {
     const seen: { init?: RequestInit } = {};
     const fetchImpl = stubFetch(async (_url, init) => {

@@ -74,7 +74,14 @@ describe("autoLandVerdict", () => {
 
   describe("per-card autoMergeIntent", () => {
     test("'yes' lands on its own even with the board's switch off, as long as the board declares its own bar", () => {
-      expect(verdict(card({ autoMergeIntent: "yes" }), { autoMerge: false, declaredChecks: 2 })).toEqual({ ok: true });
+      const ci = [{ ok: true, cmd: "github-ci:unit" }, { ok: true, cmd: "github-ci:gates" }];
+      expect(verdict(card({ autoMergeIntent: "yes", checks: ci }), { autoMerge: false, declaredChecks: 2 })).toEqual({ ok: true });
+    });
+
+    test("'yes' on a switched-off board needs a green github-ci row: local commands alone do not land", () => {
+      const local = [{ ok: true, cmd: "bun run lint" }];
+      expect(verdict(card({ autoMergeIntent: "yes", checks: local }), { autoMerge: false, declaredChecks: 1 }).ok).toBe(false);
+      expect(verdict(card({ autoMergeIntent: "yes", checks: [{ ok: true, cmd: "github-ci:build" }] }), { autoMerge: false, declaredChecks: 1 }).ok).toBe(true);
     });
 
     test("'yes' still needs a bar: a board with none does not land", () => {

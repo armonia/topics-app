@@ -75,6 +75,24 @@ describe("a board whose CI is not in ci.yml", () => {
     expect(reruns).toEqual([77]);
   });
 
+  test("KANBAN-93c: two workflows both cancelled get one rerun each, and neither row claims a rerun it did not get", async () => {
+    for (const [first, second] of [[run({ id: 10, conclusion: "cancelled" }), chainRun({ conclusion: "cancelled" })],
+      [chainRun({ conclusion: "cancelled" }), chainRun({ id: 88, path: ".github/workflows/other.yml", conclusion: "cancelled" })]] as const) {
+      const reruns: number[] = [];
+      const fake = fakePort({
+        rerun: async (_repo, id) => { reruns.push(id); return { ok: true, value: undefined }; },
+        runs: async () => ({ ok: true, value: [first, second] }),
+        jobs: async () => ({ ok: true, value: [] }),
+      });
+      const rows = await awaitCiEvidence({
+        ...input,
+        checks: [first.id === 10 ? { name: "unit", cmd: "github-ci:unit" } : CHAIN, first.id === 10 ? CHAIN : { name: "other-ci", cmd: "github-ci:other.yml/build" }],
+      }, { port: fake.port, ...fakeClock(), stopping: () => false });
+      expect(reruns.sort()).toEqual([first.id, second.id].sort());
+      expect(rows.every((r) => !r.ok)).toBe(true);
+    }
+  });
+
   test("a GitHub error reading the other workflow's jobs is never a pass", async () => {
     const port = fakePort({
       runs: async () => ({ ok: true, value: [chainRun({ conclusion: "success" })] }),
