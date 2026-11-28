@@ -62,7 +62,7 @@ export function TopicsMenuPortal({
               // Under 768px this is THE phone's menu: the account lives here too,
               // so it must reach the thumb.
               ? `fixed bottom-0 left-0 right-0 ${POPOVER_SHEET} overflow-y-auto overscroll-contain`
-              : `${POPOVER_SURFACE} min-w-[200px] overflow-y-auto overscroll-contain`
+              : `${POPOVER_SURFACE} min-w-50 overflow-y-auto overscroll-contain`
           }
           style={
             isMobile

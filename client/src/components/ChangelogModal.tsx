@@ -175,7 +175,7 @@ export function ChangelogModal({
                         <ul className="space-y-1">
                           {items.map((e, i) => (
                             <li key={i} className="text-compact text-app-text-secondary leading-relaxed flex gap-1.5">
-                              <span className="text-app-text-muted mt-[3px]">•</span>
+                              <span className="text-app-text-muted mt-0.75">•</span>
                               <span>
                                 {e.scope && <span className="font-medium text-app-text">{e.scope}</span>}
                                 {e.scope && ' · '}
@@ -211,7 +211,7 @@ export function ChangelogModal({
                         <ul data-testid="changelog-internal-list" className="space-y-1 mt-1.5 reveal-in">
                           {active.sections.internal.map((e, i) => (
                             <li key={i} className="text-mini text-app-text-muted leading-relaxed flex gap-1.5">
-                              <span className="mt-[3px]">•</span>
+                              <span className="mt-0.75">•</span>
                               <span>
                                 {e.scope && <span className="font-medium text-app-text-secondary">{e.scope}</span>}
                                 {e.scope && ' · '}

@@ -78,7 +78,7 @@ export function WorkerBadge({ worker, compact, hideSince, sinceBelow, wrap, atWo
   className?: string;
 }) {
   const face = worker.kind === 'agent' ? (
-    <span className="relative inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-700 dark:text-violet-300">
+    <span className="relative inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-700 dark:text-violet-300">
       <Bot size={12} aria-hidden="true" />
       {worker.active && (
         <span role="img" aria-label={atWorkLabel} className="absolute -right-0.5 -top-0.5 flex h-2 w-2">
@@ -98,7 +98,7 @@ export function WorkerBadge({ worker, compact, hideSince, sinceBelow, wrap, atWo
         {!hideSince && !sinceBelow && <span className="shrink-0 text-mini tabular-nums text-app-text-tertiary">{worker.since}</span>}
       </div>
       {!compact && (worker.doing || (sinceBelow && !hideSince)) && (
-        <p className={clsx('mt-0.5 pl-[24px] text-mini leading-4 text-app-text-secondary', wrap ? '[overflow-wrap:anywhere]' : 'line-clamp-2')}>
+        <p className={clsx('mt-0.5 pl-6 text-mini leading-4 text-app-text-secondary', wrap ? '[overflow-wrap:anywhere]' : 'line-clamp-2')}>
           {sinceBelow && !hideSince && <span className="tabular-nums text-app-text-tertiary">{worker.since}{worker.doing ? ' · ' : ''}</span>}
           {worker.doing}
         </p>

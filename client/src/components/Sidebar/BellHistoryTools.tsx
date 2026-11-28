@@ -30,14 +30,14 @@ function Chip({ on, onClick, label, count, alarm = false, testId, small = false 
   small?: boolean;
 }) {
   const { isTouch } = useMobile();
-  const size = isTouch ? 'h-9 text-prose' : small ? 'h-[22px] text-mini' : 'h-6 text-compact';
+  const size = isTouch ? 'h-9 text-prose' : small ? 'h-5.5 text-mini' : 'h-6 text-compact';
   return (
     <button
       type="button"
       tabIndex={-1}
       aria-pressed={on}
       onClick={onClick}
-      className={`flex items-center gap-[5px] whitespace-nowrap px-2 ${size} rounded-xs border transition-colors ${on ? 'border-primary/40 bg-primary/10 text-primary font-medium' : 'border-black/15 dark:border-white/20 text-app-text-secondary hover:bg-app-hover'}`}
+      className={`flex items-center gap-1.25 whitespace-nowrap px-2 ${size} rounded-xs border transition-colors ${on ? 'border-primary/40 bg-primary/10 text-primary font-medium' : 'border-black/15 dark:border-white/20 text-app-text-secondary hover:bg-app-hover'}`}
       data-testid={testId}
       data-count={count}
     >

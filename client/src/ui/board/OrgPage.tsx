@@ -51,7 +51,7 @@ export function OrgPage({ name, monogram, color, summary, cards, cardCount, onOp
     <div className="flex h-full min-h-0 flex-col">
       <PaneHeader crumbs={[{ label: name }]} />
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 md:px-6">
-        <div className="mx-auto flex max-w-[960px] flex-col gap-4">
+        <div className="mx-auto flex max-w-240 flex-col gap-4">
           <div className="flex items-center gap-3">
             <Monogram text={monogram} color={color} size={36} />
             <div className="min-w-0">

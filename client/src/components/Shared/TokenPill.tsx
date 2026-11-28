@@ -23,7 +23,7 @@ export function TokenPill({ icon, label, onRemove, removeLabel, title, className
       className={className ?? 'inline-flex items-center gap-1 shrink-0 bg-blue-100/80 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md px-2 py-0.5 text-mini font-medium'}
     >
       {icon}
-      <span className="truncate max-w-[120px]">{label}</span>
+      <span className="truncate max-w-30">{label}</span>
       <button
         type="button"
         aria-label={removeLabel}

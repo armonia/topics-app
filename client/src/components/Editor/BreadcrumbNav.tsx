@@ -47,7 +47,7 @@ function BreadcrumbSegment({ segment, parentDir, currentChild, isLast, isOpen, o
         {segment}
       </button>
       <DropdownPortal open={isOpen} anchorRef={btnRef} onClose={onToggle} align="left">
-        <div className="max-h-[300px] overflow-y-auto">
+        <div className="max-h-75 overflow-y-auto">
           {!sorted ? (
             <div className="px-3 py-2 text-mini text-app-text-muted">Loading…</div>
           ) : sorted.length === 0 ? (

@@ -102,12 +102,12 @@ export function EditorSkeleton({ breadcrumb = false }: { breadcrumb?: boolean })
         <div className="flex items-center px-3 py-1 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0">
           <span className="text-mini">{NO_BREAK_SPACE}</span>
           <div className={`h-2.5 w-40 ${BAR}`} />
-          <span className="ml-auto p-0.5"><span className="block h-[13px] w-[13px]" /></span>
+          <span className="ml-auto p-0.5"><span className="block h-3.25 w-3.25" /></span>
         </div>
       )}
       <div className="flex-1 overflow-hidden pt-1 animate-pulse">
         {CODE_LINE_WIDTHS.map((w, i) => (
-          <div key={i} className="flex items-center h-[19px]">
+          <div key={i} className="flex items-center h-4.75">
             <div className="w-10 flex-shrink-0 pr-3 flex justify-end">
               <div className={`h-2 w-3 ${BAR} opacity-60`} />
             </div>

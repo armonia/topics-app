@@ -196,7 +196,7 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
           MessageContent promette da sempre («connected by a left border line»)
           e che non c'era. Senza, le azioni del gruppo stavano sulla stessa
           colonna della riga che le contiene, e la gerarchia spariva. */}
-      <DisclosureBody open={expanded} className="ml-[9px] pl-3 border-l border-app-border/50 space-y-px" onMotion={onRowResize ?? undefined}>
+      <DisclosureBody open={expanded} className="ml-2.25 pl-3 border-l border-app-border/50 space-y-px" onMotion={onRowResize ?? undefined}>
         {(open ? tools : tools.filter(isActiveTool)).map((tc) => (
           <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} highlighted={tc.id === focusId} />
         ))}

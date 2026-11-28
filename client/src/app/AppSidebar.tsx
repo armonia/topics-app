@@ -221,7 +221,7 @@ export function AppSidebar({
             that is the deliberate half: its contract is RESPONSIVE (the three
             subjects hold one line at sidebar widths 180, 256 and 400, measured
             in identity-chips.spec.ts) and the desktop dropdown is
-            `min-w-[200px]` and does not track the column, moving it in would
+            `min-w-50` and does not track the column, moving it in would
             not have relocated the band, it would have deleted the contract the
             band exists to satisfy. It also leaves the accounts where a person
             already looks, which is the half that sent this bar back down here

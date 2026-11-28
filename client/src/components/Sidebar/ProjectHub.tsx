@@ -172,7 +172,7 @@ function ShareLine({ provider, pct, cap, hot }: { provider: 'claude' | 'codex' |
       <span className="w-11 flex-none text-mini text-app-text-tertiary">{PROVIDER_NAMES[provider]}</span>
       <span className="relative h-1.5 min-w-0 flex-1 rounded-full bg-app-hover">
         <i className={`block h-full rounded-full ${hot ? 'bg-amber-500 dark:bg-amber-400' : 'bg-primary'}`} style={{ width: `${Math.max(pct > 0 ? 2 : 0, Math.min(100, pct))}%` }} />
-        {cap !== null && <u aria-hidden="true" className="absolute -top-[3px] h-3 w-0.5 rounded-[1px] bg-app-text-secondary" style={{ left: `${Math.min(100, cap)}%` }} />}
+        {cap !== null && <u aria-hidden="true" className="absolute -top-0.75 h-3 w-0.5 rounded-[1px] bg-app-text-secondary" style={{ left: `${Math.min(100, cap)}%` }} />}
       </span>
       <span className={`w-8 flex-none text-right text-mini ${hot ? WARNING_TEXT : 'text-app-text-secondary'}`}>{weekShare(pct)}%</span>
     </div>
@@ -213,7 +213,7 @@ export function ProjectHubMenu({ projectPath, onClose }: { projectPath: string; 
 
   const budgets = budgetChoices(p.budgetPct);
   return (
-    <div data-testid="project-hub-menu" data-project-hub={p.name} className="w-[268px] max-w-full coarse:w-full">
+    <div data-testid="project-hub-menu" data-project-hub={p.name} className="w-67 max-w-full coarse:w-full">
       <div className={POPOVER_DIVIDER} />
       <div className="flex flex-col gap-1 px-3 py-1.5 text-mini leading-snug text-app-text-secondary">
         {p.what && <div data-testid="project-hub-menu-what" className="line-clamp-2 text-app-text-tertiary" title={p.what}>{p.what}</div>}

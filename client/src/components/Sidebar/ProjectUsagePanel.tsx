@@ -105,7 +105,7 @@ export function ProjectUsagePanel({ range, onRange }: {
       )}
 
       {rows.length > 0 && (
-        <div className="max-h-[280px] overflow-y-auto">
+        <div className="max-h-70 overflow-y-auto">
           {/* A HEADER, because this one IS a table: two numeric columns that
               have to be read down, not across. The inventory above is a list
               and has none, and the difference is the point. */}
