@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.25 — 2026-11-28
+
+### Sotto il cofano
+- Make the walkFileTree yield test load-independent
+
 ## 2.5.24 — 2026-11-28
 
 ### Sotto il cofano
