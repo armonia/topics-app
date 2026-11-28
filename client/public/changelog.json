@@ -4,7 +4,14 @@
     "date": "2026-11-27",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "a null attachment is gone for good, not a hiccup to retry forever",
+          "en": "",
+          "scope": "node-mirror",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -62,6 +69,11 @@
           "breaking": false
         },
         {
+          "it": "node-pool: repo copy gets the drain fix (needs_input and waiting cards do not count), with a regression test",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k",
           "en": "",
           "scope": "openspec",
@@ -74,10 +86,26 @@
           "breaking": false
         },
         {
+          "it": "picker keeps projects under ~/.claude, a queued card can move boards, merged parent header shows its name",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Declare coverage of the merged-parent name test",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "tetto-contesto-agenti, wakes are continuations",
           "en": "",
           "scope": "openspec",
           "breaking": false
+        },
+        {
+          "it": "node-pool: permanent node gets ci-governor files again (shared PERMANENT_FILES list), with a test",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -140,7 +168,20 @@
     "date": "2026-11-27",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "record task-dispatcher-remote-node.test.ts growth with a live exception",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "drop unused nodeTokenPath re-export flagged by deadcode-prod",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -161,7 +202,14 @@
     "date": "2026-11-27",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "declare untraced test coverage, split node-client under bloat threshold",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -557,6 +605,12 @@
       ],
       "fixes": [
         {
+          "it": "retry failed attachments, test previewImage, extract delivery mainRef wiring",
+          "en": "",
+          "scope": "nodes",
+          "breaking": false
+        },
+        {
           "it": "read the clock once per render in the load gauge",
           "en": "",
           "scope": "board",
@@ -932,6 +986,12 @@
           "it": "measure node deliveries whose bar mixes CI and local checks",
           "en": "",
           "scope": "node-delivery",
+          "breaking": false
+        },
+        {
+          "it": "carry node attachments to the primary, read delivery commits against origin/main",
+          "en": "",
+          "scope": "nodes",
           "breaking": false
         }
       ],
