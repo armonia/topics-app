@@ -62,8 +62,11 @@ import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSy
 import { join } from "node:path";
 import { freePort, PROJECT_ROOT, spawnedServerHostEnv, testTmpDir } from "./helpers";
 import { slackMs } from "../helpers/time-slack";
+import { guardAgainstOrphans, registerOrphanRoot, releaseFromOrphanGuard, retireOrphanGuard } from "../helpers/orphan-guard";
 import { gitEnv } from "../setup/bun-test-preload";
+import { removeFinishedTestTmpDirs } from "../setup/test-tmp-dirs";
 import { restrictMachineLikeDevices } from "../../server/lib/node-scope";
+import { killProcessTree } from "../../server/lib/process-tree";
 
 const EPOCH_HEADER = "x-topics-primary-epoch";
 const MACHINE_HEADER = "x-topics-machine-id";
@@ -96,6 +99,9 @@ const running: ServerUnderTest[] = [];
 
 function makeServer(name: string): ServerUnderTest {
   const root = testTmpDir(`primary-${name}`);
+  // `-t`/`.only` still run every `describe` callback during discovery, so this
+  // root can exist without the boot that would otherwise register it below.
+  registerOrphanRoot(root);
   for (const dir of ["data", "home", "app-data", "topics-home", "public"]) mkdirSync(join(root, dir), { recursive: true });
   return { name, root, port: freePort(), tunnelPort: freePort(), tunnelHttpPort: freePort(), modelProxyPort: freePort(), child: null, boots: 0 };
 }
@@ -162,8 +168,16 @@ async function bootOnce(s: ServerUnderTest): Promise<void> {
     },
     stdout: logFd,
     stderr: logFd,
+    // Its own process group: a server that spawns anything of its own (a
+    // worktree, a tunnel helper) is reachable through ONE signal to -pid,
+    // instead of leaving grandchildren behind when the server itself is
+    // SIGTERM'd. `stop()` below relies on this.
+    detached: true,
   });
   closeSync(logFd);
+  // Registered BEFORE the readiness probe below: a run cut while the server is
+  // still booting is exactly how the orphans of card 617a7a68 were born.
+  guardAgainstOrphans({ groupLeaderPid: s.child.pid, root: s.root });
   if (!running.includes(s)) running.push(s);
   const until = Date.now() + slackMs(90_000);
   while (Date.now() < until) {
@@ -177,11 +191,18 @@ async function bootOnce(s: ServerUnderTest): Promise<void> {
 
 async function stop(s: ServerUnderTest): Promise<void> {
   if (!s.child) return;
-  s.child.kill("SIGTERM");
-  await Promise.race([s.child.exited, Bun.sleep(slackMs(20_000))]);
-  if (s.child.exitCode === null) s.child.kill("SIGKILL");
-  await s.child.exited;
+  const child = s.child;
   s.child = null;
+  // `group: true` also signals -pid: the server's own process group, which
+  // catches anything it spawned itself, not just the server process.
+  await killProcessTree(child.pid, slackMs(5000), { group: true });
+  await Promise.race([child.exited, Bun.sleep(slackMs(10_000))]);
+  if (child.exitCode === null) {
+    try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
+    child.kill("SIGKILL");
+  }
+  await child.exited;
+  releaseFromOrphanGuard(child.pid);
 }
 
 function writePrimaryState(s: ServerUnderTest, primaryMachineId: string, epoch: number): void {
@@ -306,7 +327,27 @@ let nodeBOnA = "";
 
 afterAll(async () => {
   await Promise.all(running.map((s) => stop(s)));
+  // The preload sweeps roots BEFORE this hook (registered first, at module
+  // load): on a server still running here - B never stops mid-test, D is
+  // rebooted by the last test and left up - that first sweep races a live
+  // server writing into its own root and silently leaves it behind. Now that
+  // every server above is confirmed dead, retrying the same sweep removes
+  // what the first pass could not.
+  removeFinishedTestTmpDirs(null);
+  // Every server stopped and its root gone above: the watchdog has nothing
+  // left to watch, and its own poll (250 ms) would otherwise race the check
+  // that runs right after this process exits.
+  retireOrphanGuard();
 });
+
+// `afterAll` only runs when this file reaches the end of its own suite. A run
+// cut off mid-test is cleaned up by the detached watchdog `bootOnce` registers
+// each server with (tests/helpers/orphan-guard.ts), and NOT by a hook of this
+// process: measured on bun 1.4.4, SIGINT and SIGTERM sent to `bun test` while a
+// test runs kill neither the runner nor the test, and `process.on("exit", ...)`
+// does not fire on either; the signal that does end a cut run is SIGKILL, which
+// runs no code at all. An earlier version of this file cleaned up from
+// `process.on("exit")` and was dead code (card 617a7a68).
 
 describe("default unchanged: no primary chosen", () => {
   test("a virgin server claims a todo card and lets requests without an epoch through", async () => {
