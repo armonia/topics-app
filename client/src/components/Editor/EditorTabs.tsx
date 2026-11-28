@@ -270,7 +270,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
               {...tabPress.handlers}
               data-pressing={tabPress.pressed || undefined}
               data-editor-tab={tab.path}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-compact cursor-pointer border-r border-app-border max-w-[180px] group select-none ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-compact cursor-pointer border-r border-app-border max-w-45 group select-none ${
                 isActive
                   ? 'bg-surface text-app-text border-b-2 border-b-primary'
                   : 'text-app-text-muted hover:bg-app-hover'

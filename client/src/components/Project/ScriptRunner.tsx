@@ -87,11 +87,11 @@ function CommandRow({ sp, stopping, onOpen, onStop }: {
       {stopping || isRetiring ? (
         <Spinner size="xs" tone="current" className="text-red-500 flex-shrink-0" />
       ) : running ? (
-        <div className="w-[10px] h-[10px] flex-shrink-0 relative">
+        <div className="w-2.5 h-2.5 flex-shrink-0 relative">
           <div className={`absolute inset-0 rounded-full ${failed ? 'bg-red-500' : 'bg-green-500'} animate-pulse`} />
         </div>
       ) : (
-        <div className={`w-[10px] h-[10px] flex-shrink-0 rounded-full ${failed || outcome.kind === 'unknown' ? 'bg-red-500' : 'bg-app-text-faint'}`} />
+        <div className={`w-2.5 h-2.5 flex-shrink-0 rounded-full ${failed || outcome.kind === 'unknown' ? 'bg-red-500' : 'bg-app-text-faint'}`} />
       )}
       <span className={`truncate ${running ? (failed ? 'text-red-500 font-medium' : 'text-green-500 font-medium') : 'text-app-text-body'}`}>{sp.scriptName}</span>
       <span
@@ -105,7 +105,7 @@ function CommandRow({ sp, stopping, onOpen, onStop }: {
       {(!running || isRetiring || outcome.kind === 'not-stopped') && (
         <span
           data-testid="command-outcome"
-          className={`text-mini font-medium px-1 py-[1px] rounded-full flex-shrink-0 ${failed || outcome.kind === 'unknown' ? 'text-red-600 dark:text-red-400 bg-red-500/10' : 'text-app-text-muted bg-app-text-faint/15'}`}
+          className={`text-mini font-medium px-1 py-0.25 rounded-full flex-shrink-0 ${failed || outcome.kind === 'unknown' ? 'text-red-600 dark:text-red-400 bg-red-500/10' : 'text-app-text-muted bg-app-text-faint/15'}`}
         >
           {label}
         </span>
@@ -306,15 +306,15 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               {isStopping ? (
                 <Spinner size="xs" tone="current" className="text-red-500 flex-shrink-0" />
               ) : running ? (
-                <div className="w-[10px] h-[10px] flex-shrink-0 relative">
+                <div className="w-2.5 h-2.5 flex-shrink-0 relative">
                   <div className={`absolute inset-0 rounded-full ${stopFailed ? 'bg-red-500' : 'bg-green-500'} animate-pulse`} />
                 </div>
               ) : stopped ? (
-                <div className="w-[10px] h-[10px] flex-shrink-0 rounded-full bg-app-text-faint" />
+                <div className="w-2.5 h-2.5 flex-shrink-0 rounded-full bg-app-text-faint" />
               ) : isStarting ? (
                 <Spinner size="xs" tone="current" className="text-primary flex-shrink-0" />
               ) : failed ? (
-                <div className="w-[10px] h-[10px] flex-shrink-0 rounded-full bg-red-500" />
+                <div className="w-2.5 h-2.5 flex-shrink-0 rounded-full bg-red-500" />
               ) : (
                 <Play size={10} className={`flex-shrink-0 ${getScriptColor(name)}`} />
               )}
@@ -330,7 +330,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               {failed && !isStopping && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onOpenProcessLog?.(failed.processId, name); }}
-                  className="text-mini font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full flex-shrink-0 hover:bg-red-500/20 transition-colors"
+                  className="text-mini font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-0.25 rounded-full flex-shrink-0 hover:bg-red-500/20 transition-colors"
                   title={tr('processes.openFailedLog')}
                 >
                   exit {failed.exitCode}
@@ -366,7 +366,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                 </button>
               )}
               {!running && !isStopping && (
-                <span className="text-mini text-app-text-faint truncate max-w-[100px] hidden group-hover:block">{cmd}</span>
+                <span className="text-mini text-app-text-faint truncate max-w-25 hidden group-hover:block">{cmd}</span>
               )}
             </div>
           </div>
@@ -390,7 +390,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                 {isStopping ? (
                   <Spinner size="xs" tone="current" className="text-red-500 flex-shrink-0" />
                 ) : (
-                  <div className="w-[10px] h-[10px] flex-shrink-0 relative">
+                  <div className="w-2.5 h-2.5 flex-shrink-0 relative">
                     <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
                   </div>
                 )}
@@ -464,7 +464,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               {isStopping ? (
                 <Spinner size="xs" tone="current" className="text-red-500 flex-shrink-0" />
               ) : (
-                <div className="w-[10px] h-[10px] flex-shrink-0 relative">
+                <div className="w-2.5 h-2.5 flex-shrink-0 relative">
                   <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
                 </div>
               )}

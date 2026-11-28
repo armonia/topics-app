@@ -338,7 +338,7 @@ export function NewTabPage({ onNavigate, projectPath }: { onNavigate: (url: stri
       />
 
       <div className="relative min-h-full flex flex-col items-center justify-center px-6 py-10">
-        <div className="w-full max-w-[560px]">
+        <div className="w-full max-w-140">
           <div className="flex flex-col items-center gap-3 mb-6">
             <span className="flex items-center justify-center w-11 h-11 rounded-2xl bg-app-panel border border-app-border-subtle text-primary shadow-sm">
               <Compass size={20} strokeWidth={1.75} />
@@ -349,7 +349,7 @@ export function NewTabPage({ onNavigate, projectPath }: { onNavigate: (url: stri
           <form onSubmit={(e) => { e.preventDefault(); doSubmit(); }} className="relative" data-testid="browser-new-tab-form">
             <Search
               size={15}
-              className="absolute left-4 top-[22px] -translate-y-1/2 text-app-text-faint pointer-events-none"
+              className="absolute left-4 top-5.5 -translate-y-1/2 text-app-text-faint pointer-events-none"
               aria-hidden
             />
             <textarea

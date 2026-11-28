@@ -116,7 +116,7 @@ function BoardColumn({ column, copy, columnLabels, canMove, moveDeniedTitle, dra
       onDragLeave={canMove ? (e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onOverChange(false); } : undefined}
       onDrop={canMove ? onDrop : undefined}
       className={clsx(
-        'flex min-h-0 w-[84vw] max-w-[360px] shrink-0 snap-center flex-col rounded-xl border bg-app-inset md:w-auto md:max-w-none md:min-w-[220px] md:flex-1',
+        'flex min-h-0 w-[84vw] max-w-90 shrink-0 snap-center flex-col rounded-xl border bg-app-inset md:w-auto md:max-w-none md:min-w-55 md:flex-1',
         over ? 'border-primary bg-primary/[0.04]' : 'border-app-border',
       )}
     >
@@ -196,7 +196,7 @@ export function BoardScreen({ columns, orgChips, activeOrg, onOrg, query, onQuer
           value={query}
           onChange={onQuery}
           placeholder={b.searchPlaceholder}
-          className="md:w-[280px]"
+          className="md:w-70"
         />
         <div role="group" aria-label={b.orgFilter} className="scrollbar-none flex min-w-0 items-center gap-1.5 overflow-x-auto">
           <FilterChip pressed={activeOrg === 'all'} onClick={() => onOrg('all')}>{b.all(allCount)}</FilterChip>

@@ -50,7 +50,7 @@ export function PresenceList({ people, empty, hint }: {
   const here = people.filter((p) => p.presente);
   const away = people.filter((p) => !p.presente);
   return (
-    <div className="max-h-[188px] overflow-y-auto py-1">
+    <div className="max-h-47 overflow-y-auto py-1">
       {here.map((p) => <PresencePerson key={p.id} p={p} />)}
       {away.length > 0 && (
         <>

@@ -74,12 +74,12 @@ export function RulePanel({ copy, view, handlers, editable, deniedTitle }: {
             const kind = kindOf(cond.field);
             return (
               <div key={cond.id} className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex h-7 w-[72px] shrink-0 items-center justify-center rounded-lg bg-black/[0.05] text-compact font-medium text-app-text-secondary dark:bg-white/10">
+                <span className="inline-flex h-7 w-18 shrink-0 items-center justify-center rounded-lg bg-black/[0.05] text-compact font-medium text-app-text-secondary dark:bg-white/10">
                   {i === 0 ? c.if : c.or}
                 </span>
                 <Select
                   size="sm"
-                  className="min-w-[180px] flex-1"
+                  className="min-w-45 flex-1"
                   value={cond.field}
                   options={view.fields.map((f) => ({ value: f.id, label: f.label }))}
                   onChange={(v) => handlers.onCondition(cond.id, { field: v, op: view.fields.find((f) => f.id === v)?.kind === 'list' ? 'in' : cond.op === 'in' ? 'lt' : cond.op })}
@@ -88,7 +88,7 @@ export function RulePanel({ copy, view, handlers, editable, deniedTitle }: {
                 />
                 <Select
                   size="sm"
-                  className="w-[150px]"
+                  className="w-37.5"
                   value={cond.op}
                   options={view.ops.filter((o) => (kind === 'list' ? o.id === 'in' : o.id !== 'in')).map((o) => ({ value: o.id, label: o.label }))}
                   onChange={(v) => handlers.onCondition(cond.id, { op: v as Condition['op'] })}
@@ -96,9 +96,9 @@ export function RulePanel({ copy, view, handlers, editable, deniedTitle }: {
                   title={off ?? c.pickOp}
                 />
                 {kind === 'list' ? (
-                  <span className="inline-flex h-6 w-[190px] items-center gap-1.5 rounded-lg border border-app-border-input px-2 text-mini text-app-text"><Database size={12} aria-hidden="true" />{view.table.name}</span>
+                  <span className="inline-flex h-6 w-47.5 items-center gap-1.5 rounded-lg border border-app-border-input px-2 text-mini text-app-text"><Database size={12} aria-hidden="true" />{view.table.name}</span>
                 ) : (
-                  <TextField size="sm" type="number" className="w-[90px]" value={cond.value} onChange={(v) => handlers.onCondition(cond.id, { value: v })} disabled={!editable} title={off ?? c.pickValue} />
+                  <TextField size="sm" type="number" className="w-22.5" value={cond.value} onChange={(v) => handlers.onCondition(cond.id, { value: v })} disabled={!editable} title={off ?? c.pickValue} />
                 )}
                 {editable && <IconButton icon={Trash2} label={c.removeCondition} onClick={() => handlers.onRemoveCondition(cond.id)} />}
               </div>

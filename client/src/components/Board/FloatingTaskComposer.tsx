@@ -584,7 +584,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
           }}
           placeholder={tr('board.composer.placeholder')}
           className={`block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-body-lg leading-5 text-app-text outline-none transition-[min-height] duration-fast ease-out placeholder:text-app-placeholder ${
-            expanded ? 'min-h-[4.5rem]' : 'min-h-0'
+            expanded ? 'min-h-18' : 'min-h-0'
           }`}
         />
         {/* The staged attachments: a thumbnail for images, the name for
@@ -600,7 +600,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                   // looked at before you send it.
                   <ZoomableImage src={getMediaUrl(a.path)} alt={a.name} title={a.name} testId="composer-attachment-image" className="h-12 w-12 rounded object-cover" />
                 ) : (
-                  <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/5 px-1.5 py-1 text-mini text-app-text-heading dark:bg-white/10">
+                  <span className="flex max-w-40 items-center gap-1 rounded bg-black/5 px-1.5 py-1 text-mini text-app-text-heading dark:bg-white/10">
                     <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
                   </span>
                 )}
@@ -713,7 +713,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                   // L'UNICO chip che può stringersi (l'etichetta è troncabile),
                   // con un pavimento: sotto ~5.5rem resterebbero icona e chevron
                   // senza una lettera di nome, che è peggio di far scorrere la riga.
-                  className="flex min-w-[5.5rem] max-w-[13rem] items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-compact leading-4 text-app-text hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
+                  className="flex min-w-22 max-w-52 items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-compact leading-4 text-app-text hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
                 >
                   {autoTarget
                     ? <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />

@@ -22,7 +22,7 @@ import { readNodeToken } from "../services/node-client";
 import { childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, outsideCwdPreamble, placeableUnderKnownProject, readNativeChildOutput, sendToNativeChild, spawnNativeChild, stopNativeChild } from "../lib/native-subagents";
 import { FOREGROUND_WAIT_MS, bootChildSweep, childPhase, holdForeground, noteChildSeeded, noteChildSteered, chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, startChildWatch, subagentLimitRefusal, waitForegroundLeg } from "../lib/subagent-runtime";
 import { promptAsPaste } from "../lib/subagent-seed";
-import { boardSpawnRefusal } from "../services/agent-census";
+import { boardSpawnRefusal, boardTaskForSession } from "../services/agent-census";
 import { automation, projectIdOfTopic, turnGate } from "../services/turn-gate";
 import { holdChildSend } from "../lib/held-child-send";
 import { projectIdOfFolder } from "../usage/project-folders";
@@ -744,6 +744,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           parent: {
             model: parentTopic ? chatParentModel(parentTopic) : parentTranscriptModel(parent),
             effort: resolveClaudeEffort(topicEffortFor(getDatabase(), parentTopic?.id ?? parent?.topicId)),
+            belongsToTask: boardTaskForSession(getDatabase(), parentKey) !== null,
           },
         });
         if (!resolved.ok) return errorResponse(400, resolved.error);

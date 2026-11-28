@@ -58,7 +58,7 @@ export function KanbanCard({ card, copy, canDrag, dragging, onOpen, onMove, onDr
         dragging && 'opacity-40',
       )}
     >
-      {edge && <span aria-hidden="true" className={clsx('absolute bottom-2 left-0 top-2 w-[3px] rounded-r-full', edge)} />}
+      {edge && <span aria-hidden="true" className={clsx('absolute bottom-2 left-0 top-2 w-0.75 rounded-r-full', edge)} />}
       <div className="flex min-w-0 items-center gap-1.5">
         <span className="shrink-0 font-mono text-mini font-medium tabular-nums text-app-text-secondary">{card.id}</span>
         <FlowLabel flow={card.flow} wrap className="flex-1" />
@@ -240,7 +240,7 @@ export function KanbanBoard({ columns, copy, phone, onOpen, onMove, onUnfold }: 
             className={clsx(
               'flex min-h-0 flex-col rounded-xl border bg-app-inset',
               /* One stage on show: its column takes the room of the others; otherwise a fixed readable width that grows to a ceiling. */
-              phone ? 'w-[85%] shrink-0 snap-center' : focused ? 'shrink-0 grow basis-[19.5rem] snap-start' : 'shrink-0 snap-start',
+              phone ? 'w-[85%] shrink-0 snap-center' : focused ? 'shrink-0 grow basis-78 snap-start' : 'shrink-0 snap-start',
               overId === col.id ? 'border-primary bg-primary/[0.04]' : col.piles ? 'border-amber-500/45' : 'border-app-border',
             )}
           >

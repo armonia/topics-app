@@ -76,7 +76,7 @@ export function FilterBar({ copy, chips, onRemove, columns, onAdd, group, groupO
             <Plus size={12} aria-hidden="true" />{t.addFilter}
           </button>
           {adding && (
-            <Popover ariaLabel={t.addFilterTitle} onClose={() => setAdding(false)} className="w-[280px] p-3">
+            <Popover ariaLabel={t.addFilterTitle} onClose={() => setAdding(false)} className="w-70 p-3">
               <div className="space-y-2.5">
                 <Select label={t.filterColumn} value={current?.id ?? ''} options={columns.map((c) => ({ value: c.id, label: c.label }))} onChange={(v) => { setCol(v); setValue(''); }} />
                 {current?.kind === 'select' && (
@@ -105,7 +105,7 @@ export function FilterBar({ copy, chips, onRemove, columns, onAdd, group, groupO
         <span className="flex-1" />
         <Button size="sm" icon={Save} onClick={onSave} title={onSave === false ? saveDenied : undefined}>{t.saveView}</Button>
       </div>
-      <div className="max-w-[460px]">
+      <div className="max-w-115">
         <TextField type="search" icon={Search} value={q} onChange={onQuery} placeholder={t.searchPlaceholder} title={t.searchLabel} />
       </div>
     </div>

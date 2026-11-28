@@ -65,7 +65,7 @@ export interface MappingRow {
 export function MappingTable({ rows, labels }: { rows: MappingRow[]; labels: { token: string; value: string; masked: string; clear: string } }) {
   return (
     <div role="table" className="overflow-x-auto rounded-lg border border-app-border">
-      <div className="min-w-[420px]">
+      <div className="min-w-105">
         {rows.map((r) => (
           <div key={r.token} role="row" className="grid grid-cols-[150px_minmax(0,1fr)_96px] items-center gap-3 border-b border-app-border px-3 py-1.5 last:border-b-0">
             <span role="cell"><Token>{r.token}</Token></span>

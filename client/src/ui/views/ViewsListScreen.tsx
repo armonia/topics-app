@@ -51,9 +51,9 @@ export function ViewsListScreen({ copy, scope, onScope, counts, query, onQuery, 
         <Button variant="primary" icon={Plus} onClick={onCreate} title={onCreate === false ? deniedTitle : undefined}>{v.newView}</Button>
       </PaneHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-[1180px] flex-col gap-5 px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-295 flex-col gap-5 px-4 py-4 sm:px-6">
           {phone && segmented}
-          <TextField type="search" icon={Search} value={query} onChange={onQuery} placeholder={v.searchPlaceholder} className="max-w-[420px]" />
+          <TextField type="search" icon={Search} value={query} onChange={onQuery} placeholder={v.searchPlaceholder} className="max-w-105" />
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {cards.map((c) => (
               <ViewCard

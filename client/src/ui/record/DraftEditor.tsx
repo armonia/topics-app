@@ -131,7 +131,7 @@ export function DraftEditor({ draft, copy, onOpenSource, onProposal, onTool, too
         </button>
       </div>
       <article className="min-h-0 flex-1 overflow-y-auto px-4 md:px-10 pb-10 pt-3">
-        <div className="mx-auto max-w-[720px]">
+        <div className="mx-auto max-w-180">
           {draft.blocks.map((b, i) => (
             <Block key={i} block={b} copy={copy} onOpenSource={onOpenSource} onDecide={onProposal && ((decision) => onProposal(i, decision))} />
           ))}

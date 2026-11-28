@@ -20,7 +20,7 @@ export function BackButton({ label, onClick, copy }: { label: string; onClick: (
       className="-ml-1.5 inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-1.5 text-prose text-app-text-secondary transition-colors hover:bg-black/[0.05] hover:text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:hover:bg-white/[0.08]"
     >
       <ArrowLeft size={15} aria-hidden="true" />
-      <span className="max-w-[180px] truncate">{label}</span>
+      <span className="max-w-45 truncate">{label}</span>
     </button>
   );
 }
@@ -68,7 +68,7 @@ export function PaneHeader({ crumbs, status, leading, children }: { crumbs: Crum
       <div ref={row} className="flex min-w-0 items-center gap-1.5 overflow-hidden text-prose leading-5" data-crumbs="true">
         {shown.map(({ c, i }, n) => {
           const last = i === crumbs.length - 1;
-          const sizing = squeeze ? 'min-w-[3rem] shrink truncate' : 'shrink-0 whitespace-nowrap';
+          const sizing = squeeze ? 'min-w-12 shrink truncate' : 'shrink-0 whitespace-nowrap';
           return (
             <Fragment key={`${c.label}-${i}`}>
               {n > 0 && <span className="shrink-0 text-app-text-faint" aria-hidden="true">/</span>}

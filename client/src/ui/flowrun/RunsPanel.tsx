@@ -83,8 +83,8 @@ export function RunsPanel({ copy, view, onFilter, onQuery, onDay, onClear }: {
           options={filters.map((f) => ({ ...f, count: view.counts[f.value] }))}
           className="min-w-0 flex-1"
         />
-        <TextField size="sm" type="search" icon={Search} value={view.query} onChange={onQuery} placeholder={c.search} className="w-full sm:w-[260px]" />
-        <Select size="sm" value={view.day} options={view.days} onChange={onDay} title={c.dayLabel} className="w-[150px]" />
+        <TextField size="sm" type="search" icon={Search} value={view.query} onChange={onQuery} placeholder={c.search} className="w-full sm:w-65" />
+        <Select size="sm" value={view.day} options={view.days} onChange={onDay} title={c.dayLabel} className="w-37.5" />
       </div>
       <Table
         ariaLabel={c.tableLabel}

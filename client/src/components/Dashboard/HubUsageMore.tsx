@@ -108,14 +108,14 @@ function RepoRow({ repo, usage, money, tr }: { repo: HubUsage['repos'][number]; 
         <span className={`${NAME_COL} flex items-center gap-1 text-app-text`}><Icon size={12} aria-hidden="true" className="flex-none text-app-text-muted" /><span className="truncate">{name}</span></span>
         <Bar pct={sharePct(repo, usage)} />
         <span className={FIGURE_COL}><b className="font-semibold text-app-text">{sharePct(repo, usage)}%</b> · {tokensShort(repo.tokens, locale)}</span>
-        <span className="w-[56px] flex-none text-right text-mini text-app-text-muted">{money(repo.listUsd)}</span>
+        <span className="w-14 flex-none text-right text-mini text-app-text-muted">{money(repo.listUsd)}</span>
       </button>
       {open && repo.branches.map((b) => (
         <div key={b.key} data-testid="hub-usage-branch-row" data-branch={b.key} className={`${LINE} bg-app-hover/40 pl-7 tabular-nums`}>
-          <span className={`${NAME_COL} w-[96px] text-app-text-secondary`}>{b.key === '' ? tr('hubUsage.noBranch') : b.key}</span>
+          <span className={`${NAME_COL} w-24 text-app-text-secondary`}>{b.key === '' ? tr('hubUsage.noBranch') : b.key}</span>
           <Bar pct={sharePct(b, usage)} tone="bg-app-text-tertiary" />
           <span className={FIGURE_COL}>{sharePct(b, usage)}% · {tokensShort(b.tokens, locale)}</span>
-          <span className="w-[56px] flex-none text-right text-mini text-app-text-muted">{money(b.listUsd)}</span>
+          <span className="w-14 flex-none text-right text-mini text-app-text-muted">{money(b.listUsd)}</span>
         </div>
       ))}
     </>
@@ -176,9 +176,9 @@ function ProxyFolderRow({ f, tr }: { f: ProxyAttribution['folders'][number]; tr:
   return (
     <div data-testid="hub-usage-proxy-row" data-source={f.fromLogs ? 'logs' : 'proxy'} className={`${LINE} tabular-nums`}>
       <span className={`${NAME_COL} flex-1 text-app-text`}>{f.name}</span>
-      <span className="w-[64px] flex-none text-right text-mini text-app-text">{tr('hubUsage.proxy.requests', { n: numText(f.requests, locale) })}</span>
-      <span className="w-[48px] flex-none text-right text-mini text-app-text-muted">{tokensShort(f.tokens, locale)}</span>
-      <span className={`${CHIP} w-[104px] justify-center ${f.fromLogs ? `bg-amber-500/15 ${WARNING_TEXT}` : 'bg-app-hover text-app-text-secondary'}`}>
+      <span className="w-16 flex-none text-right text-mini text-app-text">{tr('hubUsage.proxy.requests', { n: numText(f.requests, locale) })}</span>
+      <span className="w-12 flex-none text-right text-mini text-app-text-muted">{tokensShort(f.tokens, locale)}</span>
+      <span className={`${CHIP} w-26 justify-center ${f.fromLogs ? `bg-amber-500/15 ${WARNING_TEXT}` : 'bg-app-hover text-app-text-secondary'}`}>
         {tr(f.fromLogs ? 'hubUsage.proxy.fromLogs' : 'hubUsage.proxy.fromProxy')}
       </span>
     </div>
