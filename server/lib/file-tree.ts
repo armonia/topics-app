@@ -28,6 +28,19 @@ const DEFAULT_EXCLUDES = new Set([".git", ".DS_Store"]);
 
 export type { FileNode };
 
+interface DirEntryLike { name: string; isDirectory(): boolean; isFile(): boolean }
+interface StatLike { size: number; mtime: Date }
+
+/**
+ * Test seam: swap for a fake with deterministic (load-independent) timing to
+ * assert that `walkFileTreeJs` yields the loop between entries rather than
+ * resolving them concurrently. Real `fs/promises` by default.
+ */
+export const fileTreeIo: {
+  readdir: (dir: string, opts: { withFileTypes: true }) => Promise<DirEntryLike[]>;
+  stat: (path: string) => Promise<StatLike>;
+} = { readdir: readdirAsync, stat: statAsync };
+
 const FILE_TREE_SLOW_MS = 200;
 const FILE_TREE_REPEAT_MS = 60_000;
 
@@ -87,7 +100,7 @@ export async function walkFileTreeJs(root: string, depth: number): Promise<FileN
   // and stat still comes out without a size instead of emptying its folder.
   async function readDirRecursive(dir: string, currentDepth: number, relBase: string, ignore: IgnoreSet): Promise<FileNode[]> {
     try {
-      const entries = await readdirAsync(dir, { withFileTypes: true });
+      const entries = await fileTreeIo.readdir(dir, { withFileTypes: true });
       entries.sort((a, b) => { if (a.isDirectory() && !b.isDirectory()) return -1; if (!a.isDirectory() && b.isDirectory()) return 1; return a.name.localeCompare(b.name); });
       const nodes: Array<FileNode | null> = [];
       for (const entry of entries) nodes.push(await (async (): Promise<FileNode | null> => {
@@ -109,7 +122,7 @@ export async function walkFileTreeJs(root: string, depth: number): Promise<FileN
           return node;
         }
         if (!entry.isFile()) return null;
-        try { const stats = await statAsync(fullPath); return { name: entry.name, type: "file", path: fullPath, size: stats.size, modified: stats.mtime.toISOString() }; } catch { return { name: entry.name, type: "file", path: fullPath }; }
+        try { const stats = await fileTreeIo.stat(fullPath); return { name: entry.name, type: "file", path: fullPath, size: stats.size, modified: stats.mtime.toISOString() }; } catch { return { name: entry.name, type: "file", path: fullPath }; }
       })());
       return nodes.filter((n): n is FileNode => n !== null);
     } catch {

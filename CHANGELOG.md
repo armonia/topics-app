@@ -2,6 +2,25 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.5.27 — 2026-11-28
+
+### Sotto il cofano
+- Preview seed: correct the proven cause and lock it with tests
+
+## 2.5.25 — 2026-11-28
+
+### Sotto il cofano
+- Make the walkFileTree yield test load-independent
+- Trace the systemd-temp-entries test to GATE-13 so check:untraced-tests passes
+- Preview photo: the announced page is the contract, not the bare home
+
+## 2.5.24 — 2026-11-28
+
+### Sotto il cofano
+- node-pool: realign the permanent node without draining slots
+- cut-run test falls back to lsof on macOS and always kills the runner group
+- node-pool: AI bridge on the nodes and a cap on new cards when behind
+
 ## 2.5.22 — 2026-11-27
 
 ### Correzioni
@@ -19,6 +38,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **native** · an agent's ceiling applies only on a turn a person opened; a resume keeps its request
 - **native** · the ceiling skips a continuation, not every turn nobody typed in the composer
 - **native** · a wake is a continuation too; one list of machine marks for continuation and sentByPerson
+- **tests** · close the race between retiring the orphan guard and re-arming it
 
 ### Sotto il cofano
 - Trace the main-claim review check to KANBAN-11, not a card id
@@ -39,13 +59,19 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Correzioni
 - **node-delivery** · move the spawn allowlist entry to where the install call now lives
+- **tests** · the two-server test's roots outlive a normal run
+- **tests** · retire the orphan guard right after the shared helper's server stops
 
 ### Sotto il cofano
 - secret-store: mutex per file, derived recipient, Keychain limit and read-back, no env identity, secrets dir, CI age retry
+- Preview seed: make the example topic standalone, not project-bound
+- Cloud node: install WebKit so a card there can get a live preview screenshot
 - review-checks brakes: load gets its own budget clock, only the load reason is released by it (card 9fecea98)
 - review-checks brakes test: complete the spent clocks literal (card 9fecea98)
 - age is a spawned test binary, not dead code
 - Prove "already on main" before writing it, and warn review of a false claim
+- Preview seed test: declare the requirement it covers (KANBAN-126)
+- Exclude systemd PrivateTmp entries from the real-tmp-folder check
 - **native** · the ceiling reaches the loop inside the turn's own process
 - **openspec** · tetto-contesto-agenti, CHAT-COMPACT-06 and its bar; token-audit measures an agent's calls
 - **openspec** · no machine path in the proposal
@@ -57,8 +83,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **gates** · drop unused nodeTokenPath re-export flagged by deadcode-prod
 
 ### Sotto il cofano
+- the cut-run mutation is caught at the registration contract
 - Card legata a un nodo pieno: il pavimento di memoria del Mac non la nasconde al controllo delle card ferme
 - Card ferme: per una card legata a un nodo cade solo il pavimento di memoria del Mac, il disco pieno e la spesa restano un motivo (fermano anche la corsia remota)
+- Revert "chore(release):
 
 ## 2.5.18 — 2026-11-27
 
@@ -69,6 +97,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Test della scala del bundle: un'identità git sua, il runner della CI non ne ha una globale
 - Test della scala del bundle: main esplicito, senza config globale init crea master e set-head -a non trova la HEAD
 - primary-role test: drop duplicated worktree opt-out after merge (card 9fecea98)
+- **spec** · name E2E-GATE-15 for the orphan-guard cut-run test
 
 ## 2.5.17 — 2026-11-27
 
@@ -201,6 +230,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **board** · bloat baseline raises only tasks-land.ts, the one file the scheduled review pushes over its ceiling
 - Evict idle hidden browser panes beyond the 2 most recent after 10 min, swap or not
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-26 [skip ci]
+- a detached watchdog closes the servers and folders a cut run leaves behind
 - trace the new archive and blockedByTaskId tests to KANBAN-123/124
 - Tetto di spesa: la striscia resta sotto i 768 px; GAUGE-10 con istante relativo
 - Remeasure review cards stuck with a null checks verdict, realigned on main
@@ -257,7 +287,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **board** · the new board requirements are in the spec, and the person-owned word list carries its language marker
 - **node-checks** · give each run its own checkout folder
 - **node-delivery** · measure node deliveries whose bar mixes CI and local checks
+- **tests** · stop two-server test fully, loopback-only
 - **nodes** · carry node attachments to the primary, read delivery commits against origin/main
+- **tests** · the two-server test's cut-run cleanup never ran under bun test
 
 ### Sotto il cofano
 - close the remaining 26/11 review gaps on archive() and blockedByTaskId

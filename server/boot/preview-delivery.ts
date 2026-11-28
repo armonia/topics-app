@@ -180,6 +180,7 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
     // and an image taller than `PREVIEW_CARD_MAX_RATIO` (0.70) times its width
     // gets CROPPED instead of scaled — 1440×760 = 0.528 fits with margin.
     screenshot: (url, outPath, opts) => previewBrowser.screenshot(url, outPath, opts),
+    screenshotFailure: () => previewBrowser.lastFailure(),
     currentOutputUrl: (taskId) => dispatcherSvc.get(taskId)?.task.outputUrl ?? null,
     currentPreviewImage: (taskId) => dispatcherSvc.get(taskId)?.task.previewImage ?? null,
     setOutputUrl: (taskId, url) => {
