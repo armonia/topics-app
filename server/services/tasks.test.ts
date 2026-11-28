@@ -2427,7 +2427,7 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- The review-sweep measure count: non-default values so the
          -- list/detail comparison covers all three columns.
          remeasure_commit = 'abc1234', remeasure_tries = 2, remeasure_at = 1700000000000,
-         -- 20261125224424: «Rimanda a». Same reason as the columns above.
+         -- 20261128110000: «Rimanda a». Same reason as the columns above.
          wake_at = '2020-01-01T00:00:00.000Z'
        WHERE id = ?`,
       [

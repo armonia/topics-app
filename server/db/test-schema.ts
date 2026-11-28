@@ -219,7 +219,7 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   remeasure_commit TEXT,
   remeasure_tries INTEGER NOT NULL DEFAULT 0,
   remeasure_at INTEGER NOT NULL DEFAULT 0,
-  -- 20261125224424: card snooze. The backlog card's own wake instant.
+  -- 20261128110000: card snooze. The backlog card's own wake instant.
   wake_at TEXT DEFAULT NULL
 )`;
 

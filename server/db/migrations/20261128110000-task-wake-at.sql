@@ -1,4 +1,4 @@
--- 20261125224424-task-wake-at.sql
+-- 20261128110000-task-wake-at.sql
 --
 -- «Rimanda a <data>»: a card parked in `backlog` with `wake_at` set returns to
 -- `todo` on its own once that instant passes (card 975aba21). Before this, the
