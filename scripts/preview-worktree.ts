@@ -24,6 +24,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { previewServerEnv } from "./preview-env";
+import { seedPreviewData } from "./preview-seed";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const port = Number(process.env.PORT);
@@ -96,28 +97,16 @@ async function waitForServer(timeoutMs: number): Promise<boolean> {
 }
 
 /**
- * Example data, all invented. A failed seed is reported and ignored: the
- * preview still serves.
- *
- * The topic is STANDALONE (no `projectPath`): the deep link below opens it in
- * a detached window (`?topic=<id>`), and a detached window never promotes a
- * project-bound topic into its project pane (`usePanelLifecycle`'s validation
- * effect skips that conversion for `isDetached`) — it rendered an empty grid,
- * which the preview-manager's empty-shell gate then retired as a blank shot.
+ * Example data, all invented, and the page to photograph. The order of the
+ * steps lives in `preview-seed.ts`, which is tested without a server: a failed
+ * seed is reported and ignored, the preview still serves.
  */
 async function seed(): Promise<void> {
-  await api("PUT", "/api/app-settings", { firstRunDoneAt: new Date().toISOString() });
-  const created = await api("POST", "/api/topics", { name: "Example topic", type: "chat" });
-  const id = created?.topic?.id ?? created?.id;
-  if (!id) throw new Error("topic id missing in the answer");
-  const messages = [
-    "Here is a **short summary** of the example topic.\n\n- First point\n- Second point",
-    "A follow-up with `inline code` and a link: [example](https://example.com).",
-  ];
-  for (const content of messages) await api("POST", `/api/topics/${id}/system-message`, { content });
-  console.log(`▸ example data seeded (topic ${id})`);
-  // `?topic=` opens exactly that topic, without the sidebar: the chat is what the shot shows.
-  if (deepLinkFile) writeFileSync(deepLinkFile, `/?topic=${id}`);
+  await seedPreviewData({
+    api,
+    // `?topic=` opens exactly that topic, without the sidebar: the chat is what the shot shows.
+    announce: (deepLink) => { if (deepLinkFile) writeFileSync(deepLinkFile, deepLink); },
+  });
 }
 
 if (await waitForServer(120_000)) {

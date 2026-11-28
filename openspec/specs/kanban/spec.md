@@ -6108,19 +6108,31 @@ A board with the setting on SHALL, once per half-day slot, read each backlog car
 - **WHEN** the triage runs
 - **THEN** the first SHALL move to todo, the second SHALL move to review with its question, and the third SHALL stay in backlog
 
-### Requirement: KANBAN-126 — The preview seed opens in a detached window, so its topic is standalone
+### Requirement: KANBAN-126 — No announced page, no photo
 
-A detached window (`?topic=<id>`, what the preview deep link opens) hosts exactly
-the topics it was given and SHALL NOT run the validation effect that converts a
-project-bound topic into its project pane. A seeded preview topic therefore SHALL
-be standalone: a project-bound one lands in `openPanels` as a bare id nothing
-renders, the grid stays empty, and the empty-shell gate retires every screenshot
-of that card forever.
+The deep link is the contract between a preview command and the manager: it
+names the page worth photographing. The command SHALL announce that page as soon
+as there is one, BEFORE any optional content, so that a failure in the content
+cannot cost the announcement. When a command that declares a deep-link file never
+announces a page, the manager SHALL NOT photograph the bare `/` of the app, which
+is the shell with no topic open: it SHALL fail the boot with that reason, tear its
+server down so the next attempt seeds again, and SHALL NOT reuse a saved
+`output_url` that names no page. A machine whose capture browser is missing SHALL
+download it once, and when that fails the reason SHALL reach the card instead of
+leaving it in review with no photo and no explanation.
 
-#### Scenario: the detached window never promotes a project-bound topic
-- **GIVEN** a detached window hosting one project-bound, non-standalone topic
-- **THEN** `openPanels` SHALL hold that bare topic id and NOT its project pane
+#### Scenario: the page is announced before the optional content
+- **GIVEN** a preview seed whose example messages are all refused by the server
+- **THEN** the page of the created topic SHALL still have been announced
 
-#### Scenario: a standalone seeded topic opens as itself
-- **GIVEN** a detached window hosting one standalone topic
-- **THEN** `openPanels` SHALL hold it and it SHALL be the focused panel
+#### Scenario: the bare home is refused, with the reason
+- **GIVEN** a command that declares a deep-link file and never writes one
+- **THEN** the boot SHALL fail saying no page was ever announced, and the server SHALL be torn down
+
+#### Scenario: a saved address that names no page is not reused
+- **GIVEN** a task whose saved `output_url` is the bare `/` of its own live preview
+- **THEN** the manager SHALL boot a fresh preview and land on the announced page
+
+#### Scenario: a machine with no capture browser
+- **GIVEN** a launch that answers that the browser executable does not exist
+- **THEN** the browser SHALL be downloaded once, and a failed download SHALL leave a one-line reason for the card
