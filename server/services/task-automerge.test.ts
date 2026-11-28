@@ -208,6 +208,10 @@ describe("task-automerge", () => {
       if (key === "for-each-ref --format=%(refname)") {
         return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
       }
+      // The probe runs on an isolated worktree detached at this sha (never on
+      // the live checkout): both the lookup and the `worktree add` fall through
+      // to the generic `{ code: 0 }` below, which the fake git treats as success.
+      if (key === "rev-parse HEAD") return { code: 0, stdout: "deadbeef1234\n", stderr: "" };
       if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "3\n", stderr: "" };
       // The probe's lists: every non-merge commit ahead, the own ones, and what
       // main gained since the foreign history left it (one replayed copy).
@@ -251,6 +255,8 @@ describe("task-automerge", () => {
       if (key === "for-each-ref --format=%(refname)") {
         return { code: 0, stdout: "refs/heads/main\nrefs/heads/topics/altra\nrefs/heads/topics/t1\n", stderr: "" };
       }
+      // The probe runs on an isolated worktree detached at this sha.
+      if (key === "rev-parse HEAD") return { code: 0, stdout: "deadbeef1234\n", stderr: "" };
       if (key === "rev-list --count") return { code: 0, stdout: args.includes("--not") ? "1\n" : "3\n", stderr: "" };
       if (key === "rev-list --reverse") return { code: 0, stdout: "fff111\nfff222\naaa111\n", stderr: "" };
       if (key === "rev-list --no-merges") return { code: 0, stdout: args.includes("--not") ? "aaa111\n" : "", stderr: "" };

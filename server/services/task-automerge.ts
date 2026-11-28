@@ -1101,6 +1101,26 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     }
 
     /**
+     * `foreignNotOnMain` on a scratch worktree detached at `cwd`'s current HEAD,
+     * never on `cwd` itself. The probe resets its own checkout after every pick
+     * (see `foreignNotOnMain`'s docblock): run on a live, shared checkout that
+     * would reset away another session's uncommitted work.
+     */
+    async function foreignNotOnMainIsolated(cwd: string, own: { others: string[] }): Promise<string[] | null> {
+      const head = await runGit(cwd, ["rev-parse", "HEAD"]);
+      if (head.code !== 0 || !head.stdout.trim()) return null;
+      const wtPath = join(scratchDir("land"), scratchId(repoPath));
+      await discardWorktree(runGit, repoPath, wtPath);
+      const add = await runGit(repoPath, ["worktree", "add", "--detach", wtPath, head.stdout.trim()]);
+      if (add.code !== 0) return null;
+      try {
+        return await foreignNotOnMain(wtPath, own);
+      } finally {
+        await discardWorktree(runGit, repoPath, wtPath);
+      }
+    }
+
+    /**
      * The diff of one commit with what a replay changes stripped: blob ids and
      * hunk line numbers. Same idea as `git patch-id`, which cannot be used
      * through `runGit` because it reads its input from stdin.
@@ -1629,8 +1649,11 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             }
           }
           // Mixed by ancestry is not mixed by content: see `foreignNotOnMain`.
+          // `cwd` here is a live, shared checkout (it may hold another session's
+          // uncommitted edits, just allowed through above): the probe runs on an
+          // isolated worktree instead, never on `cwd` itself.
           if (onlyOwn) {
-            const missing = await foreignNotOnMain(cwd, onlyOwn);
+            const missing = await foreignNotOnMainIsolated(cwd, onlyOwn);
             if (missing === null || missing.length > 0) return partialLandRefused(cwd, onlyOwn, missing);
           }
           const stopped = await lookBeforeMerge(cwd);
