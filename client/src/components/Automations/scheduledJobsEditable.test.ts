@@ -1,3 +1,6 @@
+/**
+ * @covers SCHED-09
+ */
 import { describe, expect, test } from 'bun:test';
 import { isEditable } from './scheduledJobForm';
 import type { ScheduledJob } from '../../lib/scheduledJobs';
