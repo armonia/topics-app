@@ -37,6 +37,7 @@ import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } fro
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
 import { createRunWithBundle } from "./node-bundle-ladder";
+import { type LaunchEntry, launchesInFlight, type ParkDeps, parkRun, runsOn } from "./task-dispatcher-remote-node-park";
 
 /**
  * THE REMOTE LANE'S HOST CAPABILITY: how this board talks to a paired node, and
@@ -334,6 +335,17 @@ export interface RemoteNodeLane {
   /** Cancel one confined remote run without touching another slot. */
   /** null = not remote, false = remote cancellation still unconfirmed, true = stopped. */
   cancelTask(taskId: string): Promise<boolean | null>;
+  /** The runs in flight on one node: what a primary switch to that node has to wait for. */
+  runsOn(machineId: string): Array<{ taskId: string; sessionKey: string }>;
+  /** The launches on their way to ANY machine whose node has not named the run yet: a switch parks them all. */
+  launchesInFlight(): Array<{ taskId: string; sessionKey: string }>;
+  /**
+   * Stop one remote run for good and put its card back in the queue with the note:
+   * the run is cancelled on the node (best effort, the node is about to restart
+   * anyway) and `node_run_id` is cleared, so no card stays tied to a run that is gone.
+   * null = not a remote slot.
+   */
+  parkRun(taskId: string, note: string): Promise<boolean | null>;
 }
 
 export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
@@ -371,8 +383,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     return next;
   }
 
-  /** Cards whose launch this process started and has not finished yet (see `remoteLaunch`). */
-  const launching = new Set<string>();
+  /**
+   * Cards whose launch this process started and has not finished yet (see `remoteLaunch`), with the
+   * machine each one is launching on (see `LaunchEntry`): a switch to that machine has to see the
+   * launch from the moment it starts, not from the moment the node answers. One object per launch,
+   * so a launch that outlives its park never clears the entry of the next one.
+   */
+  const launching = new Map<string, LaunchEntry>();
 
   /**
    * Consecutive STARTS of a task answered with a cloud account error
@@ -472,6 +489,8 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * `returnEmptyNodeRunToTodo`.
    */
   function parkNodeCard(task: Task, reason: string): void {
+    // A primary switch already put the card back in the queue: parking it here would overwrite that requeue.
+    if (launching.get(task.id)?.parked) return;
     try { releaseAndEmit({ taskId: task.id, requeue: false, parkState: CHIP_BLOCKED, reason }); }
     catch (err) { log(`nodo: parcheggio della card ${task.id} non riuscito`, err); return; }
     if (task.overflowedAt) {
@@ -491,6 +510,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   async function launchOnNode(
     task: Task,
     settings: { effort: string; model?: string; timeoutMin: number },
+    launch: LaunchEntry,
   ): Promise<void> {
     const node = host.client!;
     const machineId = task.machineId!;
@@ -598,6 +618,8 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         return;
       }
     }
+    // Parked by a primary switch while it was still looking up origin or pushing the branch.
+    if (launch.parked) return;
     // A node key from the first instant, before the node has named its run:
     // every local census reads the key, and an empty one counted this run as a
     // turn of THIS machine while the hook and `createRun` were still answering.
@@ -626,6 +648,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         log(`nodo: l'hook node-run per ${task.id} non si è avviato`, err);
         return { ok: true };
       });
+      // Parked by a primary switch while the hook was answering: the card is already back in the
+      // queue, so neither a veto nor a run born now has an owner to act for.
+      if (!host.ownsRun(task.id, runNo)) return;
       if (!verdict.ok) {
         host.endRun(task.id, runNo);
         wakeBreaker.failure(machineId);
@@ -701,15 +726,31 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       }
       const { runId } = created;
       startSetupFails.delete(task.id);
-      lastNodeRun.set(task.id, runId);
+      const cancelCreated = async (): Promise<boolean> => {
+        try {
+          await node.cancelRun({ baseUrl, token, runId, delegation: policy ? {
+            capabilityId: policy.id,
+            subjectPersonId: policy.initiatorPersonId,
+            subjectDeviceId: policy.initiatorDeviceId,
+          } : undefined });
+          return true;
+        } catch { return false; /* best-effort */ }
+      };
+      try {
+        lastNodeRun.set(task.id, runId);
+      } catch (err) {
+        // The write is refused (the primary fence turns the DB read-only): the run is born over
+        // there and nothing here points at it, so it is cancelled now or it works orphaned.
+        await cancelCreated();
+        throw err;
+      }
       if (!host.ownsRun(task.id, runNo)) {
         // Superseded while the node was answering: the run we just created has
         // no owner here, and leaving it alive is the two-deliveries defect.
-        try { await node.cancelRun({ baseUrl, token, runId, delegation: policy ? {
-          capabilityId: policy.id,
-          subjectPersonId: policy.initiatorPersonId,
-          subjectDeviceId: policy.initiatorDeviceId,
-        } : undefined }); } catch { /* best-effort */ }
+        if (await cancelCreated()) {
+          // Gone for good: the card must not point at it (a park cleared the link before this one was written).
+          try { if (lastNodeRun.get(task.id) === runId) lastNodeRun.delete(task.id); } catch { /* the next dispatch cancels it: 404 is fine */ }
+        }
         return;
       }
       host.bindRunSession(task.id, runNo, nodeSessionKey(machineId, runId));
@@ -782,6 +823,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         });
       } catch { /* best-effort: the note never blocks the dispatch */ }
     } catch (err) {
+      // Parked by a primary switch while the node was answering: the card is already back in the
+      // queue, and a deferral here would overwrite the park's note and wait.
+      if (!host.ownsRun(task.id, runNo)) { log(`nodo: lancio di ${task.id} interrotto da un passaggio del principale`, err); return; }
       host.endRun(task.id, runNo);
       if (nodeFailureReason(err) === "no_such_repo") {
         parkNodeCard(
@@ -898,8 +942,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // launched it a second time, the two pushes of the same ref collided, and
     // the loser parked the card in backlog while the winner's run went on
     // working on the node (91a42e8f, a5906c31, 841c6eac on 2026-11-03).
-    launching.add(taskId);
-    return launchOnNode(claimedTask, settings).finally(() => { launching.delete(taskId); });
+    const entry: LaunchEntry = { machineId: claimedTask.machineId, parked: false };
+    launching.set(taskId, entry);
+    return launchOnNode(claimedTask, settings, entry).finally(() => { if (launching.get(taskId) === entry) launching.delete(taskId); });
   }
 
   /**
@@ -1806,5 +1851,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     return true;
   }
 
-  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask };
+  const parkDeps: ParkDeps = { host, launching, lastNodeRun };
+
+  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask, runsOn: (machineId) => runsOn(parkDeps, machineId), launchesInFlight: () => launchesInFlight(parkDeps), parkRun: (taskId, note) => parkRun(parkDeps, taskId, note) };
 }

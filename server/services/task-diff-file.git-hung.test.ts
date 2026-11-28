@@ -20,14 +20,15 @@ import { join } from "node:path";
 interface Out { status: number; contentLength: string | null; outcome: string; bytes: number; ms: number }
 let dir = "";
 
-async function run(fakeGit: string, size: number): Promise<Out> {
+/** `capMs` is the git deadline: short to see a hang abort, long where git must be given time to finish on a loaded machine. */
+async function run(fakeGit: string, size: number, capMs = 300): Promise<Out> {
   writeFileSync(join(dir, "git"), fakeGit);
   chmodSync(join(dir, "git"), 0o755);
   const proc = Bun.spawn(["bun", join(import.meta.dir, "task-diff-file.git-hung.fixture.ts"), String(size)], {
     cwd: dir,
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, TOPICS_SPAWN_TIMEOUT_CAP_MS: "300" },
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, TOPICS_SPAWN_TIMEOUT_CAP_MS: String(capMs) },
   });
   const [text, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   await proc.exited;
@@ -52,7 +53,7 @@ test("a git that stops halfway aborts the body instead of ending it short", asyn
 }, 20_000);
 
 test("a blob that arrives whole is served whole", async () => {
-  const out = await run("#!/bin/sh\nprintf 0123456789\n", 10);
+  const out = await run("#!/bin/sh\nprintf 0123456789\n", 10, 20_000);
   expect(out.outcome).toBe("complete");
   expect(out.bytes).toBe(10);
 }, 20_000);

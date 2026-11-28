@@ -17,18 +17,25 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { runBounded } from "./bounded-spawn";
 import { installArgv, missingPackageManager } from "./project-scripts";
+
+/** Ceiling on ALL the installs of one worktree (root plus `client/`), shared: a hung one would hold the repo's land chain for everybody. */
+export const INSTALL_TIMEOUT_MS = 4 * 60_000;
 
 export interface InstallWorktreeDepsResult {
   ok: number;
   attempted: number;
   ms: number;
+  /** An install hit its deadline and its process group was killed. */
+  timedOut: boolean;
 }
 
-export async function installWorktreeDeps(absPath: string): Promise<InstallWorktreeDepsResult> {
+export async function installWorktreeDeps(absPath: string, timeoutMs: number = INSTALL_TIMEOUT_MS): Promise<InstallWorktreeDepsResult> {
   const started = Date.now();
   let ok = 0;
   let attempted = 0;
+  let timedOut = false;
   // Root carries `bun-types` (without it the server typecheck dies on "Cannot
   // find type definition file for 'bun'"); `client/` carries eslint and tsc.
   for (const dir of [absPath, join(absPath, "client")]) {
@@ -39,15 +46,20 @@ export async function installWorktreeDeps(absPath: string): Promise<InstallWorkt
       console.warn(`[worktree-install-deps] deps NOT installed in ${dir}: ${missing}`);
       continue;
     }
-    try {
-      const proc = Bun.spawn(installArgv(dir), { // runtime-dep-ok: the package manager of the USER's project, resolved from its lockfile, not a tool Topics assumes
-        cwd: dir, stdout: "pipe", stderr: "pipe",
-      });
-      if ((await proc.exited) === 0) ok += 1;
-      else console.warn(`[worktree-install-deps] deps NOT installed in ${dir}`);
-    } catch (err) {
-      console.warn(`[worktree-install-deps] deps NOT installed in ${dir}: ${String(err)}`);
+    const left = timeoutMs - (Date.now() - started);
+    if (left <= 0) {
+      timedOut = true;
+      console.warn(`[worktree-install-deps] deps NOT installed in ${dir}: total budget of ${timeoutMs} ms spent`);
+      break;
     }
+    const run = await runBounded(installArgv(dir), { cwd: dir, timeoutMs: left }); // runtime-dep-ok: the package manager of the USER's project, resolved from its lockfile, not a tool Topics assumes
+    if (run.timedOut) {
+      timedOut = true;
+      console.warn(`[worktree-install-deps] deps NOT installed in ${dir}: timed out after ${timeoutMs} ms`);
+      break;
+    }
+    if (run.exitCode === 0) ok += 1;
+    else console.warn(`[worktree-install-deps] deps NOT installed in ${dir}${run.spawnError ? `: ${run.spawnError}` : ""}`);
   }
-  return { ok, attempted, ms: Date.now() - started };
+  return { ok, attempted, ms: Date.now() - started, timedOut };
 }

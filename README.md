@@ -168,6 +168,7 @@ containers. Copy `.env.example` to `.env`.
 | `AI_PROVIDER` | Pins one provider | auto |
 | `CLAUDE_MODEL` · `OPENAI_MODEL` | Model ids | — |
 | `STT_PROVIDER` · `STT_LANGUAGE` | Dictation engine and language | `auto` |
+| `TOPICS_REPLICA_STOP_COMMAND` · `TOPICS_REPLICA_START_COMMAND` | Shell commands that stop and start the replica (Litestream) of the DB around a primary switch. The stop goes through the service manager (`launchctl bootout`, `systemctl stop`), never a kill a supervisor undoes. Both empty = no replica managed | — |
 | `REVIEW_PR_REPO` · `REVIEW_PR_WORKFLOW` | Repo whose new PRs get an automatic review, and the `revisione-pr` workflow file. Both empty = off | — |
 
 **Picking the default provider.** With `AI_PROVIDER` unset your keys decide:
