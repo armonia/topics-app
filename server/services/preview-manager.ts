@@ -126,6 +126,20 @@ export interface PreviewManagerDeps {
   /** Resolve the task's branch worktree, or null (no worktree ⇒ no preview). */
   worktreeOf(taskId: string): PreviewWorktree | null;
   /**
+   * The worktree a CHAT works in, or null (no worktree, or the chat works in the
+   * live checkout: there the real app is already the preview). Optional: absent
+   * ⇒ chat previews are off.
+   */
+  worktreeOfTopic?(topicId: string): PreviewWorktree | null;
+  /**
+   * True when the chat's worktree diff touches interface files. Only asked for
+   * the automatic start at the end of a turn; the button skips it. Absent ⇒ the
+   * automatic start never fires.
+   */
+  touchesInterface?(wt: PreviewWorktree): Promise<boolean>;
+  /** A service message in the chat (outcome of a chat preview). Absent ⇒ silent. */
+  postChatMessage?(topicId: string, args: { content: string; media?: string[] }): void;
+  /**
    * Decide HOW to start the preview for this worktree: argv + deep-link path.
    * null ⇒ this project can't be previewed (no start script / no override) —
    * the manager then skips spin-up and only enforces the no-prod-url guard.
@@ -259,6 +273,8 @@ export interface PreviewManagerDeps {
   ensureMediaDir(): void;
   /** [low, high] inclusive pool. Default [3400, 3450]. */
   portRange?: [number, number];
+  /** Idle time after which a chat's preview is switched off, ms. Default 30 minutes. */
+  chatIdleMs?: number;
   /** Ms to wait for the server to answer before giving up. Default 40000. */
   readyTimeoutMs?: number;
   /** Poll interval while waiting for readiness. Default 500. */
@@ -270,7 +286,13 @@ export interface PreviewManagerDeps {
   log?(msg: string, err?: unknown): void;
 }
 
+/** Key of `live`: a task id, or `chat:<topicId>` for a chat preview. */
+const CHAT_SOURCE_PREFIX = "chat:";
+export const chatSourceId = (topicId: string): string => CHAT_SOURCE_PREFIX + topicId;
+const isChatSource = (sourceId: string): boolean => sourceId.startsWith(CHAT_SOURCE_PREFIX);
+
 interface LivePreview {
+  /** The source id (task or chat), kept under its historical name for `list()`. */
   taskId: string;
   port: number;
   url: string;
@@ -290,6 +312,11 @@ export interface PrepareOptions {
   explain?: boolean;
 }
 
+export interface ChatPreviewOptions {
+  /** Started by the end of a turn, not by the button: gated on interface files and silent on "no". */
+  auto?: boolean;
+}
+
 export interface PreviewManager {
   /**
    * Full delivery flow: (re)use or boot the preview, set output_url to the local
@@ -297,6 +324,14 @@ export interface PreviewManager {
    * no-prod-url guard when no preview is possible. Best-effort — never throws.
    */
   prepareForReview(taskId: string, opts?: PrepareOptions): Promise<void>;
+  /**
+   * Same flow for a chat that works in its own worktree. The outcome (link and
+   * screenshot, or why it did not start) goes to the chat as a service message.
+   * Best-effort, never throws.
+   */
+  ensureForChat(topicId: string, opts?: ChatPreviewOptions): Promise<void>;
+  /** Restarts the idle clock of the chat's preview (call at every turn end). */
+  noteChatTurn(topicId: string): void;
   /** Boot (or reuse) a preview server for the task. null ⇒ couldn't. */
   ensurePreview(taskId: string): Promise<{ url: string; port: number } | null>;
   /** Kill + forget the task's preview server. Idempotent, never throws. */
@@ -308,8 +343,10 @@ export interface PreviewManager {
    * Torna le porte ripulite. Idempotente, non lancia mai.
    */
   sweepOrphans(): Promise<number[]>;
-  /** Introspection (tests / status). */
+  /** Introspection (tests / status): the previews of TASKS. */
   list(): { taskId: string; port: number; url: string }[];
+  /** The previews of chats. */
+  listChats(): { topicId: string; port: number; url: string }[];
 }
 
 const DEFAULT_RANGE: [number, number] = [3400, 3450];
@@ -498,6 +535,11 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
    * era solo la consegna (che sul niente tace); quando a chiedere è una persona,
    * «non è stato possibile» senza il perché non è una risposta.
    */
+  function worktreeFor(sourceId: string): PreviewWorktree | null {
+    if (isChatSource(sourceId)) return deps.worktreeOfTopic?.(sourceId.slice(CHAT_SOURCE_PREFIX.length)) ?? null;
+    return deps.worktreeOf(sourceId);
+  }
+
   async function bootPreview(taskId: string): Promise<{ preview: { url: string; port: number } | null; reason: string | null; attempted: boolean }> {
     // `attempted` = we really tried to start something. It tells a project with
     // no interface (no command: silence is right) from one that has one and did
@@ -513,8 +555,8 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       try { deps.unregisterProcess?.(taskId); } catch { /* ignore */ }
     }
 
-    const wt = deps.worktreeOf(taskId);
-    if (!wt) return no("il task non ha un worktree (nessuna cartella da cui avviare un'anteprima)");
+    const wt = worktreeFor(taskId);
+    if (!wt) return no(isChatSource(taskId) ? "la chat non lavora in un worktree suo (nel checkout vivo l'app vera è già l'anteprima)" : "il task non ha un worktree (nessuna cartella da cui avviare un'anteprima)");
     if (wt.mode !== "branch") return no(`il worktree del task è in modalità \`${wt.mode}\`, non \`branch\`: non c'è un checkout da avviare`);
 
     const command = deps.resolveCommand(taskId, wt);
@@ -620,7 +662,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     if (mine && mine.url === url && mine.proc.alive()) return true;
     const port = portOf(url);
     if (port == null) return false;
-    const cwd = deps.worktreeOf(taskId)?.absPath ?? null;
+    const cwd = worktreeFor(taskId)?.absPath ?? null;
     const owns = await ownership(port, { pid: mine?.proc.pid ?? null, cwd });
     if (owns !== "own") {
       log(`[preview] refusing to reuse ${url} for ${taskId}: listener is ${owns} (not this task's preview)`);
@@ -844,6 +886,8 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     const p = live.get(taskId);
     if (!p) return;
     live.delete(taskId);
+    const idle = chatTimers.get(taskId);
+    if (idle) { clearTimeout(idle); chatTimers.delete(taskId); }
     // L'ALBERO, non il wrapper, e PRIMA di lui. `deps.spawn` lancia
     // `bun run dev`: il processo che ASCOLTA e' un suo discendente, e segnalare
     // solo il padre lo lasciava vivo con la porta occupata per sempre.
@@ -917,9 +961,77 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     return cleared;
   }
 
-  function listPreviews() {
-    return Array.from(live.values()).map((p) => ({ taskId: p.taskId, port: p.port, url: p.url }));
+  /** The chat's preview is switched off after this long without a turn: the pool is shared with the cards. */
+  const chatIdleMs = deps.chatIdleMs ?? 30 * 60_000;
+  const chatTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const chatBooting = new Set<string>();
+
+  function armChatTimer(topicId: string): void {
+    const key = chatSourceId(topicId);
+    const old = chatTimers.get(key);
+    if (old) clearTimeout(old);
+    const t = setTimeout(() => {
+      chatTimers.delete(key);
+      log(`[preview] chat ${topicId} idle: switching its preview off`);
+      void teardown(key);
+    }, chatIdleMs);
+    (t as { unref?: () => void }).unref?.();
+    chatTimers.set(key, t);
   }
 
-  return { prepareForReview, ensurePreview, teardown, teardownAll, sweepOrphans, list: listPreviews };
+  function noteChatTurn(topicId: string): void {
+    if (live.has(chatSourceId(topicId))) armChatTimer(topicId);
+  }
+
+  async function ensureForChat(topicId: string, opts?: ChatPreviewOptions): Promise<void> {
+    const key = chatSourceId(topicId);
+    const auto = opts?.auto === true;
+    const say = (content: string, media?: string[]) => {
+      try { deps.postChatMessage?.(topicId, { content, media }); } catch (err) { log(`[preview] postChatMessage failed for ${topicId}`, err); }
+    };
+    if (chatBooting.has(key)) return;
+    chatBooting.add(key);
+    try {
+      const wt = worktreeFor(key);
+      if (!wt) { if (!auto) say(`${PREVIEW_NOTE_PREFIX} non disponibile. Questa chat non lavora in un worktree suo: nel checkout vivo l'app vera è già l'anteprima.`); return; }
+      if (auto) {
+        let ui = false;
+        try { ui = (await deps.touchesInterface?.(wt)) === true; } catch { ui = false; }
+        if (!ui) return;
+        if (!deps.resolveCommand(key, wt)) return; // no start command: stay quiet
+      }
+      const res = await bootPreview(key);
+      if (!res.preview) {
+        if (res.attempted || !auto) say(`${PREVIEW_NOTE_PREFIX} non avviata. ${res.reason ?? "motivo sconosciuto"}.`);
+        return;
+      }
+      armChatTimer(topicId);
+      const url = res.preview.url;
+      const page = deps.fetchPage ? await deps.fetchPage(url).catch(() => null) : null;
+      if (page && !isEvidencePage(page)) {
+        say(`${PREVIEW_NOTE_PREFIX} viva su ${url}, ma ${page.status >= 400 ? `ha risposto ${page.status}` : "mostra una pagina di placeholder"}. Il worktree probabilmente non ha un bundle costruito.`);
+        return;
+      }
+      const outPath = join(deps.mediaDir, `chat-${topicId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12)}.png`);
+      let shot = false;
+      try { deps.ensureMediaDir(); shot = await deps.screenshot(url, outPath, { width: 1440 }); } catch (err) { log(`[preview] screenshot failed for ${key}`, err); }
+      if (shot && deps.blankShot?.(outPath)) shot = false;
+      if (shot && deps.emptyAppShell && (await deps.emptyAppShell(url).catch(() => false))) shot = false;
+      say(shot ? `${PREVIEW_NOTE_PREFIX} viva su ${url}` : `${PREVIEW_NOTE_PREFIX} viva su ${url}, screenshot non catturato.`, shot ? [outPath] : undefined);
+    } catch (err) {
+      log(`[preview] ensureForChat failed for ${topicId}`, err);
+    } finally {
+      chatBooting.delete(key);
+    }
+  }
+
+  function listChats() {
+    return Array.from(live.values()).filter((p) => isChatSource(p.taskId)).map((p) => ({ topicId: p.taskId.slice(CHAT_SOURCE_PREFIX.length), port: p.port, url: p.url }));
+  }
+
+  function listPreviews() {
+    return Array.from(live.values()).filter((p) => !isChatSource(p.taskId)).map((p) => ({ taskId: p.taskId, port: p.port, url: p.url }));
+  }
+
+  return { prepareForReview, ensureForChat, noteChatTurn, ensurePreview, teardown, teardownAll, sweepOrphans, list: listPreviews, listChats };
 }

@@ -1,7 +1,9 @@
 /**
  * Card previews, auto-merge, worktree cleanup and the delivery references a card's branch is read through.
  */
-import { join } from "path";
+import { basename, join } from "path";
+import { AUTO_PREVIEW_DIR } from "../../shared/media-kind";
+import { worktreeTouchesInterface } from "../services/chat-preview-diff";
 import { mkdirSync, readFileSync, statSync, readlinkSync, realpathSync } from "fs";
 import { createTaskAutoMerge, declaredDeliveryFor, worktreeRealDirt } from "../services/task-automerge";
 import { imageShape, isBlankLikeImage } from "../services/image-shape";
@@ -79,6 +81,25 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       const wt = worktreeOfTask(taskId);
       if (!wt) return null;
       return { id: wt.id, absPath: wt.absPath, branchName: wt.branchName, projectId: wt.projectId, mode: wt.mode };
+    },
+    // A chat's worktree: only a chat that works in its own branch checkout. In
+    // the live checkout the real app is already the preview.
+    worktreeOfTopic: (topicId) => {
+      const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
+      const wt = worktreeId ? ctx.worktreeStore.get(worktreeId) : null;
+      if (!wt) return null;
+      return { id: wt.id, absPath: wt.absPath, branchName: wt.branchName, projectId: wt.projectId, mode: wt.mode };
+    },
+    touchesInterface: (wt) => worktreeTouchesInterface(wt.absPath),
+    postChatMessage: (topicId, { content, media }) => {
+      const topic = ctx.getTopicById(topicId);
+      if (!topic?.sessionKey) return;
+      // The screenshot is served from the media folder the card previews use.
+      const image = (media ?? []).map((m) => `\n\n![Anteprima](/media/${AUTO_PREVIEW_DIR}/${basename(m)})`).join("");
+      const text = content + image;
+      const stored = ctx.appendLocalMessage(topic.sessionKey, "assistant", text);
+      ctx.broadcastToAll({ type: "message", sessionKey: topic.sessionKey, message: { id: stored.id, role: "assistant", content: text, timestamp: stored.timestamp } });
+      ctx.broadcastToAll({ type: "message:new", topicId, sessionKey: topic.sessionKey, role: "assistant", messageId: stored.id, content: text, preview: content.slice(0, 100) });
     },
     // How the command is chosen (env override, preview:worktree, package.json
     // heuristic) lives in `resolvePreviewCommand`. The server honours PORT (injected
