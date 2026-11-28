@@ -8,8 +8,9 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createProjectsRouter } from "./projects";
+import { PROJECT_QUOTA_SCHEMA } from "../../tests/helpers/project-quota-schema";
 
-const MIGRATION = await Bun.file(join(import.meta.dir, "../db/migrations/20261119000000-project-quota.sql")).text();
+const MIGRATION = PROJECT_QUOTA_SCHEMA;
 
 function matchRoute(pathname: string, pattern: string): Record<string, string> | null {
   const pp = pattern.split("/"), xp = pathname.split("/");

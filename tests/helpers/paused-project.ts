@@ -6,10 +6,11 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { projectIdForPath } from "../../shared/board";
+import { PROJECT_QUOTA_SCHEMA } from "./project-quota-schema";
 import { openPauseIfNeeded, continueProject } from "../../server/services/project-pause";
 import { fireProjectResumed } from "../../server/services/turn-gate";
 
-const QUOTA_MIGRATION = await Bun.file(join(import.meta.dir, "../../server/db/migrations/20261119000000-project-quota.sql")).text();
+const QUOTA_MIGRATION = PROJECT_QUOTA_SCHEMA;
 
 export const PAUSED_PROJECT_PATH = "/tmp/pause-fixture/proj";
 export const PAUSED_PROJECT_ID = projectIdForPath(PAUSED_PROJECT_PATH);

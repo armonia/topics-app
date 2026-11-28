@@ -21,8 +21,9 @@ import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { fireProjectResumed, PERSON, resetHeldForTests } from "./turn-gate";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+import { PROJECT_QUOTA_SCHEMA } from "../../tests/helpers/project-quota-schema";
 
-const MIGRATION = await Bun.file(join(import.meta.dir, "../db/migrations/20261119000000-project-quota.sql")).text();
+const MIGRATION = PROJECT_QUOTA_SCHEMA;
 const PID = "paused-resume-abc123";
 
 function freshDb(): Database {

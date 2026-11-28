@@ -8,8 +8,9 @@ import { join } from "node:path";
 import type { ProjectQuotaRow } from "../../shared/usage-shapes";
 import { readProjectQuotaRow } from "./project-pause";
 import { resetPausePointsForTests, runProjectQuotaPauseSweep } from "./project-quota-sweep";
+import { PROJECT_QUOTA_SCHEMA } from "../../tests/helpers/project-quota-schema";
 
-const MIGRATION = await Bun.file(join(import.meta.dir, "../db/migrations/20261119000000-project-quota.sql")).text();
+const MIGRATION = PROJECT_QUOTA_SCHEMA;
 
 function makeDb(): Database {
   const db = new Database(":memory:");

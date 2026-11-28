@@ -15,8 +15,9 @@ import { createUsageRouter } from "../routes/usage";
 import { callWeight, listTranscripts } from "./project-calls";
 import { pointsPerHour, type QuotaHistorySample } from "./person-usage";
 import { projectQuota } from "./project-quota";
+import { PROJECT_QUOTA_SCHEMA } from "../../tests/helpers/project-quota-schema";
 
-const QUOTA_MIGRATION = await Bun.file(new URL("../db/migrations/20261119000000-project-quota.sql", import.meta.url)).text();
+const QUOTA_MIGRATION = PROJECT_QUOTA_SCHEMA;
 
 const scratch = mkdtempSync(join(tmpdir(), "project-quota-test-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));

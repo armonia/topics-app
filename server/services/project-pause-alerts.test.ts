@@ -13,6 +13,7 @@ import {
 import { parseOwnerAlertCommand, pauseAlertText, sendOwnerAlert } from "./project-pause-alerts";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
+import { PROJECT_QUOTA_SCHEMA } from "../../tests/helpers/project-quota-schema";
 
 describe("parseOwnerAlertCommand", () => {
   test("unset or empty: no command", () => {
@@ -67,7 +68,7 @@ describe("pauseAlertText", () => {
 });
 
 describe("the two confirmations (named by the acceptance bar; see project-pause.test.ts for the full unit coverage)", () => {
-  const MIGRATION = Bun.file(join(import.meta.dir, "../db/migrations/20261119000000-project-quota.sql"));
+  const MIGRATION = { text: async () => PROJECT_QUOTA_SCHEMA };
   async function makeDb(): Promise<Database> {
     const db = new Database(":memory:");
     db.exec(await MIGRATION.text());
