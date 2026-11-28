@@ -82,6 +82,10 @@ test("the Readable / Original switch leaves the original text identical", async 
 
   for (const width of [375, 768, 1440, 3440]) {
     await page.setViewportSize({ width, height: 900 });
+    // A layout change can remount the chat and fold the row: open it again when the switch is gone.
+    const rowToggle = page.locator(`[data-testid="tool-call-row-${callId}"] > button`);
+    await rowToggle.waitFor({ state: "visible" });
+    if (!(await page.getByTestId("readable-result").isVisible())) await rowToggle.click();
     await page.getByTestId("readable-result").getByTestId("readable-mode-readable").click();
     await expect(page.getByTestId("readable-card")).toBeVisible();
     await testInfo.attach(`readable-${width}`, { body: await page.screenshot(), contentType: "image/png" });
