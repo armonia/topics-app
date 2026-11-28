@@ -20,7 +20,7 @@ import { CONFIRM_LABEL, confirmKey, _resetOutboundHolds } from "./outbound-gate"
 import { cancelAsk, deliverAnswer } from "./ask-user-bridge";
 import { _resetRoutedAsks } from "../services/board-ask-routing";
 import { _resetTurnBodyFlushers } from "./turn-body-flush";
-import { answerPendingMailFromChat, answerPendingMailFromThread, createMailLedger, messageIdOf, registerPendingMailAnswer, registerPendingMailChatAnswer } from "./outbound-mail-ledger";
+import { answerMailFromChat, answerPendingMailFromThread, createMailLedger, messageIdOf, registerPendingMailAnswer, registerMailChatAnswer } from "./outbound-mail-ledger";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "mail-once-")));
 const LOG = join(root, "starts.log");
@@ -73,7 +73,7 @@ afterEach(() => {
   cancelAsk(SESSION, "end of test");
   _resetRoutedAsks(); _resetOutboundHolds(); _resetTurnBodyFlushers();
   registerPendingMailAnswer(null);
-  registerPendingMailChatAnswer(null);
+  registerMailChatAnswer(null);
   for (const db of opened.splice(0)) db.close();
   if (existsSync(LOG)) unlinkSync(LOG);
 });
@@ -211,24 +211,45 @@ describe("a mail leaves once", () => {
     const key = "mail:call-chat-panel-01";
     const frozen = { dir: "", files: [] };
     server.ledger.registry.hold(key, "mail", {
-      sessionKey: SESSION, account: "first", to: "someone@example.test", subject: "Quote", body: "Hello", frozen, toolCallId: "tool-chat-1",
+      sessionKey: SESSION, account: "first", to: "someone@example.test", subject: "Quote", body: "Hello", frozen, toolCallId: "tool-chat-1", digest: "aaaa1111",
     });
-    expect(server.ledger.pendingByToolCall(SESSION, "tool-chat-1")).toBe(key);
+    const asked = ["Invio una mail.\n\nConfermi? (aaaa1111)"];
     // Another session's panel with the same id is not this message.
-    expect(answerPendingMailFromChat("topic:other", "tool-chat-1", CONFIRM_LABEL)).toBe(false);
-    expect(answerPendingMailFromChat(SESSION, "tool-chat-1", CONFIRM_LABEL)).toBe(true);
+    expect(answerMailFromChat("topic:other", "tool-chat-1", asked, CONFIRM_LABEL)).toBe("none");
+    expect(answerMailFromChat(SESSION, "tool-chat-1", asked, CONFIRM_LABEL)).toBe("answered");
     await until(() => server.ledger.registry.get(key)?.state === "delivered");
-    expect(answerPendingMailFromChat(SESSION, "tool-chat-1", CONFIRM_LABEL)).toBe(false);
+    expect(answerMailFromChat(SESSION, "tool-chat-1", asked, CONFIRM_LABEL)).toBe("settled");
     expect(starts()).toBe(1);
+  });
+
+  test("two messages on one chat row: the click sends the message it names, never the other", async () => {
+    const server = boot();
+    const frozen = { dir: "", files: [] };
+    const base = { sessionKey: SESSION, account: "first", to: "someone@example.test", body: "Hello", frozen, toolCallId: "tool-shared" };
+    server.ledger.registry.hold("mail:call-two-aaaa-01", "mail", { ...base, subject: "Mail A", digest: "aaaa0001" });
+    server.ledger.registry.hold("mail:call-two-bbbb-02", "mail", { ...base, subject: "Mail B", digest: "bbbb0002" });
+    const asksA = ["Oggetto: Mail A\n\nConfermi? (aaaa0001)"];
+    const asksB = ["Oggetto: Mail B\n\nConfermi? (bbbb0002)"];
+    expect(answerMailFromChat(SESSION, "tool-shared", asksA, CONFIRM_LABEL)).toBe("answered");
+    await until(() => server.ledger.registry.get("mail:call-two-aaaa-01")?.state === "delivered");
+    // A is gone and B waits: the panel still showing A touches nothing.
+    expect(answerMailFromChat(SESSION, "tool-shared", asksA, CONFIRM_LABEL)).toBe("settled");
+    expect(server.ledger.registry.get("mail:call-two-bbbb-02")?.state).toBe("pending");
+    expect(starts()).toBe(1);
+    // A question that names neither row sends nothing and says so.
+    expect(answerMailFromChat(SESSION, "tool-shared", ["Confermi? (cccc0003)"], CONFIRM_LABEL)).toBe("mismatch");
+    expect(answerMailFromChat(SESSION, "tool-shared", asksB, CONFIRM_LABEL)).toBe("answered");
+    await until(() => server.ledger.registry.get("mail:call-two-bbbb-02")?.state === "delivered");
+    expect(starts()).toBe(2);
   });
 
   test("a no on the chat panel after a restart closes the row and sends nothing", () => {
     const server = boot();
     const key = "mail:call-chat-panel-02";
     server.ledger.registry.hold(key, "mail", {
-      sessionKey: SESSION, account: "first", to: "someone@example.test", subject: "Quote", body: "Hello", frozen: { dir: "", files: [] }, toolCallId: "tool-chat-2",
+      sessionKey: SESSION, account: "first", to: "someone@example.test", subject: "Quote", body: "Hello", frozen: { dir: "", files: [] }, toolCallId: "tool-chat-2", digest: "dddd0004",
     });
-    expect(answerPendingMailFromChat(SESSION, "tool-chat-2", "Annulla")).toBe(true);
+    expect(answerMailFromChat(SESSION, "tool-chat-2", ["Confermi? (dddd0004)"], "Annulla")).toBe("answered");
     expect(server.ledger.registry.get(key)?.state).toBe("not_delivered");
     expect(starts()).toBe(0);
   });

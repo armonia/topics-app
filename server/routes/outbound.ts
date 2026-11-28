@@ -428,7 +428,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         // THE ROW IS WRITTEN BEFORE ANYBODY IS ASKED, and it holds the message:
         // a restart between now and the answer keeps both the question and what
         // it is about. A key that exists already is this call's own earlier leg.
-        const payload: MailPayload = { sessionKey, account: account.name, to, subject, body: text, ...(cc ? { cc } : {}), frozen };
+        const payload: MailPayload = { sessionKey, account: account.name, to, subject, body: text, ...(cc ? { cc } : {}), frozen, digest };
         if (deliveryKey) {
           const known = ledger.registry.payloadOf<MailPayload>(deliveryKey);
           if (!ledger.registry.hold(deliveryKey, MAIL_DELIVERY_KIND, payload) && known) { payload.askId = known.askId; payload.toolCallId = known.toolCallId; }

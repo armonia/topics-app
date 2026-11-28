@@ -11,7 +11,7 @@ import type { Database } from "bun:sqlite";
 import { CLI_SEARCH_DIRS, resolveCliPath, runCli } from "../lib/outbound-cli";
 import { OutboundConfigError, pickAccount, readMailConfig, type EnvMap, type MailAccount } from "../lib/outbound-config";
 import { CONFIRM_LABEL } from "../lib/outbound-gate";
-import { createMailLedger, messageIdOf, registerPendingMailAnswer, registerPendingMailChatAnswer, type MailLedger, type MailPayload, type MailSentRecord } from "../lib/outbound-mail-ledger";
+import { createMailLedger, messageIdOf, pickChatMailRow, registerPendingMailAnswer, registerMailChatAnswer, type MailLedger, type MailPayload, type MailSentRecord } from "../lib/outbound-mail-ledger";
 import { discardStaging, verifyFrozen } from "../lib/outbound-staging";
 
 /** The subject line is quoted in the card trace; a book is not a subject. */
@@ -264,7 +264,13 @@ export function createMailSend(deps: MailSendDeps) {
     return true;
   };
   registerPendingMailAnswer((askId, answer) => answerPending(ledger.pendingByAsk(askId), answer));
-  registerPendingMailChatAnswer((sessionKey, toolCallId, answer) => answerPending(ledger.pendingByToolCall(sessionKey, toolCallId), answer), (sessionKey, toolCallId) => ledger.settledByToolCall(sessionKey, toolCallId));
+  registerMailChatAnswer((sessionKey, toolCallId, questions, answer) => {
+    const picked = pickChatMailRow(ledger.rowsByToolCall(sessionKey, toolCallId), questions);
+    if (picked === "none" || picked === "mismatch") return picked;
+    // Any state but `pending` was settled already: a late click touches nothing.
+    if (picked.row.state !== "pending") return "settled";
+    return answerPending(picked.row.key, answer) ? "answered" : "none";
+  });
 
   return { ledger, answerKnown, sendConfirmed };
 }
