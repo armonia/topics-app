@@ -97,7 +97,7 @@ export function FieldInspector({ form, test, copy, canEdit, deniedTitle, onChang
   const formula = form.calc;
   const need = (kind: string) => form.ruleKind === kind;
   return (
-    <aside className="flex w-full shrink-0 flex-col border-t border-app-border bg-surface lg:h-full lg:w-[340px] lg:border-l lg:border-t-0">
+    <aside className="flex w-full shrink-0 flex-col border-t border-app-border bg-surface lg:h-full lg:w-85 lg:border-l lg:border-t-0">
       <div className="min-h-0 flex-1 overflow-y-auto">
         <PanelHeading tag={formula ? t.calculatedTag : t.fieldTag} title={form.label}>{formula ? t.calculatedBody : t.fieldBody}</PanelHeading>
         <PanelSection label={t.settings}>

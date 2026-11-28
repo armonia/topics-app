@@ -78,7 +78,7 @@ export function ProtectionList({ items, ariaLabel }: { items: ProtectionModel[];
     <ul aria-label={ariaLabel} className="overflow-hidden rounded-lg border border-app-border">
       {items.map((p) => (
         <li key={p.id} className="flex flex-wrap items-start gap-x-3 gap-y-2 border-b border-app-border px-3 py-2.5 last:border-b-0">
-          <div className="min-w-[200px] flex-1">
+          <div className="min-w-50 flex-1">
             <div className="text-prose font-semibold leading-5 text-app-text">{p.name}</div>
             <div className="text-compact leading-4 text-app-text-secondary">{p.how}</div>
           </div>

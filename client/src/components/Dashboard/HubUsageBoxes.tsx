@@ -18,7 +18,7 @@ import { HOT_AT, modelName, pctText, toneAt, tokensShort, whenText, type Tr } fr
 
 type Money = (usd: number) => string;
 
-const MONEY_COL = 'w-[56px] flex-none text-right text-mini text-app-text-muted';
+const MONEY_COL = 'w-14 flex-none text-right text-mini text-app-text-muted';
 
 export function ByModel({ usage, money, tr }: { usage: HubUsage | null; money: Money; tr: Tr }) {
   const locale = useLocale();
@@ -181,7 +181,7 @@ function SavingCurve({ usage, planUsd, money, tr }: { usage: HubUsage; planUsd: 
   const last = curve[curve.length - 1]!;
   return (
     <div data-testid="hub-usage-saving-curve" className="border-t border-app-border-subtle px-3 pb-2 pt-2">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-[96px] w-full" role="img" aria-label={tr('hubUsage.curve.aria')}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-24 w-full" role="img" aria-label={tr('hubUsage.curve.aria')}>
         <path d={line('list')} fill="none" className={toneAt(0).stroke} strokeWidth={2} vectorEffect="non-scaling-stroke" />
         <path d={line('plan')} fill="none" className="stroke-app-text-muted" strokeWidth={1.5} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
       </svg>

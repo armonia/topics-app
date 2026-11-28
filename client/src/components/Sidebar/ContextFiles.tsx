@@ -98,7 +98,7 @@ function Skills({ skills, tr, locale, isMobile }: { skills: NonNullable<ContextV
         </span>
       </button>
       {open && (
-        <div data-testid="context-skill-list" className="mb-1.5 ml-[21px]">
+        <div data-testid="context-skill-list" className="mb-1.5 ml-5.25">
           <div className="pb-0.5 text-mini text-app-text-muted">{tr('hubContext.skills.heaviest', { n: skills.items.length })}</div>
           {skills.items.map((s) => (
             <div key={s.name} data-testid="context-skill" className="flex items-center gap-2 py-0.5 text-mini">
@@ -106,7 +106,7 @@ function Skills({ skills, tr, locale, isMobile }: { skills: NonNullable<ContextV
               <span className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-app-border">
                 <span className="block h-full rounded-full bg-primary/60" style={{ width: `${Math.max(3, Math.round((s.tokens / max) * 100))}%` }} />
               </span>
-              <span className="w-[48px] flex-none text-right tabular-nums text-app-text-secondary">{tr('hubContext.tok', { n: shortTokens(s.tokens, locale) })}</span>
+              <span className="w-12 flex-none text-right tabular-nums text-app-text-secondary">{tr('hubContext.tok', { n: shortTokens(s.tokens, locale) })}</span>
             </div>
           ))}
         </div>
@@ -154,7 +154,7 @@ function FileRow({ file, tr, locale, isMobile, now, open, onToggle }: FileRowPro
         </span>
       </button>
       {open && (
-        <div data-testid="context-file-text" className="mb-1.5 ml-[21px] rounded border border-app-border bg-app-inset">
+        <div data-testid="context-file-text" className="mb-1.5 ml-5.25 rounded border border-app-border bg-app-inset">
           <div className="flex flex-wrap items-baseline gap-x-2 border-b border-app-border px-2 py-1 text-mini">
             <span data-testid="context-file-path" className="min-w-0 break-all font-mono text-app-text-secondary">{file.path}</span>
             <span className="text-app-text-muted">{tr('hubContext.text.masked')}</span>

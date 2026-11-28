@@ -130,7 +130,7 @@ function ChannelPicker({ tree, noChannel, selected, onChange }: {
       <button ref={btnRef} type="button" aria-haspopup="menu" aria-expanded={open} data-testid="board-channel-filter"
         onClick={() => setOpen((v) => !v)} title={tr('board.filters.channelTitle')}
         className={`${chipBase} ${selected.length ? chipOn : chipOff}`}
-      >{Mark ? <Mark className="h-3 w-3" aria-hidden /> : <Hash className="h-3 w-3" aria-hidden="true" />}<span className="max-w-[10rem] truncate">{summary}</span><ChevronDown className="h-3 w-3 opacity-60" aria-hidden="true" /></button>
+      >{Mark ? <Mark className="h-3 w-3" aria-hidden /> : <Hash className="h-3 w-3" aria-hidden="true" />}<span className="max-w-40 truncate">{summary}</span><ChevronDown className="h-3 w-3 opacity-60" aria-hidden="true" /></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={280} className="max-h-[60vh] overflow-y-auto py-1" testId="board-channel-menu" ariaLabel={tr('board.filters.channel')}>
         <MenuRow on={!selected.length} label={tr('board.filters.channelAny')} onClick={() => onChange([])} depth={0} />
         {rows.length === 0 && <p className="px-3 py-2 text-mini text-app-text-muted">{tr('board.filters.channelEmpty')}</p>}

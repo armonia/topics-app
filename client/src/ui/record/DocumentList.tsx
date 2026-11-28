@@ -76,7 +76,7 @@ export function DocumentList({ record, copy, section = 'documents', onSectionCha
 }) {
   const r = copy.record;
   return (
-    <aside className={clsx('flex flex-col bg-app-inset', fill ? 'min-h-0 flex-1' : 'h-full w-[300px] shrink-0 border-r border-app-border')}>
+    <aside className={clsx('flex flex-col bg-app-inset', fill ? 'min-h-0 flex-1' : 'h-full w-75 shrink-0 border-r border-app-border')}>
       <div className="flex h-12 shrink-0 items-center border-b border-app-border px-4">
         <SegmentedControl
           value={section}

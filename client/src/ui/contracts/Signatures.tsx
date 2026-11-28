@@ -28,7 +28,7 @@ export function ApprovalChain({ steps, ariaLabel, currentActions, compact }: {
         const done = s.stateTone === 'green';
         return (
           <li key={s.id} data-step={s.id} className={clsx('relative flex gap-3', !last && 'pb-3')}>
-            {!last && <span aria-hidden="true" className={clsx('absolute bottom-0 left-[13px] top-8 w-px', done ? 'bg-emerald-500/50' : 'bg-app-border-light')} />}
+            {!last && <span aria-hidden="true" className={clsx('absolute bottom-0 left-3.25 top-8 w-px', done ? 'bg-emerald-500/50' : 'bg-app-border-light')} />}
             <span
               className={clsx(
                 'relative mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-compact font-semibold tabular-nums',

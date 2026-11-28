@@ -142,7 +142,9 @@ export function TextField({
   );
 }
 
-/** A text box of several lines; it grows by hand, never sideways. */
+/** A text box of several lines; it grows by hand, never sideways.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
+ */
 export function TextArea({ label, value, onChange, placeholder, rows = 3, disabled, hint, className }: {
   label?: string;
   value: string;
@@ -198,6 +200,7 @@ const OPTION = 'mx-1 flex min-h-7 w-[calc(100%-8px)] cursor-pointer items-center
  * Enter and Space choose, Escape and a click outside close and give the focus
  * back to the button. Past eight options a search box sits on top and typing
  * filters the list.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
  */
 export function Select({ label, value, options, onChange, disabled, title, size = 'md', className, lang = 'it', placeholder }: {
   label?: string;
@@ -407,6 +410,7 @@ export function Select({ label, value, options, onChange, disabled, title, size 
  * An on/off setting: the words on the left, the switch on the right, the
  * product's track (`components/Shared/Switch.tsx`): a veil when off, so the
  * off state reads in the light theme too, and a ringed knob.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
  */
 export function Toggle({ checked, onChange, label, description, disabled, title }: {
   checked: boolean;
@@ -453,7 +457,9 @@ export function Toggle({ checked, onChange, label, description, disabled, title 
   );
 }
 
-/** A tick box with its words; the native input underneath keeps the semantics. */
+/** A tick box with its words; the native input underneath keeps the semantics.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
+ */
 export function Checkbox({ checked, onChange, label, disabled, title }: {
   checked: boolean;
   onChange: (next: boolean) => void;

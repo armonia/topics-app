@@ -51,8 +51,8 @@ export interface RobotHandlers {
 function SmallScreen({ step }: { step: RobotStepModel }) {
   return (
     <div className="overflow-hidden rounded-md border border-app-border bg-white text-mini text-slate-700">
-      <div className="flex h-[18px] items-center bg-blue-700 px-2 text-mini font-bold tracking-wide text-white"><span className="min-w-0 truncate">{step.page}</span></div>
-      <div className="flex min-h-[64px] flex-col gap-1 p-2">
+      <div className="flex h-4.5 items-center bg-blue-700 px-2 text-mini font-bold tracking-wide text-white"><span className="min-w-0 truncate">{step.page}</span></div>
+      <div className="flex min-h-16 flex-col gap-1 p-2">
         {step.fields.map((f, i) => (
           <div key={`${f.label}-${i}`} className="flex items-center gap-1.5">
             {f.label && <span className="w-14 shrink-0 truncate text-slate-400">{f.label}</span>}
@@ -84,7 +84,7 @@ export function RobotPanel({ copy, view, handlers, editable, deniedTitle }: {
           <span className="flex-1" />
           <Chip tone="green">{c.succeeded(view.runs.ok, view.runs.total)}</Chip>
         </div>
-        <p className="max-w-[760px] text-prose leading-6 text-app-text-secondary">{view.intro}</p>
+        <p className="max-w-190 text-prose leading-6 text-app-text-secondary">{view.intro}</p>
         {view.recordedNote && <p className="text-compact font-medium text-emerald-700 dark:text-emerald-400">{view.recordedNote}</p>}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3">
           {view.steps.map((s) => {
@@ -102,7 +102,7 @@ export function RobotPanel({ copy, view, handlers, editable, deniedTitle }: {
                 )}
               >
                 {s.result ? (
-                  <div className="grid h-[82px] place-items-center rounded-md bg-emerald-500/10 text-compact font-semibold text-emerald-700 dark:text-emerald-300">{s.result}</div>
+                  <div className="grid h-20.5 place-items-center rounded-md bg-emerald-500/10 text-compact font-semibold text-emerald-700 dark:text-emerald-300">{s.result}</div>
                 ) : (
                   <SmallScreen step={s} />
                 )}
@@ -126,7 +126,7 @@ export function RobotPanel({ copy, view, handlers, editable, deniedTitle }: {
           </Card>
         )}
       </div>
-      <SidePanel width={360} className="w-full border-t md:w-[360px] md:border-t-0">
+      <SidePanel width={360} className="w-full border-t md:w-90 md:border-t-0">
         <PanelHeading tag={c.settingsTag} title={view.program}>{null}</PanelHeading>
         <PanelSection label={c.access}>
           <FactRow label={c.user} value={view.user} />

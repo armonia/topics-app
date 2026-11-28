@@ -155,7 +155,7 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
         </div>
       )}
       {devices && (
-        <div className="max-h-[280px] overflow-y-auto py-1">
+        <div className="max-h-70 overflow-y-auto py-1">
           {computer && (
             <SecurityRow entry={healthOf(health, null)} name={tr(computer.current ? 'statusBar.me.thisComputer' : 'statusBar.me.hostComputer')} className={ROW} rowProps={{ 'data-testid': 'device-row', 'data-connected': 'true' }}>
               {(mark) => (
@@ -205,7 +205,7 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
             testId="devices-revoked-level"
             minWidth={240}
           >
-            <div data-testid="devices-revoked" className="max-h-[240px] overflow-y-auto py-1">
+            <div data-testid="devices-revoked" className="max-h-60 overflow-y-auto py-1">
               {revoked.map((d) => (
                 <div key={d.id} data-testid="device-revoked-row" className={`${ROW} text-app-text-muted`}>
                   <Smartphone size={12} className="flex-shrink-0 opacity-50" />

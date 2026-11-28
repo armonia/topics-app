@@ -167,7 +167,7 @@ export function SessionConfigPopover({
             avrebbe spostato tutto ciò che sta a destra nella barra. Con lo slot
             fisso e il testo centrato non si muove un pixel, in nessuno dei tre
             stati. */}
-        <span className="w-[42px] flex items-center justify-center">
+        <span className="w-10.5 flex items-center justify-center">
           <EffortBadge tier={shownTier} overridden={!!effort} className="w-full" />
         </span>
       </button>

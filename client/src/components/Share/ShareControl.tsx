@@ -331,7 +331,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
         unmanagedFocus
         ariaLabel={t(KEY_TITLE[resourceType])}
         testId="share-panel"
-        className={resourceType === 'project' ? 'w-[min(360px,calc(100vw-16px))]' : 'w-[280px]'}
+        className={resourceType === 'project' ? 'w-[min(360px,calc(100vw-16px))]' : 'w-70'}
       >
         <>
           {errore && <p className="mb-2 px-2.5 text-mini text-red-500">{errore}</p>}
