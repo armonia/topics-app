@@ -22,7 +22,7 @@ import type { AttentionReason, AttentionSeenItem, AttentionTask } from '../../..
 import { notificationTargetUrl } from '../../../shared/notification-log';
 import { attentionOf, type AttentionRows } from '../state/attention';
 import { chromeAttentionSubjects } from '../state/attentionTotal';
-import { getProjectLabel } from './projectLabel';
+import { familyLabelForPath } from './boardProjectsStore';
 
 export type InboxKind = 'chat' | 'terminal' | 'card';
 
@@ -75,11 +75,11 @@ function nameOf(kind: InboxKind, id: string, topics: Record<string, Topic>, term
   if (kind === 'chat') {
     const t = topics[id];
     if (!t || t.archived) return null;
-    return { title: t.name || id, project: t.projectPath && !t.standalone ? getProjectLabel(t.projectPath) : null };
+    return { title: t.name || id, project: t.projectPath && !t.standalone ? familyLabelForPath(t.projectPath) : null };
   }
   if (kind === 'terminal') {
     const s = terminals.get(id);
-    return { title: s?.name || id, project: s?.cwd ? getProjectLabel(s.cwd) : null };
+    return { title: s?.name || id, project: s?.cwd ? familyLabelForPath(s.cwd) : null };
   }
   const c = cards.get(id);
   // A card's board is named on the card itself, in its drawer: the row says the card.

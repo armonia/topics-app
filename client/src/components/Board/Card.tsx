@@ -8,6 +8,8 @@ import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useIsMergedHere } from './mergedBoards';
+import { useProjectFamilyLabel } from '../../lib/boardProjectsStore';
+import { ProjectFamilyLabelText } from './ProjectFamilyLabel';
 import { useToast } from '../Shared/Toast';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
@@ -907,7 +909,9 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
   const mergedHere = useIsMergedHere(task.projectId);
   const showProject = showProjectOwn || mergedHere;
   const unassigned = isProjectlessId(task.projectId);
-  const projectLabel = task.projectId.replace(/-[^-]+$/, '');
+  // «Sito Armonia · Nuvola»: a project merged (accorpa) under another says
+  // both whose it is and where the agent actually works, not just the raw id.
+  const projectLabel = useProjectFamilyLabel(task.projectId, !unassigned);
   // A task in review is the APPROVAL surface, never the "steer a working agent"
   // surface — so it's never busy here even if a stale dispatch_state='working'
   // lingers. Without this gate a review task with dispatch_state='working'
@@ -1190,7 +1194,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
             {showProject && !unassigned && (
               <>
                 {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
-                <span className="min-w-0 truncate font-medium">{projectLabel}</span>
+                <ProjectFamilyLabelText label={projectLabel} className="min-w-0 truncate font-medium" />
               </>
             )}
             {/* Il `#` NON sta più qui. Nell'eyebrow leggeva come una proprietà

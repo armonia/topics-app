@@ -9,6 +9,8 @@ import type { Database } from "bun:sqlite";
 import { isAgentWorking, type TaskStatus } from "../../shared/board";
 import { buildProjectNames, loadRegisteredProjects } from "./project-display-name";
 import { unregisteredProjectName } from "../../shared/project-name";
+import { familyLinks, formatProjectFamilyLabel, mergedParentMap, projectFamilyLabel } from "../../shared/project-family";
+import { loadFamilyRows } from "./project-family-rows";
 import { sortProjectGroups } from "../../shared/project-order";
 import { awaitsHuman } from "../../shared/workflow";
 import { isGroupingParent } from "../../shared/grouping-parent";
@@ -168,6 +170,12 @@ export function buildPlan(
   // Board ids are path slugs (`quadra-lh40qh`), not `projects.id`: the index
   // resolves both, or every project shows its slug instead of the name people know.
   const projectNames = buildProjectNames(loadRegisteredProjects(db), opts.knownDirs ?? []);
+  // A project merged (accorpa) under another keeps its own tile here (the Plan
+  // groups strictly by `project_id`, it never folds a child into its parent's
+  // tile), so its tile's name says BOTH whose it is and which one it is:
+  // «Sito Armonia · Nuvola», not just «Nuvola» standing on its own.
+  const projectParent = mergedParentMap(familyLinks(loadFamilyRows(db)));
+  const projectNameOf = (id: string) => projectNames.get(id)?.name ?? unregisteredProjectName(id);
 
   const milestoneOf = new Map(links.map((l) => [l.task_id, l.milestone_id]));
   // A sub-card lives where its mother lives (same board): the plan shows it
@@ -337,7 +345,7 @@ export function buildPlan(
       .map((t) => needOf(t, commentsOf.get(t.id) ?? []))
       .filter((x): x is PlanNeed => !!x);
     return {
-      projectId: pid, name: projectNames.get(pid)?.name ?? unregisteredProjectName(pid), path: projectNames.get(pid)?.path ?? null,
+      projectId: pid, name: formatProjectFamilyLabel(projectFamilyLabel(pid, projectParent, projectNameOf)), path: projectNames.get(pid)?.path ?? null,
       openCount: openCards.filter(isBoardCard).length,
       openSubCount: openCards.filter((c) => !isBoardCard(c)).length,
       progress: progressOf(everything), activity: activityOf(everything), needsYou, areas: projectAreas,

@@ -847,6 +847,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     [boardColumns, showDone, showArchived, byColumn],
   );
   const groupSource = useMemo(() => shownColumns.flatMap((c) => byColumn.get(c.id) ?? []), [shownColumns, byColumn]);
+  // The family label needs the PARENT's name too, and a parent with no task
+  // of its own in this view never shows up in `tasks` — so the id set to
+  // resolve is every known project (the index), not just the visible ones.
   const projectNameById = useMemo(
     () => projectNamesForBoard(tasks.map((t) => t.projectId), projectParent.values(), projectIndex),
     [tasks, projectIndex, projectParent],
@@ -1410,7 +1413,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             <BoardTable
               tasks={groupSource} columns={shownColumns} groups={groups} levels={groupLevels}
               collapsed={collapsedProjects} onToggle={toggleProjectCollapsed}
-              nameById={projectNameById} pathById={projectPathById} labelOf={groupLabel}
+              nameById={projectNameById} pathById={projectPathById} parentOf={projectParent} labelOf={groupLabel}
               draftAbove={draftAbove} showProject={mode === 'all' && !groupLevels.includes('project')}
               personName={personName} onOpen={openTask}
             />
