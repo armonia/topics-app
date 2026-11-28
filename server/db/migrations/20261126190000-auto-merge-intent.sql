@@ -1,4 +1,4 @@
--- 20261126000000-auto-merge-intent.sql
+-- 20261126190000-auto-merge-intent.sql
 --
 -- tasks.auto_merge_intent: a per-card override of the board's
 -- `board_settings.dispatch_auto_merge` switch, chosen BEFORE a land happens

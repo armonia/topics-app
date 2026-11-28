@@ -1978,7 +1978,7 @@ describe("il costo di una lista non cresce con le righe", () => {
    * Rialzato a 1.750 il 18/08, quando `urlProbeStatus` e `urlProbeCheckedAt`
    * (migration 20260818164410) hanno aggiunto ~40 byte per task: misurato 1.716.
    * Raised to 1.800 on 26/11, when `autoMergeIntent` (always present, like
-   * `stayLocal`; migration 20261126000000) added ~23 bytes per task: measured
+   * `stayLocal`; migration 20261126190000) added ~23 bytes per task: measured
    * 1.773.
    * Alzarlo è legittimo SOLO perché il pavimento è cresciuto per una ragione
    * dichiarata — due campi che la card in review usa per decidere se mostrare
