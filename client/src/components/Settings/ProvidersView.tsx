@@ -171,7 +171,7 @@ function CardItem({ card, fact, busy, onOpen, onAction }: {
     <li
       data-testid={`provider-card-${card.name}`}
       data-status={card.status}
-      className="flex items-stretch rounded-md border border-app-border coarse:min-h-[60px]"
+      className="flex items-stretch rounded-md border border-app-border coarse:min-h-15"
     >
       <button
         type="button"

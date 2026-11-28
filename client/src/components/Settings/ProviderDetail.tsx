@@ -101,7 +101,7 @@ function DetailSelect({ label, hint, value, options, autoLabel, disabled, onChan
         disabled={disabled}
         value={value ?? AUTO}
         onChange={(v) => onChange(v === AUTO ? null : v)}
-        className="max-w-full min-w-[140px]"
+        className="max-w-full min-w-35"
         options={[{ value: AUTO, label: autoLabel }, ...options]}
       />
       {hint && <p className="text-mini text-app-text-secondary break-words">{hint}</p>}

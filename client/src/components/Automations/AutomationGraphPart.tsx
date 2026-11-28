@@ -92,15 +92,15 @@ function Node({ n, clock }: { n: GraphNode; clock: Clock }) {
   const more = !!(n.asked || n.answered || n.error || n.command) || n.kind === 'model';
   return (
     <li className="relative border-l-2 border-app-border-subtle pb-2 pl-3 last:pb-0" data-testid="automation-graph-node" data-kind={n.kind}>
-      <span className={`absolute -left-[5px] top-1 h-2 w-2 rounded-full ${n.outcome === 'error' ? 'bg-red-500 dark:bg-red-400' : n.outcome === 'ok' ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-app-border'}`} aria-hidden="true" />
+      <span className={`absolute -left-1.25 top-1 h-2 w-2 rounded-full ${n.outcome === 'error' ? 'bg-red-500 dark:bg-red-400' : n.outcome === 'ok' ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-app-border'}`} aria-hidden="true" />
       <div className="flex items-baseline gap-2">
-        <span className="w-[62px] flex-none text-mini font-semibold uppercase tracking-[0.04em] text-app-text-tertiary">{tr(`auto.graph.kind.${n.kind}`)}</span>
+        <span className="w-15.5 flex-none text-mini font-semibold uppercase tracking-[0.04em] text-app-text-tertiary">{tr(`auto.graph.kind.${n.kind}`)}</span>
         <span className="min-w-0 text-app-text">{headOf(n, tr)}</span>
         {n.kind === 'deliver' && <Outcome outcome={n.outcome} />}
         {n.kind === 'deliver' && n.at !== null && <span className="flex-none tabular-nums text-app-text-muted">{clock.time(n.at)}</span>}
         {n.kind === 'step' && <Outcome outcome={n.outcome} inferred={n.inferred} ms={n.ms} />}
       </div>
-      <div className="ml-[70px] flex flex-col gap-1">
+      <div className="ml-17.5 flex flex-col gap-1">
         {n.params.length > 0 && (
           <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-2 text-app-text-secondary">
             {n.params.flatMap((p, i) => [

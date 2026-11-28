@@ -85,7 +85,7 @@ export function CadViewScreen({
     </>
   );
   const drawing = (
-    <section className={clsx('relative min-w-0 overflow-hidden bg-[#1b1d21]', phone ? 'h-[420px] shrink-0' : 'flex-1')}>
+    <section className={clsx('relative min-w-0 overflow-hidden bg-[#1b1d21]', phone ? 'h-105 shrink-0' : 'flex-1')}>
       <CadSheet sheet={sheet} hidden={hiddenLayers} tool={tool} measures={measures} pending={pending} notes={notes} onPoint={onPoint} label={c.drawingLabel} />
       <div className="absolute left-3 top-3 flex max-w-[calc(100%-24px)] flex-wrap gap-1.5">
         <span className="relative">
@@ -94,7 +94,7 @@ export function CadViewScreen({
             {c.layers(sheet.layers.length - hiddenLayers.length, sheet.layers.length)}
           </button>
           {layersOpen && (
-            <Popover ariaLabel={c.layersTitle} onClose={() => setLayersOpen(false)} className="w-[230px] p-2">
+            <Popover ariaLabel={c.layersTitle} onClose={() => setLayersOpen(false)} className="w-57.5 p-2">
               <div className="mb-1 px-1 text-mini font-semibold uppercase tracking-[0.08em] text-app-text-tertiary">{c.layersTitle}</div>
               {sheet.layers.map((l) => (
                 <div key={l.id} className="flex items-center gap-2 px-1">

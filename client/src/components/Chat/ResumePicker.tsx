@@ -166,7 +166,7 @@ export function ResumePicker({ topicId, filter, inputRef, isMobile, onClose, onA
       maxHeightClass={isMobile ? 'max-h-[50vh]' : 'max-h-80'}
       testId="resume-picker"
       renderItem={(row, idx, { selected: on }) => {
-        const base = `w-full px-3 ${isMobile ? 'min-h-[44px]' : ''} py-1.5 text-left flex items-center gap-2.5 transition-colors ${on ? 'bg-primary/10' : 'hover:bg-app-hover'}`;
+        const base = `w-full px-3 ${isMobile ? 'min-h-11' : ''} py-1.5 text-left flex items-center gap-2.5 transition-colors ${on ? 'bg-primary/10' : 'hover:bg-app-hover'}`;
         if (row.kind === 'more') {
           return (
             <button ref={moreRef} type="button" role="option" aria-selected={on} data-testid="resume-load-more" className={base}

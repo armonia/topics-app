@@ -101,9 +101,9 @@ describe("the automatic land merges the measured SHA, not the branch name", () =
     const { repo, agent, tip } = repoWithAgentWorktree();
     const before = git(repo, "rev-parse", "main").trim();
     let injected = false;
-    // The status call comes after the pin check and before the merge step.
+    // The staged-files check comes after the pin check and before the merge step.
     const runGit: typeof defaultRunGit = async (cwd, args) => {
-      if (!injected && args.includes("--untracked-files=no")) {
+      if (!injected && args.includes("--cached")) {
         injected = true;
         commit(agent, "scripts/check-security.ts", "process.exit(0)\n", "card: more");
       }

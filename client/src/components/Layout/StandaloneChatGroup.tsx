@@ -1305,7 +1305,7 @@ function MobileFindButton({ paneId }: { paneId: string | null | undefined }) {
       aria-label={tr('find.label')}
       title={tr('find.label')}
       onClick={() => { openFind(paneId); }}
-      className={`ml-auto mr-[6px] ${ROW_ACTION_BOX} tap-expand-y flex-shrink-0 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors app-no-drag`}
+      className={`ml-auto mr-1.5 ${ROW_ACTION_BOX} tap-expand-y flex-shrink-0 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors app-no-drag`}
     >
       <Search size={16} aria-hidden />
     </button>

@@ -107,7 +107,7 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     // entrambi gli esiti» e «l'interazione e' verificata dal fatto che il click
     // non da' errore». Non era vero: un click che non fa NULLA non da' errore, e
     // il test sarebbe rimasto verde comunque.
-    const dropdownItems = page.locator('[class*="max-h-[300px]"] button');
+    const dropdownItems = page.locator('[class*="max-h-75"] button');
     await expect
       .poll(async () => (await dropdownItems.allInnerTexts()).join(" "), {
         timeout: 10_000,
@@ -167,7 +167,7 @@ test.describe("File Explorer — breadcrumb e processi", () => {
 
     // DropdownPortal renders at page level. Il segnale che l'API ha risposto è
     // la prima voce a schermo, non 500ms di attesa al buio.
-    const dropdownItems = page.locator('[class*="max-h-[300px]"] button');
+    const dropdownItems = page.locator('[class*="max-h-75"] button');
     await expect
       .poll(async () => (await dropdownItems.allInnerTexts()).join(" "), { timeout: 10_000 })
       .toContain("index.ts");
@@ -202,7 +202,7 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     // Prima si contavano le voci e si pretendeva `>= 3`, e il conteggio del primo
     // dropdown veniva catturato in una variabile mai confrontata con niente — era
     // l'unico pezzo che avrebbe legato il controllo al nome del test.
-    const rootDropdownItems = page.locator('[class*="max-h-[300px]"] button');
+    const rootDropdownItems = page.locator('[class*="max-h-75"] button');
     await expect
       .poll(async () => (await rootDropdownItems.allInnerTexts()).join(" "), { timeout: 10_000 })
       .toContain("package.json");

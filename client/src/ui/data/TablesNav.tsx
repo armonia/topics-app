@@ -88,7 +88,7 @@ export function TablesNav({ tables, selectedTableId, onSelectTable, views, selec
     );
   }
   return (
-    <nav aria-label={t.tables} className="h-full w-[200px] shrink-0 overflow-y-auto border-r border-app-border px-2.5 py-3">
+    <nav aria-label={t.tables} className="h-full w-50 shrink-0 overflow-y-auto border-r border-app-border px-2.5 py-3">
       <SectionLabel className="mb-2 px-1">{t.tables}</SectionLabel>
       <ul className="space-y-1">
         {tables.map((x) => <Entry key={x.id} item={x} icon={Database} selected={x.id === selectedTableId && !selectedViewId} onSelect={onSelectTable} />)}

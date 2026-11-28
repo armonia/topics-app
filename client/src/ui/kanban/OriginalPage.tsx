@@ -112,14 +112,14 @@ export function OriginalPage({ back, crumbs, original, marks, active, onMark, va
         {phone && <div className="border-b border-app-border px-4 py-3">{aside}</div>}
         {/* The desk tint only where it fills the pane: on a phone the page grows with the sheet and a tinted band would stop short of the bottom. */}
         <div className={clsx('min-w-0 flex-1', phone ? 'px-3 py-4' : 'overflow-y-auto bg-app-inset px-8 py-8')}>
-          <div className="mx-auto mb-3 flex max-w-[720px] min-w-0 items-center gap-2 text-compact text-app-text-secondary">
+          <div className="mx-auto mb-3 flex max-w-180 min-w-0 items-center gap-2 text-compact text-app-text-secondary">
             <Icon size={14} className="shrink-0 text-app-text-tertiary" aria-hidden="true" />
             <span className="font-medium text-app-text">{original.kindLabel}</span>
             <span className="min-w-0 truncate">· {original.from}</span>
           </div>
           <OriginalSheet original={original} marks={marks} active={active} onMark={onMark} size="page" photoLabel={o.photo} />
         </div>
-        {!phone && <aside className="w-[320px] shrink-0 overflow-y-auto border-l border-app-border px-4 py-5">{aside}</aside>}
+        {!phone && <aside className="w-80 shrink-0 overflow-y-auto border-l border-app-border px-4 py-5">{aside}</aside>}
       </div>
     </div>
   );

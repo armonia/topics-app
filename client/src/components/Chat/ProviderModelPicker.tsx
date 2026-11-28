@@ -216,7 +216,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, pinnedMode
             </span>
           </span>
         )}
-        <span data-testid="provider-model-picker-label" className="max-w-[220px] truncate @max-[380px]:max-w-[110px]">
+        <span data-testid="provider-model-picker-label" className="max-w-55 truncate @max-[380px]:max-w-27.5">
           {chipText}
         </span>
         {loadState === 'loading' ? (

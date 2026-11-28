@@ -997,7 +997,7 @@ function PaletteRow({ item, idx, selected, onHover, compact, highlightTerm }: Pa
       }`}
     >
       <span
-        className={`w-[14px] h-[14px] flex items-center justify-center flex-shrink-0 ${
+        className={`w-3.5 h-3.5 flex items-center justify-center flex-shrink-0 ${
           selected ? 'text-primary dark:text-primary-dark' : 'text-app-text-muted'
         }`}
         aria-hidden={!item.icon}
