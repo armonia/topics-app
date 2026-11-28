@@ -21,6 +21,11 @@ const BASE = {
   checksCommit: null, humanAsk: null, landIntent: null,
 } as unknown as Task;
 
+function memoryStore() {
+  const records = new Map<string, { commit: string; at: number; tries: number }>();
+  return { get: (id: string) => records.get(id), set: (id: string, rec: { commit: string; at: number; tries: number }) => { records.set(id, rec); } };
+}
+
 function sweep(over: { nodeMeasures?: string[]; maxConcurrent?: number; runChecksGate?: Parameters<typeof createReviewSweep>[0]["runChecksGate"] } = {}) {
   const nodeMeasures = over.nodeMeasures ?? [];
   const { unmeasuredInReview, remeasureInReview, hasFreeSlot, isMeasuring } = createReviewSweep({
@@ -34,6 +39,7 @@ function sweep(over: { nodeMeasures?: string[]; maxConcurrent?: number; runCheck
     afterDelivery: async () => undefined,
     bounceWithReason: () => true,
     maxConcurrent: over.maxConcurrent,
+    remeasureStore: memoryStore(),
   });
   return { unmeasuredInReview, remeasureInReview, hasFreeSlot, isMeasuring, nodeMeasures };
 }
@@ -159,6 +165,7 @@ describe("a node measure in flight does not block a local card from the real swe
       afterDelivery: async () => undefined,
       bounceWithReason: () => true,
       maxConcurrent: 1,
+      remeasureStore: memoryStore(),
     });
     const node = reviewSweep.remeasureInReview({ ...BASE, id: "card-node", checksState: null });
     // Give the node branch time to release its local slot before the node meter itself resolves.

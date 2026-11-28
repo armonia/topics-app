@@ -23,8 +23,8 @@ export interface ReviewSweepDeps {
   reviewPrMergeable?: NonNullable<TasksCore["opts"]>["reviewPrMergeable"];
   /** How many remeasures may run at once: the same cap the checks gate itself holds (default 1). */
   maxConcurrent?: number;
-  /** Where the measure count lives, so it outlives a restart; defaults to memory. */
-  remeasureStore?: RemeasureStore;
+  /** Where the measure count lives, so it outlives a restart. Required: a silent in-memory fallback would lose it. */
+  remeasureStore: RemeasureStore;
 }
 
 export interface RemeasureRecord { commit: string; at: number; tries: number }
@@ -116,11 +116,7 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
    */
   const REVIEW_REMEASURE_PAUSE_MS = 30 * 60_000;
   const REVIEW_REMEASURE_TRIES = 3;
-  const memory = new Map<string, RemeasureRecord>();
-  const reviewRemeasures: RemeasureStore = deps.remeasureStore ?? {
-    get: (id) => memory.get(id),
-    set: (id, rec) => { memory.set(id, rec); },
-  };
+  const reviewRemeasures: RemeasureStore = deps.remeasureStore;
   const conflictProbedAt = new Map<string, number>();
   // One slot per concurrent remeasure, up to `maxConcurrent`: a run that lasts
   // as long as its CI must not hold every other card still, which is the
