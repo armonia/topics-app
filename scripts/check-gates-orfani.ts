@@ -66,6 +66,15 @@ export const REASONS: Record<string, string> = {
     "logica di giudizio (`server/lib/disk-budget.ts`, ratio G5 + cap per cartella) e' pura ed " +
     "e' lei a girare nella suite; questo script e' la sua meta' impura, pensata per un job " +
     "notturno (`scripts/launchd/com.armonia.topics-disk-budget-check.plist.in`), non per la CI.",
+  "check:renderer-growth":
+    "misura `phys_footprint` del WebContent dell'APP VIVA per venti minuti: vuole macOS, " +
+    "l'app desktop aperta e una finestra che nessuno tocca, e su un runner di CI non esiste " +
+    "nessuna delle tre (esce 2, «niente da misurare»). La logica di giudizio " +
+    "(`scripts/footprint-growth.ts`, pendenza sulla seconda meta' della serie contro un " +
+    "limite in MB/min) e' pura ed e' lei a girare nella suite con " +
+    "`scripts/footprint-growth.test.ts`; questo script e' la sua meta' impura. In CI la " +
+    "domanda la fa `tests/e2e/renderer-heap-growth.spec.ts`, che pesa in byte un giro di " +
+    "churn contro il successivo.",
   "check:scroll-fluidity":
     "dipende dalla CADENZA dello schermo e in CI non puo' decidere: misura i frame persi " +
     "scorrendo una chat, la baseline `scripts/scroll-fluidity-baseline.json` e' registrata a 120 Hz (8,3 ms) " +
