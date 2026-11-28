@@ -116,4 +116,15 @@ describe("the seen door", () => {
     await Bun.sleep(60);
     expect(getAttention("topic:g")).toMatchObject({ state: "finished", outcome: "done", epoch: 1, lit: true });
   });
+
+  it("a scheduled job's failure row goes out through the door (R24)", async () => {
+    finishTurn("job:j-1", "alert-1");
+    const router = createAttentionRouter({ json: (b: unknown, status = 200) => new Response(JSON.stringify(b), { status }), readJSON: async (r: Request) => r.json() } as never);
+    const before = getAttention("job:j-1");
+    expect(before.lit).toBe(true);
+    const url = new URL("http://topics.test/api/attention/seen");
+    const resp = await router(new Request(url, { method: "POST", body: JSON.stringify({ items: [{ subject: "job:j-1", epoch: before.epoch, turnAt: before.lastTurnAt }] }) }), url, "/api/attention/seen", "POST");
+    expect(resp?.status).toBe(200);
+    expect(getAttention("job:j-1").lit).toBe(false);
+  });
 });
