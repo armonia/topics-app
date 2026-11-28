@@ -11,7 +11,7 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { createReviewSweep, orderForSweep, sortForSweep } from "./tasks-review-sweep";
+import { createReviewSweep, orderForSweep, sortForSweep, sqliteRemeasureStore } from "./tasks-review-sweep";
 import { createTaskService, type TaskService } from "../services/tasks";
 import { freshDb } from "./tasks-test-support";
 import type { Task } from "../services/tasks";
@@ -250,5 +250,18 @@ describe("remeasure count survives a restart", () => {
     } finally { console.warn = original; }
     expect(logs.some((l) => l.includes("(1/3)"))).toBe(true);
     expect(logs.some((l) => l.includes("(2/3)"))).toBe(true);
+  });
+});
+
+describe("sqliteRemeasureStore", () => {
+  test("set, then get, and a card with no record reads as undefined", () => {
+    const db = freshDb();
+    db.run("INSERT INTO tasks (id, project_id, text, created_at, updated_at) VALUES ('a', 'p', 't', 'x', 'x')");
+    db.run("INSERT INTO tasks (id, project_id, text, created_at, updated_at) VALUES ('b', 'p', 't', 'x', 'x')");
+    const store = sqliteRemeasureStore(db);
+    expect(store.get("a")).toBeUndefined();
+    store.set("a", { commit: "abc1234", tries: 2, at: 99 });
+    expect(store.get("a")).toEqual({ commit: "abc1234", tries: 2, at: 99 });
+    expect(store.get("b")).toBeUndefined();
   });
 });

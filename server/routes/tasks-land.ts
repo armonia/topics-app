@@ -19,7 +19,7 @@ import { createCiPhase } from "./tasks-ci-phase";
 import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
-import { createReviewSweep, orderForSweep } from "./tasks-review-sweep";
+import { createReviewSweep, orderForSweep, sqliteRemeasureStore } from "./tasks-review-sweep";
 import { checksLanes } from "./tasks-checks-delivery";
 import { createNothingToLand } from "./tasks-land-nothing";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -276,13 +276,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     // Same cap the checks gate itself holds: a second serialization on top of
     // it meant a long-running measure held every other review card still.
     maxConcurrent: checksLanes(),
-    remeasureStore: {
-      get: (id) => {
-        const r = db.query("SELECT remeasure_commit AS commit, remeasure_tries AS tries, remeasure_at AS at FROM tasks WHERE id = ?").get(id) as { commit: string | null; tries: number; at: number } | null;
-        return r?.commit ? { commit: r.commit, tries: r.tries, at: r.at } : undefined;
-      },
-      set: (id, rec) => { db.run("UPDATE tasks SET remeasure_commit = ?, remeasure_tries = ?, remeasure_at = ? WHERE id = ?", [rec.commit, rec.tries, rec.at, id]); },
-    },
+    remeasureStore: sqliteRemeasureStore(db),
   });
   const { unmeasuredInReview, remeasureInReview, probeConflict } = reviewSweep;
 

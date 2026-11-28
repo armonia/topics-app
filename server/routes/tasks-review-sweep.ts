@@ -4,6 +4,7 @@
  * no longer merges into main. Called once per card by `sweepAutoLand` in
  * `tasks-land.ts`.
  */
+import type { Database } from "bun:sqlite";
 import type { Task } from "../services/tasks";
 import type { createCiPhase } from "./tasks-ci-phase";
 import type { TasksCore, TasksLate } from "./tasks-scope";
@@ -30,6 +31,21 @@ export interface RemeasureRecord { commit: string; at: number; tries: number }
 export interface RemeasureStore {
   get(taskId: string): RemeasureRecord | undefined;
   set(taskId: string, rec: RemeasureRecord): void;
+}
+
+/** The store backed by the `remeasure_*` columns of `tasks`. */
+export function sqliteRemeasureStore(db: Database): RemeasureStore {
+  return {
+    get: (id) => {
+      // `commit` is a reserved word in SQLite, so the alias must be something else.
+      const r = db.query("SELECT remeasure_commit AS lastCommit, remeasure_tries AS tries, remeasure_at AS at FROM tasks WHERE id = ?")
+        .get(id) as { lastCommit: string | null; tries: number; at: number } | null;
+      return r?.lastCommit ? { commit: r.lastCommit, tries: r.tries, at: r.at } : undefined;
+    },
+    set: (id, rec) => {
+      db.run("UPDATE tasks SET remeasure_commit = ?, remeasure_tries = ?, remeasure_at = ? WHERE id = ?", [rec.commit, rec.tries, rec.at, id]);
+    },
+  };
 }
 
 /** No verdict about the commit this card delivers: never measured on it, or measured with no outcome. */
@@ -140,8 +156,8 @@ export function createReviewSweep(deps: ReviewSweepDeps) {
         if (!out || !("pending" in out)) break;
       }
       // No worktree of its own (a planted branch, a reaped worktree): the
-      // throwaway checkout of the node lane, which serialises on its own
-      // (`queueTail`) and can wait far longer than any local leg. Free this
+      // throwaway checkout of the node lane, which measures up to
+      // a few at once (see `node-delivery-meter.ts`) and can wait far longer than any local leg. Free this
       // slot BEFORE that wait, or a node delivery stuck behind another one
       // held a local slot for up to ~80 minutes with nothing running in it
       // (reviewer feedback 27/11).
