@@ -18,7 +18,7 @@ function StepRow({ step, nowLabel }: { step: AgentStepModel; nowLabel: string })
   return (
     <li className="flex min-h-7 items-center gap-2 text-prose leading-5">
       {step.state === 'done' && <Check size={14} className="shrink-0 text-app-text" aria-hidden="true" />}
-      {step.state === 'current' && <span className="mx-[3px] h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-fuchsia-600" aria-hidden="true" />}
+      {step.state === 'current' && <span className="mx-0.75 h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-fuchsia-600" aria-hidden="true" />}
       {step.state === 'todo' && <Circle size={14} className="shrink-0 text-app-text-faint" aria-hidden="true" />}
       <span className={clsx('min-w-0', step.state === 'current' ? TONE_TEXT.pink : step.state === 'todo' ? 'text-app-text-tertiary' : 'text-app-text')}>{step.label}</span>
       <span className={clsx('ml-auto shrink-0 tabular-nums text-compact', step.state === 'current' ? TONE_TEXT.pink : 'text-app-text-tertiary')}>
@@ -33,9 +33,9 @@ function Thumb({ frame, pressed, onPress, labelText }: { frame: FrameModel; pres
   const body = (
     <>
       {frame.future ? (
-        <span className="flex h-[74px] items-center justify-center rounded-md border border-dashed border-app-border-light px-2 text-center text-mini text-app-text-tertiary">{labelText}</span>
+        <span className="flex h-18.5 items-center justify-center rounded-md border border-dashed border-app-border-light px-2 text-center text-mini text-app-text-tertiary">{labelText}</span>
       ) : (
-        <span className="block h-[74px] overflow-hidden rounded-md border border-app-border bg-white" aria-hidden="true">
+        <span className="block h-18.5 overflow-hidden rounded-md border border-app-border bg-white" aria-hidden="true">
           <span className="block h-3.5 bg-teal-700" />
           <span className="block space-y-1.5 px-2 pt-2">
             {Array.from({ length: frame.fields }, (_, i) => <span key={i} className="block h-2.5 rounded-sm border border-neutral-300 bg-neutral-50" />)}
@@ -45,7 +45,7 @@ function Thumb({ frame, pressed, onPress, labelText }: { frame: FrameModel; pres
       {!frame.future && <span className="mt-1.5 block truncate text-compact text-app-text-secondary">{labelText}</span>}
     </>
   );
-  const cls = 'w-[148px] shrink-0 rounded-lg border border-app-border bg-surface p-1.5 text-left';
+  const cls = 'w-37 shrink-0 rounded-lg border border-app-border bg-surface p-1.5 text-left';
   if (frame.future || onPress === undefined) return <div className={clsx(cls, frame.future && 'border-transparent bg-transparent p-0')}>{body}</div>;
   return (
     <button type="button" aria-pressed={pressed} onClick={onPress || undefined} className={clsx(cls, 'transition-colors hover:bg-app-hover', FOCUS_RING, pressed && 'border-primary')}>

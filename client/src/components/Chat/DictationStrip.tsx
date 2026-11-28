@@ -124,11 +124,11 @@ function LevelMeter({ level }: { level: () => number }) {
     return () => cancelAnimationFrame(frame);
   }, [level]);
   return (
-    <span data-testid="dictation-level" data-lit={lit} className="flex items-end gap-[2px] h-3 flex-shrink-0" aria-hidden="true">
+    <span data-testid="dictation-level" data-lit={lit} className="flex items-end gap-0.5 h-3 flex-shrink-0" aria-hidden="true">
       {Array.from({ length: BARS }, (_, i) => (
         <span
           key={i}
-          className={`w-[3px] rounded-sm ${i < lit ? 'bg-green-500' : 'bg-app-border'}`}
+          className={`w-0.75 rounded-sm ${i < lit ? 'bg-green-500' : 'bg-app-border'}`}
           style={{ height: `${4 + (i % 4) * 2 + (i >= 8 ? 2 : 0)}px` }}
         />
       ))}

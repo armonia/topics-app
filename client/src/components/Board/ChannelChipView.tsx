@@ -44,7 +44,7 @@ export function ChannelChipView({ chip, notify, open = openTabInApp, full = fals
         <Mark className="h-3 w-3 shrink-0" aria-hidden />
         {head.map((seg, i) => {
           const last = i === head.length - 1;
-          const shrink = full ? '' : seg.level === 'server' ? 'shrink-0 whitespace-nowrap' : last ? 'min-w-0 shrink truncate' : 'min-w-[3rem] shrink truncate';
+          const shrink = full ? '' : seg.level === 'server' ? 'shrink-0 whitespace-nowrap' : last ? 'min-w-0 shrink truncate' : 'min-w-12 shrink truncate';
           return (
             <Fragment key={i}>
               {i > 0 && <ChevronRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden />}

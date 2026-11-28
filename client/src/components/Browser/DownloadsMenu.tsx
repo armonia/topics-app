@@ -153,7 +153,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
         {label && <span className="text-app-text-faint tabular-nums text-mini">{items.length}</span>}
         {activeCount > 0 && (
           <span
-            className="absolute -top-0.5 -right-0.5 min-w-[13px] h-[13px] px-[3px] rounded-full bg-primary text-white text-mini leading-[13px] text-center tabular-nums"
+            className="absolute -top-0.5 -right-0.5 min-w-3.25 h-3.25 px-0.75 rounded-full bg-primary text-white text-mini leading-[13px] text-center tabular-nums"
             data-testid="browser-downloads-badge"
           >
             {activeCount}
@@ -166,7 +166,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
         onClose={() => setWanted(false)}
         align="right"
         minWidth={280}
-        className="max-w-[380px]"
+        className="max-w-95"
         testId="browser-downloads-menu"
         ariaLabel="Download"
         owner={popoverOwner}
@@ -185,7 +185,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
           </button>
         </div>
         <div className={POPOVER_DIVIDER} />
-        <div className="max-h-[320px] overflow-y-auto" data-testid="browser-downloads-list">
+        <div className="max-h-80 overflow-y-auto" data-testid="browser-downloads-list">
           {items.map((d) => {
             const done = d.state === 'completed';
             const failed = d.state === 'interrupted' || d.state === 'cancelled';
@@ -255,7 +255,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
                       affatto, invece di disegnarne una che si muove a caso. */}
                   {!failed && !done && d.percent !== undefined && (
                     <div
-                      className="mt-1 h-[2px] rounded-full bg-app-border overflow-hidden"
+                      className="mt-1 h-0.5 rounded-full bg-app-border overflow-hidden"
                       role="progressbar"
                       aria-valuenow={d.percent}
                       aria-valuemin={0}

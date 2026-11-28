@@ -21,7 +21,7 @@ import type { verdictOf } from '../../lib/automations';
 import type { AutomationsData } from './useAutomationsData';
 import { providerName, tokenWords, type Clock } from './automationsUi';
 
-const PILL = 'inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-sm border border-app-border-subtle bg-app-inset px-2 text-mini tabular-nums text-app-text-secondary';
+const PILL = 'inline-flex h-5.5 items-center gap-1.5 whitespace-nowrap rounded-sm border border-app-border-subtle bg-app-inset px-2 text-mini tabular-nums text-app-text-secondary';
 
 export function Verdict({ data, verdict, clock }: { data: AutomationsData; verdict: ReturnType<typeof verdictOf>; clock: Clock }) {
   const tr = useT();

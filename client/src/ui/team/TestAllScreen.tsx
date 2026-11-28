@@ -30,7 +30,7 @@ export function TestAllScreen({ model, copy, onFilter, onRunAll, phone }: {
         <Button variant="primary" icon={Play} onClick={onRunAll}>{t.runAll}</Button>
       </PaneHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-4 px-3 py-4 md:px-5">
+        <div className="mx-auto flex w-full max-w-275 flex-col gap-4 px-3 py-4 md:px-5">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {model.kpis.map((k) => (
               <StatCard key={k.id} label={k.label} value={k.value} detail={k.detail} tone={k.tone} />

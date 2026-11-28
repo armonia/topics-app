@@ -100,7 +100,7 @@ export function ChecksCard({ rows, copy, dimension, dimensionOptions, onDimensio
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-2">
-        <div className="min-w-[220px]"><Select title={t.dimensionFilter} value={dimension} options={dimensionOptions} onChange={onDimension} /></div>
+        <div className="min-w-55"><Select title={t.dimensionFilter} value={dimension} options={dimensionOptions} onChange={onDimension} /></div>
       </div>
       <Table
         ariaLabel={t.checksTitle}
@@ -144,7 +144,7 @@ export function QualitySide({ copy, counts, lastRun, phone }: {
 }) {
   const t = copy.dataMore.quality;
   return (
-    <aside className={clsx('flex shrink-0 flex-col border-app-border bg-surface', phone ? 'w-full border-t' : 'h-full w-[320px] border-l')}>
+    <aside className={clsx('flex shrink-0 flex-col border-app-border bg-surface', phone ? 'w-full border-t' : 'h-full w-80 border-l')}>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <PanelHeading tag={t.goldenTag} title={t.goldenTitle}>{t.goldenBody}</PanelHeading>
         <PanelSection label={t.autoTitle}><p className="text-prose leading-6 text-app-text-secondary">{t.autoBody}</p></PanelSection>

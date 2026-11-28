@@ -74,12 +74,14 @@ export function Button({ variant = 'secondary', size = 'md', icon: Icon, trailin
   return (
     <span className="inline-flex shrink-0 flex-col items-start gap-0.5">
       {button}
-      <span className="hidden max-w-[16rem] whitespace-normal text-mini leading-4 text-app-text-tertiary coarse:block">{title}</span>
+      <span className="hidden max-w-64 whitespace-normal text-mini leading-4 text-app-text-tertiary coarse:block">{title}</span>
     </span>
   );
 }
 
-/** A round 28px chrome control (search, new, notifications), `raised-control` like the product's. */
+/** A round 28px chrome control (search, new, notifications), `raised-control` like the product's.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
+ */
 export function IconButton({ icon: Icon, label, onClick, pressed, children, className }: {
   icon: LucideIcon;
   label: string;
