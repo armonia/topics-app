@@ -50,7 +50,7 @@ import { createPrimaryRole } from "../server/lib/primary-role";
 import { bootPrimaryChange, gatedRefusal, setPrimaryFence } from "../server/lib/primary-fence";
 import { localReceiver } from "../server/lib/primary-switch-test-support";
 import {
-  applyPendingPrimaryChange, collectTranscripts, commitIncoming, countRows, DB_NAME, MOVED_CODE,
+  collectTranscripts, countRows, DB_NAME, MOVED_CODE,
   snapshotDatabase, writeIncomingChunk,
 } from "../server/lib/primary-switch";
 import { cliTranscriptSummary, findCliTranscript } from "../server/lib/subagent-migration";

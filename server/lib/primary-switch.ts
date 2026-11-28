@@ -519,8 +519,24 @@ function lsofHolders(path: string): number[] {
 export function replicaWatching(dbPath: string, holdersOf: (path: string) => number[] = lsofHolders): string | null {
   const sidecar = join(dirname(dbPath), `.${basename(dbPath)}-litestream`);
   if (existsSync(sidecar)) return `a Litestream folder (${basename(sidecar)}) sits next to the DB`;
+  return heldBy(dbPath, holdersOf);
+}
+
+/**
+ * Why another process holds the live DB open, or null. Asked again after the
+ * replica stop and right before the rename: a stop that only kills a Litestream
+ * under a supervisor that restarts it (launchd KeepAlive, systemd Restart=)
+ * exits 0 while a new one already holds the file. The Litestream folder is not
+ * asked here, a stopped replica leaves it in place.
+ */
+function heldBy(dbPath: string, holdersOf: (path: string) => number[] = lsofHolders): string | null {
   const pids = holdersOf(dbPath).filter((pid) => pid !== process.pid);
   return pids.length > 0 ? `process ${pids.join(", ")} holds the DB open` : null;
+}
+
+function refuseIfHeld(dbPath: string, holdersOf: ((path: string) => number[]) | undefined, when: string): void {
+  const held = heldBy(dbPath, holdersOf);
+  if (held) throw new Error(`${held} ${when}: a supervisor may have started the replica again (stop it through the service manager, not with a kill), so the DB is not replaced under it`);
 }
 
 /** Writes and removes a probe file in `dir`: the error message when this server cannot write there, else null. */
@@ -789,6 +805,8 @@ function restoreBundle(inputs: PendingChangeInputs, manifest: SwitchManifest, lo
   const roots = restoreRoots(inputs);
   const aside = `${inputs.dbPath}.prima-${epoch}`;
   try {
+    // Nothing has moved yet: a replica already back on the DB stops the restore here.
+    if (swapping && stop) refuseIfHeld(inputs.dbPath, inputs.holdersOf, "after the replica stop command");
     // The files go BEFORE the DB and the role file. A copy that fails (no permission, no space) throws
     // here with the DB still the receiver's own and no `primary-state.json` written: the manifest stays
     // staged and the receiver never runs as a primary without its files.
@@ -811,6 +829,7 @@ function restoreBundle(inputs: PendingChangeInputs, manifest: SwitchManifest, lo
       });
     }
     if (swapping) {
+      if (stop) refuseIfHeld(inputs.dbPath, inputs.holdersOf, "right before the DB is replaced");
       setDatabaseAside(inputs.dbPath, epoch);
       // The service DB of an earlier hand-over goes with it: this server is the primary again.
       setDatabaseAside(join(dirname(inputs.dbPath), RETIRED_DB_NAME), epoch);

@@ -1,5 +1,5 @@
 import { createECDH } from "crypto";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
+import { chmodSync, copyFileSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { getDatabase } from "./db";
 import { resolveStateDir, stateDirTarget } from "./lib/data-dir";
@@ -27,16 +27,24 @@ export function vapidKeysPath(stateDir: string = configuredStateDir ?? resolveSt
   return instanceEntryPath(VAPID_KEYS, { stateDir });
 }
 
+/** Where releases before the state folder kept the keys: the module's own folder, unless a data folder is set. */
+export function legacyVapidKeysPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(stateDirTarget(import.meta.dir, env), "vapid-keys.json");
+}
+
 /**
- * The keys of an installation that kept them under `server/` (the module's own
- * folder) move once to the state folder: a browser subscription is bound to the
- * key that signed it, so the file is moved, never regenerated.
+ * The keys of an installation that kept them under `server/` are copied once
+ * to the state folder: a browser subscription is bound to the key that signed
+ * it, so the file is never regenerated. The old file stays where it was, so a
+ * release that still reads it there (a revert, a rollback) signs with the same
+ * key instead of minting a new one and losing every phone.
  */
-export function adoptLegacyVapidKeys(keysPath: string, legacy: string = join(stateDirTarget(import.meta.dir), "vapid-keys.json")): void {
+export function adoptLegacyVapidKeys(keysPath: string, legacy: string = legacyVapidKeysPath()): void {
   if (legacy === keysPath || existsSync(keysPath) || !existsSync(legacy)) return;
   mkdirSync(dirname(keysPath), { recursive: true });
-  renameSync(legacy, keysPath);
-  console.log("[Push] Moved the VAPID keys into the state folder");
+  copyFileSync(legacy, keysPath);
+  chmodSync(keysPath, 0o600);
+  console.log("[Push] Copied the VAPID keys into the state folder");
 }
 
 export function initVapid(stateDir?: string): VapidKeys {

@@ -5,7 +5,9 @@
  * `openspec/changes/nodo-principale-a-mano`). The work happens in the running
  * server (`POST /__daemon/primary-switch`); this prints its report.
  * Exit 0 switched, 1 refused (nothing changed), 2 uncertain (this server stays
- * fenced and is no longer the primary: check the other computer), 64 bad usage.
+ * fenced and is no longer the primary: check the other computer), 3 switched
+ * with a warning (the new primary runs, but something it needs did not come
+ * back, such as its DB replica: the warning says what), 64 bad usage.
  *
  * `bun run primary reclaim`: after an uncertain switch, and only once the other
  * computer is known NOT to have taken over, makes this server the primary again
@@ -58,5 +60,10 @@ if (command === "reclaim") {
 }
 for (const key of ["outcome", "step", "error", "epoch", "counts", "parked", "files", "transcripts", "bytes"]) {
   if (report[key] !== undefined) console.log(`${key}: ${typeof report[key] === "object" ? JSON.stringify(report[key]) : report[key]}`);
+}
+if (report.outcome === "switched" && report.warning) {
+  // On stderr and with its own exit code: a new primary without its replica must not read as a clean switch.
+  console.error(`WARNING: ${report.warning}`);
+  process.exit(3);
 }
 process.exit(report.outcome === "switched" ? 0 : report.outcome === "uncertain" ? 2 : 1);

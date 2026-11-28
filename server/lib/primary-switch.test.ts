@@ -228,10 +228,13 @@ describe("primary switch", () => {
 
   ownerModeTest("the restored DB is closed to owner-only even when the staged copy arrived wider", async () => {
     const h = harness();
-    await runPrimarySwitch(h.deps);
-    // A staged DB widened on its way (another umask, a copy by hand) must not stay readable by others.
-    chmodSync(join(h.receiver.stateDir, INCOMING_DIR, DB_NAME), 0o644);
-    reboot(h.receiver, "m-new");
+    // A staged DB widened on its way (another umask, a copy by hand) must not stay readable by others:
+    // it is widened after the commit, while the receiver restarts, right before its boot restores it.
+    const staged = join(h.receiver.stateDir, INCOMING_DIR, DB_NAME);
+    Object.assign(h.deps, localReceiver(h.receiver, { hostname: "new-host", beforeBoot: () => chmodSync(staged, 0o644) }));
+    const report = await runPrimarySwitch(h.deps);
+    expect(report.outcome, report.error).toBe("switched");
+    expect(existsSync(staged)).toBe(false);
     expect(mode(h.receiver.dbPath)).toBe(0o600);
   });
 

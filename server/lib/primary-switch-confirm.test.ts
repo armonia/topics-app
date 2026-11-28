@@ -136,6 +136,34 @@ describe("the receiver's boot, after the commit", () => {
     expect(readRestoreStatus(t.to.appDataDir), "the dropped restore leaves no status behind").toBeNull();
   });
 
+  // A stop that only kills the replica under a supervisor that restarts it (launchd KeepAlive,
+  // systemd Restart=) exits 0 while a new replica already holds the DB: the exit code is not trusted.
+  test("a supervisor restarts the replica as soon as it is stopped: nothing moves, the sender stays the primary", async () => {
+    let booted: unknown = null;
+    const t = await attempt({
+      holdersOf: () => [process.pid + 1], replica: { stop: exitWith(0), start: exitWith(0) }, onBoot: (o) => { booted = o; },
+    });
+    expect(String(booted)).toContain("after the replica stop command");
+    expect(t.report).toMatchObject({ ok: false, outcome: "refused", step: "abandon" });
+    senderStays(t);
+    receiverUntouched(t.to);
+    expect(existsSync(join(t.to.appDataDir, "media", "photo.png")), "no file of the bundle was placed").toBe(false);
+  });
+
+  test("a supervisor restarts the replica while the files are copied: the DB is not replaced, the sender stays the primary", async () => {
+    let booted: unknown = null;
+    const t = await attempt({
+      // The replica comes back once the restore has started writing on the receiver.
+      holdersOf: (path) => existsSync(join(path, "..", "..", "..", "app-data", "media", "photo.png")) ? [process.pid + 1] : [],
+      replica: { stop: exitWith(0), start: exitWith(0) },
+      onBoot: (o) => { booted = o; },
+    }, (_from, to) => { mkdirSync(join(to.dataDir, `.${DB_NAME}-litestream`)); });
+    expect(String(booted)).toContain("right before the DB is replaced");
+    expect(t.report).toMatchObject({ ok: false, outcome: "refused", step: "abandon" });
+    senderStays(t);
+    receiverUntouched(t.to);
+  });
+
   test("a replica start that fails: the switch stands, and the report says what the new primary needs", async () => {
     const t = await attempt({ replica: { stop: exitWith(0), start: exitWith(4) } });
     expect(t.report).toMatchObject({ ok: true, outcome: "switched" });

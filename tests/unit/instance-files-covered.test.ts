@@ -32,7 +32,7 @@ import {
   applyPendingPrimaryChange, collectAttachmentFiles, collectStateFiles, commitIncoming, DB_NAME, isSafeBundleName, sha256File,
   snapshotDatabase, writeIncomingChunk, type SwitchManifest,
 } from "../../server/lib/primary-switch";
-import { adoptLegacyVapidKeys, vapidKeysPath } from "../../server/push-service";
+import { adoptLegacyVapidKeys, legacyVapidKeysPath, vapidKeysPath } from "../../server/push-service";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
@@ -132,7 +132,7 @@ describe("the server keeps its state in the folder the switch collects", () => {
     expect(wrong).toEqual([]);
   });
 
-  test("the VAPID keys of an install that kept them under server/ move to the state folder, unchanged", () => {
+  test("the VAPID keys of an install that kept them under server/ are copied to the state folder, unchanged", () => {
     const root = mkdtempSync(join(tmpdir(), "vapid-legacy-"));
     try {
       const legacy = join(root, "server", "vapid-keys.json");
@@ -142,8 +142,29 @@ describe("the server keeps its state in the folder the switch collects", () => {
       expect(keysPath).toBe(instanceEntryPath(VAPID_KEYS, { stateDir: join(root, "state") }));
       adoptLegacyVapidKeys(keysPath, legacy);
       expect(readFileSync(keysPath, "utf-8")).toBe("the key every subscription is bound to");
-      expect(existsSync(legacy)).toBe(false);
+      // The old file stays: a release that still reads it there keeps signing with the same key.
+      expect(readFileSync(legacy, "utf-8")).toBe("the key every subscription is bound to");
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the legacy place looked at by default is the one releases before the state folder wrote to", () => {
+    // Those releases wrote `join(resolveStateDir(<server folder>), "vapid-keys.json")`.
+    expect(legacyVapidKeysPath({})).toBe(join(ROOT, "server", "vapid-keys.json"));
+    expect(legacyVapidKeysPath({ TOPICS_DATA_DIR: join(ROOT, "elsewhere") })).toBe(join(ROOT, "elsewhere", "vapid-keys.json"));
+    const root = mkdtempSync(join(tmpdir(), "vapid-default-"));
+    const previous = process.env.TOPICS_DATA_DIR;
+    try {
+      // The default argument, not one the test hands in: a data folder set, as the launcher does.
+      process.env.TOPICS_DATA_DIR = join(root, "legacy");
+      mkdirSync(join(root, "legacy"), { recursive: true });
+      writeFileSync(join(root, "legacy", "vapid-keys.json"), "the key of the old place");
+      const keysPath = join(root, "state", "vapid-keys.json");
+      adoptLegacyVapidKeys(keysPath);
+      expect(readFileSync(keysPath, "utf-8")).toBe("the key of the old place");
+    } finally {
+      if (previous === undefined) delete process.env.TOPICS_DATA_DIR; else process.env.TOPICS_DATA_DIR = previous;
       rmSync(root, { recursive: true, force: true });
     }
   });
