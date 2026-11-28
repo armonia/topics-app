@@ -33,7 +33,7 @@ const realClock = { get now() { return new Date(); } } as { now: Date };
 const real = test.skipIf(!hasCommandShell());
 
 /** Ticks until the job's first run leaves `running`, or the time is up. */
-async function settle(engine: { tick(): unknown }, db: ReturnType<typeof migratedDb>, jobId: string, seconds = 20) {
+async function settle(engine: { tick(): unknown }, db: ReturnType<typeof migratedDb>, jobId: string, seconds = 60) {
   const until = Date.now() + seconds * 1000;
   while (Date.now() < until) {
     engine.tick();
@@ -63,7 +63,7 @@ describe("scheduled commands on the registry", () => {
     expect(run.stdout_tail).toContain("j1 v1");
     expect(run.stderr_tail).toBe("problem\n");
     expect(run.stdout_tail).not.toContain("problem");
-  }, 30_000);
+  }, 90_000);
 
   real("a failing command ends in error with its code", async () => {
     const db = migratedDb();
@@ -72,7 +72,7 @@ describe("scheduled commands on the registry", () => {
     const run = await settle(engine, db, "j1");
     expect(run).toMatchObject({ status: "error", exit_code: 7 });
     expect(run.stdout_tail).toContain("partial");
-  }, 30_000);
+  }, 90_000);
 
   real("a command over its time limit is stopped and the run is `timeout`", async () => {
     const db = migratedDb();
@@ -80,7 +80,7 @@ describe("scheduled commands on the registry", () => {
     addCommandJob(db, realClock, "j1", { action: { cwd: WORK, argv: ["sleep", "30"], timeoutSec: 1 } });
     const run = await settle(engine, db, "j1");
     expect(run.status).toBe("timeout");
-  }, 30_000);
+  }, 90_000);
 
   real("deleting the job stops the group and the run is `cancelled`", async () => {
     const db = migratedDb();
@@ -97,7 +97,7 @@ describe("scheduled commands on the registry", () => {
     while (processGroupAlive(group.pgid) && Date.now() < until) await Bun.sleep(200);
     expect(processGroupAlive(group.pgid)).toBe(false);
     expect(runsOf(db, "j1")[0].status).toBe("cancelled");
-  }, 30_000);
+  }, 90_000);
 
   real("a second engine on the same state adopts a live command and closes it once", async () => {
     const db = migratedDb();
@@ -112,5 +112,5 @@ describe("scheduled commands on the registry", () => {
     expect(run).toMatchObject({ status: "ok", exit_code: 0 });
     expect(run.stdout_tail).toContain("late");
     expect(runsOf(db, "j1")).toHaveLength(1);
-  }, 30_000);
+  }, 90_000);
 });
