@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { E2E_CI_CHECK } from "../../shared/board";
-import { createNodeDeliveryMeter } from "./node-delivery-meter";
+import { createNodeDeliveryMeter, type NodeDeliveryCheckout } from "./node-delivery-meter";
 import type { ChecksLeg } from "./checks-gate";
 
 const TASK = "card-pc";
@@ -143,6 +143,48 @@ describe("node delivery meter", () => {
     // The first lease is released once the retry comes back empty; no leg ever runs.
     expect(events).toEqual(["checkout", "release"]);
     expect(events.some((e) => e.startsWith("gate"))).toBe(false);
+  });
+
+  /**
+   * Card 0a3fed8f (28/11): a node delivery approved for landing, realigned on
+   * main while it was being measured. The realign moves the REAL branch in a
+   * worktree of its own (`taskAutoMerge.realign`); this checkout is detached,
+   * opened on whatever `deliveryCommit` was before that merge. Without
+   * `reattach`, the gate keeps measuring the stale commit and `checksCommit`
+   * never matches `deliveryCommit` again, so the card never lands on its own.
+   */
+  test("a realign mid-measure moves this SAME checkout, not a fresh one: the gate measures the merge, then the card is offered to land", async () => {
+    const events: string[] = [];
+    let onDisk = "pre-realign-sha";
+    let reattachCalls = 0;
+    const checkout: NodeDeliveryCheckout = {
+      cwd: "/tmp/wt",
+      head: async () => onDisk,
+      reattach: async (commit) => { reattachCalls += 1; onDisk = commit; return true; },
+      release: async () => { events.push("release"); },
+    };
+    const m = createNodeDeliveryMeter({
+      readTask: () => inReview,
+      declaredChecks: () => [{ name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd }],
+      checkout: async () => checkout,
+      // Stands in for `runChecksGate`: asks the checkout BEFORE the realign
+      // (the stale commit), then again with the commit the realign just
+      // produced — exactly what `tasks-checks-delivery.ts` does once
+      // `taskAutoMerge.realign` answers with a new `commit`.
+      runGate: async (_id, _p, _leg, at) => {
+        const before = await at();
+        events.push(`before@${before?.commit}`);
+        const after = await at("post-realign-sha");
+        events.push(`measured@${after?.commit}`);
+        return { ok: true, comment: "" } as unknown as ChecksLeg;
+      },
+      recapture: async () => { events.push("recapture"); },
+      tryLand: async () => { events.push("land"); },
+      existsSync: () => true,
+    });
+    await m.measure(TASK);
+    expect(reattachCalls).toBe(1);
+    expect(events).toEqual(["before@pre-realign-sha", "measured@post-realign-sha", "release", "recapture", "land"]);
   });
 });
 

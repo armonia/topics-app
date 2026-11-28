@@ -41,7 +41,9 @@ export interface TasksLate {
   triggerUrlProbe(taskId: string, outputUrl: string | null, projectId?: string): void;
   runChecksGate(
     taskId: string, projectId: string, legMs: number,
-    checkout?: () => Promise<{ cwd: string; commit: string | null } | null>,
+    /** `target`, when given, is the commit a pre-review realign just produced: a node delivery's detached
+     *  checkout reattaches onto it instead of staying on the commit it had before. */
+    checkout?: (target?: string) => Promise<{ cwd: string; commit: string | null } | null>,
     /** Drop a retained verdict first: the caller wants this commit measured again, not the last answer. */
     fresh?: boolean,
   ): Promise<ChecksLeg>;

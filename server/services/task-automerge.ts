@@ -419,9 +419,13 @@ export function chooseMergeTarget(
 }
 
 /** What `realign(taskId)` answers: done (with the note for the thread when a
- *  merge happened), or why it could not, in the agent's words. */
+ *  merge happened), or why it could not, in the agent's words.
+ *  `commit` is the branch's own tip right after a merge that actually moved it
+ *  (undefined when nothing was behind): a checkout measuring the branch
+ *  elsewhere (a node delivery's throwaway worktree) needs it to follow the
+ *  realign instead of staying pinned on the commit it had before. */
 export type RealignOutcome =
-  | { ok: true; note: string | null }
+  | { ok: true; note: string | null; commit?: string }
   | { ok: false; reason: string; files?: string[] };
 
 export interface AutoMergeDeps {
@@ -674,7 +678,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
    */
   function realignmentFor(
     target: { repoPath: string; defaultBranch: string; readonly branch: string },
-    onRealigned: (note: string) => void,
+    onRealigned: (note: string, commit: string | null) => void,
   ) {
     const { repoPath, defaultBranch } = target;
     async function branchWorktree(): Promise<string | null> {
@@ -807,10 +811,11 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
             && await settleGeneratedBaselines(wtPath, files)) {
             await refreshMigrationsManifest(wtPath);
             const which = files.length === 1 ? "una baseline generata" : `${files.length} baseline generate`;
+            const afterSettle = (await runGit(wtPath, ["rev-parse", "HEAD"])).stdout.trim() || null;
             onRealigned(
               `il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro; ` +
               `l'unico conflitto era su ${which} (${files.join(", ")}), che ho rigenerato dallo script che la scrive ` +
-              "prima di valutare i cancelli");
+              "prima di valutare i cancelli", afterSettle);
             return null;
           }
           await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
@@ -830,7 +835,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           return { status: "conflict", branch: target.branch, realignConflict: { behind, files } };
         }
         await refreshMigrationsManifest(wtPath);
-        onRealigned(`il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro (fusione pulita, nessun conflitto) prima di valutare i cancelli`);
+        const afterMerge = (await runGit(wtPath, ["rev-parse", "HEAD"])).stdout.trim() || null;
+        onRealigned(`il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro (fusione pulita, nessun conflitto) prima di valutare i cancelli`, afterMerge);
         return null;
       } finally {
         if (!live) {
@@ -855,9 +861,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     if (!target) return { ok: true, note: null };
     return chain(target.repoPath, async () => {
       let note: string | null = null;
+      let commit: string | undefined;
       const base = await comparisonBase(target.repoPath, target.defaultBranch);
-      const blocked = await realignmentFor({ ...target, defaultBranch: base }, (n) => { note = n; }).realignOnMain();
-      if (!blocked) return { ok: true, note };
+      const blocked = await realignmentFor({ ...target, defaultBranch: base }, (n, c) => { note = n; commit = c ?? undefined; }).realignOnMain();
+      if (!blocked) return { ok: true, note, commit };
       if (blocked.status === "conflict") {
         const files = blocked.realignConflict?.files ?? [];
         return {
@@ -866,7 +873,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         };
       }
       if (blocked.status === "skipped") return { ok: false, reason: blocked.reason };
-      return { ok: true, note };
+      return { ok: true, note, commit };
     });
   }
 

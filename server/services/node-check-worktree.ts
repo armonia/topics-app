@@ -123,6 +123,12 @@ export async function openNodeCheckWorktree(input: NodeCheckWorktreeInput): Prom
   return {
     cwd: path,
     head: () => input.resolveHead(path),
+    // Moves the SAME detached worktree onto another commit of this same repo:
+    // no new `worktree add`, no dependency reinstall. Used right after a
+    // pre-review realign advances the real branch in a DIFFERENT worktree (see
+    // `task-automerge.ts`'s `realign()`), so the check measures what just
+    // landed there instead of the commit this checkout was opened on.
+    reattach: async (commit) => (await git(path, ["checkout", "--detach", commit])).code === 0,
     release: () => discardWorktree(git, repoPath, path, input.discard),
   };
 }

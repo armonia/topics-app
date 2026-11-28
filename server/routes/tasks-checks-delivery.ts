@@ -422,7 +422,10 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
     legMs: number,
     // A delivery planted from another machine has no worktree of its own: the
     // meter (`node-delivery-meter.ts`) hands in a throwaway checkout instead.
-    checkout?: () => Promise<{ cwd: string; commit: string | null } | null>,
+    // `target`, when given, is the commit the realign just produced: a local
+    // worktree already sits on it (the merge ran right there), but the node
+    // meter's checkout is a separate, detached one that needs telling.
+    checkout?: (target?: string) => Promise<{ cwd: string; commit: string | null } | null>,
     fresh = false,
   ): Promise<ChecksLeg> {
     if (fresh) checksGate.forget(taskId);
@@ -471,6 +474,13 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
     const sameDelivery = checksGate.isRunning(taskId) || checksGate.verdictFor(taskId, before?.commit ?? null)
       || swapInterruptedDelivery(taskId, before?.commit ?? null)
       || (restoredDeliveries.has(taskId) && restoredCommit === (before?.commit ?? null));
+    // The commit a successful realign actually produced (undefined when
+    // nothing was behind): passed to the second `checkoutRef()` below so a
+    // detached checkout measuring the branch ELSEWHERE (the node meter's) is
+    // re-pinned on it, instead of staying on the commit it had before the
+    // merge (card 0a3fed8f, 28/11: `checksCommit` stuck on the pre-realign
+    // commit while `deliveryCommit` moved to the merge, forever mismatched).
+    let realignedCommit: string | undefined;
     if (opts.realignForChecks && !sameDelivery) {
       const re = await opts.realignForChecks(taskId)
         .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` })); // allow-italian: board notes are written in Italian like every other service comment
@@ -493,8 +503,9 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
         try { svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato su main prima dei check: ${re.note}` }); } // allow-italian: board notes are written in Italian like every other service comment
         catch { /* a trace, not the gate */ }
       }
+      realignedCommit = re.commit;
     }
-    const ref = await checkoutRef().catch(() => null);
+    const ref = await checkoutRef(realignedCommit).catch(() => null);
     if (!ref) return null;
     // Past the realign, on a known checkout: from here on THIS is the commit
     // the delivery is measuring, and the one a restart has to carry over.

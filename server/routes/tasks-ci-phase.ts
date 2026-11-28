@@ -17,6 +17,7 @@ import { measureIntegration } from "../services/integration-measure";
 import { describeMainRed, MAIN_RED_MODEL, mainRedKey, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
 import { personPlace, scheduledReviewCmd } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
+import { createStaleChecksNoter } from "../services/stale-checks-note";
 import { MAIN_RED_NOTE, MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict, scheduledBounceMessage } from "../services/red-bounce";
 import { claimedMainShas, commitsSinceMain, deliveryClaimWords, landIsDeniedInWords, falseMainClaims, mainClaimReviewNote } from "../services/scheduled-review-sense";
 import { formatChecksComment } from "../services/review-checks";
@@ -144,6 +145,8 @@ export function createCiPhase(deps: CiPhaseDeps) {
 
   /** The commit each card was measured on in the CI phase: it lands only if it still delivers that one. */
   const ciMeasured = new Map<string, string>();
+
+  const noteStaleChecks = createStaleChecksNoter(deps.svc);
 
   /**
    * The board's CI mode as far as it can act: `off` unless the board has what the phase needs (CI rows, a
@@ -706,7 +709,10 @@ export function createCiPhase(deps: CiPhaseDeps) {
     const from = t.landIntentCommit ?? null;
     if (from && from !== t.deliveryCommit) {
       // A delivery other than the one approved must be measured green on its own commit first.
-      if (t.checksState !== "pass" || t.checksCommit !== t.deliveryCommit) return "no";
+      if (t.checksState !== "pass" || t.checksCommit !== t.deliveryCommit) {
+        noteStaleChecks(taskId, t.checksCommit ?? null, t.deliveryCommit);
+        return "no";
+      }
       const files = deps.filesBetween ? await deps.filesBetween(taskId, from, t.deliveryCommit).catch(() => null) : [];
       let extra: ReturnType<typeof readWorkflowRules>["personPaths"] | null = null;
       try { extra = readWorkflowRules(deps.db, projectId).personPaths; } catch { extra = null; }

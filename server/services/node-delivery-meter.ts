@@ -29,6 +29,17 @@ export interface NodeDeliveryCheckout {
   cwd: string;
   /** The commit the checkout is on RIGHT NOW (the realign moves it). */
   head(): Promise<string | null>;
+  /**
+   * Move this SAME detached checkout onto another commit, in place: cheap (no
+   * new worktree, no dependency reinstall), unlike opening a fresh one. Used
+   * right after a pre-review realign moved the real branch elsewhere (a
+   * separate worktree `taskAutoMerge.realign` makes for a node delivery,
+   * since this checkout is detached and not the branch itself). Without it
+   * the check keeps measuring the commit this checkout had BEFORE that merge, and
+   * `checksCommit` never catches up with `deliveryCommit` again. `false` = the
+   * move failed; the caller keeps measuring whatever this checkout already has.
+   */
+  reattach?(commit: string): Promise<boolean>;
   release(): Promise<void>;
 }
 
@@ -41,7 +52,7 @@ interface NodeDeliveryMeterDeps {
     taskId: string,
     projectId: string,
     legMs: number,
-    checkout: () => Promise<{ cwd: string; commit: string | null } | null>,
+    checkout: (target?: string) => Promise<{ cwd: string; commit: string | null } | null>,
   ): Promise<ChecksLeg>;
   /** Snapshot the delivery again: the realign moved the tip and the labels follow it. */
   recapture(taskId: string): Promise<unknown>;
@@ -101,7 +112,13 @@ export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
         let lease = await checkout(taskId);
         if (!lease) { giveUp(taskId, "nessun checkout su cui misurare"); return; }
         try {
-          const at = async () => ({ cwd: lease!.cwd, commit: await lease!.head() });
+          const at = async (target?: string) => {
+            if (target && lease!.reattach) {
+              const moved = await lease!.reattach(target).catch(() => false);
+              if (!moved) log(`[node-meter] ${taskId.slice(0, 8)}: non riportato sul commit riallineato ${target.slice(0, 8)}, resto su quello che avevo`);
+            }
+            return { cwd: lease!.cwd, commit: await lease!.head() };
+          };
           for (let leg = 0; leg < maxLegs; leg++) {
             // The cwd can be gone under the measure (a process before tore the
             // checkout down before releasing its own lease): launching a command
