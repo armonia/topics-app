@@ -8,7 +8,7 @@ import { PendingActionRing } from '@/components/Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionProgressOverlay';
 import { rememberDraggedPane } from '@/lib/dragPayload';
 import { startDragPreview } from '@/lib/dragPreview';
-import { getProjectLabel } from '@/lib/buildSidebarItems';
+import { familyLabelForPath } from '../../lib/boardProjectsStore';
 import { DND_TYPES } from '@/lib/dndTypes';
 import { useTopicLoading, useTopicInProgress, useTopicAttentionFill } from '@/state/signals';
 import { useTopicRunningServices } from '@/state/runningServices';
@@ -278,7 +278,7 @@ export const TopicItem = memo(function TopicItem({
       // with: the stored value is the light swatch, and on the dark chrome it
       // is the very shade `topicColor` replaces for being too dark to see.
       accent: topicColorInk(topic.color, document.documentElement.classList.contains('dark')),
-      subtitle: topic.projectPath ? getProjectLabel(topic.projectPath) : undefined,
+      subtitle: topic.projectPath ? familyLabelForPath(topic.projectPath) : undefined,
       badges: [
         notificationCount > 0 ? String(notificationCount) : '',
         archived ? 'archiviata' : '',

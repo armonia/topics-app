@@ -22,7 +22,7 @@ import type { AttentionReason, AttentionSeenItem, AttentionTask } from '../../..
 import { notificationTargetUrl } from '../../../shared/notification-log';
 import { attentionOf, type AttentionRows } from '../state/attention';
 import { chromeAttentionSubjects } from '../state/attentionTotal';
-import { getProjectLabel } from './projectLabel';
+import { familyLabelForPath } from './boardProjectsStore';
 
 export type InboxKind = 'chat' | 'terminal' | 'card' | 'job';
 
@@ -75,11 +75,11 @@ function nameOf(kind: InboxKind, id: string, topics: Record<string, Topic>, term
   if (kind === 'chat') {
     const t = topics[id];
     if (!t || t.archived) return null;
-    return { title: t.name || id, project: t.projectPath && !t.standalone ? getProjectLabel(t.projectPath) : null };
+    return { title: t.name || id, project: t.projectPath && !t.standalone ? familyLabelForPath(t.projectPath) : null };
   }
   if (kind === 'terminal') {
     const s = terminals.get(id);
-    return { title: s?.name || id, project: s?.cwd ? getProjectLabel(s.cwd) : null };
+    return { title: s?.name || id, project: s?.cwd ? familyLabelForPath(s.cwd) : null };
   }
   // A failed job has no name here: its row says what failed (the attention detail).
   if (kind === 'job') return { title: id, project: null };

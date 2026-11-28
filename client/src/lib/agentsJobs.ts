@@ -30,6 +30,7 @@
 import { gateWaitsOf, type GateWait } from './hubGates';
 import { capFirst, jobTitle, repairName } from './jobTitle';
 import { hubIconPath, hubWork, type HubAgentRow } from './agentsJobsHub';
+import { familyLabelForPath } from './boardProjectsStore';
 import {
   PROXY_IDLE_MS, proxyActivity, proxyConflicts, proxyCostUsd, proxyState, proxyTimeline,
   type ProxyActivity, type ProxyConflict, type ProxyState,
@@ -530,8 +531,11 @@ export function foldRows(rows: JobRow[]): JobRow[] {
   return out;
 }
 
-/** The last folder of a path: the project's name. */
-const folderName = (path: string | null | undefined): string | null => (path ? path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || null : null);
+/**
+ * The project's name from its path, parent-aware: a project merged (accorpa)
+ * under another reads «Sito Armonia · Nuvola», not just its own folder name.
+ */
+const folderName = (path: string | null | undefined): string | null => (path ? familyLabelForPath(path) : null);
 
 const topicRow = (r: TopicsAgentRow, tone: JobTone): JobRow => ({
   key: `${r.kind}:${r.id}`,

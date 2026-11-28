@@ -19,8 +19,9 @@
  * stesso istante.
  */
 import { useMemo, useSyncExternalStore } from 'react';
-import { boardApi, type BoardProjectRef, type BoardFamilyLink } from './board';
+import { boardApi, boardIdForPath, type BoardProjectRef, type BoardFamilyLink } from './board';
 import { unregisteredProjectName } from '../../../shared/project-name';
+import { formatProjectFamilyLabel, mergedParentMap, projectFamilyLabel, type ProjectFamilyLabel } from '../../../shared/project-family';
 import { subscribeFrames } from './wsFrameBus';
 
 let projects: BoardProjectRef[] | null = null;
@@ -290,6 +291,43 @@ export { projectNameFromId, UNKNOWN_PROJECT_NAME } from '../../../shared/project
  * conosce, così un progetto sparito dal disco resta comunque filtrabile invece
  * di sparire dall'elenco.
  */
+/** The index's own name for a board id, falling back to the id-derived guess. */
+function nameOfBoardId(id: string): string {
+  const entry = projects?.find((p) => p.projectId === id) ?? labelOnly.find((p) => p.projectId === id);
+  return entry?.name ?? unregisteredProjectName(id);
+}
+
+/**
+ * «Sito Armonia · Nuvola»: the ONE place that turns a board id into the label
+ * a person reads, parent-aware. Every surface that named a card by cutting the
+ * hash off `task.projectId` (`cloud-sim`, as if it were a project of its own)
+ * instead reads this, so a project merged (`accorpa`) into another always
+ * says which one it belongs to.
+ */
+export function familyLabelPartsForId(projectId: string): ProjectFamilyLabel {
+  return projectFamilyLabel(projectId, mergedParentMap(families), nameOfBoardId);
+}
+
+/** `familyLabelPartsForId`, flattened — for a plain string context (a tooltip, a table cell, a drag-preview subtitle). */
+export function familyLabelForId(projectId: string): string {
+  return formatProjectFamilyLabel(familyLabelPartsForId(projectId));
+}
+
+/** `familyLabelForId`, from a project's path instead of its board id. */
+export function familyLabelForPath(path: string): string {
+  return familyLabelForId(boardIdForPath(path));
+}
+
+/** Reactive `familyLabelPartsForId`, for a component that renders the parent and the child with different weight. */
+export function useProjectFamilyLabel(projectId: string, enabled = true): ProjectFamilyLabel {
+  const index = useBoardProjectLabels(enabled);
+  const links = useBoardFamilies(enabled);
+  return useMemo(() => {
+    const nameOf = (id: string) => index?.find((p) => p.projectId === id)?.name ?? unregisteredProjectName(id);
+    return projectFamilyLabel(projectId, mergedParentMap(links), nameOf);
+  }, [index, links, projectId]);
+}
+
 export function resolveProjectRefs(
   ids: readonly string[],
   index: BoardProjectRef[] | null,

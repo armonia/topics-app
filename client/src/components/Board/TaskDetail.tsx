@@ -45,7 +45,8 @@ import { deliveryNotesToFold } from './taskDeliveryNotes';
 import { AskBox } from './AskBox';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { usePaneAlive } from '../../state/paneLiveness';
-import { addBoardProject, projectNameFromId, useBoardProjects, UNKNOWN_PROJECT_NAME } from '../../lib/boardProjectsStore';
+import { addBoardProject, projectNameFromId, useBoardFamilies, useBoardProjects, UNKNOWN_PROJECT_NAME } from '../../lib/boardProjectsStore';
+import { mergedParentMap, projectFamilyLabel, type ProjectFamilyLabel } from '../../../../shared/project-family';
 import { GroupLayout } from '../Layout/GroupLayout';
 import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
 import { SurfaceContent } from './TaskComments';
@@ -836,16 +837,24 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
   // dello STESSO indice, con l'icona che arrivava in un momento diverso da
   // quello del composer e delle card.
   const projects = useBoardProjects();
+  const families = useBoardFamilies();
   const openProjMenu = () => setProjMenuOpen(true);
   // The row's project, or the board's until the row arrives: the header is
   // already drawn with the title the board knows (`initialTitle`).
   const headerProjectId = task?.projectId ?? (initialTitle != null ? projectId : undefined);
   const currentProject = projects?.find((p) => p.projectId === headerProjectId) ?? null;
-  const projectLabel = headerProjectId && isProjectlessId(headerProjectId)
-    ? 'Nessun progetto'
+  const nameOfProject = (id: string) =>
+    projects?.find((p) => p.projectId === id)?.name
     // `?? UNKNOWN_PROJECT_NAME`: da un id che non ha un nome dentro (un UUID)
     // `projectNameFromId` torna `null`, e a schermo va la frase, non il codice.
-    : currentProject?.name ?? (headerProjectId ? projectNameFromId(headerProjectId) ?? UNKNOWN_PROJECT_NAME : '');
+    ?? projectNameFromId(id) ?? UNKNOWN_PROJECT_NAME;
+  // A project merged (accorpa) under another says both whose it is and which
+  // one it is: «Sito Armonia · Nuvola», not just «Nuvola» on its own.
+  const projectLabel: ProjectFamilyLabel = headerProjectId && isProjectlessId(headerProjectId)
+    ? { parent: null, child: 'Nessun progetto' }
+    : headerProjectId
+      ? projectFamilyLabel(headerProjectId, mergedParentMap(families), nameOfProject)
+      : { parent: null, child: '' };
   const moveBlocked = !task ? null
     : task.parentTaskId ? 'I sottotask si spostano col loro task padre.'
     : task.assignedTopicId || isAgentWorking(task.dispatchState)

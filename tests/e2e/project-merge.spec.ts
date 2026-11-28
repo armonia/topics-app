@@ -218,11 +218,17 @@ test.describe("Accorpa e separa un progetto figlio", () => {
       await expect(projectRow(page, new RegExp(`^${CHILD_NAME}$`))).toHaveCount(0, { timeout: 15_000 });
     });
 
-    await test.step("accorpato: la board del padre mostra le card del figlio con il suo nome", async () => {
+    await test.step("accorpato: la board del padre mostra le card del figlio con «madre · figlio»", async () => {
       // The parent's board is open: the project update re-reads it by itself.
       for (const id of childCards) await expect(card(page, id)).toBeVisible({ timeout: 15_000 });
       await expect(card(page, parentCard)).toBeVisible();
-      for (const id of childCards) await expect(card(page, id)).toContainText(CHILD_NAME);
+      // Both halves of the label: the mother's name (new) AND the child's own
+      // name (already true before). A regression to the raw `task.projectId`
+      // (cut of its hash) would still contain CHILD_NAME but never PARENT_NAME.
+      for (const id of childCards) {
+        await expect(card(page, id)).toContainText(CHILD_NAME);
+        await expect(card(page, id)).toContainText(PARENT_NAME);
+      }
       await page.screenshot({ path: testInfo.outputPath("3-accorpati-board-padre.png") });
     });
 

@@ -5,7 +5,8 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
-  boardIdOfRow, familyLinks, inheritedSettingsBoardId, mergedBoardIds, mergedParentMap, parentChoices, refuseParent, siblingScore, suggestParents,
+  boardIdOfRow, familyLinks, formatProjectFamilyLabel, inheritedSettingsBoardId, mergedBoardIds, mergedParentMap, parentChoices, projectFamilyLabel,
+  refuseParent, siblingScore, suggestParents,
   type FamilyRow,
 } from "./project-family";
 
@@ -49,6 +50,23 @@ describe("familyLinks / mergedParentMap", () => {
   test("a link whose parent is archived or missing is dropped", () => {
     expect(familyLinks([{ ...shop, archived: true }, modules])).toEqual([]);
     expect(familyLinks([modules])).toEqual([]);
+  });
+});
+
+describe("projectFamilyLabel", () => {
+  const names = new Map([["mother", "Sito Armonia"], ["child", "Nuvola"], ["solo", "Nuvola"]]);
+  const nameOf = (id: string) => names.get(id) ?? id;
+
+  test("a merged child answers with its parent's name AND its own", () => {
+    const parentOf = mergedParentMap([{ projectId: "child", parentProjectId: "mother", mode: "accorpa" }]);
+    expect(projectFamilyLabel("child", parentOf, nameOf)).toEqual({ parent: "Sito Armonia", child: "Nuvola" });
+    expect(formatProjectFamilyLabel(projectFamilyLabel("child", parentOf, nameOf))).toBe("Sito Armonia · Nuvola");
+  });
+  test("separated, top-level or unknown projects answer with their own name only", () => {
+    const parentOf = mergedParentMap([{ projectId: "child", parentProjectId: "mother", mode: "separa" }]);
+    expect(projectFamilyLabel("child", parentOf, nameOf)).toEqual({ parent: null, child: "Nuvola" });
+    expect(projectFamilyLabel("solo", new Map(), nameOf)).toEqual({ parent: null, child: "Nuvola" });
+    expect(formatProjectFamilyLabel(projectFamilyLabel("solo", new Map(), nameOf))).toBe("Nuvola");
   });
 });
 
