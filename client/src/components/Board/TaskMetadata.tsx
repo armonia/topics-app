@@ -350,7 +350,7 @@ export function MetadataCard({ boardDispatchModel, busy, changeAutoMergeIntent, 
                 className="flex min-w-0 items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted hover:bg-black/10 dark:hover:bg-white/20"
               >
                 <UserRound className="h-3 w-3 shrink-0" />
-                <span className="max-w-[14rem] truncate">{workChip.label}</span>
+                <span className="max-w-56 truncate">{workChip.label}</span>
               </button>
             ) : (
               <span
@@ -364,7 +364,7 @@ export function MetadataCard({ boardDispatchModel, busy, changeAutoMergeIntent, 
                 {workChip.kind === 'unattended'
                   ? <AlertTriangle className="h-3 w-3 shrink-0" />
                   : <UserRound className="h-3 w-3 shrink-0" />}
-                <span className="max-w-[14rem] truncate">{workChip.label}</span>
+                <span className="max-w-56 truncate">{workChip.label}</span>
               </span>
             ))}
           </div>

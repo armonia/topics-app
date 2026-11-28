@@ -70,7 +70,7 @@ function AgentRow({ a, now, onOpened }: { a: HubAgent; now: number; onOpened?: (
           data-testid="project-hub-agent-open"
           onClick={open}
           title={a.open?.via ? tr('projectHub.agent.openVia', { via: a.open.via }) : undefined}
-          className="inline-flex h-[18px] flex-none items-center whitespace-nowrap rounded-xs bg-app-hover px-1.5 text-mini text-app-text-secondary hover:text-app-text"
+          className="inline-flex h-4.5 flex-none items-center whitespace-nowrap rounded-xs bg-app-hover px-1.5 text-mini text-app-text-secondary hover:text-app-text"
         >
           {tr('projectHub.agent.open')}
         </button>
@@ -111,7 +111,7 @@ export function ProjectHubAgents({ p, onOpened }: { p: HubProject; onOpened?: ()
         )}
       </button>
       {open && (
-        <div className="max-h-[220px] overflow-y-auto">
+        <div className="max-h-55 overflow-y-auto">
           {a.list.map((g, i) => <AgentRow key={`${g.provider}-${g.startedAt ?? i}-${i}`} a={g} now={now} onOpened={onOpened} />)}
           {hidden > 0 && <div className="px-3 py-1 text-mini text-app-text-tertiary">{tr('projectHub.agentsMore', { n: hidden })}</div>}
         </div>

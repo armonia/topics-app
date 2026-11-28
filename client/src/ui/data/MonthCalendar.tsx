@@ -66,7 +66,7 @@ export function MonthCalendar({ month, today, items, selectedDay, onDay, onItem,
               const picked = day === selectedDay;
               const shown = phone ? [] : list.slice(0, 2);
               return (
-                <div key={day} role="gridcell" className={clsx('min-h-[84px] min-w-0 border-r border-app-border p-1 last:border-r-0 max-sm:min-h-[52px]', !inMonth && 'bg-black/[0.02] dark:bg-white/[0.02]')}>
+                <div key={day} role="gridcell" className={clsx('min-h-21 min-w-0 border-r border-app-border p-1 last:border-r-0 max-sm:min-h-13', !inMonth && 'bg-black/[0.02] dark:bg-white/[0.02]')}>
                   <button
                     type="button"
                     aria-pressed={picked}

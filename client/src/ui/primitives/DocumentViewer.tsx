@@ -76,7 +76,7 @@ export function DocumentViewer({ name, detail, pages, page, onPage, zoom, onZoom
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
         <Tool icon={ChevronLeft} label={v.previous} onClick={go(current - 1)} />
-        <span className="min-w-[76px] px-1 text-center text-mini tabular-nums text-app-text-secondary" aria-live="polite">{v.pageOf(current, total)}</span>
+        <span className="min-w-19 px-1 text-center text-mini tabular-nums text-app-text-secondary" aria-live="polite">{v.pageOf(current, total)}</span>
         <Tool icon={ChevronRight} label={v.next} onClick={go(current + 1)} />
         <span aria-hidden="true" className="mx-1 h-4 w-px bg-app-border-light" />
         <Tool icon={ZoomOut} label={v.zoomOut} onClick={zoomBy(-ZOOM_STEP)} />
@@ -104,7 +104,7 @@ export function DocumentViewer({ name, detail, pages, page, onPage, zoom, onZoom
   );
 
   const rail = !phone && total > 1 && (
-    <nav aria-label={v.pages} className="hidden w-[92px] shrink-0 flex-col gap-2.5 overflow-y-auto border-r border-app-border bg-app-inset p-2.5 md:flex">
+    <nav aria-label={v.pages} className="hidden w-23 shrink-0 flex-col gap-2.5 overflow-y-auto border-r border-app-border bg-app-inset p-2.5 md:flex">
       {pages.map((p, i) => {
         const n = i + 1;
         const on = n === current;
@@ -175,7 +175,7 @@ export function DocumentViewer({ name, detail, pages, page, onPage, zoom, onZoom
         <aside
           className={clsx(
             'min-w-0 bg-surface',
-            phone ? 'border-t border-app-border' : 'max-md:border-t max-md:border-app-border md:w-[360px] md:shrink-0 md:overflow-y-auto md:border-l md:border-app-border',
+            phone ? 'border-t border-app-border' : 'max-md:border-t max-md:border-app-border md:w-90 md:shrink-0 md:overflow-y-auto md:border-l md:border-app-border',
           )}
         >
           {aside}

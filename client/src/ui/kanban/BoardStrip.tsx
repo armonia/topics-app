@@ -33,7 +33,7 @@ export function BoardStrip({ title, backLabel, groups, onBack, onOpen, openLabel
   openLabel: (id: string) => string;
 }) {
   return (
-    <aside aria-label={title} className="hidden w-[288px] shrink-0 flex-col border-r border-app-border bg-app-inset xl:flex">
+    <aside aria-label={title} className="hidden w-72 shrink-0 flex-col border-r border-app-border bg-app-inset xl:flex">
       <button
         type="button"
         onClick={onBack}
@@ -55,7 +55,7 @@ export function BoardStrip({ title, backLabel, groups, onBack, onOpen, openLabel
               {g.cards.map((c) => {
                 const body = (
                   <>
-                    {c.flag && <span aria-hidden="true" className={clsx('absolute bottom-1.5 left-0 top-1.5 w-[3px] rounded-r-full', c.flag === 'red' ? 'bg-rose-500' : 'bg-amber-500')} />}
+                    {c.flag && <span aria-hidden="true" className={clsx('absolute bottom-1.5 left-0 top-1.5 w-0.75 rounded-r-full', c.flag === 'red' ? 'bg-rose-500' : 'bg-amber-500')} />}
                     <span className="flex min-w-0 items-baseline gap-1.5">
                       <span className="shrink-0 font-mono text-mini font-medium text-app-text-tertiary">{c.id}</span>
                       <span className="min-w-0 truncate text-compact text-app-text-tertiary">{c.who}</span>

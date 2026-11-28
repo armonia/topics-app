@@ -27,6 +27,7 @@ import { useLocale, useT } from '@/hooks/useT';
 import { useProjectUsage, type ProjectUsageRow, type UsageRange } from '@/hooks/useProjectUsage';
 import { sideCallsLine } from './sideCallsLine';
 import { ProjectQuotaTable } from './ProjectQuotaTable';
+import { TopSessionsSection } from './TopSessionsSection';
 
 /** The windows offered, in the order a person narrows: today, the week, the
  *  month, everything. `all` is where the panel opens, because "what has this
@@ -69,6 +70,7 @@ export function ProjectUsagePanel({ range, onRange }: {
     <div data-testid="project-usage-panel" className="min-w-0 p-2 text-mini">
       {/* The share of the weekly quota comes first: it is what a limit is set against. */}
       <ProjectQuotaTable />
+      <TopSessionsSection />
       {/* THE WINDOW, as four buttons and not a dropdown: there are four of them,
           they are two characters each, and a dropdown would hide the current
           answer behind a gesture on a panel whose whole point is the number. */}
@@ -103,7 +105,7 @@ export function ProjectUsagePanel({ range, onRange }: {
       )}
 
       {rows.length > 0 && (
-        <div className="max-h-[280px] overflow-y-auto">
+        <div className="max-h-70 overflow-y-auto">
           {/* A HEADER, because this one IS a table: two numeric columns that
               have to be read down, not across. The inventory above is a list
               and has none, and the difference is the point. */}

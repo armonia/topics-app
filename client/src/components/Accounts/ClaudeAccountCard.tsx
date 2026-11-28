@@ -20,7 +20,7 @@ import type { Clock } from './useAccountClock';
 import { AccessAndSpend, BoardExtras, TrailLegend, WindowTrail } from './AccountInsights';
 
 /** The priority's own steps: smaller than a command button, beside the number. */
-const STEP_BUTTON = 'inline-flex h-[20px] w-[20px] items-center justify-center rounded-xs border border-app-border-light bg-elevated text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:opacity-50 coarse:h-8 coarse:w-8';
+const STEP_BUTTON = 'inline-flex h-5 w-5 items-center justify-center rounded-xs border border-app-border-light bg-elevated text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:opacity-50 coarse:h-8 coarse:w-8';
 
 const STATE_TONE: Record<ClaudeAccount['state'], keyof typeof CHIP_TONE> = {
   'in-use': 'use', ready: 'quiet', off: 'quiet', capped: 'warn', limited: 'warn', expired: 'bad',
@@ -77,7 +77,7 @@ export function ClaudeCard({ account: a, trail, readAt, board, money, run, clock
       {trail && (a.fiveH || a.week) && <TrailLegend />}
       {board && <BoardExtras board={board} />}
       {!a.fiveH && !a.week && <div className="mt-1 text-app-text-secondary" data-testid="account-no-windows">{tr(a.dormant ? 'accounts.dormant' : 'accounts.noLimits')}</div>}
-      <div className={`mb-[9px] mt-1 min-h-[17px] leading-snug tabular-nums ${a.state === 'expired' ? DANGER_TEXT : 'text-app-text-secondary'}`} data-testid="account-caption">{caption}</div>
+      <div className={`mb-2.25 mt-1 min-h-4.25 leading-snug tabular-nums ${a.state === 'expired' ? DANGER_TEXT : 'text-app-text-secondary'}`} data-testid="account-caption">{caption}</div>
       {notes.map((n) => (
         <div key={n.key} className={`mb-1.5 leading-snug ${n.bad ? DANGER_TEXT : WARNING_TEXT}`} data-testid="account-note" data-note={n.key}>{n.text}</div>
       ))}
@@ -91,7 +91,7 @@ export function ClaudeCard({ account: a, trail, readAt, board, money, run, clock
         <span className="flex flex-none items-center gap-1 whitespace-nowrap text-app-text-secondary tabular-nums" title={tr('accounts.priority.hint')} data-testid="account-priority" data-priority={a.priority}>
           {tr('accounts.priority.label')}
           <button type="button" disabled={busy} data-testid="account-priority-down" aria-label={tr('accounts.cmd.down')} title={tr('accounts.cmd.down')} className={STEP_BUTTON} onClick={() => void act({ kind: 'priority', name: a.name, priority: a.priority - 1 })}><Minus size={11} aria-hidden="true" /></button>
-          <b className="min-w-[14px] text-center font-semibold text-app-text">{a.priority}</b>
+          <b className="min-w-3.5 text-center font-semibold text-app-text">{a.priority}</b>
           <button type="button" disabled={busy} data-testid="account-priority-up" aria-label={tr('accounts.cmd.up')} title={tr('accounts.cmd.up')} className={STEP_BUTTON} onClick={() => void act({ kind: 'priority', name: a.name, priority: a.priority + 1 })}><Plus size={11} aria-hidden="true" /></button>
         </span>
         <button
@@ -180,7 +180,7 @@ function CapEditor({ account: a, onDone, run }: { account: ClaudeAccount; onDone
     if (await run({ kind: 'cap', name: a.name, fiveH, sevenD })) onDone();
     setBusy(false);
   };
-  const field = 'h-[26px] w-14 rounded-sm border border-app-border-light bg-app-input px-1.5 text-right text-compact tabular-nums text-app-text outline-none focus:border-primary @max-2xl:h-9';
+  const field = 'h-6.5 w-14 rounded-sm border border-app-border-light bg-app-input px-1.5 text-right text-compact tabular-nums text-app-text outline-none focus:border-primary @max-2xl:h-9';
   return (
     <div data-testid="account-cap-editor" className="mb-2 flex flex-col gap-1.5 rounded-sm border border-app-border-subtle bg-surface p-2">
       <div className="flex flex-wrap items-center gap-2">

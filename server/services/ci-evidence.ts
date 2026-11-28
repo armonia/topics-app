@@ -755,7 +755,16 @@ export type AwaitCiDeps = {
  * server stops the checks.
  */
 export async function awaitCiEvidence(
-  input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[]; onFault?: (step: CiStep, error: string) => void },
+  input: {
+    cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[]; onFault?: (step: CiStep, error: string) => void;
+    /**
+     * The branch this checkout was planted on, used only when the checkout
+     * itself has none (a detached node-check checkout, pinned to the delivered
+     * commit rather than to a branch tip). A checkout that does carry a branch
+     * keeps answering for itself: `branch` is a fallback, never an override.
+     */
+    branch?: string | null;
+  },
   deps: AwaitCiDeps = {},
 ): Promise<CheckRun[]> {
   const port = deps.port ?? githubPort();
@@ -800,27 +809,28 @@ export async function awaitCiEvidence(
   // measures nothing at all.
   if (own.value === 0) return skipped(NO_OWN_COMMIT);
   const branch = await port.branch(cwd);
-  if (!branch.ok || !branch.value) return notMeasured(`the worktree is not on a branch${branch.ok ? "" : `: ${branch.error}`}`);
+  const branchName = branch.ok && branch.value ? branch.value : input.branch;
+  if (!branchName) return notMeasured(`the worktree is not on a branch${branch.ok ? "" : `: ${branch.error}`}`);
   const repo = await port.repo(cwd);
   if (!repo.ok) return notMeasured(repo.error);
 
   halt();
-  const pushed = await port.push(cwd, sha, branch.value);
+  const pushed = await port.push(cwd, sha, branchName);
   if (!pushed.ok) return fault("push", `push failed: ${pushed.error}`, true);
   if (pushed.value === "non-fast-forward") {
-    const head = await port.remoteHead(cwd, branch.value);
+    const head = await port.remoteHead(cwd, branchName);
     if (!head.ok || !head.value) return notMeasured(`push rejected and the remote head is unreadable${head.ok ? "" : `: ${head.error}`}`);
-    const known = await port.inReflog(cwd, branch.value, head.value);
+    const known = await port.inReflog(cwd, branchName, head.value);
     if (!known.ok) return notMeasured(`push rejected and the branch reflog is unreadable: ${known.error}`);
     if (!known.value) {
-      return notMeasured(`the remote branch ${branch.value} has commits this worktree never had (${head.value.slice(0, 8)}): left untouched`);
+      return notMeasured(`the remote branch ${branchName} has commits this worktree never had (${head.value.slice(0, 8)}): left untouched`);
     }
-    const forced = await port.push(cwd, sha, branch.value, head.value);
+    const forced = await port.push(cwd, sha, branchName, head.value);
     if (!forced.ok || forced.value !== "pushed") return fault("push", `push with lease failed${forced.ok ? "" : `: ${forced.error}`}`);
   }
 
-  const pr = await port.draftPullRequest(cwd, repo.value, branch.value,
-    `board: ${branch.value} ${cardTag(input.taskId)}`,
+  const pr = await port.draftPullRequest(cwd, repo.value, branchName,
+    `board: ${branchName} ${cardTag(input.taskId)}`,
     `Draft opened by the Topics board for commit ${sha.slice(0, 8)} of card ${input.taskId.slice(0, 8)}, ` +
       "to read the pull request CI (e2e jobs, unit tests). Not a request to merge: a person marks it ready when the card lands.");
   // GitHub refuses a pull request with no diff against the remote base ("No commits
@@ -828,7 +838,7 @@ export async function awaitCiEvidence(
   // on the remote. Nothing for a CI run to measure, same outcome as no own commit.
   if (!pr.ok && /no commits between/i.test(pr.error)) return skipped(NO_OWN_COMMIT);
   if (!pr.ok) return fault("draft-pr", `cannot open or find the draft pull request: ${pr.error}`, true);
-  await supersedePreviousDelivery(port, { cwd, repo: repo.value, taskId: input.taskId, branch: branch.value, sha, pr: pr.value, baseBranch: CI_BASE_BRANCH })
+  await supersedePreviousDelivery(port, { cwd, repo: repo.value, taskId: input.taskId, branch: branchName, sha, pr: pr.value, baseBranch: CI_BASE_BRANCH })
     .catch(() => undefined);
   const ctx: RunContext = { repo: repo.value, prUrl: pr.value.url };
   const pushedAt = now();

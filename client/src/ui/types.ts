@@ -14,12 +14,15 @@ export type Tone = 'neutral' | 'blue' | 'green' | 'amber' | 'red' | 'violet' | '
 /** What a piece of data is, which decides its glyph. */
 export type FieldKind = 'mail' | 'file' | 'legal' | 'record' | 'number' | 'folder' | 'calendar' | 'person' | 'link' | 'bolt';
 
-/** A named piece of data that a step reads or writes, e.g. `PEC.mittente`. */
+/** A named piece of data that a step reads or writes, e.g. `PEC.mittente`.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
+ */
 export interface FieldRef {
   kind: FieldKind;
   name: string;
 }
 
+/** @knipignore used by the ui kit and its gallery, outside the production graph */
 export interface StatusModel {
   text: string;
   tone: Tone;
@@ -38,6 +41,7 @@ export type Action = (() => void) | false;
 /**
  * Per-item actions of a list where only some items lead somewhere, keyed by
  * item id: an item without an entry is drawn as plain content, not as a link.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
  */
 export type ItemLinks = Partial<Record<string, () => void>>;
 
@@ -53,6 +57,7 @@ export interface SourceModel {
 /**
  * Text with emphasis and citations inline: plain strings, bold runs, sources,
  * and marked passages (the words a rule was derived from).
+ * @knipignore used by the ui kit and its gallery, outside the production graph
  */
 export type RichTextModel = Array<string | { strong: string } | { source: SourceModel } | { mark: string }>;
 
@@ -134,6 +139,7 @@ export interface IdentityModel {
   tip?: string;
 }
 
+/** @knipignore used by the ui kit and its gallery, outside the production graph */
 export interface SidebarModel {
   inboxCount?: number;
   board?: { flows: number; inbox: number };
@@ -153,6 +159,7 @@ export type UiTabKind =
   | 'flows' | 'record' | 'board' | 'data' | 'knowledge' | 'overview' | 'views' | 'inbox' | 'new' | 'other'
   | 'today' | 'settings' | 'channels' | 'programs' | 'chat' | 'callcenter' | 'search' | 'org' | 'contracts' | 'team';
 
+/** @knipignore used by the ui kit and its gallery, outside the production graph */
 export interface TabModel {
   id: string;
   kind: UiTabKind;
@@ -167,7 +174,9 @@ export interface TabModel {
   preview?: boolean;
 }
 
-/** One crumb of a pane header; the last one is the current place. */
+/** One crumb of a pane header; the last one is the current place.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
+ */
 export interface CrumbModel {
   label: string;
   /** Quiet text after the crumb, e.g. a count or the record it belongs to. */

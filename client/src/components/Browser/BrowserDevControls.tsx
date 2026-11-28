@@ -53,7 +53,7 @@ function ConsoleRow({ row }: { row: ConsoleLogRow }) {
     <div className="px-3 py-0.5 flex gap-2 hover:bg-app-hover/50" data-testid="browser-console-row">
       {/* Colonna a larghezza fissa e cifre tabellari: le ore devono stare
           incolonnate anche quando le righe sotto sono di lunghezza diversa. */}
-      <span className="shrink-0 w-[52px] tabular-nums text-app-text-faint select-none">{consoleTime(row.at)}</span>
+      <span className="shrink-0 w-13 tabular-nums text-app-text-faint select-none">{consoleTime(row.at)}</span>
       <span className={`shrink-0 self-center ${tone}`} aria-hidden>
         {row.level === 'error' ? <X size={12} /> : row.level === 'warn' ? <TriangleAlert size={12} /> : <ChevronRight size={12} />}
       </span>
@@ -181,7 +181,7 @@ export function ConsoleBadge({
   const hasErr = summary.errors > 0;
   const hasWarn = !hasErr && summary.warnings > 0;
   const count = hasErr ? summary.errors : hasWarn ? summary.warnings : 0;
-  const chipBase = 'px-1.5 h-[18px] flex items-center gap-1 rounded border text-mini leading-none transition-colors';
+  const chipBase = 'px-1.5 h-4.5 flex items-center gap-1 rounded border text-mini leading-none transition-colors';
   return (
     <>
       <button ref={btnRef} type="button" title="Console"
@@ -198,7 +198,7 @@ export function ConsoleBadge({
           restore). A scrollable log panel that owns its own layout → unmanagedFocus.
           The `-my-1` wrapper cancels Menu's POPOVER_SURFACE py-1 so the header/body
           sit flush to the card edges exactly like the old POPOVER_PANEL surface. */}
-      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" unmanagedFocus className="w-[460px] max-w-[86vw]" owner={popoverOwner}>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" unmanagedFocus className="w-115 max-w-[86vw]" owner={popoverOwner}>
         <div className="-my-1 flex flex-col" data-testid="browser-console-panel">
           <div className="px-2 py-1.5 border-b border-app-border flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5">
@@ -261,7 +261,7 @@ export function ConsoleBadge({
             <div
               ref={bodyRef}
               onScroll={onBodyScroll}
-              className="max-h-[260px] overflow-y-auto py-1 font-mono text-mini leading-relaxed"
+              className="max-h-65 overflow-y-auto py-1 font-mono text-mini leading-relaxed"
             >
               {rows.length === 0 ? (
                 <div className="px-3 py-3 text-app-text-faint text-center">

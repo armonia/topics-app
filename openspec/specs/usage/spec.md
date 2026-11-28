@@ -998,3 +998,12 @@ The senders already written in the text of past messages (`<messaggio da="…">`
 - **GIVEN** a history with several samples of the same account and window, out of order
 - **WHEN** the readings are read
 - **THEN** each account and window SHALL carry the sample with the greatest timestamp
+
+### Requirement: USAGE-29 — The Dashboard names the sessions that spent the most in the last 24 hours, read as a stream
+
+`GET /api/usage/top-sessions` SHALL rank the heaviest Claude sessions of the last 24 hours from the user's transcripts, counting a subagent on its parent session. Each transcript SHALL be read one line at a time into a per-session numeric accumulator and its text discarded, so memory does not grow with the size of the transcripts. The Dashboard SHALL draw the first five with title, where it runs, model, share of the week, average context and age, mark the one holding half or more of the total, and show nothing when no transcript exists.
+
+#### Scenario: A subagent counts on its parent
+- **GIVEN** a session transcript and a subagent transcript of the same session
+- **WHEN** the ranking is built
+- **THEN** their tokens SHALL be summed on one row

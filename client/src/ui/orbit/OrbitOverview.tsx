@@ -23,7 +23,7 @@ export interface OrbitFlowStatModel {
 function ShareBar({ value }: { value: number }) {
   return (
     <span className="flex items-center gap-2.5">
-      <span className="h-1.5 w-[88px] overflow-hidden rounded-full bg-black/[0.08] dark:bg-white/[0.12]" aria-hidden="true">
+      <span className="h-1.5 w-22 overflow-hidden rounded-full bg-black/[0.08] dark:bg-white/[0.12]" aria-hidden="true">
         <span className="block h-full rounded-full bg-primary dark:bg-primary-dark" style={{ width: `${value}%` }} />
       </span>
       <span className="tabular-nums">{value}%</span>
