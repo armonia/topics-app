@@ -234,6 +234,8 @@
         // imported except by its own bench.
         "scripts/test-junit.ts",
     "scripts/disk-report.ts",        // `bun run report:disk`
+    "scripts/primary.ts",            // `bun run primary switch <machine>`: hands the primary over
+    "scripts/primary-switch-probe.ts", // `bun scripts/primary-switch-probe.ts --db <copy>`: the switch bar on a copy of a real DB
     "scripts/disk-budget-check.ts!", // `bun run check:disk-budget`, also run every night by the `disk-budget-check` launchd job: it ships, so `!`
         // Read-only run of the landing audit over a whole board:
         // `bun run scripts/landing-audit-probe.ts --db <topics.db>`.

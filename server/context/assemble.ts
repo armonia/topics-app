@@ -21,6 +21,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
+import { instanceEntryPath, TOPIC_MEMORY } from "../lib/instance-files";
 import { homedir } from "os";
 
 import type { ChatMessage } from "../providers/types";
@@ -709,7 +710,7 @@ function pushMemoryBlocks(
   // STATE_DIR, not BASE_DIR: it is the root the memory route writes to. In the
   // dev layout they coincide; in the downloaded app they do not, and the block
   // read a folder nobody writes to.
-  const topicPath = join(ctx.STATE_DIR, "memory", `${topic.id}.md`);
+  const topicPath = join(instanceEntryPath(TOPIC_MEMORY, { stateDir: ctx.STATE_DIR }), `${topic.id}.md`);
   const topicContent = readSafe(topicPath) ?? "";
   if (topicContent.trim().length > 0) {
     const id = "memory:topic";
