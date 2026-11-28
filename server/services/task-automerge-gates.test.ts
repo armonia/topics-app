@@ -65,6 +65,22 @@ describe("runStaticGates", () => {
     expect(verdict?.kind).toBe("red");
   });
 
+  test("the design-system gate runs in the CI form (an empty --changed list), the others bare", async () => {
+    const calls: string[][] = [];
+    await runStaticGates(tree(ALL, true), async (_c, a) => { calls.push(a); return ok; });
+    // "," and not "": `bun run` drops an empty argument, and spec-flow then diffs against the base.
+    expect(calls).toEqual([["lint:design-system", "--changed", ","], ["check:deadcode-prod"], ["gates:fast"]]);
+  });
+
+  test("the red names the gate's own reason, not the package manager's closing line", async () => {
+    const verdict = await runStaticGates(tree(ALL, true), async () => ({
+      code: 1,
+      stdout: "",
+      stderr: '$ spec-flow check-design-system\ncheck-design-system: 1 problemi\n  - a.tsx: raw control\nerror: script "lint:design-system" exited with code 1\n',
+    }));
+    expect(verdict).toEqual({ kind: "red", detail: "bun run lint:design-system (exit 1): - a.tsx: raw control" });
+  });
+
   test("a timeout (exit 124) and an unknown command are unmeasured, not red", async () => {
     const slow = await runStaticGates(tree(ALL, true), async () => ({ code: 124, stdout: "", stderr: "" }));
     expect(slow?.kind).toBe("unmeasured");

@@ -15,6 +15,23 @@ interface ScriptResult { code: number; stdout: string; stderr: string }
 const STATIC_GATE_SCRIPTS = ["lint:design-system", "check:deadcode-prod", "gates:fast"];
 
 /**
+ * The arguments each gate gets, so the land measures the SAME form the CI `gates` job
+ * runs. Bare `check-design-system` (spec-flow 0.8.0) is the pull-request form: it wants a
+ * `visual-proof.json` for every touched UI file, which no delivery writes yet, so every
+ * card touching a `.tsx` was refused at the land while its CI was green (28/11). ci.yml
+ * runs `check-design-system --changed ""`; switch both together once the proof exists.
+ * The empty list is spelled "," because `bun run` drops an empty argument: `--changed ""`
+ * reached spec-flow as a bare `--changed`, whose missing value falls back to the git diff.
+ * spec-flow splits on commas and drops the blanks, so "," is the same empty list.
+ */
+const STATIC_GATE_ARGS: Readonly<Record<string, readonly string[]>> = {
+  "lint:design-system": ["--changed", ","],
+};
+
+/** The package manager's own wrapper lines: they name the script, never why it failed. */
+const WRAPPER_LINE = /^(error: script ".*" exited with code \d+|\$ .*)$/;
+
+/**
  * `red`: a gate measured the tree and rejected it (back to the agent).
  * `unmeasured`: a gate could not measure (no dependencies, unknown command, timeout or
  * slot wait): never a green, never the tree's fault, so the card goes to review.
@@ -49,10 +66,13 @@ export async function runStaticGates(
     }
   }
   for (const script of scripts) {
-    const r = await runScript(cwd, [script]);
+    const r = await runScript(cwd, [script, ...(STATIC_GATE_ARGS[script] ?? [])]);
     if (r.code === 0) continue;
     const text = `${r.stderr}\n${r.stdout}`;
-    const out = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    // The reason, not `bun run`'s closing «script exited with code 1» (all the agent saw on 28/11).
+    const telling = lines.filter((l) => !WRAPPER_LINE.test(l));
+    const out = telling.length ? telling : lines;
     const line = `bun run ${script} (exit ${r.code}): ${(out.at(-1) ?? "no output").slice(0, 300)}`;
     if (r.code === TIMEOUT_EXIT_CODE) return { kind: "unmeasured", detail: `${line} (scaduto il tempo o l'attesa dello slot: il cancello non ha misurato l'albero)` };
     if (UNKNOWN_COMMAND.test(text)) return { kind: "unmeasured", detail: `${line} (lo strumento installato non ha questo comando: non è un rosso dell'albero)` };
