@@ -17,13 +17,15 @@
  * Kanban spec: KANBAN-119.
  */
 import type { Browser, BrowserContext } from "playwright-core";
-import { loadPlaywrightCore } from "../lib/playwright-loader";
+import { loadPlaywrightCore, PLAYWRIGHT_CORE_VERSION } from "../lib/playwright-loader";
 
 type PlaywrightModule = typeof import("playwright-core");
 
 export interface PreviewBrowserOptions {
   /** How Playwright is reached. Injected by tests to see which engine is launched. */
   loadPlaywright?: () => Promise<PlaywrightModule>;
+  /** Downloads the WebKit binary when the machine has none. Resolves to an exit code. */
+  installEngine?: () => Promise<number>;
   /** Close the WebKit process this long after the last capture ends. */
   idleMs?: number;
   /** Wait after `domcontentloaded` so the first paint settles. */
@@ -37,8 +39,40 @@ export interface PreviewBrowser {
   screenshot(url: string, outPath: string, opts: { width: number }): Promise<boolean>;
   /** True when the page is the Topics shell with no topic open ("Welcome to Topics"). */
   emptyAppShell(url: string): Promise<boolean>;
+  /** Why the last capture produced nothing, in one line, or null. Goes on the card. */
+  lastFailure(): string | null;
   close(): Promise<void>;
 }
+
+/**
+ * The launch failure of a machine that HAS Playwright and not its browser.
+ * A cloud node created before the provisioning downloaded WebKit answers this,
+ * and until then the capture failed silently: the card reached review with no
+ * photo, and a board that asks for one parked it in the backlog for ever
+ * (measured on two cards, 27/11).
+ */
+const ENGINE_MISSING = /Executable doesn't exist|playwright install/i;
+
+/**
+ * Downloads WebKit into this user's cache, pinned to the version the server
+ * loads. The OS libraries need root (`install-deps`, done once by the node
+ * provisioning): when they are the missing part this fails too, and then the
+ * reason is what reaches the card.
+ */
+async function defaultInstallEngine(): Promise<number> {
+  try {
+    const proc = Bun.spawn(["npx", "-y", `playwright@${PLAYWRIGHT_CORE_VERSION}`, "install", "webkit"], { // runtime-dep-ok: bootstrap of the preview's own browser
+      stdout: "ignore", stderr: "ignore",
+      timeout: ENGINE_INSTALL_TIMEOUT_MS, killSignal: "SIGKILL",
+    });
+    return await proc.exited;
+  } catch {
+    return 127; // no npx on this machine
+  }
+}
+
+/** Deadline of the WebKit download; the process is killed when it passes. */
+const ENGINE_INSTALL_TIMEOUT_MS = 300_000;
 
 /** Height of the capture: 1440×760 = 0.528, inside the card's 0.70 crop ratio. */
 const PREVIEW_HEIGHT = 760;
@@ -52,13 +86,16 @@ export function createPreviewBrowser(opts: PreviewBrowserOptions = {}): PreviewB
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const log = opts.log ?? ((...args: unknown[]) => console.error(...args));
 
+  const installEngine = opts.installEngine ?? defaultInstallEngine;
+
   let browser: Browser | null = null;
   let launching: Promise<Browser> | null = null;
   let inFlight = 0;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let engineInstalled = false;
+  let lastFailure: string | null = null;
 
-  async function launch(): Promise<Browser> {
-    const pw = await loadPlaywright();
+  async function launchWebkit(pw: PlaywrightModule): Promise<Browser> {
     const b = await pw.webkit.launch({
       headless: true,
       // Same reason as the remote browser (browser-service.ts): Playwright's own
@@ -71,6 +108,23 @@ export function createPreviewBrowser(opts: PreviewBrowserOptions = {}): PreviewB
     b.on("disconnected", () => { if (browser === b) browser = null; });
     browser = b;
     return b;
+  }
+
+  async function launch(): Promise<Browser> {
+    const pw = await loadPlaywright();
+    try {
+      return await launchWebkit(pw);
+    } catch (err) {
+      // THE MACHINE HAS NO BROWSER: download it once instead of failing for
+      // ever. The node provisioning does it at creation time, so this branch is
+      // for the machines that already existed when it was added.
+      if (!ENGINE_MISSING.test(String((err as Error)?.message ?? err)) || engineInstalled) throw err;
+      engineInstalled = true;
+      log("[preview] no capture browser on this machine: downloading WebKit once");
+      const code = await installEngine();
+      if (code !== 0) throw new Error(`the capture browser (WebKit) is missing on this machine and downloading it failed (exit ${code})`);
+      return await launchWebkit(pw);
+    }
   }
 
   async function ensureBrowser(): Promise<Browser> {
@@ -123,12 +177,18 @@ export function createPreviewBrowser(opts: PreviewBrowserOptions = {}): PreviewB
           await page.screenshot({ path: outPath, type: "png", fullPage: false });
           return true;
         });
+        lastFailure = done === true ? null : "la pagina non si è aperta nel browser dell'anteprima";
         return done === true;
       } catch (err) {
         log("[preview] screenshot", err);
+        // ONE LINE, AND IT GOES ON THE CARD. A capture that fails mute leaves a
+        // card in review with no photo and nothing to act on.
+        lastFailure = String((err as Error)?.message ?? err).split("\n")[0]!.slice(0, 300);
         return false;
       }
     },
+
+    lastFailure() { return lastFailure; },
 
     async emptyAppShell(url) {
       try {
