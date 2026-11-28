@@ -135,10 +135,21 @@ async function commitOn(db: Database, from: Computer, to: Computer, epoch: numbe
   });
 }
 
-const bootOf = (to: Computer, replica: ReplicaCommands) => applyPendingPrimaryChange({
+const bootOf = (to: Computer, replica: ReplicaCommands, holdersOf?: (path: string) => number[]) => applyPendingPrimaryChange({
   stateDir: to.stateDir, secretsDir: to.secretsDir, dbPath: to.dbPath, appDataDir: to.appDataDir, projectsDir: to.projectsDir,
-  replica, log: () => {},
+  replica, log: () => {}, ...(holdersOf ? { holdersOf } : {}),
 });
+
+/** Process ids holding `path` open, asked to the real `lsof` like the switch does. */
+function lsof(path: string): number[] {
+  if (!existsSync(path)) return [];
+  const r = spawnSync("lsof", ["-t", "--", path], { encoding: "utf-8" });
+  return (r.stdout ?? "").split(/\s+/).filter(Boolean).map(Number);
+}
+
+function replicaRunning(c: Computer): boolean {
+  try { process.kill(Number(readFileSync(join(c.root, "litestream.pid"), "utf-8").trim()), 0); return true; } catch { return false; }
+}
 
 /** The old primary hands its live DB to `to`: snapshot, stage, commit, then the receiver's boot applies it. */
 async function handOver(db: Database, from: Computer, to: Computer, epoch: number, replica: ReplicaCommands): Promise<void> {
@@ -182,6 +193,42 @@ describe.skipIf(!REPLICA_BIN)("primary switch with a real Litestream on the rece
     expect(restoredA.counts).toEqual(handedBack);
     expect(restoredA.integrity).toEqual([{ integrity_check: "ok" }]);
   }, 120_000);
+
+  // A stop that only kills the replica, under a supervisor that starts it again: when the new one
+  // opens the DB while `lsof` is still answering, the check right before the rename sees nobody.
+  // The supervisor here restarts it exactly in that window, so the outcome never depends on timing.
+  test.skipIf(!Bun.which("lsof"))("a supervisor restarts the replica while the holders are asked: the DB is not replaced and the replica restores the receiver's own data", async () => {
+    const a = computer("a");
+    const b = computer("b");
+    const dbA = openDb(a.dbPath);
+    fill(dbA, "a", 45);
+    const dbB = openDb(b.dbPath);
+    fill(dbB, "b", 10);
+    startReplica(b);
+    await untilRestored(b, 10, "b-warm");
+    dbB.close();
+
+    const replica = replicaCommandsFromEnv(b.env);
+    let askedWhileStopped = 0;
+    const supervisedHolders = (path: string): number[] => {
+      if (path !== b.dbPath || replicaRunning(b)) return lsof(path);
+      // The first question after the stop gets the truth; on the second one the supervisor wins the race.
+      if (++askedWhileStopped < 2) return lsof(path);
+      startReplica(b);
+      const deadline = Date.now() + 10_000;
+      while (lsof(path).length === 0 && Date.now() < deadline) Bun.sleepSync(50);
+      expect(lsof(path).length, "the restarted replica holds the DB").toBeGreaterThan(0);
+      return [];
+    };
+    expect((await commitOn(dbA, a, b, 2, replica)).ok).toBe(true);
+    expect(() => bootOf(b, replica, supervisedHolders)).toThrow("once the DB was set aside");
+    expect(askedWhileStopped, "the restart happened in the window under test").toBe(2);
+    expect(existsSync(`${b.dbPath}.prima-2`), "the rename was undone").toBe(false);
+    const live = new Database(b.dbPath, { readonly: true });
+    try { expect(countRows(live).messages).toBe(10); } finally { live.close(); }
+    const restored = await untilRestored(b, 10, "b-after-race");
+    expect(restored.integrity).toEqual([{ integrity_check: "ok" }]);
+  }, 60_000);
 
   test("the default setting (no replica commands): the receiver refuses the commit and its replica stays readable", async () => {
     const a = computer("a");

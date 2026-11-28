@@ -510,12 +510,10 @@ export function movedResponse(retired: Pick<RetiredState, "epoch" | "toMachineId
 
 const DB_SIDE_FILES = ["", "-wal", "-shm"];
 
-/** A DB file (and its WAL and shared memory) renamed to `<name>.prima-<epoch>`. */
-function setDatabaseAside(dbPath: string, epoch: number): string {
+/** A DB file (and its WAL and shared memory) renamed to `<name>.prima-<epoch>`; returns the paths this call moved. */
+function setDatabaseAside(dbPath: string, epoch: number): string[] {
   // The WAL and shared memory follow the DB name, so the copy set aside still opens with its last writes.
-  const aside = `${dbPath}.prima-${epoch}`;
-  for (const suffix of DB_SIDE_FILES) setAsideIfPresent(dbPath + suffix, epoch);
-  return aside;
+  return DB_SIDE_FILES.map((suffix) => dbPath + suffix).filter((path) => setAsideIfPresent(path, epoch));
 }
 
 /** How the shipped file and the one already on this computer relate, byte by byte. */
@@ -599,9 +597,11 @@ function placeShipped(from: string, to: string, root: string, opts: { kind: Bund
 }
 
 /** Renames a path aside once: a boot that runs again after a crash never overwrites the first copy set aside. */
-function setAsideIfPresent(path: string, epoch: number): void {
+function setAsideIfPresent(path: string, epoch: number): boolean {
   const aside = `${path}.prima-${epoch}`;
-  if (existsSync(path) && !existsSync(aside)) renameSync(path, aside);
+  if (!existsSync(path) || existsSync(aside)) return false;
+  renameSync(path, aside);
+  return true;
 }
 
 export interface PendingChangeInputs {
@@ -674,7 +674,19 @@ function restoreBundle(inputs: PendingChangeInputs, manifest: SwitchManifest, lo
     }
     if (swapping) {
       if (stop) refuseIfHeld(inputs.dbPath, inputs.holdersOf, "right before the DB is replaced");
-      setDatabaseAside(inputs.dbPath, epoch);
+      const moved = setDatabaseAside(inputs.dbPath, epoch);
+      // Asking who holds the DB takes time (`lsof` runs for a good fraction of a second), so a replica
+      // a supervisor restarts in that window opens the old file unseen. The rename does not move it
+      // off that file: whoever opened it before the rename shows up on the copy set aside, whoever
+      // opens it afterwards gets the new one. Held: the rename is undone and the sender stays the primary.
+      if (stop) {
+        try {
+          for (const path of moved) refuseIfHeld(`${path}.prima-${epoch}`, inputs.holdersOf, "once the DB was set aside");
+        } catch (err) {
+          for (const path of moved) renameSync(`${path}.prima-${epoch}`, path);
+          throw err;
+        }
+      }
       // The service DB of an earlier hand-over goes with it: this server is the primary again.
       setDatabaseAside(join(dirname(inputs.dbPath), RETIRED_DB_NAME), epoch);
       renameSync(stagedDb, inputs.dbPath);
@@ -739,7 +751,8 @@ export function applyPendingPrimaryChange(inputs: PendingChangeInputs): "restore
 
   const retired = readRetired(inputs.appDataDir);
   if (retired?.phase === "pending-set-aside") {
-    const aside = setDatabaseAside(inputs.dbPath, retired.epoch);
+    setDatabaseAside(inputs.dbPath, retired.epoch);
+    const aside = `${inputs.dbPath}.prima-${retired.epoch}`;
     // Everything of the instance list that moved (tokens, licence, memory, VAPID keys, ...) goes aside too.
     // The installation id went with the licence: this server makes a new one of its own.
     const dirs = { stateDir: inputs.stateDir, secretsDir: inputs.secretsDir, appDataDir: inputs.appDataDir, dataDir: dirname(inputs.dbPath) };

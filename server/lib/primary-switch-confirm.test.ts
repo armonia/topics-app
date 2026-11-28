@@ -164,6 +164,22 @@ describe("the receiver's boot, after the commit", () => {
     receiverUntouched(t.to);
   });
 
+  // Asking `lsof` takes long enough that a replica restarted in that window opens the old file
+  // unseen; the rename leaves it on the copy set aside, which is asked after the rename.
+  test("a supervisor restarts the replica while the holders are asked: the rename is undone, the sender stays the primary", async () => {
+    let booted: unknown = null;
+    const t = await attempt({
+      holdersOf: (path) => /\.prima-\d+$/.test(path) ? [process.pid + 1] : [],
+      replica: { stop: exitWith(0), start: exitWith(0) },
+      onBoot: (o) => { booted = o; },
+    }, (_from, to) => { mkdirSync(join(to.dataDir, `.${DB_NAME}-litestream`)); });
+    expect(String(booted)).toContain("once the DB was set aside");
+    expect(t.report).toMatchObject({ ok: false, outcome: "refused", step: "abandon" });
+    senderStays(t);
+    receiverUntouched(t.to);
+    expect(existsSync(`${t.to.dbPath}.prima-2`), "the rename was undone").toBe(false);
+  });
+
   test("a replica start that fails: the switch stands, and the report says what the new primary needs", async () => {
     const t = await attempt({ replica: { stop: exitWith(0), start: exitWith(4) } });
     expect(t.report).toMatchObject({ ok: true, outcome: "switched" });
