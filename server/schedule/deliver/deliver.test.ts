@@ -8,8 +8,9 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { withoutGatewayToken } from "../../lib/child-env";
 import { freshDb } from "../../services/tasks-test-db";
-import { expandArgv } from "./adapter";
+import { adapterCall, expandArgv } from "./adapter";
 import { createOwnerAlert } from "./owner-alert";
 import { createDeliveryRegistry } from "./registry";
 import { createRunDelivery } from "./run-delivery";
@@ -157,7 +158,28 @@ describe("what goes out", () => {
 describe("the adapter command", () => {
   const values = { channel: "c", chat: "", thread: "", title: "T", jobId: "j", runId: "r", key: "k" };
   test("an empty argument takes its option out with it", () => {
+    // A value that merely starts with a dash (a negative chat id) is not an option to take out.
+    expect(expandArgv(["/bin/send", "{chat}", "{thread}"], { ...values, chat: "-100", thread: "" })).toEqual(["/bin/send", "-100"]);
+    // The executable is never filled: a title cannot choose what runs.
+    expect(expandArgv(["{title}", "x"], { ...values, title: "/bin/evil" })).toEqual(["{title}", "x"]);
     expect(expandArgv(["/bin/send", "--chat", "{chat}", "--title", "{title}", "-t", "{thread}"], values)).toEqual(["/bin/send", "--title", "T"]);
+  });
+});
+
+describe("the adapter environment", () => {
+  test("the app's own secrets never reach the command", () => {
+    const base = { PATH: "/usr/bin", GATEWAY_TOKEN: "t", TOPICS_SECRET_AGE_IDENTITY: "i" };
+    const call = adapterCall({ argv: ["/bin/send"], env: {} }, { channel: "", chat: "", thread: "", title: "T", jobId: "j", runId: "r", key: "k" }, "hi", withoutGatewayToken(base));
+    expect(call.env.PATH).toBe("/usr/bin");
+    expect(call.env.GATEWAY_TOKEN).toBeUndefined();
+    expect(call.env.TOPICS_SECRET_AGE_IDENTITY).toBeUndefined();
+  });
+  test("by default the process environment is stripped the same way", () => {
+    process.env.GATEWAY_TOKEN = "leak";
+    try {
+      const call = adapterCall({ argv: ["/bin/send"], env: {} }, { channel: "", chat: "", thread: "", title: "T", jobId: "j", runId: "r", key: "k" }, "hi");
+      expect(call.env.GATEWAY_TOKEN).toBeUndefined();
+    } finally { delete process.env.GATEWAY_TOKEN; }
   });
 });
 
@@ -223,6 +245,15 @@ describe("failure alert (R24)", () => {
     expect(delivery.failureStreak("j1")).toBe(3);
     await delivery.sweep();
     expect(notices).toHaveLength(1);
+  });
+
+  test("fail, fail, skipped gives no alert: a skipped run is not an error", async () => {
+    const { delivery } = build();
+    addJob("j1", null);
+    fail(); fail(); addRun("j1", "skipped");
+    expect(delivery.failureStreak("j1")).toBe(2);
+    await delivery.sweep();
+    expect(notices).toHaveLength(0);
   });
 
   test("a run that went well resets the series", () => {

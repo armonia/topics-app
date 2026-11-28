@@ -149,5 +149,5 @@ export function terminalIdOfSubject(subject: string): string | null {
 
 /** A subject the attention store keeps a state for (not a `system:` notice). */
 export function isAttentionSubject(subject: string): boolean {
-  return [TOPIC_SUBJECT_PREFIX, TERMINAL_SUBJECT_PREFIX, TASK_SUBJECT_PREFIX].some((p) => subject.startsWith(p) && subject.length > p.length);
+  return [TOPIC_SUBJECT_PREFIX, TERMINAL_SUBJECT_PREFIX, TASK_SUBJECT_PREFIX, JOB_SUBJECT_PREFIX].some((p) => subject.startsWith(p) && subject.length > p.length);
 }

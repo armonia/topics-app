@@ -54,6 +54,8 @@ export interface RunView {
   id: string; jobId: string; occurrenceKey: string; scheduledFor: string; status: string; cause: string | null; reason: string | null;
   missedCount: number; processRef: string | null; startedAt: string | null; finishedAt: string | null;
   exitCode: number | null; stdout: string | null; stderr: string | null;
+  /** What happened to the outcome outside the app (R22/R23); null while nothing was recorded for this run. */
+  delivery: { state: string; detail: string | null } | null;
 }
 
 const kindOf = (schedule: JobSchedule) => schedule.kind === "at" ? "at" : "recurring";
@@ -85,12 +87,16 @@ export function createJobsService(db: Database, options: JobsServiceOptions) {
   };
   const lastRunOf = (id: string) => db.query("SELECT * FROM scheduled_job_runs WHERE job_id = ? AND status != 'missed' ORDER BY created_at DESC, rowid DESC LIMIT 1").get(id) as RunRow | null;
 
+  // The register keys a run's delivery on the run id.
+  const deliveryOf = (runId: string) => db.query("SELECT state, detail FROM deliveries WHERE key = ?").get(runId) as { state: string; detail: string | null } | null;
+
   function runView(row: RunRow): RunView {
     const run = parseRun(row);
     return {
       id: run.id, jobId: run.jobId, occurrenceKey: run.occurrenceKey, scheduledFor: run.scheduledFor.toISOString(), status: run.status,
       cause: run.cause, reason: run.reason, missedCount: run.missedCount, processRef: run.processRef,
       startedAt: row.started_at, finishedAt: row.finished_at, exitCode: row.exit_code ?? null, stdout: row.stdout_tail ?? null, stderr: row.stderr_tail ?? null,
+      delivery: deliveryOf(run.id),
     };
   }
 

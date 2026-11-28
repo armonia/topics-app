@@ -8,6 +8,7 @@
  * resolved to an absolute path before it runs. stderr is read for the error
  * message only: it never leaves the app.
  */
+import { withoutGatewayToken } from "../../lib/child-env";
 import { isAbsolute } from "node:path";
 import type { AdapterConfig, Destination } from "./settings";
 
@@ -24,22 +25,35 @@ export interface AdapterResult {
 /** Runs one call. Production spawns a process; tests record what they were given. */
 export type AdapterRunner = (call: AdapterCall) => Promise<AdapterResult>;
 
+const PLACEHOLDER_TEST = /\{(channel|chat|thread|title|jobId|runId|key)\}/;
 const PLACEHOLDER = /\{(channel|chat|thread|title|jobId|runId|key)\}/g;
 export const ADAPTER_TIMEOUT_MS = 60_000;
 
 const fill = (value: string, values: AdapterValues) => value.replace(PLACEHOLDER, (_all, name: keyof AdapterValues) => values[name]);
 
-/** Fills the placeholders, then takes out every empty argument together with the option that introduced it. */
+/**
+ * Fills the placeholders, then takes out every empty argument together with the option that introduced it.
+ * Only a literal option of the configuration counts as an introducer (`--thread {thread}`): a value that
+ * merely starts with a dash, like a negative chat id in a positional slot, is never removed. The
+ * executable (first item) is never filled: a job title must not choose what runs.
+ */
 export function expandArgv(argv: string[], values: AdapterValues): string[] {
   const out: string[] = [];
-  for (const item of argv.map((arg) => fill(arg, values))) {
-    if (item !== "") { out.push(item); continue; }
-    if (out.length > 1 && out[out.length - 1].startsWith("-")) out.pop();
-  }
+  let introducer = false;
+  argv.forEach((template, index) => {
+    const item = index === 0 ? template : fill(template, values);
+    if (item !== "") {
+      out.push(item);
+      introducer = index > 0 && /^-/.test(template) && !PLACEHOLDER_TEST.test(template);
+      return;
+    }
+    if (introducer && out.length > 1) out.pop();
+    introducer = false;
+  });
   return out;
 }
 
-export function adapterCall(config: AdapterConfig, values: AdapterValues, stdin: string, baseEnv: Record<string, string | undefined> = process.env): AdapterCall {
+export function adapterCall(config: AdapterConfig, values: AdapterValues, stdin: string, baseEnv: Record<string, string | undefined> = withoutGatewayToken(process.env)): AdapterCall {
   const argv = expandArgv(config.argv, values);
   const executable = argv[0];
   // A bare name is looked up on the PATH once, here: what runs is a path, never a shell word.
