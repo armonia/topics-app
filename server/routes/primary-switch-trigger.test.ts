@@ -17,6 +17,7 @@ import { fenceInternalWrites, initPrimaryRole } from "../lib/primary-role";
 import { createScheduleEngine, type ActionExecutor } from "../schedule/engine";
 import { handlePrimarySwitch, type PrimarySwitchTriggerDeps } from "./primary-switch-trigger";
 import type { Database } from "bun:sqlite";
+import { flush, dispatch, harness, MACHINE, TASK } from "../services/task-dispatcher-remote-node-test-support";
 
 const STAMP = "2026-01-01T00:10:00.000Z";
 const NODE = { id: "m-node", name: "node", hostname: "node-host", baseUrl: "https://node.example" };
@@ -174,4 +175,83 @@ describe("primary switch trigger: card runs on the destination", () => {
     expect(report.parked).toEqual([]);
     expect(t.parkedRuns).toEqual([]);
   });
+});
+
+describe("primary switch trigger: a card launch still in the air toward the destination", () => {
+  const TARGET = { id: MACHINE, name: "node", hostname: "node-host", baseUrl: "https://node.example" };
+
+  /** The REAL dispatcher of the remote lane behind the trigger, its `createRun` held by the test. */
+  function triggerOverLaunch() {
+    writeFileSync(join(root, "state", "nodes", `${TARGET.id}.token`), "a-node-token-of-enough-length");
+    initPrimaryRole({ db, stateFile: join(root, "primary-state.json"), localMachineId: () => "m-local", log: () => {} });
+    let answer!: (v: { runId: string }) => void;
+    const h = harness({ createRun: () => new Promise((r) => { answer = r; }) });
+    h.seed();
+    const deps: PrimarySwitchTriggerDeps = {
+      ctx: {
+        db,
+        STATE_DIR: join(root, "state"),
+        APP_DATA_DIR: join(root, "data"),
+        activeStreams: new Map(),
+        machineStore: {
+          upsertLocal: () => ({ id: "m-local", name: "local", hostname: "local-host" }),
+          list: () => [{ id: "m-local", name: "local", hostname: "local-host" }, TARGET],
+        },
+      } as unknown as PrimarySwitchTriggerDeps["ctx"],
+      dispatcher: h.dispatcher,
+      release: () => undefined,
+      schedule: { pauseStarts: () => undefined, resumeStarts: () => undefined, inFlightRuns: () => [], cancelOpenRuns: () => 0 },
+      abortTurn: async () => undefined,
+      fetch: (async (_url: unknown, init?: RequestInit) => init?.method === "PUT"
+        ? new Response("{}", { status: 200 })
+        : new Response(JSON.stringify({ code: "not_ready", error: "no" }), { status: 409 })) as unknown as typeof fetch,
+    };
+    const run = async (drainTimeoutMs: number) => {
+      const res = await handlePrimarySwitch(
+        new Request("http://localhost/__daemon/primary-switch", { method: "POST", body: JSON.stringify({ machine: TARGET.id, drainTimeoutMs }) }),
+        deps,
+      );
+      return await res.json() as { outcome: string; parked: string[] };
+    };
+    return { h, run, answer: (runId: string) => answer({ runId }) };
+  }
+
+  test("a createRun nobody answered when the wait expires is parked: run cancelled when it is born, card back in the queue", async () => {
+    const t = triggerOverLaunch();
+    await dispatch(t.h);
+    expect(t.h.calls).toContain("create");
+    expect(t.h.task().status).toBe("in_progress");
+
+    const report = await t.run(0);
+    // The launch is the work the switch found, and it went through the node path.
+    expect(report.parked).toEqual([TASK]);
+    expect(t.h.task().status).toBe("todo");
+    const stored = () => (t.h.db.query("SELECT node_run_id FROM tasks WHERE id = ?").get(TASK) as { node_run_id: string | null }).node_run_id;
+    expect(stored(), "the card is not tied to a run the node never named").toBeNull();
+
+    t.answer("run-late");
+    await flush();
+    expect(t.h.calls).toContain("cancel:run-late");
+    expect(t.h.task().status).toBe("todo");
+    expect(stored()).toBeNull();
+  });
+
+  test("the switch waits for a launch that is still in the air and parks nothing", async () => {
+    const t = triggerOverLaunch();
+    await dispatch(t.h);
+    let settled = false;
+    const switching = t.run(60_000).then((r) => { settled = true; return r; });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(settled, "the switch is still waiting").toBe(false);
+    expect(t.h.task().status, "and the launch was left alone").toBe("in_progress");
+
+    // The node names the run, then the run leaves (here: parked by hand, as the board does when it
+    // gives up on a run): the next look of the drain finds nothing left, and the switch itself parked nothing.
+    t.answer("run-1");
+    await flush();
+    expect(t.h.dispatcher.nodeRunsOn(MACHINE), "the named run still counts").toEqual([{ taskId: TASK, sessionKey: `node:${MACHINE}:run-1` }]);
+    await t.h.dispatcher.parkNodeRun(TASK, "run gone");
+    const report = await switching;
+    expect(report.parked).toEqual([]);
+  }, 15_000);
 });
