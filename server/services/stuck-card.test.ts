@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Task } from "./task-shapes";
 import type { OverflowMachine } from "./dispatch-overflow";
-import { diagnoseStuckCard, STUCK_AFTER_MS, STUCK_NOTE_PREFIX, sweepStuckCards, type StuckContext, type StuckSweepSvc } from "./stuck-card";
+import { diagnoseStuckCard, FULL_REQUEUE_AFTER_MS, STUCK_AFTER_MS, STUCK_NOTE_PREFIX, sweepStuckCards, type StuckContext, type StuckSweepSvc } from "./stuck-card";
 
 const NOW = Date.parse("2026-11-26T12:00:00.000Z");
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
@@ -53,6 +53,34 @@ describe("diagnoseStuckCard", () => {
     const v = diagnoseStuckCard(card({ machineId: "pc" }), ctx({ loadOf: () => 2 }))!;
     expect(v.note).toContain("«PC» è piena (2 card su 2 posti)");
     expect(v.requeue).toBe(false);
+  });
+
+  test("this Mac's memory floor does not hide a card pinned to a full node: it still goes back to the queue", () => {
+    // The overflow pins cards to nodes exactly while this Mac is under its floor, and every queued card reads that block.
+    const stuckSinceMinutes = Math.ceil(FULL_REQUEUE_AFTER_MS / 60_000) + 1;
+    const floor = { kind: "resource_floor", tone: "waiting", key: "board.queue.memory.measuring" } as Task["queueReason"];
+    const v = diagnoseStuckCard(card({ machineId: "pc", updatedAt: ago(stuckSinceMinutes), queueReason: floor }), ctx({ loadOf: () => 2 }))!;
+    expect(v.requeue).toBe(true);
+    expect(v.skipMachineId).toBe("pc");
+    // A card that waits for THIS Mac (no node) keeps the floor as its reason.
+    expect(diagnoseStuckCard(card({ queueReason: floor }), ctx())).toBeNull();
+    // A full disk and the spend cap stop the remote lane too: on a pinned card they stay its reason.
+    for (const held of [
+      { kind: "resource_floor", tone: "stalled", key: "board.queue.resourceFloor", params: { reason: "disk full" } },
+      { kind: "spend_cap", tone: "stalled", key: "board.queue.spendCap" },
+    ]) {
+      expect(diagnoseStuckCard(card({ machineId: "pc", updatedAt: ago(stuckSinceMinutes), queueReason: held as Task["queueReason"] }), ctx({ loadOf: () => 2 }))).toBeNull();
+    }
+  });
+
+  test("a full machine held THIS long gives up its seat: back to the queue, away from it", () => {
+    const stuckSinceMinutes = Math.ceil(FULL_REQUEUE_AFTER_MS / 60_000) + 1;
+    const v = diagnoseStuckCard(
+      card({ machineId: "pc", updatedAt: ago(stuckSinceMinutes) }),
+      ctx({ loadOf: () => 2 }),
+    )!;
+    expect(v.requeue).toBe(true);
+    expect(v.skipMachineId).toBe("pc");
   });
 
   test("a silent machine sends the card back to the queue, away from it", () => {
@@ -101,6 +129,19 @@ describe("sweepStuckCards", () => {
     expect(out).toEqual([{ id: "t1", requeued: true }]);
     expect(seen).toHaveLength(1);
     expect(seen[0]![1]).toBe("pc");
+  });
+
+  test("a card already told 'machine full' still escalates to a requeue once the cap passes", () => {
+    const stuckSinceMinutes = Math.ceil(FULL_REQUEUE_AFTER_MS / 60_000) + 1;
+    const { svc } = fakeSvc([card({ machineId: "pc", updatedAt: ago(stuckSinceMinutes) })]);
+    svc.addComment({ taskId: "t1", author: "system", kind: "service", content: `${STUCK_NOTE_PREFIX} 70 min: la macchina è piena.` });
+    const seen: Array<[string, string | null]> = [];
+    const out = sweepStuckCards({
+      ...ctx({ loadOf: () => 2 }), svc,
+      requeue: (id, skip) => { seen.push([id, skip]); return true; },
+    });
+    expect(out).toEqual([{ id: "t1", requeued: true }]);
+    expect(seen).toEqual([["t1", "pc"]]);
   });
 
   test("a requeue that fails writes nothing and is tried again next pass", () => {

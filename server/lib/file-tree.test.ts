@@ -7,7 +7,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFileTreeSlowLogger, walkFileTree, walkFileTreeJs, type FileNode } from "./file-tree";
+import { createFileTreeSlowLogger, fileTreeIo, walkFileTree, walkFileTreeJs, type FileNode } from "./file-tree";
 import { makeFakeHome } from "./protected-app-data.fixture";
 
 const root = mkdtempSync(join(tmpdir(), "file-tree-"));
@@ -75,26 +75,54 @@ test.skipIf(RUNS_AS_ROOT)("a file that cannot be stat-ed still comes out, withou
 });
 
 describe("walkFileTree hands the event loop back while it walks", () => {
-  test("the loop turns between the entries of a walk, not once at its end", async () => {
-    // 12 folders x 20 files. Counted in loop turns, not milliseconds, so a busy
-    // machine cannot make it pass or fail: a walk that stats a folder's entries
-    // concurrently resolves them back to back and the loop turns a handful of
-    // times; one entry at a time, it turns at least once per stat.
-    const root = mkdtempSync(join(tmpdir(), "walk-yield-"));
-    for (let d = 0; d < 12; d++) {
-      mkdirSync(join(root, `dir${d}`));
-      for (let f = 0; f < 20; f++) writeFileSync(join(root, `dir${d}`, `file${f}.txt`), "x");
+  // A real stat/readdir makes this flaky: under load libuv finishes several of
+  // them in the same poll-phase batch, so even a one-entry-at-a-time walk can
+  // turn the loop fewer times than a busy machine's run before it (card
+  // 5bfe8272, PR #1786, two red CI runs on the same green commit). Swapping
+  // `fileTreeIo` for a fake whose "I/O" is only a `setImmediate` tick removes
+  // the disk and the thread pool from the picture: every resolution is a step
+  // in the JS queue, which Bun processes in the same order regardless of CPU
+  // speed, so the turn count becomes a fixed number rather than a measurement.
+  const DIR_COUNT = 12;
+  const FILE_COUNT = 20;
+  const FAKE_ROOT = "/fake-walk-root";
+  const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+  function fakeEntries(dir: string): Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }> {
+    if (dir === FAKE_ROOT) {
+      return Array.from({ length: DIR_COUNT }, (_, d) => ({ name: `dir${d}`, isDirectory: () => true, isFile: () => false }));
     }
+    return Array.from({ length: FILE_COUNT }, (_, f) => ({ name: `file${f}.txt`, isDirectory: () => false, isFile: () => true }));
+  }
+
+  async function walkWithFakeIo(readdir: typeof fileTreeIo.readdir, stat: typeof fileTreeIo.stat): Promise<{ tree: FileNode[]; turns: number }> {
+    const realReadDir = fileTreeIo.readdir;
+    const realStat = fileTreeIo.stat;
+    fileTreeIo.readdir = readdir;
+    fileTreeIo.stat = stat;
     let turns = 0;
     let on = true;
     const spin = (): void => { turns++; if (on) setImmediate(spin); };
     setImmediate(spin);
-    const tree = await walkFileTreeJs(root, 2); // the JS walk: the native one runs off the loop and its turn count depends on the machine
-    on = false;
-    rmSync(root, { recursive: true, force: true });
-    expect(tree).toHaveLength(12);
-    expect(turns).toBeGreaterThanOrEqual(120);
+    try {
+      const tree = await walkFileTreeJs(FAKE_ROOT, 2);
+      return { tree, turns };
+    } finally {
+      on = false;
+      fileTreeIo.readdir = realReadDir;
+      fileTreeIo.stat = realStat;
+    }
+  }
+
+  test("one entry at a time: the loop turns at least once per entry, 20/20 regardless of load", async () => {
+    const oneAtATime: typeof fileTreeIo.readdir = async (dir) => { await tick(); return fakeEntries(dir); };
+    const oneAtATimeStat: typeof fileTreeIo.stat = async () => { await tick(); return { size: 1, mtime: new Date(0) }; };
+    const { tree, turns } = await walkWithFakeIo(oneAtATime, oneAtATimeStat);
+    expect(tree).toHaveLength(DIR_COUNT);
+    // 1 readdir/dir (x12) + 1 stat/file (x240) + the root readdir, each its own tick.
+    expect(turns).toBeGreaterThanOrEqual(DIR_COUNT * FILE_COUNT);
   });
+
 });
 
 describe("walkFileTree never crosses into other apps' data", () => {

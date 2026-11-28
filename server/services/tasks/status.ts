@@ -15,11 +15,20 @@ import { readGlobalCap, readSpendCaps, readChecksMemFloorGB } from "../dispatch-
 import { isNodeChildRun } from "../node-child-run";
 import { checksMemFloorGB } from "../../../shared/checks-memory-floor";
 
-export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "countRunningOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend" | "agentSpendClearsAt"> {
+/**
+ * A run that holds no seat on its machine: in progress, and its chip says it
+ * declared a wait (`waiting`) or asks a person (`needs_input`). No turn runs
+ * there. A card in Todo with the `waiting` chip (a silent node's deferral) is
+ * not this: it waits for a seat, so it keeps counting.
+ */
+const RESTING_RUN_SQL = "(status = 'in_progress' AND COALESCE(dispatch_state, '') IN ('waiting', 'needs_input'))";
+
+export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "countRunningOnMachine" | "restingOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend" | "agentSpendClearsAt"> {
   const {
     agentAskOnThread,
     annotateDeliveryClaims,
     assertBlockerValid,
+    assertNoLiveDependents,
     checkedStage,
     childLeftFlight,
     getTaskRow,
@@ -81,6 +90,18 @@ export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: Re
        SELECT COUNT(*) AS c FROM anc WHERE topic = ? AND id != ?`,
     ).get(taskId, topicId, taskId) as any;
     return (r?.c ?? 0) > 0;
+  }
+
+  /** `taskId` and every card under it, any depth — what one `archive()` call takes down. */
+  function descendantIds(taskId: string): string[] {
+    return (db.prepare(
+      `WITH RECURSIVE subtree(id) AS (
+         SELECT id FROM tasks WHERE id = ?
+         UNION ALL
+         SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+       )
+       SELECT id FROM subtree`,
+    ).all(taskId) as Array<{ id: string }>).map((r) => r.id);
   }
 
 /**
@@ -245,7 +266,8 @@ function assertParentValid(taskId: string, parentId: string): void {
   }
 
   return {
-update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, statusReason, messageId, origin, asCoordinator }): Task {
+update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, statusReason, messageId, origin, asCoordinator, systemAction }): Task {
+      const systemClose = actor === "agent" && !!systemAction?.closeProof?.trim();
       const row = getTaskRow(taskId);
       // projectId guard: a session may only touch tasks on its own project.
       // A mismatch is reported as not_found (not 403) so cross-project ids stay
@@ -361,7 +383,8 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
         // ONE carve-out: its own checklist steps (strict descendants of the
         // task bound to its topic) close directly — they are the agent's plan,
         // not the deliverable the human reviews.
-        if (patch.status === "done" && actor === "agent" && !(agentTopicId && isOwnStep(taskId, agentTopicId))) {
+        // A system rule may close a card only with its verified proof, which the caller wrote in the thread.
+        if (patch.status === "done" && actor === "agent" && !systemClose && !(agentTopicId && isOwnStep(taskId, agentTopicId))) {
           throw new TaskServiceError(
             "agent_cannot_complete",
             "agents deliver to 'review' for human approval; only a human moves 'review' → 'done' (exception: subtask steps of YOUR assigned task). Set status to 'review' instead.",
@@ -398,7 +421,7 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
           );
         }
         // Agent entering review → open a pending review approval for the human.
-        if (patch.status === "review" && actor === "agent" && current !== "review") {
+        if (patch.status === "review" && actor === "agent" && !systemAction && current !== "review") {
           // A DELIVERY IS DECLARED, NOT GUESSED.
           //
           // The gate used to accept any fresh agent comment — one written after
@@ -584,7 +607,7 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
         // Chi chiude, e chi riapre — i due fatti che la board deve poter dire da
         // sé (il thread non basta: chi guarda la colonna vede solo il buco).
         if (patch.status === "done") {
-          put("done_actor", actor);
+          put("done_actor", systemClose ? "system" : actor);
           // Ciclo chiuso: la card è di nuovo fatta, non è più «riaperta».
           put("reopened_at", null); put("reopened_by", null); put("reopened_actor", null);
         } else if (current === "done" || (current === "review" && patch.status !== "review")) {
@@ -713,8 +736,9 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
         // `delivered_reason` si azzera: è la causa di QUESTA consegna, e questa
         // non è di sistema.
         if (patch.status === "review" && current !== "review") {
-          put("delivered_by", actor);
-          put("delivered_reason", null);
+          put("delivered_by", systemAction ? "system" : actor);
+          put("delivered_reason", systemAction?.reason ?? null);
+          if (systemAction && humanAsk) put("dispatch_state", "needs_input");
         }
         // A HUMAN dragging a task into todo is a fresh mandate: reset the
         // retry budget. Without this, a task parked at the cap could never be
@@ -926,7 +950,10 @@ overflowToMachine({ taskId, machineId, localMachineId }): Task | null {
 // condition elsewhere) releases the seat at once instead of holding it
 // until the deferral window elapses. 26/11: a card closed on the primary
 // but still carrying `machine_id` counted as busy on a node that had
-// nothing left running for it.
+// nothing left running for it. A run at work there that rests on a declared
+// wait or a question (`RESTING_RUN_SQL`) gives its seat back as well. A card
+// claimed for it (chip `starting`) holds its seat before its run opens: it is
+// in no live slot until `beginRun`, so without this a launch counts nowhere.
 countOnMachine(machineId: string): number {
       const row = db.prepare(
         `SELECT COUNT(*) AS n FROM tasks
@@ -934,17 +961,27 @@ countOnMachine(machineId: string): number {
             AND (COALESCE(dispatch_state, '') != 'waiting' OR COALESCE(wait_source, 'agent') = 'machine')
             AND (
               (status = 'in_progress' AND node_run_open = 1)
+              OR (status = 'in_progress' AND node_run_open = 0 AND dispatch_state = 'starting')
               OR (status = 'todo' AND node_run_open = 0)
-            )`,
+            )
+            AND NOT (${RESTING_RUN_SQL})`,
       ).get(machineId) as { n: number } | null;
       return row?.n ?? 0;
     },
 
 countRunningOnMachine(machineId: string, exceptTaskId?: string): number {
       const row = db.prepare(
-        "SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status = 'in_progress' AND archived = 0 AND id != ?",
+        `SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status = 'in_progress' AND archived = 0 AND id != ?
+           AND NOT (${RESTING_RUN_SQL})`,
       ).get(machineId, exceptTaskId ?? "") as { n: number } | null;
       return row?.n ?? 0;
+    },
+
+restingOnMachine(machineId: string): string[] {
+      const rows = db.prepare(
+        `SELECT id FROM tasks WHERE machine_id = ? AND archived = 0 AND ${RESTING_RUN_SQL}`,
+      ).all(machineId) as Array<{ id: string }>;
+      return rows.map((r) => r.id);
     },
 
 claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption, remote }): Task | null {
@@ -1632,6 +1669,26 @@ resolveParkedChildren(this: TaskService, { taskId, decision, by }): { task: Task
       const firma = by || "system";
       const ts = now();
       const children: Task[] = [];
+      // One decision archives the WHOLE batch together: a `blockedByTaskId`
+      // between two parked siblings (step2 waits on step1) must not reject the
+      // batch just because the other half has not archived yet (review
+      // feedback, 26/11 — `archive` was throwing on the first of the two).
+      // The batch is not just the DIRECT parked children: `archive(c)` takes
+      // down c's whole subtree, so a grandchild blocked by a sibling (g2,
+      // child of step2, blockedBy step1) archives together with it too — and
+      // must be excluded from the live-dependent check the same way, or the
+      // precheck rejects a card the very same decision is about to archive
+      // (review feedback, 26/11, point 2).
+      const archiveBatchIds = decision === "archive" ? parked.flatMap((c) => descendantIds(c.id)) : [];
+      // Validate the WHOLE batch before archiving ANY of it. The loop below used to
+      // archive siblings one at a time with no precheck: the first sibling blocking
+      // only an EXTERNAL card (outside this batch) would archive fine, and the next
+      // one blocking an external dependent would throw mid-loop, leaving the batch
+      // half-archived and the parent stuck in `review` forever (review feedback,
+      // 26/11, point 3a).
+      if (decision === "archive") {
+        for (const c of parked) assertNoLiveDependents(c.id, archiveBatchIds);
+      }
       for (const c of parked) {
         if (decision === "requeue") {
           // Budget azzerato: un sottotask parcheggiato può aver bruciato tentativi
@@ -1676,7 +1733,7 @@ resolveParkedChildren(this: TaskService, { taskId, decision, by }): { task: Task
           const t = getTaskRow(c.id);
           if (t) children.push(rowToTask(t));
         } else {
-          children.push(this.archive({ taskId: c.id }));
+          children.push(this.archive({ taskId: c.id, excludeDependentIds: archiveBatchIds }));
         }
       }
       // The copy lives in `shared/board.ts`, next to the predicate that has to

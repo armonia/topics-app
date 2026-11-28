@@ -2,14 +2,255 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.5.6 — 2026-11-26
+## 2.5.24 — 2026-11-28
 
 ### Sotto il cofano
+- node-pool: realign the permanent node without draining slots
+- cut-run test falls back to lsof on macOS and always kills the runner group
+- node-pool: AI bridge on the nodes and a cap on new cards when behind
+
+## 2.5.22 — 2026-11-27
+
+### Correzioni
+- **node-mirror** · a null attachment is gone for good, not a hiccup to retry forever
+
+### Sotto il cofano
+- **openspec** · archive tetto-contesto-agenti; CHAT-COMPACT-06 joins the chat spec
+- Catch a land denial with no sha, and reorder a misplaced docblock
+
+## 2.5.21 — 2026-11-27
+
+### Correzioni
+- **native** · the agent's ceiling is checked when a turn starts; a lightened argument stays as it was
+- **native** · an agent's ceiling never clips fresh tool results; token-audit bounds the markers too
+- **native** · an agent's ceiling applies only on a turn a person opened; a resume keeps its request
+- **native** · the ceiling skips a continuation, not every turn nobody typed in the composer
+- **native** · a wake is a continuation too; one list of machine marks for continuation and sentByPerson
+- **tests** · close the race between retiring the orphan guard and re-arming it
+
+### Sotto il cofano
+- Trace the main-claim review check to KANBAN-11, not a card id
+- **openspec** · tetto-contesto-agenti, the ceiling at turn start and its three new scenarios
+- node-pool: repo copy gets the drain fix (needs_input and waiting cards do not count), with a regression test
+- **openspec** · tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k
+- **openspec** · tetto-contesto-agenti, the ceiling skips continuations; a Discord message from Jarvis's channel gets it
+- picker keeps projects under ~/.claude, a queued card can move boards, merged parent header shows its name
+- Declare coverage of the merged-parent name test
+- **openspec** · tetto-contesto-agenti, wakes are continuations
+- secret-store: fix three more ways to lose a secret
+- node-pool: permanent node gets ci-governor files again (shared PERMANENT_FILES list), with a test
+
+## 2.5.20 — 2026-11-27
+
+### Novità
+- **native** · an agent's chats compact at an absolute token ceiling
+
+### Correzioni
+- **node-delivery** · move the spawn allowlist entry to where the install call now lives
+- **tests** · the two-server test's roots outlive a normal run
+- **tests** · retire the orphan guard right after the shared helper's server stops
+
+### Sotto il cofano
+- secret-store: mutex per file, derived recipient, Keychain limit and read-back, no env identity, secrets dir, CI age retry
+- review-checks brakes: load gets its own budget clock, only the load reason is released by it (card 9fecea98)
+- review-checks brakes test: complete the spent clocks literal (card 9fecea98)
+- age is a spawned test binary, not dead code
+- Prove "already on main" before writing it, and warn review of a false claim
+- **native** · the ceiling reaches the loop inside the turn's own process
+- **openspec** · tetto-contesto-agenti, CHAT-COMPACT-06 and its bar; token-audit measures an agent's calls
+- **openspec** · no machine path in the proposal
+
+## 2.5.19 — 2026-11-27
+
+### Correzioni
+- **gates** · record task-dispatcher-remote-node.test.ts growth with a live exception
+- **gates** · drop unused nodeTokenPath re-export flagged by deadcode-prod
+
+### Sotto il cofano
+- the cut-run mutation is caught at the registration contract
+- Card legata a un nodo pieno: il pavimento di memoria del Mac non la nasconde al controllo delle card ferme
+- Card ferme: per una card legata a un nodo cade solo il pavimento di memoria del Mac, il disco pieno e la spesa restano un motivo (fermano anche la corsia remota)
+- Revert "chore(release):
+
+## 2.5.18 — 2026-11-27
+
+### Correzioni
+- **gates** · declare untraced test coverage, split node-client under bloat threshold
+
+### Sotto il cofano
+- Test della scala del bundle: un'identità git sua, il runner della CI non ne ha una globale
+- Test della scala del bundle: main esplicito, senza config globale init crea master e set-head -a non trova la HEAD
+- primary-role test: drop duplicated worktree opt-out after merge (card 9fecea98)
+- **spec** · name E2E-GATE-15 for the orphan-guard cut-run test
+
+## 2.5.17 — 2026-11-27
+
+### Correzioni
+- **dispatch** · split node-client.ts under the bloat threshold, name the reason for a declined remote claim
+- **node-delivery** · widen the install-call slice after the checkout revert's extra comments
+
+### Sotto il cofano
+- Nodo senza origin: il bundle del ramo si allarga quando il nodo dice che gli mancano i commit
+- Test della scala del bundle: il margine viene prima della storia intera, e «whole» non taglia mai
+
+## 2.5.16 — 2026-11-27
+
+### Correzioni
+- **secrets** · pack refuses to write when the secrets file exists but did not decrypt
+- **secrets** · read and unpack swallow only the decryption failure
+
+### Sotto il cofano
+- **dispatch** · native child ignores card reserve; mutation-killing tests for reservedMemGB
+- Node reruns: the system's red/conflict send-back reaches the node brief
+- check-bloat: record the overflow test growth of the CI-red bounce cards
+- check-bloat: exception for the overflow test grown by the CI-red bounce cards
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-27 [skip ci]
+- Impianto dei test di overflow in un modulo a parte: main torna sotto il tetto di check:bloat
+- Node brief: scheduled-review send-backs and reviewer answers reach the node like the red bounce
+- check-bloat: overflow test ceiling follows main down to 1631
+
+## 2.5.15 — 2026-11-27
+
+### Sotto il cofano
+- DESIGN.md: approvata la prima riga del telefono sotto il titolo
+- Il rimbalzo per CI rossa vale solo finché main è rossa; il testo all'agente dice di verificare il passo rosso
+
+## 2.5.14 — 2026-11-27
+
+### Correzioni
+- **dispatch** · reserve per card net of its own measured tree, no double count in the memory brake
+
+### Sotto il cofano
+- Una card rimandata dalla CI rossa su main dopo il land non si chiude come già in main
+
+## 2.5.13 — 2026-11-27
+
+### Sotto il cofano
+- secret-store: timeout sui comandi e voce nell'elenco degli spawn sincroni
+
+## 2.5.12 — 2026-11-27
+
+### Sotto il cofano
+- Revert the detached node-check worktree: CI rows can no longer read a branch
+- secret-store test: salta la suite age se i binari mancano
+- Revert "secret-store test: salta la suite age se i binari mancano"
+- installa age nel job unit per i test del deposito segreti
+
+## 2.5.11 — 2026-11-27
+
+### Correzioni
+- **node-meter** · fall back to the planted branch when the delivered commit is not resolvable yet
+- **dispatch** · long timeout for createRun, dedupe the silent remote-claim log line
+
+### Sotto il cofano
+- Fix queue order drift and false queue notes in the review sweep
+- **review-checks** · split the mac-only isMacOnlyDiff coverage into its own file
+- Drop the queue note and free a node delivery's local slot early
+
+## 2.5.10 — 2026-11-27
+
+### Correzioni
+- **land** · block a manual land while the bar is still running
+- **secrets** · age store filters unpack/read by the current allowlist
+- **secrets** · age store keeps the whole file map, filters only its outputs, and never rewrites for refused names
+- **dispatch** · a branch origin is only ahead on is already there
+- **dispatch** · originContains fetches without tags, like fetchRemoteBase
+
+### Sotto il cofano
+- **dispatch** · the resting-seat tests fit under the file's bloat ceiling
+- Prioritize human-confirmed lands in the review remeasure sweep
+- rerun the touched-test check after a load-induced relay flake
+- **relay** · retry tsc file listing once under load before judging the program
+- Revert "test(relay): retry tsc file listing once under load before judging the program"
+- rerun the review check
+
+## 2.5.9 — 2026-11-27
+
+### Correzioni
+- **gates** · a template's chunks end at its backtick, not 400 bytes later
+- **dispatch** · free a node seat a waiting run holds forever, log the silent remote claim, cap node calls with a deadline
+- **gates** · templateChunks back inside ui-language-scan.ts's 800-line budget
+- **browser** · resolve the installed playwright-core entry from its own manifest
+
+### Sotto il cofano
+- DESIGN.md: round 3 di tab e sidebar approvato (27/11)
+- **review-checks** · cover isMacOnlyDiff and the swap-exhausted mac-only branch
+- a riposo la prima riga della colonna sta sotto il titolo
+
+## 2.5.8 — 2026-11-27
+
+### Novità
+- **deploy** · Windows node scripts move into deploy/windows-node, single node-tools list, no personal paths
+
+### Correzioni
+- **nodes** · retry failed attachments, test previewImage, extract delivery mainRef wiring
+- **board** · read the clock once per render in the load gauge
+- **board** · close the review's 5 blocking gaps on archive/revoke/dedupe
+- **land** · close a card whose delivery already reached main
+
+### Sotto il cofano
+- Revisione del round 3: cancelli statici verdi, colonna che riapre l'isola giusta, semafori dalla sola finestra principale
+- Riga archiviata in due tempi: prima esce, poi le righe sotto risalgono
+- tolto l'aggancio di test che nessun test usa
+- **bump** · pin the patch/minor/major case to a 0.x version
+- Uscita in due tempi anche per le righe che non sono treeitem, semafori solo dalla finestra principale
+- Il test del bump non presume che la versione di partenza sia diversa
+- CI della PR: tetto del bundle sulla misura, test di bump senza la bomba del 2.5.7
+- drop the packages.microsoft.com apt source before installing Playwright
+- Il deposito dei segreti ha il suo requisito, MACHINE-06, e il test lo dichiara
+- Il deposito dei segreti è dichiarato in attesa del suo primo chiamante
+
+## 2.5.7 — 2026-11-26
+
+### Correzioni
+- **dispatch** · a card at work with no chip keeps its seat (NULL never matches IN)
+- **land** · node deliveries with a null checks_state are measured again, and every mute exit of the meter says why
+- **review-checks** · give isMacOnlyDiff's git read a deadline and list it
+- **browser** · pin playwright-core to the exact locked version, install with integrity and a deadline
+- **gates** · ci-impact fixtures no longer read as the file's own @covers
+- **node-delivery** · say why on the card, and lock the install call with a test
+
+### Sotto il cofano
+- **board** · bloat baseline raises only tasks-land.ts, the one file the scheduled review pushes over its ceiling
+- Evict idle hidden browser panes beyond the 2 most recent after 10 min, swap or not
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-26 [skip ci]
+- a detached watchdog closes the servers and folders a cut run leaves behind
+- trace the new archive and blockedByTaskId tests to KANBAN-123/124
+- Tetto di spesa: la striscia resta sotto i 768 px; GAUGE-10 con istante relativo
+- Remeasure review cards stuck with a null checks verdict, realigned on main
+- Tab di lato: un passo sui quattro lati, isole che chiudono la colonna, riga archiviata che esce
+- Fix the moved-aside-copy test: sweep the leftover, don't rely on path reuse
+- Board settings: backlog triage row gets its icon like the rows above
+- **browser** · cover installed-Chromium fallback and frozen lockfile install; silence install output
+
+## 2.5.6 — 2026-11-26
+
+### Correzioni
+- **dispatch** · a remote run resting on a wait or a question gives its machine seat back
+
+### Sotto il cofano
+- **board** · scheduled review tests declare the requirement they cover; bloat baseline records the land growth
+- ci-changes test: teach the evaluator needs.prepare-e2e.outputs.shards (PR value and none)
+- G5 conta solo cio' che Topics produce; backup e db-backups tengono le ultime N copie (TOPICS_BACKUP_KEEP)
+- La potatura dei backup tocca solo le copie automatiche di db-backups
+- Disk budget: ogni cartella nel rapporto con tetti di default e crescita al giorno; potatura db-backups per data nel nome, verso il cestino
+- backup-retention test: neutral name for the named-copy fixture
 - Bloat baseline: task-dispatcher-overflow.test.ts at 1715 after two cards land together
+- Backlog triage test: declares KANBAN-123 and runs git with the isolated env
+- **bloat** · give the full-repo baseline check a 120s timeout
 
 ## 2.5.5 — 2026-11-26
 
 ### Sotto il cofano
+- sibling-worktree merge is not live; tests assert landedNotLive/checkoutBranch/dirty-checkout
+- pty-bridge test: attach the probe's error handler before connecting, so an older Bun does not surface the refusal as uncaught (card 9fecea98)
+- primary-role test: let the child server open its tunnel port from a worktree (card 9fecea98)
+- late-scan test: give the row 90 s to close, the run takes ~60 s on a loaded Mac (card 9fecea98)
+- late-scan test: wider waits for a shard-loaded Mac (card 9fecea98)
+- late-scan test: short socket root and a 90 s row wait, so the unit runner's long scratch dir no longer kills the bridge (card 9fecea98)
+- Re-measure: the two reds of the last run pass alone under the unit runner (card 9fecea98)
+- **e2e** · la nota vocale si ferma solo dopo il primo secondo di registrazione
+- late-scan test: take the short root from the tracked helper so the leak check sees it cleaned (card 9fecea98)
 - **design** · the owner approved the title tab, the row grammar and the column header
 
 ## 2.5.4 — 2026-11-26
@@ -17,36 +258,80 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Correzioni
 - una card ripresa dopo un land non risulta atterrata per il merge del giro prima (#1703)
 
+### Sotto il cofano
+- Follow a symlinked project tab to its real path in pane-store (moved folder, card 6d04b342)
+- Integration test: let the spawned server keep its tunnel ports when run from a worktree
+
 ## 2.5.3 — 2026-11-26
 
 ### Correzioni
 - **checks** · a spawnError is unmeasured, not a red bounce
 - **dispatch** · count a node seat only by a run the primary still believes open
+- **lint** · drop the unused afterAll import in the swap-exhausted check test
+- **board** · the new board requirements are in the spec, and the person-owned word list carries its language marker
+- **node-checks** · give each run its own checkout folder
+- **node-delivery** · measure node deliveries whose bar mixes CI and local checks
+- **tests** · stop two-server test fully, loopback-only
+- **nodes** · carry node attachments to the primary, read delivery commits against origin/main
+- **tests** · the two-server test's cut-run cleanup never ran under bun test
 
 ### Sotto il cofano
+- close the remaining 26/11 review gaps on archive() and blockedByTaskId
 - Auto-land: a land waiting on the pull request's CI forgets the offer so the sweep asks again at the verdict
+- the refusal to archive names the card, and stops refusing for a blocker that stays
+- no new command starts while the Mac load is over 2 per core (card 9fecea98)
 - il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)
 
 ## 2.5.2 — 2026-11-26
 
+### Novità
+- **board** · scheduled review reuses the land verdict, judges sense, isolated test env
+- **board** · a card stuck without a browser photo is routed to this machine, and only a person-owned question holds the auto-land
+- **secrets** · add a single secret-store interface for Mac and Linux
+- **board** · a request that repeats an open card is absorbed by it instead of opening a twin
+- **board** · scheduled review reads one nonce-bound verdict, no tools, bounded retries, board-set models
+- **board** · a card stuck for an hour without a reason gets one service note, and leaves a machine that does not answer
+- **board** · a card that spent its attempts with no outcome stays visible in todo with the reason, instead of moving to backlog
+- **board** · the question a delivery carries goes back to the chat that opened the card
+
 ### Correzioni
+- **bloat** · check mode compares the baseline with origin/main; drop duplicate entry, total 153
+- **board** · scheduled review gate in the CI phase, fetch before 'already on main', closes on proof, keeps the agent's question until answered
+- **board** · drop a stray backspace from the merge-tree conflict regex
+- **review-checks** · run touched tests after CI is green, fall back to its verdict after 2 swap stops
+- **secrets** · stdin secrets, in-memory identity, configurable allowlist
+- **secrets** · keychain write uses -X hex, closing the newline injection in -i stdin
 - **ui** · the sidebar's buttons are tabs, and every tab lights under the pointer
 - don't let an older comment outrank the newest one when carrying a node's thread
+- **secrets** · keychain stores printable b64 payload, so read never gets hex back
+- **board** · the stuck-card sweep leaves an in-progress card its dispatch chip explains
 - protect every comment of a resend's round, not two rows by position, in node run briefs
 
 ### Sotto il cofano
+- **spec** · trace the playwright loader test to BROWSER-NODE-DEPS-01
+- ci-impact: whole-tree guard tests always ride in a reduced unit plan (replay: any-budget was missed)
+- Backlog triage: asks with the system signature, keeps subtasks of live parents, no done without a second model
 - Land via PR: auto-merge off on every failed exit, re-read at the deadline, probe failure is a refusal, moved base reported, gh missing falls back to the local merge
 - Fix the gh-unavailable pattern word boundary
 - never requeue an empty run or bounce a landed card without checking against this Mac's own main
+- Backlog triage: system actor for closes, asks and moves through the service, base from origin like the land, subtasks keep their parent
 - Land via PR: a GitHub refusal falls back to the local merge, running checks release the queue, settle wait cut to 2 min
+- archiving a live blocker no longer silently unblocks its dependents
+- **openspec** · board-avanza-da-sola, the seven rules with their bar
+- close the three gaps left in archive() by the 26/11 review
 - **e2e** · the narrowest column is 248, and the word hides beside the Windows cluster
 - a rimando after a land is not a closed card, and a job-level red is not always a preexisting one
 
 ## 2.5.1 — 2026-11-25
 
+### Correzioni
+- **browser** · fall back to an installed Chromium-family browser when no Playwright Chromium is found
+
 ### Sotto il cofano
 - Land via PR only on the current origin/main base, switch auto-merge off when the state is unreadable, treat any hook failure as a refusal
+- ci-impact: untraceable files run the whole tier, a failed estimate leaves no judged mark, replay includes --only-changed
 - Fix ci-governor selftest race on SIGSTOP/SIGCONT delivery under load
+- ci-impact-measure: drop the node_modules junction, its removal followed the link
 - Read transcripts by bytes so a cut multi-byte character keeps its line, cap the parsed cache in bytes
 
 ## 2.5.0 — 2026-11-25
@@ -57,14 +342,24 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **ui** · the new comments quote the report in English
+- ci-impact-measure: an unreadable rerun list no longer aborts the replay
 - **ui** · the browser tab in the title row is a portal in flow, not a floating surface
+- Backlog triage: sorts subtasks (detach, then todo) and cards whose blocker is done
 
 ## 2.4.110 — 2026-11-25
 
+### Novità
+- **board** · scheduled review of technical cards in review (rule off by default)
+
 ### Correzioni
+- **browser** · install playwright-core on first use when the server cannot resolve it
 - **tauri** · a pop-out window is dressed on the main thread, not on a tokio worker
 - **ui** · a project's browser in front is the title, and its page is an island
 - **tauri** · corner_plan is macOS-only outside tests, like its neighbours
+
+### Sotto il cofano
+- pull requests run the e2e specs and unit tests their diff reaches, main runs everything
+- ci-impact: replay reads the commit's own worktree
 
 ## 2.4.108 — 2026-11-25
 
@@ -86,7 +381,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Declare what the wait-keeps-branch test covers
 - Declare the pull request land requirement and the test that covers it
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-25 [skip ci]
+- Backlog triage: a per-board twice-daily sort of the backlog, off by default
 - Write in English the two comments main brought in Italian
+- Regenerate the migrations manifest
 - List the wait path's git read in the sync-spawn scan with its reason
 - Run the quota route test on an empty home, not on this machine's gigabytes of transcripts
 - la cura dei contenitori torna d'accordo con i suoi test e con il piano
@@ -145,6 +442,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - lower ci.slice memory ceiling and reserve memory for system.slice and topics (card 0ecda178)
 - Un figlio che rilancia senza wake il servizio fermato del genitore lo lascia al genitore
+- bloat baseline: record chat-handler as an exception after realign
 - Split server/services/tasks/shared.ts into six factory modules behind the same barrel
 - Split tasks/shared.ts: baselines and unused type exports
 - Land guard: a card's own branches include its spawned children and worktree branch
@@ -170,6 +468,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Una corsa vecchia che il nodo non ha più non si scrive come errore
 - Un transcript troppo grande per cercarci un fork si dice una volta, non a ogni giro
 - Land refuses an unmeasured delivery on every path, not only the automatic one
+- merge main inside a sibling worktree that already has it open
 - Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13
 - declare BROWSER-LOGIN-01, move the login branch out of browser-bridge (card 2d18548c)
 - Drop unused imports from tasks/shared-constants.ts (lint red on main)
@@ -182,6 +481,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Replace real names in the client with fictitious ones, content (ORBIT, Alfa Impianti)
 - Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle
+- bloat: the baseline only goes down; new or bigger entries need a written exception with expiry, total of offenders capped
+- bloat ratchet test: declare coverage and isolate git env
+- check-bloat tests: fixtures carry the exceptions the ratchet now requires
+- bloat: fix type guard, declare BLOAT-RATCHET-01 in the spec
 - Claude CLI usage-limit sentence: read as a rate-limit and hold until the declared reset, so the resume sweep resends the turn by itself
 
 ## 2.4.101 — 2026-11-25
@@ -314,6 +617,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - memory stores: read an agent's deposit from its workspace, readable store names, one grouped problem for unreceived project memories
 - Share one keyed listener registry across the client stores
 - Share the CLI binary resolver across claude, codex, kimi and muse
+- Tetto di spesa: lo dice solo il gauge di In progress
 - dup: jscpd ratchet on exact duplicated lines, wired into gates:fast
 - Remove internal duplication in files route, grants query, message thread writes and pending actions
 - Duplicate detection: description as secondary signal, commit hashes as anchors

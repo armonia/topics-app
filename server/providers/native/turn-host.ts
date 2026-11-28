@@ -45,6 +45,8 @@ export interface TurnSpec {
   reminder?: string;
   history: AgentMessage[];
   calibration?: Calibration;
+  /** The agent's compaction ceiling in tokens (`agent-engine.json`); absent = the window's own. */
+  compactAtTokens?: number | null;
   /** The session's delegation counter; absent = this chat gets no nudge (`lib/delegation-policy.ts`). */
   delegation?: DelegationState;
   /** Every tool but the MCP fleet's, as the server composed them. */
@@ -212,6 +214,7 @@ export async function main(): Promise<void> {
     reminder: spec.reminder,
     history: spec.history,
     calibration: spec.calibration,
+    compactAtTokens: spec.compactAtTokens,
     ...(delegation ? { delegation } : {}),
     tools: () => {
       const all = [...spec.tools, ...mcpTools];

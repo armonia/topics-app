@@ -803,6 +803,25 @@ difetto: una verifica che conferma ciò che non ha esaminato.
 - **AND** un lookup incompleto o il superamento del limite non produce un falso
   rilievo
 
+#### Scenario: una consegna che nega il land per un commit assente da origin/main viene notata all'ingresso in review
+
+- **GIVEN** un rapporto di consegna che scrive "già su main" o "nessun commit
+  nuovo" per il commit di consegna del ramo
+- **AND** `origin/main` non contiene quel commit, e il ramo porta commit propri
+- **WHEN** il task entra in `review` (riuso di `falseMainClaims`, lo stesso
+  controllo del ripasso a orario, nessun secondo rilevatore)
+- **THEN** la card riceve una nota di sistema che nomina il numero di commit e
+  di file che il ramo porta
+- **AND** l'approvazione resta possibile comunque: la nota è informativa, non
+  un blocco
+
+#### Scenario: una consegna che nega il land per un commit presente su origin/main non viene notata
+
+- **GIVEN** lo stesso rapporto, ma il commit di consegna è già un antenato di
+  `origin/main`
+- **WHEN** il task entra in `review`
+- **THEN** nessuna nota di sistema viene prodotta
+
 ### Requirement: KANBAN-12 — La topbar della board ha UNA linea in meno e UNA porta sola
 
 Tre vincoli sulla barra in cima alla board Kanban. Due sono **rimozioni**, ed è
@@ -6065,3 +6084,45 @@ against the window.
 - **GIVEN** a board whose columns overflow the row
 - **WHEN** the row is at rest and then scrolled to its end
 - **THEN** the first column SHALL start at least 8px inside the row, the last SHALL end at least 12px inside it, and no column SHALL come within 14px of its bottom edge, in the board's row and in a lane's row
+
+### Requirement: KANBAN-123 — Archiving never leaves a live dependent without its blocker
+
+Archiving a card, alone or as a cascade over its subtree or as one decision over a
+batch of parked steps, SHALL be refused with `409 blocks_live_dependent` when a card
+that goes down is the `blockedByTaskId` of a card that is not done, not archived and
+not under an archived ancestor, outside what goes down. The check SHALL run before
+any side effect (no agent cut, no child detached), the refusal SHALL name the waiting
+card, its board when it is another one, and the descendant it waits on, and the retry
+of a delegated revocation SHALL treat it as a lasting refusal, not a transient error.
+Children that the board DELETE detaches instead of archiving SHALL not count.
+
+#### Scenario: a live blocker is not archived
+- **GIVEN** a card A and a todo card B with `blockedByTaskId` A
+- **WHEN** someone archives A
+- **THEN** the answer SHALL be 409 `blocks_live_dependent` naming B, and A, its agent and its open children SHALL be untouched
+
+#### Scenario: a blocker that stays does not block
+- **GIVEN** a card A whose open child C is detached by the DELETE, and a card waiting on C
+- **WHEN** someone archives A without its children
+- **THEN** the archive SHALL succeed
+
+### Requirement: KANBAN-124 — A future step is a card linked with blockedByTaskId, never a promise in a comment
+
+The kickoff of a dispatched card and `docs/board-protocol.md` SHALL tell the agent to
+create later work as a card wired with `blockedByTaskId`, never as a promise written in
+a comment, and the session-scoped `create_task` and `update_task` routes SHALL persist
+`blockedByTaskId` instead of dropping or rejecting it.
+
+#### Scenario: the agent wires the next step
+- **GIVEN** an agent working card A
+- **WHEN** it calls `create_task(text, blockedByTaskId=A)` through its session route
+- **THEN** the new card SHALL carry the link, and its kickoff SHALL have said to do so
+
+### Requirement: KANBAN-125 — The backlog sorts itself twice a day, off by default, per board
+
+A board with the setting on SHALL, once per half-day slot, read each backlog card with a cheap model and decide one of four things: move it to todo (workable by an agent, not blocked by an open card, still current), ask a person (the question goes on the card in review with the system signature, through the task service), close it as already done, or leave it with a one-line reason. A card SHALL close as already done only when the code found a proof (a commit on the project's origin main after a fetch, or the id of the card that did it) AND a second model confirmed it; the closing is signed by the system, never by a person. A subtask SHALL keep its parent. The setting SHALL be off by default and no name or path of a user SHALL appear in it.
+
+#### Scenario: workable, human decision, done without proof
+- **GIVEN** three backlog cards: one workable, one needing a human decision, one that looks done but has no verified proof
+- **WHEN** the triage runs
+- **THEN** the first SHALL move to todo, the second SHALL move to review with its question, and the third SHALL stay in backlog

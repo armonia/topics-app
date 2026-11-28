@@ -33,13 +33,17 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const SRC = readFileSync(resolve(import.meta.dir, "../../server/services/worktree-manager.ts"), "utf8");
+const WORKTREE_MANAGER_SRC = readFileSync(resolve(import.meta.dir, "../../server/services/worktree-manager.ts"), "utf8");
+// The install itself is shared with the node delivery checkout (`worktree-install-deps.ts`,
+// used by both `worktree-manager.ts` and `node-check-worktree.ts`): one body, two callers.
+const SRC = readFileSync(resolve(import.meta.dir, "../../server/lib/worktree-install-deps.ts"), "utf8");
+const NODE_CHECK_WORKTREE_SRC = readFileSync(resolve(import.meta.dir, "../../server/services/node-check-worktree.ts"), "utf8");
 
-/** Il corpo di `installClientDeps`, fino alla sua chiusura. */
+/** Il corpo di `installWorktreeDeps`, fino alla sua chiusura. */
 function corpo(): string {
-  const i = SRC.indexOf("async function installDeps(");
-  expect(i, "installDeps e' cambiata di nome: aggiorna questo test").toBeGreaterThan(0);
-  const fine = SRC.indexOf("\n  }\n", i);
+  const i = SRC.indexOf("export async function installWorktreeDeps(");
+  expect(i, "installWorktreeDeps e' cambiata di nome: aggiorna questo test").toBeGreaterThan(0);
+  const fine = SRC.indexOf("\n}\n", i);
   expect(fine).toBeGreaterThan(i);
   return SRC.slice(i, fine);
 }
@@ -50,7 +54,7 @@ describe("le dipendenze del client arrivano col worktree", () => {
   });
 
   test("la creazione la CHIAMA: un worktree che nasce cieco e' il difetto", () => {
-    const creazione = SRC.slice(SRC.indexOf("async function materialiseOnDisk"));
+    const creazione = WORKTREE_MANAGER_SRC.slice(WORKTREE_MANAGER_SRC.indexOf("async function materialiseOnDisk"));
     expect(creazione.slice(0, 2600)).toContain("await installDeps(absPath)");
   });
 
@@ -78,7 +82,7 @@ describe("le dipendenze del client arrivano col worktree", () => {
     const c = corpo();
     expect(c).toContain("missingPackageManager(dir)");
     expect(c.indexOf("missingPackageManager(dir)")).toBeLessThan(c.indexOf("Bun.spawn("));
-    expect(c).toMatch(/console\.warn\(`\[WorktreeManager\] deps NON installate in \$\{dir\}: \$\{missing\}`\)/);
+    expect(c).toMatch(/console\.warn\(`\[worktree-install-deps\] deps NOT installed in \$\{dir\}: \$\{missing\}`\)/);
   });
 
   test("best-effort: un install fallito NON impedisce la nascita del worktree", () => {
@@ -91,6 +95,14 @@ describe("le dipendenze del client arrivano col worktree", () => {
 
   test("non parte dove non c'e' un package.json: non ogni progetto ne ha uno", () => {
     expect(corpo()).toContain('existsSync(join(dir, "package.json"))');
+  });
+
+  test("the node delivery checkout CALLS it too: a bar with local commands needs its dependencies", () => {
+    // node-check-worktree.ts is the second caller of the same body, and its call
+    // never had a test of its own: a refactor that dropped it would fall back to
+    // "nothing installed" with nothing going red (card dcdee50e).
+    const creazione = NODE_CHECK_WORKTREE_SRC.slice(NODE_CHECK_WORKTREE_SRC.indexOf("export async function openNodeCheckWorktree"));
+    expect(creazione.slice(0, 2000)).toContain("await installWorktreeDeps(path)");
   });
 
   test("DUE installazioni: la radice e il client, non una sola", () => {

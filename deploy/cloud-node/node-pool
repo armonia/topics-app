@@ -8,7 +8,7 @@ guardiano fa sì che quel nodo esista quando serve e non costi quando non serve.
   node-pool giro        launchd ogni 60 s: domanda dalla coda della board -> crea; nodo fermo a fine ora -> cancella
   node-pool hook        hook `node-run` di Topics (payload su stdin): per un posto del pool lo accende se è
                         spento, apre il tunnel, porta il repo con un git bundle e lo registra sul nodo; exit 0
-  node-pool snapshot    rifà lo snapshot dalla ricetta unica (user-data.sh.tmpl + winfleet/nodo/strumenti.txt)
+  node-pool snapshot    rifà lo snapshot dalla ricetta unica (user-data.sh.tmpl + deploy/node-tools.txt)
   node-pool stato       posti, server, spesa del mese del pool
   node-pool spegni      cancella subito ogni server del pool
   node-pool permanent-ci    installa o riallinea i runner della CI sul nodo permanente (deploy/permanent-node/ci-runners.sh)
@@ -50,7 +50,7 @@ STATE = os.path.join(ST, "state.json")
 LOG = os.environ.get("NODE_POOL_LOG", os.path.join(HOME, ".claude/jarvis/logs/node-pool.log"))
 KEY = os.path.join(HOME, ".ssh/offload_hetzner")
 TETTO_BIN = os.path.join(HOME, "bin/hetzner-tetto")
-STRUMENTI = os.environ.get("WINFLEET_STRUMENTI", os.path.join(HOME, "Projects/winfleet/nodo/strumenti.txt"))
+STRUMENTI = os.environ.get("TOPICS_NODE_TOOLS", os.path.join(os.path.dirname(HERE), "node-tools.txt"))
 
 HARNESS_SYNC = os.path.join(HERE, "harness-sync")
 # Tetto mensile di tutti i server Hetzner (lo stesso di hetzner-tetto, quello che la tray mostra come «x / 60 €»)
@@ -85,10 +85,11 @@ PERMANENT_SLOT = 1
 PERMANENT_SLOTS_CI, PERMANENT_SLOTS_IDLE = 2, 4
 CI_RUNNERS = int(os.environ.get("NODE_POOL_CI_RUNNERS", "4"))
 CI_REPO = "armonia/topics-app"
-# A node that stays behind the Mac commit longer than this is drained (slots 0) so the realign can run
-BEHIND_S = int(os.environ.get("NODE_POOL_BEHIND_MIN", "60")) * 60
-# Longest wait for the running cards to finish before the drain is given up and retried later
-DRAIN_MAX_S = int(os.environ.get("NODE_POOL_DRAIN_MAX_MIN", "180")) * 60
+
+
+# Behind the Mac commit longer than this with no lossless restart: take no NEW cards (slots follow the
+# running ones, never 0 for hours) until the node realigns
+BEHIND_S = int(os.environ.get("NODE_POOL_BEHIND_MIN", "360")) * 60
 
 
 def log(msg):
@@ -339,14 +340,18 @@ def machine_row(slot):
 
 def slot_busy(machine_id, running_only=False):
     """Card vive del posto sul Mac: in coda o al lavoro con questa macchina. While draining only
-    the running ones count: queued cards cannot start with slots 0, they wait for the realign."""
+    the running ones count: queued cards cannot start with slots 0, they wait for the realign.
+    A card waiting for a human answer (needs_input) has no turn in flight: counting it kept the
+    node drained 3 h out of 4 for two days (21/11, one card unanswered since 19/11). A deferred card
+    (`waiting`, it waits for a condition) has no turn either: on 26/11 one held the drain past midnight."""
     if not machine_id:
         return 0
     import sqlite3
     db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
     try:
         states = "('in_progress')" if running_only else "('todo','in_progress')"
-        return db.execute(f"select count(*) from tasks where machine_id=? and status in {states}",
+        return db.execute(f"select count(*) from tasks where machine_id=? and status in {states}"
+                          " and coalesce(dispatch_state, '') not in ('needs_input', 'waiting')",
                           (machine_id,)).fetchone()[0]
     finally:
         db.close()
@@ -680,7 +685,7 @@ def ensure_permanent(state, fx):
     r = ssh(ip, "pgrep -c -x Runner.Worker", timeout=20)
     out = (r.stdout or "").split()
     ci_busy = int(out[0]) if out and out[0].isdigit() else 0
-    want = 0 if sl.get("draining") else permanent_slots(ci_busy)
+    want = sl["slots"] if sl.get("capped") and sl.get("slots") is not None else permanent_slots(ci_busy)
     if sl.get("slots") != want and sl.get("machine_id"):
         try:
             mac("PATCH", f"/api/machines/{sl['machine_id']}", {"slots": want})
@@ -703,34 +708,54 @@ def set_slots(sl, key, n):
         return False
 
 
+LOSSLESS_PROBE = (
+    "su - topics -c 'd=\"$HOME/.topics/daemon-state.json\"; "
+    "t=$(sed -n \"s/.*\\\"token\\\"[[:space:]]*:[[:space:]]*\\\"\\([0-9a-f]\\{64\\}\\)\\\".*/\\1/p\" \"$d\" | head -1); "
+    "p=$(sed -n \"s/.*\\\"port\\\"[[:space:]]*:[[:space:]]*\\([0-9]\\{1,5\\}\\).*/\\1/p\" \"$d\" | head -1); "
+    "for s in https http; do curl -sk -m 5 -H \"Authorization: Bearer $t\" $s://127.0.0.1:$p/__daemon/healthz && break; done'"
+)
+
+
+def node_lossless(ip):
+    """True when the running server says a restart loses no turn (healthz `losslessRestart`):
+    its native turns live under the AI broker, which survives the restart."""
+    r = ssh(ip, LOSSLESS_PROBE, timeout=30)
+    return r.returncode == 0 and '"losslessRestart":true' in (r.stdout or "").replace(" ", "")
+
+
 def align_permanent(sl, ip, key, c, ci_busy, now=None):
-    """Realign the node to the Mac commit. Cards running: wait. Behind for more than BEHIND_S: drain
-    (slots 0, no new cards), then realign once the running ones finish. Never restart with a card live."""
+    """Realign the node to the Mac commit WITHOUT ever taking slots away: a drain left the node at
+    0 slots for hours behind long cards (measured 24-25/11: 7 drains, ~22 h in 27). Realign as soon as
+    no turn is in flight; if the node's server restarts losslessly, also with turns in flight."""
     now = now or time.time()
     # «aligned», not HEAD: a checkout that worked with a failed `bun install` moves HEAD
     # while the running node is still the old one
     if not c or sl.get("aligned") == c or sl.get("align_failed") == c:
         sl.pop("behind_since", None)
         sl["draining"] = False
+        if sl.pop("capped", None) and sl.get("machine_id"):
+            set_slots(sl, key, permanent_slots(ci_busy))
         # un fallimento è del commit che non è passato: se il nodo è già a quello del Mac non ce n'è più
         # (la tray lo leggeva per sempre come «riallineamento fallito»)
         if sl.get("aligned") == c:
             sl.pop("align_failed", None)
         return
-    # The clock starts when the node first falls behind and only stops once it is aligned again:
-    # a Mac commit that moves every few minutes must not restart it
     sl.setdefault("behind_since", now)
-    busy = slot_busy(sl.get("machine_id"), running_only=bool(sl.get("draining")))
-    if busy:
-        if not sl.get("draining") and now - sl["behind_since"] >= BEHIND_S and sl.get("machine_id"):
-            if set_slots(sl, key, 0):
-                # drain_until: la tray dice «card ferme fino alle HH:MM» leggendo questo, non ricalcolandolo
-                sl["draining"], sl["drain_since"], sl["drain_until"] = True, now, now + DRAIN_MAX_S
-                log(f"posto {key}: nodo indietro da {int((now - sl['behind_since']) / 60)} min, lo svuoto ({busy} card in corso)")
-        elif sl.get("draining") and now - sl.get("drain_since", now) >= DRAIN_MAX_S:
-            sl["draining"], sl["behind_since"] = False, now
-            set_slots(sl, key, permanent_slots(ci_busy))
-            log(f"posto {key}: svuotamento oltre il tetto, rimetto le card e riprovo più tardi")
+    if sl.get("draining"):
+        # state left by an older version of this loop: give the slots back
+        sl["draining"] = False
+        sl.pop("drain_until", None)
+        set_slots(sl, key, permanent_slots(ci_busy))
+    # cards without a turn in flight (waiting on a person) do not hold the restart
+    running = slot_busy(sl.get("machine_id"), running_only=True)
+    if running and not node_lossless(ip):
+        if now - sl["behind_since"] >= BEHIND_S and sl.get("machine_id"):
+            # no new cards: the slots follow the running ones down, so the node frees up and realigns
+            if not sl.get("capped"):
+                log(f"posto {key}: nodo indietro da {int((now - sl['behind_since']) / 60)} min, niente card nuove ({running} in corso)")
+            sl["capped"] = True
+            if sl.get("slots") != running:
+                set_slots(sl, key, running)
         return
     # restart only if the checkout succeeded: a commit of the Mac not yet on origin would
     # otherwise restart Topics every minute; a failed commit is not retried until the next one
@@ -745,10 +770,20 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     global _REALIGNED
     _REALIGNED = _REALIGNED or a.returncode == 0
     log(f"posto {key}: nodo permanente riallineato a {c[:10]} (exit {a.returncode})")
-    if sl.get("draining"):
-        sl["draining"] = False
-        set_slots(sl, key, permanent_slots(ci_busy))
     sl.pop("behind_since", None)
+    if sl.pop("capped", None):
+        set_slots(sl, key, permanent_slots(ci_busy))
+
+
+# Files copied to the permanent node before ci-runners.sh runs: the runners script and the CI governor.
+PERMANENT_FILES = ("ci-runners.sh", "ci-governor.py", "ci-governor.service")
+
+
+def push_permanent_files(ip, known):
+    pdir = os.path.join(HERE, "..", "permanent-node")
+    for f in PERMANENT_FILES:
+        subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+                        "-o", f"UserKnownHostsFile={known}", os.path.join(pdir, f), f"root@{ip}:/root/{f}"], check=True, timeout=120)
 
 
 def permanent_ci():
@@ -768,9 +803,7 @@ def permanent_ci():
         raise SystemExit("node-pool: gh non dà i token di registrazione e rimozione dei runner")
     known = known_file(ip)
     os.makedirs(os.path.dirname(known), exist_ok=True)
-    subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
-                    "-o", f"UserKnownHostsFile={known}", os.path.join(HERE, "..", "permanent-node", "ci-runners.sh"),
-                    f"root@{ip}:/root/ci-runners.sh"], check=True, timeout=120)
+    push_permanent_files(ip, known)
     r = ssh(ip, f"read -r REG_TOKEN; read -r REMOVE_TOKEN; export REG_TOKEN REMOVE_TOKEN; N={CI_RUNNERS} bash /root/ci-runners.sh",
             timeout=1800, inp=f"{tok}\n{rm_tok}\n")
     print(r.stdout.strip()[-500:], r.stderr.strip()[-1500:], sep="\n")

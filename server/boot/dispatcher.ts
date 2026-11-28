@@ -2,15 +2,16 @@
  * The task dispatcher itself.
  */
 import { basename, join } from "path";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { countAttachedTerminalSessions } from "../routes/terminal";
 import { createAgentWorktree, worktreeReadyMs } from "../services/worktree-for-agent";
+import { mainRedStop, realMainCiPort } from "../services/main-ci-watch";
 import { createTaskDispatcher } from "../services/task-dispatcher";
 import { dispatcherLogLine } from "../services/task-dispatcher-support";
 import { budgetSample, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { createDispatchResourceBlockFromInputs } from "../services/dispatch-memory-inputs";
 import { fleetLoadSync, fleetSessionCoreUnits } from "../lib/fleet-usage";
-import { cardMemPeakGB, recentCardMemPeaksGB } from "../lib/card-memory-peaks";
+import { cardLiveTreeGB, cardMemPeakGB, recentCardMemPeaksGB } from "../lib/card-memory-peaks";
 import { machineCores } from "../lib/machine-cores";
 import { worktreeRealDirt } from "../services/task-automerge";
 import { branchStatusFromRepo, worktreeDiffStat } from "../services/branch-status";
@@ -47,11 +48,27 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
   const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, scheduleEngine, tickScheduledCards, announceTick, taskAttemptStore, turniInVolo, worktreeGc } = scope;
   // Before the first tick: a node whose breaker was open stays out after the restart every land of server/ causes.
   persistNodeBreakers(join(ctx.STATE_DIR, NODE_BREAKERS_FILE));
+  // Where a node's own attachments (a screenshot, a clip) land once fetched
+  // back (KANBAN-76 follow-up): the node's path is useless on this machine, so
+  // the mirror needs a file of its OWN before the comment can point at one.
+  const NODE_MEDIA_DIR = join(ctx.APP_DATA_DIR, "media", "node-delivery");
+  const saveNodeMedia = ({ taskId, commentId, nodePath, bytes }: { taskId: string; commentId: string; nodePath: string; bytes: Uint8Array }): string | null => {
+    try {
+      mkdirSync(NODE_MEDIA_DIR, { recursive: true });
+      const local = join(NODE_MEDIA_DIR, `${taskId.slice(0, 8)}-${commentId.slice(0, 8)}-${basename(nodePath)}`);
+      writeFileSync(local, bytes);
+      return local;
+    } catch (err) {
+      console.warn(`[node-media] ${nodePath} non salvato su ${taskId}`, err);
+      return null;
+    }
+  };
   const taskDispatcher = createTaskDispatcher({
     isActive: isThisServerPrimary,
     stopCardProcesses: stopCardCommandProcesses,
     captureDelivery: (taskId) => late.capturaConsegna ? late.capturaConsegna(taskId) : Promise.resolve(false),
     measureDelivery: (taskId) => late.misuraConsegnaNodo ? late.misuraConsegnaNodo(taskId) : Promise.resolve(),
+    saveNodeMedia,
     uncommittedInWorktree: (taskId) =>
       late.sondaLavoroNonCommittato ? late.sondaLavoroNonCommittato(taskId) : Promise.resolve(null),
     svc: dispatcherSvc,
@@ -94,6 +111,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     deliveryLanded: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
     // The empty-node-run guard reads THIS machine's checkout, same resolver the cloud node lane
     // already uses for its own repo lookup (`dispatch-prep.ts`, `cloudNode`).
+    mainIsRed: async (repoPath) => (await mainRedStop(realMainCiPort(repoPath))) !== null,
     repoPathOfTask: (taskId) => {
       const projectId = dispatcherSvc.get(taskId)?.task.projectId;
       return projectId ? projectPathForNode(projectId) ?? null : null;
@@ -152,6 +170,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       try { return recentCardMemPeaksGB(); } catch { return []; }
     },
     cardCheckPeakGB: cardMemPeakGB,
+    cardLiveTreeGB,
     ...dispatchMemoryInputs,
     // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
     // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
@@ -374,6 +393,8 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       createRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.createRun(input) : nodeClient.createRun(input),
       readRun: remoteNodeRoad.readRun,
       fetchBundle: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.fetchBundle(input) : nodeClient.fetchBundle(input),
+      // The Claude cloud has no thread of its own comments to attach to: a paired Topics only.
+      fetchMedia: (input) => isCloudBaseUrl(input.baseUrl) ? Promise.resolve(null) : nodeClient.fetchMedia(input),
       cancelRun: remoteNodeRoad.cancelRun,
       baseUrlOf: remoteNodeRoad.baseUrlOf,
       tokenOf: remoteNodeRoad.tokenOf,
@@ -395,7 +416,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       // from this machine's checkout (`branch-on-origin.ts`).
       ensureBranchOnOrigin: ({ projectId, branch }) => ensureBranchOnOrigin(projectPathForNode(projectId), branch),
       // A node that cannot reach origin gets the same branch as a bundle with the run.
-      bundleBranch: ({ projectId, branch }) => bundleBranchForNode(projectPathForNode(projectId), branch),
+      bundleBranch: ({ projectId, branch, reach }) => bundleBranchForNode(projectPathForNode(projectId), branch, undefined, reach),
       // The `node-run` hook starts in the project's checkout on this machine,
       // the same path the planter reads the origin from and plants into.
       projectPathOf: projectPathForNode,

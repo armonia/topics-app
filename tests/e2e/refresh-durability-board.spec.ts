@@ -411,8 +411,9 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
     // Uno stato che NON e' il default: File chiusa (nasce aperta), Processi
     // aperta (nasce chiusa).
-    await portaSezione(win.getByTestId("project-sidebar-files"), false);
+    // Processes first: closing the last open island also closes the column (26/11).
     await portaSezione(win.getByTestId("project-sidebar-processes"), true);
+    await portaSezione(win.getByTestId("project-sidebar-files"), false);
 
     // …e una larghezza scelta a mano, ben lontana dai 224px di partenza.
     const partenza = await larghezzaColonna(win);
@@ -458,6 +459,9 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     await goToApp(page);
     const win = await openProject(page);
 
+    // Processes open before Files closes: with Files the only open island,
+    // closing it would close the column too (26/11), and here it must stay open.
+    await portaSezione(win.getByTestId("project-sidebar-processes"), true);
     await portaSezione(win.getByTestId("project-sidebar-files"), false);
     const partenza = await larghezzaColonna(win);
     const maniglia = win.getByTestId("project-sidebar-resizer");

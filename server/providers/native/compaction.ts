@@ -82,6 +82,41 @@ export const COMPACT_AT_UNMEASURED = 0.75;
  */
 export const COMPACT_TO = 0.40;
 
+/**
+ * The trigger and the target of one compaction, as fractions of the window,
+ * with an absolute ceiling in tokens applied when the chat has one.
+ *
+ * WHY AN ABSOLUTE CEILING. Both constants above are fractions of the window,
+ * and on a 1M window they mean compacting at 850k and coming back to 400k.
+ * Measured on the chats of the always-on agents (27/11, 10,046 calls in 46
+ * hours): 183k tokens per call on average, p90 349k, max 636k, and not one
+ * compaction. A request that long costs more per call and is answered worse:
+ * what the person said in the last few turns is a thin slice of it, and those
+ * chats were losing exactly that. `capTokens` (per agent, `agent-engine.json`)
+ * makes the compaction fire there instead.
+ *
+ * ONLY EVER LOWER. A ceiling above the window's own trigger changes nothing:
+ * that trigger is what keeps the request under the API limit, and a
+ * configuration must not be able to push it past. The target keeps the ratio
+ * the window already uses (`COMPACT_TO / COMPACT_AT`, about 47%).
+ *
+ * The target includes the system prompt and the tool schemas, and the recent
+ * tail is never cut, so a heavy tail can leave the history above it. That is
+ * why the loop applies the ceiling only when a turn starts (`agent-loop.ts`):
+ * once per turn at most, with the person's message safe at the end.
+ */
+export function compactionThresholds(
+  windowTokens: number,
+  opts: { calibrated: boolean; capTokens?: number | null },
+): { compactAt: number; compactTo: number } {
+  const compactAt = opts.calibrated ? COMPACT_AT : COMPACT_AT_UNMEASURED;
+  const cap = opts.capTokens;
+  if (cap == null || !Number.isFinite(cap) || cap <= 0 || !(windowTokens > 0)) return { compactAt, compactTo: COMPACT_TO };
+  const capAt = cap / windowTokens;
+  if (capAt >= compactAt) return { compactAt, compactTo: COMPACT_TO };
+  return { compactAt: capAt, compactTo: capAt * (COMPACT_TO / COMPACT_AT) };
+}
+
 /** Quanti messaggi in coda restano SEMPRE intatti. */
 const KEEP_RECENT = 6;
 
@@ -343,7 +378,11 @@ export function clipToolResult(text: string, head: number, tail: number): string
  */
 export function compact(
   messages: AgentMessage[],
-  opts?: { windowTokens?: number; overheadChars?: number; charsPerToken?: number; compactAt?: number; compactTo?: number },
+  opts?: {
+    windowTokens?: number; overheadChars?: number; charsPerToken?: number; compactAt?: number; compactTo?: number;
+    /** Where clipping the recent results starts, as a fraction of the window; defaults to `compactAt`. */
+    clipAt?: number;
+  },
 ): { messages: AgentMessage[]; before: number; after: number; droppedMessages: number } {
   const overhead = opts?.overheadChars ?? 0;
   const ratio = opts?.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
@@ -352,9 +391,10 @@ export function compact(
   const before = estimateTokens(messages, overhead, ratio);
   // The target the history has to get back under, when the caller says so.
   // Without one, the only signal left is "it freed nothing".
-  // Two numbers, not one: the CEILING is the trigger, the TARGET sits below it
-  // so the next round does not compact again (see `COMPACT_TO`).
-  const ceiling = opts?.windowTokens != null ? opts.windowTokens * compactAt : null;
+  // Two numbers, not one: the CEILING is the trigger (the window's own when
+  // `clipAt` says a lower agent ceiling fired), the TARGET sits below it so
+  // the next round does not compact again (see `COMPACT_TO`).
+  const ceiling = opts?.windowTokens != null ? opts.windowTokens * (opts.clipAt ?? compactAt) : null;
   const target = opts?.windowTokens != null ? opts.windowTokens * compactTo : null;
 
   let next = messages;
@@ -378,7 +418,10 @@ export function compact(
   // loses nothing it had already used, and it can re-read in slices what it
   // needs.
   // Against the CEILING, not the target: clipping results the model has not
-  // read yet is the emergency measure, not the way to buy headroom.
+  // read yet is the emergency measure, not the way to buy headroom. And the
+  // WINDOW's ceiling when an agent's lower one triggered the compaction
+  // (`clipAt`): a preference must not cut what the model fetched; dropping old
+  // turns below does that job.
   const stillOver = ceiling != null ? after > ceiling : after >= before;
   if (stillOver) {
     next = clipTailResults(next);
@@ -564,11 +607,20 @@ const ARG_KEEP_CHARS = 200;
  * boolean, a small object) passes as it is. Returns `null` when there was
  * nothing to lighten, so the caller does not rebuild the block for nothing.
  */
+/**
+ * An argument this function already lightened: its own notice at the end.
+ * Lightening it again kept the same 200 characters but rewrote the notice
+ * with the length of the notice itself ("45 chars dropped" for a value that
+ * had lost thousands), so every compaction changed the request prefix from
+ * the first old call on and the prompt cache could not hold.
+ */
+const LIGHTENED_ARG = /… \[\d+ chars dropped to fit the context window\]$/;
+
 function lightenInput(input: Record<string, unknown>): Record<string, unknown> | null {
   let touched = false;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(input)) {
-    if (typeof v === "string" && v.length > ARG_KEEP_CHARS) {
+    if (typeof v === "string" && v.length > ARG_KEEP_CHARS && !LIGHTENED_ARG.test(v)) {
       touched = true;
       out[k] = `${v.slice(0, ARG_KEEP_CHARS)}… [${v.length - ARG_KEEP_CHARS} chars dropped to fit the context window]`;
       continue;

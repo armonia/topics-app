@@ -50,9 +50,24 @@ export function cardMemPeakGB(taskId: string): number | null {
   return peaks.find((p) => p.taskId === taskId)?.gb ?? null;
 }
 
+const liveTrees = new Map<string, number>();
+
+/** The footprint of the card's check tree right now (a reading, not a peak). */
+export function recordCardLiveTree(taskId: string, gb: number | null): void {
+  if (!taskId) return;
+  if (gb == null || !Number.isFinite(gb) || gb <= 0) liveTrees.delete(taskId);
+  else liveTrees.set(taskId, gb);
+}
+
+/** What the card's own process tree holds now in GB, or null while none is measured. */
+export function cardLiveTreeGB(taskId: string): number | null {
+  return liveTrees.get(taskId) ?? null;
+}
+
 /** @internal Test seam: every case starts from an empty ledger. */
 export function _resetCardMemPeaks(): void {
   peaks.length = 0;
+  liveTrees.clear();
 }
 
 /**

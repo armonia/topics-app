@@ -8,7 +8,7 @@ import type { useMenuPreferences } from '../hooks/useUserMenuHost';
 import type { useSidebarState } from '../hooks/useSidebarState';
 import type { useWebSocket } from '../hooks/useWebSocket';
 import { OPEN_INBOX_EVENT } from '../lib/inboxEvents';
-import { COLUMN_GAP, ROW_INSET, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY } from '../lib/selectionStyles';
+import { COLUMN_GAP, MOBILE_SIDEBAR_HEADER_H_COMPACT, ROW_INSET, SIDEBAR_SCROLL_BOTTOM_PROPERTY, SIDEBAR_SCROLL_TOP_PROPERTY, TAB_BUTTON_PX, chromeRowPx } from '../lib/selectionStyles';
 import { NEXT_WAITING_EVENT } from '../state/waitingQueue';
 import { SidebarHeader } from './SidebarHeader';
 import type { TopicsMenuState } from './useTopicsMenu';
@@ -17,6 +17,8 @@ interface AppSidebarProps {
   sidebarRef: RefObject<HTMLDivElement | null>;
   sidebarContentRef: RefObject<HTMLDivElement | null>;
   isMobile: boolean;
+  /** The tabs have a strip on top: the header keeps the strip's 40 row. */
+  tabStrip: boolean;
   sidebarCollapsed: boolean;
   /** Collapses the column, from the toggle in its header. */
   onToggleSidebar: () => void;
@@ -50,7 +52,7 @@ interface AppSidebarProps {
  * version banner slot, identity band, transport alarm and the row of doors.
  */
 export function AppSidebar({
-  sidebarRef, sidebarContentRef, isMobile, sidebarCollapsed, onToggleSidebar, sidebarWidth, floatingSplits,
+  sidebarRef, sidebarContentRef, isMobile, tabStrip, sidebarCollapsed, onToggleSidebar, sidebarWidth, floatingSplits,
   viewportHeight, topicsMenu, wsStatus, topicsError, onWSMessage, sidebar, menuPreferences,
   splitLayoutAvailable, setSearchScope, setShowSearch, setShowChangelogFromMenu,
   handleReopenClosedTab, openHistoryUrl, handleQuickCreateTopic, handleStandaloneAddPane,
@@ -130,22 +132,31 @@ export function AppSidebar({
           // ground of its own, "so that scrolling the sidebar the tabs go under
           // it, and under the safe area too". A padding on THIS element cannot
           // do that: it moves the scroller down, so the list ends where the row
-          // begins and nothing ever passes behind it. So down there the inset
-          // ALONE becomes `--sidebar-scroll-top`, which the scrolling column
-          // takes as its own padding-top: the rows start right after the safe
-          // area (mobile-chrome-feedback A1) and travel behind the row and
-          // behind the status bar from the first pixel, the way a native list
-          // does. It used to carry the height of the row on top of the inset,
-          // which left a full row of dead space under the notch.
+          // begins and nothing ever passes behind it. So down there the room
+          // becomes `--sidebar-scroll-top`, which the scrolling column takes as
+          // its own padding-top, and the rows travel behind the row and behind
+          // the status bar as soon as the list moves, the way a native list does.
           //
-          // On a desktop the header's buttons are a row tall (34) in a 40px
-          // row, so their ink ends 3px above the list: the list adds the other
-          // half of the column's step, and the painted gap under the header is
-          // one step, as between two cards (HDRGAP-01).
+          // AT REST THE FIRST ROW SITS UNDER THE TITLE, NOT BEHIND ITS VEIL. The
+          // room is the safe area, the COMPACT row (44, exactly its commands:
+          // the row is compact at rest, mobile-chrome-feedback A1) and one step
+          // of the column, the same painted gap as between two cards and as
+          // under the desktop header (HDRGAP-01). With the inset alone (A1 as
+          // first built) «Automazioni» was born behind «Topics»: legible through
+          // the veil on WebKit, a blurred smudge on Chromium (27/11). With the
+          // whole row (56) it was 12px of dead band under the notch. The veil
+          // is for rows that scroll under the title, not for the first one.
+          //
+          // On a desktop the header's buttons are a tab tall (34). With the
+          // tabs at the side the row is 46 (CHROME_ROW_SIDE_PX), so their ink
+          // already ends one step above the list. With the strip it is 40 and
+          // their ink ends 3px above: the list adds the other half of the
+          // column's step. Either way the painted gap under the header is one
+          // step, as between two cards (HDRGAP-01).
           paddingTop: isMobile ? 0 : 'env(safe-area-inset-top, 0px)',
           [SIDEBAR_SCROLL_TOP_PROPERTY as string]: isMobile
-            ? 'var(--sat, 0px)'
-            : `${COLUMN_GAP / 2}px`,
+            ? `calc(var(--sat, 0px) + ${MOBILE_SIDEBAR_HEADER_H_COMPACT + COLUMN_GAP}px)`
+            : `${(COLUMN_GAP - (chromeRowPx(tabStrip) - TAB_BUTTON_PX) / 2)}px`,
           // The column is `fixed inset-y-0`: it escapes the root's padding, so
           // it reserves the bottom band itself. And it reserves it INSIDE the
           // scroller, not as the column's padding: the button row has no
@@ -161,6 +172,7 @@ export function AppSidebar({
 
         <SidebarHeader
           isMobile={isMobile}
+          tabStrip={tabStrip}
           topicsMenu={topicsMenu}
           wsStatus={wsStatus}
           topicsError={topicsError}

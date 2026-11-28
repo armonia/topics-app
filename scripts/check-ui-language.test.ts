@@ -137,6 +137,37 @@ describe("check-ui-language", () => {
     expect(out).toContain("payload:detail");
   });
 
+  test("a payload template ends at its backtick: the literals after it are not its chunks", async () => {
+    // Main went red on 27/11/2026 for this shape in server/routes/tasks-land.ts: the
+    // template chunks were linked by distance, so every Italian literal within 400
+    // bytes after `reason: \`...${proof})\`` was reported as `payload:reason`.
+    const file = fixture(
+      "land.ts",
+      "export function land(proof: string) {\n" +
+        "  const out = { reason: `landed: already on main (${proof})` };\n" +
+        '  console.warn("nota di rifiuto non scritta per questa card");\n' +
+        "  return out;\n" +
+        "}\n",
+    );
+    const proc = Bun.spawn(["bun", "run", SCRIPT, "--json", file], { stdout: "pipe", stderr: "pipe" });
+    const report = JSON.parse(await new Response(proc.stdout).text()) as { hits: { line: number; where: string }[] };
+    await proc.exited;
+    expect(report.hits.filter((h) => h.line === 3 && h.where.startsWith("payload"))).toEqual([]);
+  });
+
+  test("an Italian chunk after a hole, or after a nested template, is still the payload's", async () => {
+    const file = fixture(
+      "route.ts",
+      "export const r = (n: number, x: boolean) => json({\n" +
+        "  reason: `${n} ${x ? `a` : `b`} file non trovati`,\n" +
+        "});\n",
+    );
+    const proc = Bun.spawn(["bun", "run", SCRIPT, "--json", file], { stdout: "pipe", stderr: "pipe" });
+    const report = JSON.parse(await new Response(proc.stdout).text()) as { hits: { line: number; where: string }[] };
+    await proc.exited;
+    expect(report.hits.some((h) => h.line === 2 && h.where === "payload:reason")).toBe(true);
+  });
+
   test("a regex holding backticks does not swallow the rest of the file", async () => {
     // The exact false positive `check-emdash.ts` had to fix once: an
     // unmodelled regex opens a phantom template literal and everything after

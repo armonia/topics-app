@@ -8,6 +8,7 @@ import { startMachineHealth } from "./machine-health";
 import { startTopicsCheck } from "../services/topics-check";
 import { createCures, cureDepsOf } from "../services/topics-check-cures";
 import { startTopicsCheckDaily } from "../services/topics-check-daily";
+import { startBacklogTriage } from "../services/backlog-triage";
 import { startQuotaSampler } from "../usage/quota-sampler";
 import { createOrphanCensusRunner } from "../services/orphan-census";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
@@ -169,6 +170,8 @@ export function bootPostListen(scope: AfterRelay) {
   // e2e server, where the call would be paid.
   if (process.env.TOPICS_E2E !== "1") {
     startTopicsCheckDaily(ctx.db, (inv, title, body) => cures.openDaily(inv, title, body));
+    // Backlog triage: off per board by default; the model call is paid, so the e2e server skips it.
+    startBacklogTriage(ctx.db, dispatcherSvc);
   }
 
   // Quota history for the points count: without a writer the file never exists on a clean install (card 29aa4259).

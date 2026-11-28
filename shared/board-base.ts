@@ -240,6 +240,18 @@ export const PREVIEW_RULE = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * "Already on main" is a git fact, not a feeling. Measured 2026-11-27, twice in one hour on the same
+ * board: a delivery said a commit was already on main, or that no land was needed, while the agent's
+ * worktree had started from another card's branch and never looked at `origin/main` at all — one
+ * commit carried 138 real lines, the other the whole fix (381 lines). The scheduled review already
+ * catches this on a green card every 120 minutes (`falseMainClaims`), but a human who read the claim
+ * and closed the card first never saw the clock tick. This rule asks the agent for the proof BEFORE
+ * it writes the sentence, so the claim and the command that backs it travel together.
+ */
+export const MAIN_CLAIM_RULE =
+  "BEFORE YOU WRITE THAT WORK IS \"ALREADY ON MAIN\" OR THAT NO LAND IS NEEDED: prove it, do not assume it from your worktree (it may have started from another card's branch). Run `git fetch origin main && git merge-base --is-ancestor <commit> origin/main` (exit 0 = yes, exit 1 = no) and put that command with its exit code in the delivery comment. Two deliveries said \"already on main\" in the same hour (27/11) for commits `origin/main` did not have, carrying real unlanded work.";
+
+/**
  * Cosa deve essere verde prima di consegnare codice, e la regola dello script
  * che nessuno importa.
  *

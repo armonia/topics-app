@@ -2,7 +2,7 @@
 
 La chrome del telefono dopo il giro di feedback del 05/10/2026 (change
 `mobile-chrome-feedback`, msg 3862): la riga in alto si rivela scorrendo e le
-sessioni partono da subito dopo la safe area, il menu Topics vive nel menu
+sessioni le passano sotto (a riposo la prima sta sotto il titolo), il menu Topics vive nel menu
 utente, la fila in basso tiene le sue misure, Cerca sta nel design system, «In
 attesa» risponde sempre e la matita apre subito una chat nuova. Tutto sotto i
 768px; sopra non cambia un pixel.
@@ -15,13 +15,17 @@ annotazioni `spec` dei test, non nei titoli.
 
 ## Requirements
 
-### Requirement: MOBILE-CHROME-07 — In alto la riga si rivela, le righe partono dalla safe area, Topics sta nel foglio
+### Requirement: MOBILE-CHROME-07 — In alto la riga si rivela, a riposo la prima riga le sta sotto, Topics sta nel foglio
 
-Sotto i 768px la colonna SHALL tenere le righe da subito dopo `--sat`
-(`--sidebar-scroll-top` SHALL essere la sola safe area, non la safe area più
-l'altezza della riga) e la riga in alto SHALL essere compatta in cima (44px,
+Sotto i 768px la riga in alto SHALL stare a `--sat`, compatta in cima (44px,
 `data-compact="true"`) e intera appena la lista scorre (56px,
-`data-compact="false"`), fuori dal flusso in entrambi i casi.
+`data-compact="false"`), fuori dal flusso in entrambi i casi. A riposo la prima
+riga della colonna SHALL stare sotto la riga compatta, a un passo della colonna
+(`COLUMN_GAP`) dal fondo dei suoi comandi come sotto l'intestazione del desktop
+(`--sidebar-scroll-top` SHALL essere safe area + 44 + un passo, non la sola safe
+area e non l'intera riga da 56); scorrendo, le righe SHALL passare sotto la riga
+e sotto la safe area. Dal 27/11: con la sola safe area «Automazioni» nasceva
+sotto «Topics», dietro il velo.
 
 Il foglio del titolo (che sul telefono È il menu utente) SHALL avere due
 piani: la radice con l'identità, la voce «Topics» (`user-menu-topics-entry`) e
@@ -29,10 +33,10 @@ lo stato, e il piano Topics con le righe e la riga «Indietro»
 (`user-menu-topics-back`). Una richiesta per Aspetto, Notifiche o Vista SHALL
 aprire il foglio già sceso al piano Topics.
 
-#### Scenario: compatta in cima, intera appena si scorre, righe dalla safe area
-- **GIVEN** un viewport da telefono e una lista che scorre
+#### Scenario: compatta in cima, intera appena si scorre, prima riga sotto il titolo
+- **GIVEN** un viewport da telefono (375 e 390) e una lista che scorre
 - **WHEN** la lista è in cima
-- **THEN** la riga è alta 44px con `data-compact="true"` e la prima riga sta a `--sat`
+- **THEN** la riga è alta 44px con `data-compact="true"`, sta a `--sat`, e la prima riga parte un passo sotto il fondo dei suoi comandi
 - **WHEN** la lista scorre
 - **THEN** la riga è alta 56px con `data-compact="false"` e le righe le passano sotto
 

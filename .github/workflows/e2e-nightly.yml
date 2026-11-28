@@ -56,7 +56,10 @@ jobs:
         working-directory: client
 
       - name: Install Playwright browsers (Chromium)
-        run: npx playwright install --with-deps chromium
+        run: |
+          # packages.microsoft.com answered 403 on 27/11 and failed apt-get update; Playwright's deps come from Ubuntu's archive only.
+          sudo grep -rlZ 'packages.microsoft.com' /etc/apt/sources.list.d/ 2>/dev/null | xargs -0 -r sudo rm -f
+          npx playwright install --with-deps chromium
 
       - name: Calcola il piano di sharding per durata (suite completa)
         id: plan
@@ -136,7 +139,10 @@ jobs:
       # riparato lì soltanto: un workflow che esegue un progetto senza
       # installarne il motore è rotto in partenza, e il conto lo paga la spec.
       - name: Install Playwright browsers (Chromium + WebKit)
-        run: npx playwright install --with-deps chromium webkit
+        run: |
+          # packages.microsoft.com answered 403 on 27/11 and failed apt-get update; Playwright's deps come from Ubuntu's archive only.
+          sudo grep -rlZ 'packages.microsoft.com' /etc/apt/sources.list.d/ 2>/dev/null | xargs -0 -r sudo rm -f
+          npx playwright install --with-deps chromium webkit
 
       - name: Resolve Chromium path (Linux)
         id: chromium
