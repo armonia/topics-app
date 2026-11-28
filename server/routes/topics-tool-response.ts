@@ -6,6 +6,7 @@ import { isGlobalOrchestratorSession } from "../services/global-orchestrator-ses
 import { deliverAnswer, hasPendingAsk, openAskIdentity, ASK_NOT_CURRENT_LINE } from "../lib/ask-user-bridge";
 import { storedToolCall, routeAnswer, liveQuestionCallId, questionTexts, answerAsNextMessage, type StoredQuestionCall } from "../lib/question-outlives-asker";
 import { type AnswerRelay } from "../lib/answer-relay";
+import { answerPendingMailFromChat } from "../lib/outbound-mail-ledger";
 import { markAnswerOwed } from "../lib/owed-answers";
 import { isPlanApprovalAnswer } from "../lib/plan-approval";
 import { decodeCol } from "../../shared/message-blob";
@@ -110,6 +111,23 @@ export function createToolResponseRoutes(
         updateToolCallFields(sessionKey, toolCallId, patch, { rowId: toolRowId });
         patchLiveTool(sessionKey, toolCallId, patch);
       };
+      // A SEND CONFIRMATION WHOSE TURN DIED WITH THE SERVER. The register row
+      // kept the message and the chat row it was painted on; with no live leg
+      // to collect the yes, the server sends from the row, as the card's
+      // `answerTo` road does. A live leg still takes the answer first.
+      if (response.kind === 'questions' && toolRowId && !hasPendingAsk(sessionKey)) {
+        const said = Object.values((response.answers || {}) as Record<string, unknown>).find((v): v is string => typeof v === 'string');
+        if (said !== undefined && answerPendingMailFromChat(sessionKey, toolCallId, said)) {
+          const submittedAt = new Date().toISOString();
+          const answered = { kind: 'questions' as const, answers: (response.answers || {}) as Record<string, string>, submittedAt };
+          patchToolRow({ status: 'success', userResponse: answered });
+          broadcastToAll({
+            type: 'stream:tool_update', sessionKey, topicId: getTopicBySessionKey(sessionKey)?.id, toolCallId,
+            status: 'success', userResponse: answered,
+          });
+          return json({ ok: true, submittedAt, deliveredAs: 'register' });
+        }
+      }
       const answeringBridgeAsk = response.kind === 'questions' && (hasPendingAsk(sessionKey) || askRowId !== null);
       if (answeringBridgeAsk) {
         // AND THE ANSWER NAMES THE QUESTION, here too.

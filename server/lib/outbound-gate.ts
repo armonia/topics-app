@@ -73,6 +73,8 @@ export type ConfirmOutcome =
      * row after a restart can still be matched to the message it confirms.
      */
     askId?: string;
+    /** The chat row the panel is drawn on, when the chat road drew it: what `/api/chat/tool-response` carries back. */
+    toolCallId?: string;
   }
   | { state: "refused"; reason: string };
 
@@ -251,6 +253,8 @@ interface CardHold {
   sessionKey: string;
   /** The thread row this request wrote, kept across its legs. Its id to clear. */
   askId?: string;
+  /** The chat row this request painted its panel on, kept across its legs. */
+  toolCallId?: string;
   expiresAt: number;
 }
 
@@ -395,7 +399,7 @@ export async function confirmOutbound(
 
   try {
     const outcome = await confirmHeld(deps, request, hold);
-    if (outcome.state === "pending") return { state: "pending", hold: hold.token, ...(hold.askId ? { askId: hold.askId } : {}) };
+    if (outcome.state === "pending") return { state: "pending", hold: hold.token, ...(hold.askId ? { askId: hold.askId } : {}), ...(hold.toolCallId ? { toolCallId: hold.toolCallId } : {}) };
     releaseHold(holdKey, hold.token);
     return outcome;
   } catch (err) {
@@ -506,6 +510,7 @@ async function confirmHeld(
   const target = findWaitingToolRow(deps.lastToolRow(request.sessionKey, request.toolName), request.toolName);
   if (target) {
     asked = true;
+    hold.toolCallId = target.toolCallId;
     if (!target.alreadyWaiting) {
       deps.paint({ sessionKey: request.sessionKey, toolCallId: target.toolCallId, schema, rowId: target.rowId });
     }

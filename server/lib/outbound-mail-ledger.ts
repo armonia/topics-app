@@ -46,6 +46,8 @@ export interface MailPayload {
   frozen: FrozenAttachments;
   /** The thread row of the question, once the card road drew it. */
   askId?: string;
+  /** The chat row of the question, once the chat road painted it. */
+  toolCallId?: string;
   /** Set once the card was told that this send ended `unknown`. */
   announced?: boolean;
 }
@@ -80,6 +82,8 @@ export interface MailLedger {
   registry: DeliveryRegistry;
   /** The `pending` row whose question is the thread row `askId`, if any. */
   pendingByAsk(askId: string): string | null;
+  /** The `pending` row whose question is painted on the chat row `toolCallId` of this session, if any. */
+  pendingByToolCall(sessionKey: string, toolCallId: string): string | null;
   /**
    * Boot, for the mail rows: what was mid-send becomes `unknown` (the same rule
    * the register applies), and every `unknown` mail the card was not told about
@@ -95,6 +99,11 @@ export function createMailLedger(db: Database, now: () => Date = () => new Date(
     pendingByAsk(askId) {
       const row = db.query("SELECT key FROM deliveries WHERE kind = ? AND state = 'pending' AND json_extract(payload_json, '$.askId') = ? LIMIT 1")
         .get(MAIL_DELIVERY_KIND, askId) as { key: string } | null;
+      return row?.key ?? null;
+    },
+    pendingByToolCall(sessionKey, toolCallId) {
+      const row = db.query("SELECT key FROM deliveries WHERE kind = ? AND state = 'pending' AND json_extract(payload_json, '$.toolCallId') = ? AND json_extract(payload_json, '$.sessionKey') = ? LIMIT 1")
+        .get(MAIL_DELIVERY_KIND, toolCallId, sessionKey) as { key: string } | null;
       return row?.key ?? null;
     },
     recoverAtBoot() {
@@ -134,6 +143,25 @@ export function answerPendingMailFromThread(askId: string | undefined, text: str
     return pendingMailAnswer(askId, text);
   } catch (error) {
     console.warn("[outbound] answer to a pending mail failed:", error);
+    return false;
+  }
+}
+
+/** Same as the thread answer, for the chat panel: the click names the row it was painted on. */
+type PendingMailChatAnswer = (sessionKey: string, toolCallId: string, text: string) => boolean;
+let pendingMailChatAnswer: PendingMailChatAnswer | null = null;
+
+export function registerPendingMailChatAnswer(handler: PendingMailChatAnswer | null): void {
+  pendingMailChatAnswer = handler;
+}
+
+/** True when the click was about a mail still waiting: the route must not queue it as a message. */
+export function answerPendingMailFromChat(sessionKey: string, toolCallId: string, text: string): boolean {
+  if (!pendingMailChatAnswer) return false;
+  try {
+    return pendingMailChatAnswer(sessionKey, toolCallId, text);
+  } catch (error) {
+    console.warn("[outbound] chat answer to a pending mail failed:", error);
     return false;
   }
 }
