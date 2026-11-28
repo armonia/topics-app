@@ -86,6 +86,8 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // ndjson: newline-delimited JSON, the streaming format of the readable-view route (`server/routes/readable-view.ts`); the dictionary lacks it.
+  "ndjson",
   // prefs: the everyday short form of "preferences" in a state module name (`client/src/state/readableViewPrefs.ts`, card db3c451c).
   "prefs",
   // unsubscribe: the name every subscribe/unsubscribe pair in the client stores uses (`client/src/lib/keyedListeners.ts`); the dictionary lacks it.
