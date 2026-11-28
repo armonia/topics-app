@@ -37,6 +37,7 @@ export const AGE_SECRET_ENV = "TOPICS_REPLICA_AGE_SECRET";
 export const CHANNELS_COMMAND_ENV = "TOPICS_CLAIM_CHANNELS_COMMAND";
 /** What the restore command receives in its environment. */
 export const RESTORE_OUTPUT_ENV = "TOPICS_RESTORE_OUTPUT";
+/** @internal Exported for tests: the variable the restore command reads the age identity from. */
 export const AGE_IDENTITY_ENV = "TOPICS_REPLICA_AGE_IDENTITY";
 
 /** A primary heard from more recently than this is not presumed dead without `--force`. */

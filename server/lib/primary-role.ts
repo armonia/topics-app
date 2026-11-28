@@ -322,7 +322,7 @@ export function lastCallFromPrimary(): number | null {
   return lastPrimaryCallAt;
 }
 
-/** Tests only: forget the last call. */
+/** @internal Tests only: forget the last call. */
 export function resetLastCallFromPrimary(): void {
   lastPrimaryCallAt = null;
 }
