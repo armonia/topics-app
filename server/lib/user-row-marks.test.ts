@@ -75,6 +75,12 @@ describe("userRowMarks", () => {
     expect(userRowMarks({ dispatched: true, commentIds: ["", null, 7] })).toEqual([{ kind: "dispatched-envelope" }]);
     expect(userRowMarks({ dispatched: true, commentIds: "c1" })).toEqual([{ kind: "dispatched-envelope" }]);
   });
+
+  test("a scheduled job's turn carries its job and run id (R16)", () => {
+    expect(userRowMarks({ scheduledJob: { jobId: "j1", runId: "r1" } })).toEqual([{ kind: "scheduled-job", jobId: "j1", runId: "r1" }]);
+    expect(userRowMarks({ scheduledJob: { jobId: "j1" } })).toBeUndefined();
+    expect(userRowMarks({ scheduledJob: null })).toBeUndefined();
+  });
 });
 
 describe("a resend of the envelope is still the envelope (card 46617a7f)", () => {
@@ -129,6 +135,13 @@ describe("repeatedRowMarks", () => {
       { content: "same", blocks: null },
     ]);
     expect(repeatedRowMarks(db, "s", "same")).toBeUndefined();
+  });
+});
+
+describe("a resend of a scheduled job's turn keeps its mark (R16)", () => {
+  test("the boot's resume copy of the job's row is still the job's", () => {
+    const mark = [{ kind: "scheduled-job" as const, jobId: "j1", runId: "r1" }];
+    expect(userRowMarks({ repeats: mark })).toEqual(mark);
   });
 });
 

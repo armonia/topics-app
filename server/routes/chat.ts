@@ -840,7 +840,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // own, so the native engine keeps an agent's compaction ceiling out of
       // it (CHAT-COMPACT-06). A dispatch is not one: jarvis-channels sends a
       // person's Discord message as `dispatched`.
-      const continuation = !!(body.goalNudge || body.hookNudge || body.processExit || body.subagentResults || body.cardOutcome || resumeAttempt);
+      const continuation = !!(body.goalNudge || body.hookNudge || body.processExit || body.subagentResults || body.cardOutcome || body.scheduledJob || resumeAttempt);
       turn.continuation = continuation;
       // Typed by a person, not produced by the machine (the continuations above, a dispatch, a wake).
       const sentByPerson = !isWoken && !isReattach && !dispatched && !continuation;

@@ -17,7 +17,7 @@ import type { MachineStopCause } from '../../../../shared/types';
 import type { useT } from '../../hooks/useT';
 export type { MachineStopCause } from '../../../../shared/types';
 
-const MACHINE_KINDS = new Set(['goal-nudge', 'hook-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop', 'background-notice', 'process-exit', 'subagent-result']);
+const MACHINE_KINDS = new Set(['goal-nudge', 'hook-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop', 'background-notice', 'process-exit', 'subagent-result', 'scheduled-job']);
 
 export function isMachineRow(blocks: readonly ContentBlock[] | undefined | null): boolean {
   if (!blocks || blocks.length === 0) return false;

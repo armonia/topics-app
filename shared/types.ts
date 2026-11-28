@@ -1213,7 +1213,13 @@ export type ContentBlock =
    * hold kept the parent's turn back; this row is the late wake and draws one
    * line, not the cards again.
    */
-  | { kind: 'subagent-result'; results: SubagentResultCard[]; shown?: true };
+  | { kind: 'subagent-result'; results: SubagentResultCard[]; shown?: true }
+  /**
+   * THIS ROW IS ONE OCCURRENCE'S TURN OF A SCHEDULED JOB
+   * (server/schedule/agent-action.ts), not something a person typed. A `user`
+   * row because it opens the turn, drawn as a service line like `process-exit`.
+   */
+  | { kind: 'scheduled-job'; jobId: string; runId: string };
 
 /**
  * One turn of one sub-agent, as its card shows it. `reason.code` is one of the

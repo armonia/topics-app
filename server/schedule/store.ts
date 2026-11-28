@@ -16,11 +16,19 @@ export interface CommandJobAction {
   timeoutSec: number;
 }
 
-/** `agent` arrives in a later track; the engine already carries its kind. */
+/** What an `agent` job runs: one turn of a chat per occurrence (rules R15 to R20). */
+export interface AgentJobAction {
+  kind: "agent";
+  /** The text the agent reads, WITHOUT the rules block: the engine adds that at send time. */
+  prompt: string;
+  /** `fresh`: a new chat every occurrence (default). `keep`: the same chat across occurrences. */
+  chatMode: "fresh" | "keep";
+}
+
 export type JobAction =
   | { kind: "card"; text: string; status: ScheduledStatus; labels: string[] }
   | CommandJobAction
-  | { kind: "agent"; [key: string]: unknown };
+  | AgentJobAction;
 
 export interface JobPolicy {
   /** Overrides the default catch-up window for this job. */

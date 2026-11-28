@@ -56,6 +56,8 @@ export interface UserRowOrigin {
   subagentResults?: unknown;
   /** Those cards are rows of the chat already (written during a provider hold): this row only wakes it. */
   subagentResultsShown?: unknown;
+  /** This row is one occurrence's turn of a scheduled job (`server/schedule/agent-action.ts`): the chat's words, not a person's. */
+  scheduledJob?: unknown;
 }
 
 const SUBAGENT_STATUSES = new Set(["completed", "failed", "stopped", "undelivered", "lost"]);
@@ -109,6 +111,10 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
       exitCode: typeof exit.exitCode === "number" ? exit.exitCode : null,
       label: typeof exit.label === "string" ? exit.label : "",
     });
+  }
+  const job = origin.scheduledJob as { jobId?: unknown; runId?: unknown } | null | undefined;
+  if (job && typeof job === "object" && typeof job.jobId === "string" && job.jobId && typeof job.runId === "string" && job.runId) {
+    blocks.push({ kind: "scheduled-job", jobId: job.jobId, runId: job.runId });
   }
   const cards = subagentCards(origin.subagentResults);
   if (cards.length) blocks.push(origin.subagentResultsShown === true ? { kind: "subagent-result", results: cards, shown: true } : { kind: "subagent-result", results: cards });
