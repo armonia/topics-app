@@ -179,6 +179,10 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   stage TEXT,
   human_ask TEXT,
   ai_review_reminded_at TEXT,
+  -- 20261128090000: the review sweep's measure count, per delivered commit.
+  remeasure_commit TEXT,
+  remeasure_tries INTEGER NOT NULL DEFAULT 0,
+  remeasure_at INTEGER NOT NULL DEFAULT 0,
   -- 20261103130000: channel, display-only origin chat, acceptance bar, contract marker.
   created_source TEXT,
   origin_topic_id TEXT,

@@ -223,3 +223,32 @@ describe("orderForSweep keeps the queue order stable on the real task service", 
     expect(round2).toEqual(round1); // created_at never moved: orderForSweep's order holds regardless
   });
 });
+
+describe("remeasure count survives a restart", () => {
+  test("a sweep recreated on the same card and commit resumes at 2/3, not 1/3", async () => {
+    const records = new Map<string, { commit: string; at: number; tries: number }>();
+    const remeasureStore = { get: (id: string) => records.get(id), set: (id: string, rec: { commit: string; at: number; tries: number }) => { records.set(id, rec); } };
+    const build = () => createReviewSweep({
+      svc: { update: () => BASE, get: () => undefined } as unknown as Parameters<typeof createReviewSweep>[0]["svc"],
+      broadcastToAll: () => undefined,
+      runChecksGate: async () => null,
+      capturaConsegna: async () => false,
+      nodeMeter: { measure: async () => undefined },
+      bounceRed: async () => false,
+      afterDelivery: async () => undefined,
+      bounceWithReason: () => true,
+      remeasureStore,
+    });
+    const logs: string[] = [];
+    const original = console.warn;
+    console.warn = (line: string) => { logs.push(String(line)); };
+    try {
+      await build().remeasureInReview({ ...BASE, checksState: null });
+      // the pause is a clock matter: age the record so the restarted sweep may run again
+      records.set(BASE.id, { ...records.get(BASE.id)!, at: 0 });
+      await build().remeasureInReview({ ...BASE, checksState: null });
+    } finally { console.warn = original; }
+    expect(logs.some((l) => l.includes("(1/3)"))).toBe(true);
+    expect(logs.some((l) => l.includes("(2/3)"))).toBe(true);
+  });
+});
