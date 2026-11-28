@@ -49,6 +49,7 @@
         // it picks between being the server and being the ai-bridge daemon.
         "server/sidecar-entry.ts!",
         "server/ai-bridge.mjs!", // spawned as a detached daemon
+        "scripts/mail-adapters/gmail-gws.ts!", // the reference mailbox adapter: a command the person writes in the mailbox setting
         "server/pty-bridge.mjs!", // idem
         "server/lib/serial-queue-survivor.ts", // spawned as a child process by serial-queue.test.ts
         "cli/topics.ts!", // the `topics` CLI binary

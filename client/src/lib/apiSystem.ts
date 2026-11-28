@@ -267,6 +267,8 @@ export interface AppBehaviorSettings {
   securityAlertsProjectId: string | null;
   topicsCheck: string | null;
   scheduledDelivery: string | null;
+  /** JSON list of declared mailboxes, one list to receive and to send (`server/mail/inbox/mailboxes.ts`). NULL = none declared. */
+  mailboxes: string | null;
   /** Folder every worktree is created in. `null` = `<Topics home>/worktrees`. */
   worktreeRoot: string | null;
   /** Worktrees one project may keep before cleanup starts. `null` = 20. */
