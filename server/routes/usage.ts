@@ -26,7 +26,7 @@ import type { Database } from "bun:sqlite";
 import { computeCalls, peopleUsage, personDetail, type Computed } from "../usage/person-usage";
 import { projectQuota, withLimits } from "../usage/project-quota";
 import type { ProjectQuotaResponse, ProjectQuotaResult } from "../../shared/usage-shapes";
-import { topSessions } from "../usage/top-sessions";
+import { claudeProjectsRoot, topSessions } from "../usage/top-sessions";
 import { sendToSession } from "../usage/top-sessions-send";
 import type { WaitingStore } from "../attention/waiting-items";
 import type { TopSessionsResult } from "../../shared/top-sessions";
@@ -124,10 +124,12 @@ export function createUsageRouter(ctx: AppContext, deps: { waiting?: WaitingStor
 
     // POST /api/usage/top-sessions/send {sessionId, text}: writes into one of the listed sessions.
     if (method === "POST" && pathname === "/api/usage/top-sessions/send") {
+      if (!senderAllowed(ctx.requestIdentity?.(_req) ?? null)) return json({ error: "owner only" }, 403);
       const body = (await _req.json().catch(() => null)) as { sessionId?: unknown; text?: unknown } | null;
       const known = topSessionsCache?.data.sessions.find((s) => s.id === body?.sessionId);
       if (!known || typeof body?.text !== "string" || !body.text.trim()) return json({ error: "sessionId must be one of the listed sessions and text is required" }, 400);
-      return json(await sendToSession(known.id, known.cwd, body.text));
+      const sent = await sendToSession(known.id, known.cwd, body.text, { root: deps.topSessionsRoot ?? claudeProjectsRoot() });
+      return json(sent, sent.live ? 409 : 200);
     }
 
     // GET /api/usage/projects?range=7d|30d|all

@@ -43,7 +43,6 @@ const LONG_LIVED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/services/review-checks.ts", snippet: "proc = Bun.spawn(lowPriorityArgv", why: "pre-review checks have their own cap and tree kill (`killCheckTree`)" },
   { file: "server/lib/worktree-install-deps.ts", snippet: "Bun.spawn(installArgv(dir)", why: "`install` of the user's package manager: lasts as long as the network, in the worktree queue (shared by the agent worktree and the node delivery checkout)" },
   { file: "server/reasoning-translation/apple-adapter.ts", snippet: "spawn(path, [], {", why: "the translation helper: stays up while reasoning is being translated, every request has its own deadline and it stops after 5 idle minutes" },
-  { file: "server/usage/top-sessions-send.ts", snippet: "spawn(process.env.TOPICS_CLAUDE_BIN", why: "a detached, unref'd session resume the user asked for: nobody waits for it, it runs as long as the turn does" },
   { file: "server/lib/low-priority.ts", snippet: "spawn(cmd, args, { stdio: \"ignore\" })", why: "renice fired and forgotten: nobody waits for its result" },
   { file: "server/lib/fleet-usage.ts", snippet: "Bun.spawn([\"ps\"", why: "deadline in `snapshot()` with Promise.race (21/09)" },
   { file: "server/lib/fleet-usage.ts", snippet: "const proc = spawn();", why: "the injected `ps` above: the deadline is in the same function" },

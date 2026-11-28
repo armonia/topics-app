@@ -20,7 +20,6 @@ import { createReadStream } from "node:fs";
 import { opendir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 
 import type { TopSession, TopSessionOrigin, TopSessionsResult } from "../../shared/top-sessions";
 
@@ -60,7 +59,17 @@ export function originOf(entrypoint: string | null): TopSessionOrigin {
   return "topics";
 }
 
-/** Running totals of one session; transcript text is never kept, only these numbers. */
+/** Spend is kept in 5-minute buckets so a cached partial can be windowed again at any later `now`. */
+export const BUCKET_MS = 5 * 60_000;
+
+export interface Bucket {
+  weighted: number;
+  contextSum: number;
+  turns: number;
+  byModel: Map<string, number>;
+}
+
+/** Running totals of one transcript file or one session; transcript text is never kept, only these numbers. */
 export interface SessionSums {
   id: string;
   cwd: string | null;
@@ -69,6 +78,13 @@ export interface SessionSums {
   entrypoint: string | null;
   firstAt: number;
   lastAt: number;
+  buckets: Map<number, Bucket>;
+}
+
+const blank = (id: string): SessionSums => ({ id, cwd: null, title: null, firstPrompt: null, entrypoint: null, firstAt: Infinity, lastAt: 0, buckets: new Map() });
+
+/** The windowed view `aggregateSessions` ranks on. */
+interface Windowed extends SessionSums {
   weighted24h: number;
   weighted7d: number;
   contextSum: number;
@@ -76,7 +92,39 @@ export interface SessionSums {
   byModel: Map<string, number>;
 }
 
-const blank = (id: string): SessionSums => ({ id, cwd: null, title: null, firstPrompt: null, entrypoint: null, firstAt: Infinity, lastAt: 0, weighted24h: 0, weighted7d: 0, contextSum: 0, turns: 0, byModel: new Map() });
+function windowed(a: SessionSums, now: number): Windowed {
+  const w: Windowed = { ...a, weighted24h: 0, weighted7d: 0, contextSum: 0, turns: 0, byModel: new Map() };
+  for (const [idx, b] of a.buckets) {
+    const at = idx * BUCKET_MS;
+    if (at > now || now - (at + BUCKET_MS) > WINDOW_WEEK_MS) continue;
+    w.weighted7d += b.weighted;
+    if (now - at <= WINDOW_24H_MS) {
+      w.weighted24h += b.weighted;
+      w.contextSum += b.contextSum;
+      w.turns += b.turns;
+      for (const [m, v] of b.byModel) w.byModel.set(m, (w.byModel.get(m) ?? 0) + v);
+    }
+  }
+  return w;
+}
+
+/** Folds the numbers of one transcript file into its session's totals. */
+function mergeSums(into: SessionSums, from: SessionSums): void {
+  into.cwd ??= from.cwd;
+  into.title ??= from.title;
+  into.firstPrompt ??= from.firstPrompt;
+  into.entrypoint ??= from.entrypoint;
+  into.firstAt = Math.min(into.firstAt, from.firstAt);
+  into.lastAt = Math.max(into.lastAt, from.lastAt);
+  for (const [idx, b] of from.buckets) {
+    const t = into.buckets.get(idx);
+    if (!t) { into.buckets.set(idx, { ...b, byModel: new Map(b.byModel) }); continue; }
+    t.weighted += b.weighted;
+    t.contextSum += b.contextSum;
+    t.turns += b.turns;
+    for (const [m, v] of b.byModel) t.byModel.set(m, (t.byModel.get(m) ?? 0) + v);
+  }
+}
 
 function promptText(content: unknown): string | null {
   const raw = typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => (c && typeof c === "object" && typeof (c as { text?: unknown }).text === "string" ? (c as { text: string }).text : "")).join(" ") : "";
@@ -114,23 +162,23 @@ export function addLine(totals: SessionTotals, sessionId: string, subagent: bool
     if (Number.isFinite(at)) { sums.firstAt = Math.min(sums.firstAt, at); sums.lastAt = Math.max(sums.lastAt, at); }
   }
   const u: Usage | undefined = r.type === "assistant" ? r.message?.usage : undefined;
-  if (!u || !Number.isFinite(at) || now - at > WINDOW_WEEK_MS || at > now) return;
+  if (!u || !Number.isFinite(at) || now - at > WINDOW_WEEK_MS) return;
   const model = typeof r.message?.model === "string" ? r.message.model : "unknown";
   const w = (n(u.input_tokens) + 5 * n(u.output_tokens) + 1.25 * n(u.cache_creation_input_tokens) + 0.1 * n(u.cache_read_input_tokens)) * modelFactor(model);
-  sums.weighted7d += w;
-  if (now - at <= WINDOW_24H_MS) {
-    sums.weighted24h += w;
-    sums.byModel.set(model, (sums.byModel.get(model) ?? 0) + w);
-    if (!subagent) {
-      sums.contextSum += n(u.input_tokens) + n(u.cache_creation_input_tokens) + n(u.cache_read_input_tokens);
-      sums.turns += 1;
-    }
+  const idx = Math.floor(at / BUCKET_MS);
+  const bucket = sums.buckets.get(idx) ?? { weighted: 0, contextSum: 0, turns: 0, byModel: new Map<string, number>() };
+  sums.buckets.set(idx, bucket);
+  bucket.weighted += w;
+  bucket.byModel.set(model, (bucket.byModel.get(model) ?? 0) + w);
+  if (!subagent) {
+    bucket.contextSum += n(u.input_tokens) + n(u.cache_creation_input_tokens) + n(u.cache_read_input_tokens);
+    bucket.turns += 1;
   }
 }
 
 /** The ranking of the last 24 hours, subagents already folded into their parent. */
 export function aggregateSessions(bySession: SessionTotals, now: number, top = TOP_COUNT): TopSessionsResult {
-  const all = [...bySession.values()];
+  const all = [...bySession.values()].map((a) => windowed(a, now));
   const total24h = all.reduce((s, a) => s + a.weighted24h, 0);
   const total7d = all.reduce((s, a) => s + a.weighted7d, 0);
   const perProject = new Map<string, { weighted: number; sessions: number }>();
@@ -172,10 +220,40 @@ export function claudeProjectsRoot(env: NodeJS.ProcessEnv = process.env): string
   return join(env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects");
 }
 
-/** Streams one transcript into the totals a line at a time: the file is never held in memory. */
-async function addFile(totals: SessionTotals, sessionId: string, subagent: boolean, path: string, now: number): Promise<void> {
-  const rl = createInterface({ input: createReadStream(path, { encoding: "utf8" }), crlfDelay: Infinity });
-  for await (const line of rl) addLine(totals, sessionId, subagent, line, now);
+/** What is known of one transcript file: how far it was read and the numbers that came out of it. */
+interface FileState {
+  size: number;
+  mtimeMs: number;
+  /** Bytes consumed so far; always the end of a complete line. */
+  offset: number;
+  sessionId: string;
+  sums: SessionSums;
+}
+
+/** Per transcript folder, per file; a scan reads only what a file gained since the last one. */
+const fileCaches = new Map<string, Map<string, FileState>>();
+let bytesRead = 0;
+
+/** Bytes the scans have read from disk so far (a counter for tests and diagnostics). */
+export function transcriptBytesRead(): number {
+  return bytesRead;
+}
+
+/** Streams the complete lines of `path` from `state.offset` into its sums: the file is never held in memory. */
+async function readFrom(state: FileState, subagent: boolean, path: string, now: number): Promise<void> {
+  let carry: Buffer = Buffer.alloc(0);
+  const own: SessionTotals = new Map([[state.sessionId, state.sums]]);
+  for await (const chunk of createReadStream(path, { start: state.offset })) {
+    bytesRead += (chunk as Buffer).length;
+    carry = carry.length ? Buffer.concat([carry, chunk as Buffer]) : (chunk as Buffer);
+    let from = 0;
+    for (let nl = carry.indexOf(10, from); nl !== -1; nl = carry.indexOf(10, from)) {
+      addLine(own, state.sessionId, subagent, carry.toString("utf8", from, nl).replace(/\r$/, ""), now);
+      state.offset += nl + 1 - from;
+      from = nl + 1;
+    }
+    carry = carry.subarray(from);
+  }
 }
 
 async function listNames(path: string): Promise<string[]> {
@@ -185,30 +263,45 @@ async function listNames(path: string): Promise<string[]> {
 }
 
 /**
- * Reads every transcript touched in the last 7 days, one file at a time and one
- * line at a time. A file older than the window by mtime cannot hold a record
- * inside it, so it is skipped unread.
+ * Reads every transcript touched in the last 7 days. A file older than the
+ * window by mtime cannot hold a record inside it, so it is skipped unread. A
+ * file seen before is read only past its last offset when it grew; one that
+ * shrank, or changed without growing, is read again from the start.
  */
 export async function scanTranscripts(root: string, now: number): Promise<SessionTotals> {
+  const known = fileCaches.get(root) ?? new Map<string, FileState>();
+  fileCaches.set(root, known);
+  const seen = new Set<string>();
   const totals: SessionTotals = new Map();
-  const fresh = async (p: string): Promise<boolean> => {
-    try { return now - (await stat(p)).mtimeMs <= WINDOW_WEEK_MS; } catch { return false; }
+  const visit = async (path: string, sessionId: string, subagent: boolean): Promise<void> => {
+    let st;
+    try { st = await stat(path); } catch { return; }
+    if (now - st.mtimeMs > WINDOW_WEEK_MS) return;
+    seen.add(path);
+    let state = known.get(path);
+    const grew = state !== undefined && st.size > state.size;
+    const same = state !== undefined && st.size === state.size && st.mtimeMs === state.mtimeMs;
+    if (!state || (!grew && !same)) {
+      state = { size: 0, mtimeMs: 0, offset: 0, sessionId, sums: blank(sessionId) };
+      known.set(path, state);
+    }
+    if (!same) {
+      state.size = st.size;
+      state.mtimeMs = st.mtimeMs;
+      try { await readFrom(state, subagent, path, now); } catch { /* unreadable now: the next scan retries from the offset */ }
+    }
+    const into = totals.get(sessionId) ?? blank(sessionId);
+    totals.set(sessionId, into);
+    mergeSums(into, state.sums);
   };
   for (const folder of await listNames(root)) {
     const dir = join(root, folder);
     for (const entry of await listNames(dir)) {
-      if (entry.endsWith(".jsonl")) {
-        const p = join(dir, entry);
-        if (await fresh(p)) await addFile(totals, entry.slice(0, -6), false, p, now);
-      } else {
-        const subDir = join(dir, entry, "subagents");
-        for (const f of await listNames(subDir)) {
-          const p = join(subDir, f);
-          if (f.endsWith(".jsonl") && (await fresh(p))) await addFile(totals, entry, true, p, now);
-        }
-      }
+      if (entry.endsWith(".jsonl")) await visit(join(dir, entry), entry.slice(0, -6), false);
+      else for (const f of await listNames(join(dir, entry, "subagents"))) if (f.endsWith(".jsonl")) await visit(join(dir, entry, "subagents", f), entry, true);
     }
   }
+  for (const path of known.keys()) if (!seen.has(path)) known.delete(path);
   return totals;
 }
 

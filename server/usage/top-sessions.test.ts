@@ -2,7 +2,10 @@
  * @covers USAGE-29
  */
 import { describe, expect, test } from "bun:test";
-import { aggregateSessions as aggregate, modelFactor, addLine, type SessionTotals } from "./top-sessions";
+import { appendFileSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { aggregateSessions as aggregate, modelFactor, addLine, scanTranscripts, transcriptBytesRead, type SessionTotals } from "./top-sessions";
 
 const NOW = Date.parse("2026-11-25T12:00:00Z");
 const ago = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
@@ -65,3 +68,46 @@ describe("aggregateSessions", () => {
     expect(modelFactor("mystery")).toBe(1);
   });
 });
+
+describe("scanTranscripts is incremental", () => {
+  const setup = () => {
+    const root = mkdtempSync(join(tmpdir(), "top-sessions-"));
+    mkdirSync(join(root, "proj"));
+    return root;
+  };
+  const rec = (h: number, out: number) => turn(h, "claude-sonnet-4", out) + "\n";
+
+  test("a second scan does not reopen unchanged files and reads only appended bytes", async () => {
+    const root = setup();
+    const f = join(root, "proj", "aaaa1111.jsonl");
+    writeFileSync(f, head(3, "/w/x", "cli") + "\n" + rec(1, 100));
+    const first = await scanTranscripts(root, NOW);
+    const afterFirst = transcriptBytesRead();
+    expect(afterFirst).toBeGreaterThan(0);
+    await scanTranscripts(root, NOW);
+    expect(transcriptBytesRead()).toBe(afterFirst);
+    const added = rec(0.5, 200);
+    appendFileSync(f, added);
+    future(f);
+    const third = await scanTranscripts(root, NOW);
+    expect(transcriptBytesRead() - afterFirst).toBe(Buffer.byteLength(added));
+    expect(aggregate(third, NOW).sessions[0].points24h).toBeGreaterThan(aggregate(first, NOW).sessions[0].points24h);
+  });
+
+  test("a file that shrinks is read again from the start", async () => {
+    const root = setup();
+    const f = join(root, "proj", "bbbb2222.jsonl");
+    writeFileSync(f, rec(2, 500) + rec(1, 500));
+    await scanTranscripts(root, NOW);
+    writeFileSync(f, rec(1, 10));
+    future(f);
+    const [s] = aggregate(await scanTranscripts(root, NOW), NOW).sessions;
+    expect(s.points24h).toBe(10 * 5 + 1000 * 0.1);
+  });
+});
+
+/** Moves the mtime forward so a rewrite within one tick still looks changed. */
+function future(path: string) {
+  const t = new Date(Date.now() + 5000);
+  utimesSync(path, t, t);
+}
