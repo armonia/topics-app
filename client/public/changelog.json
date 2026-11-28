@@ -4,7 +4,14 @@
     "date": "2026-11-27",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "a null attachment is gone for good, not a hiccup to retry forever",
+          "en": "",
+          "scope": "node-mirror",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -12,6 +19,11 @@
           "en": "",
           "scope": "openspec",
           "breaking": false
+        },
+        {
+          "it": "Catch a land denial with no sha, and reorder a misplaced docblock",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -56,10 +68,20 @@
       "perf": [],
       "internal": [
         {
+          "it": "Trace the main-claim review check to KANBAN-11, not a card id",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "tetto-contesto-agenti, the ceiling at turn start and its three new scenarios",
           "en": "",
           "scope": "openspec",
           "breaking": false
+        },
+        {
+          "it": "node-pool: repo copy gets the drain fix (needs_input and waiting cards do not count), with a regression test",
+          "en": "",
+          "scope": null
         },
         {
           "it": "tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k",
@@ -74,10 +96,31 @@
           "breaking": false
         },
         {
+          "it": "picker keeps projects under ~/.claude, a queued card can move boards, merged parent header shows its name",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Declare coverage of the merged-parent name test",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "tetto-contesto-agenti, wakes are continuations",
           "en": "",
           "scope": "openspec",
           "breaking": false
+        },
+        {
+          "it": "secret-store: fix three more ways to lose a secret",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "node-pool: permanent node gets ci-governor files again (shared PERMANENT_FILES list), with a test",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -105,12 +148,28 @@
       "perf": [],
       "internal": [
         {
+          "it": "secret-store: mutex per file, derived recipient, Keychain limit and read-back, no env identity, secrets dir, CI age retry",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "review-checks brakes: load gets its own budget clock, only the load reason is released by it (card 9fecea98)",
           "en": "",
           "scope": null
         },
         {
           "it": "review-checks brakes test: complete the spent clocks literal (card 9fecea98)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "age is a spawned test binary, not dead code",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Prove \"already on main\" before writing it, and warn review of a false claim",
           "en": "",
           "scope": null
         },
@@ -140,7 +199,20 @@
     "date": "2026-11-27",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "record task-dispatcher-remote-node.test.ts growth with a live exception",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "drop unused nodeTokenPath re-export flagged by deadcode-prod",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -161,7 +233,14 @@
     "date": "2026-11-27",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "declare untraced test coverage, split node-client under bloat threshold",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -557,6 +636,12 @@
       ],
       "fixes": [
         {
+          "it": "retry failed attachments, test previewImage, extract delivery mainRef wiring",
+          "en": "",
+          "scope": "nodes",
+          "breaking": false
+        },
+        {
           "it": "read the clock once per render in the load gauge",
           "en": "",
           "scope": "board",
@@ -932,6 +1017,12 @@
           "it": "measure node deliveries whose bar mixes CI and local checks",
           "en": "",
           "scope": "node-delivery",
+          "breaking": false
+        },
+        {
+          "it": "carry node attachments to the primary, read delivery commits against origin/main",
+          "en": "",
+          "scope": "nodes",
           "breaking": false
         }
       ],

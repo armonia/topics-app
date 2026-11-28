@@ -22,6 +22,13 @@ import { CLAUDE_CODING_PROVIDERS } from "../../shared/task-coding-models";
 import { getPrimaryRole } from "../lib/primary-role";
 import type { WorktreePlanEntryPayload } from "../../shared/worktree-plan";
 import type { WorktreePolicy, WorktreeSummary } from "../../shared/worktree-summary";
+export {
+  readNodeToken,
+  readDelegatedNodeToken,
+  writeNodeToken,
+  writeDelegatedNodeToken,
+  removeDelegatedNodeToken,
+} from "./node-client-token";
 
 export type NodeFailureReason =
   | "unreachable"
@@ -169,6 +176,8 @@ export interface NodeRunComment {
   content: string;
   kind: string;
   createdAt: string;
+  /** Absolute paths on the NODE's own disk. Fetched back by `fetchMedia`, one at a time. */
+  media?: string[];
 }
 
 export interface NodeRunReport {
@@ -239,6 +248,8 @@ export interface NodeClient {
     delegation?: NodeRunBinding;
   }): Promise<NodeRunReport>;
   fetchBundle(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<BundleResult>;
+  /** One attachment's bytes, by the exact path the node's own comment declared. `null` = the node has nothing there (gone, or never had it). */
+  fetchMedia(input: { baseUrl: string; token: string; runId: string; path: string; delegation?: NodeRunBinding }): Promise<Uint8Array | null>;
   cancelRun(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<void>;
   /** The Claude ids the node's ready Claude coding runtimes list: what its cards can run. */
   codingModels(input: { baseUrl: string; token: string }): Promise<string[]>;
@@ -581,7 +592,14 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         status: typeof out.status === "string" ? out.status : "unknown",
         dispatchState: typeof out.dispatchState === "string" ? out.dispatchState : null,
         dispatchError: typeof out.dispatchError === "string" ? out.dispatchError : null,
-        comments: Array.isArray(out.comments) ? out.comments : [],
+        comments: Array.isArray(out.comments)
+          ? out.comments.map((c) => ({
+              ...c,
+              media: Array.isArray((c as { media?: unknown }).media)
+                ? (c as { media: unknown[] }).media.filter((p): p is string => typeof p === "string")
+                : undefined,
+            }))
+          : [],
         deliveryBranch: typeof out.deliveryBranch === "string" ? out.deliveryBranch : null,
         deliveryCommit: typeof out.deliveryCommit === "string" ? out.deliveryCommit : null,
         baseSha: typeof out.baseSha === "string" ? out.baseSha : null,
@@ -618,6 +636,20 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
       }
       const bytes = new Uint8Array(await res.arrayBuffer());
       return { empty: false, bytes };
+    },
+
+    async fetchMedia({ baseUrl, token, runId, path, delegation }) {
+      try {
+        const res = await call(
+          `${runUrl(baseUrl, runId, !!delegation)}/media?path=${encodeURIComponent(path)}`,
+          { method: "GET", headers: headersFor(token, delegatedHeaders(delegation)) },
+          "fetch media",
+        );
+        return new Uint8Array(await res.arrayBuffer());
+      } catch (err) {
+        if (isNodeError(err) && (err.status === 403 || err.status === 404)) return null;
+        throw err;
+      }
     },
 
     async cancelRun({ baseUrl, token, runId, delegation }) {
@@ -687,8 +719,6 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     },
   };
 }
-
-export { readNodeToken, readDelegatedNodeToken, writeNodeToken, writeDelegatedNodeToken, removeDelegatedNodeToken } from "./node-client-token";
 
 /** The usage block of a run report; anything that is not three finite numbers reads as unknown. */
 function parseRunUsage(raw: unknown): NodeRunReport["usage"] {

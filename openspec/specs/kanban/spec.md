@@ -803,6 +803,25 @@ difetto: una verifica che conferma ciò che non ha esaminato.
 - **AND** un lookup incompleto o il superamento del limite non produce un falso
   rilievo
 
+#### Scenario: una consegna che nega il land per un commit assente da origin/main viene notata all'ingresso in review
+
+- **GIVEN** un rapporto di consegna che scrive "già su main" o "nessun commit
+  nuovo" per il commit di consegna del ramo
+- **AND** `origin/main` non contiene quel commit, e il ramo porta commit propri
+- **WHEN** il task entra in `review` (riuso di `falseMainClaims`, lo stesso
+  controllo del ripasso a orario, nessun secondo rilevatore)
+- **THEN** la card riceve una nota di sistema che nomina il numero di commit e
+  di file che il ramo porta
+- **AND** l'approvazione resta possibile comunque: la nota è informativa, non
+  un blocco
+
+#### Scenario: una consegna che nega il land per un commit presente su origin/main non viene notata
+
+- **GIVEN** lo stesso rapporto, ma il commit di consegna è già un antenato di
+  `origin/main`
+- **WHEN** il task entra in `review`
+- **THEN** nessuna nota di sistema viene prodotta
+
 ### Requirement: KANBAN-12 — La topbar della board ha UNA linea in meno e UNA porta sola
 
 Tre vincoli sulla barra in cima alla board Kanban. Due sono **rimozioni**, ed è

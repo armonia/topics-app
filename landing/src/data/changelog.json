@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.5.22",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a null attachment is gone for good, not a hiccup to retry forever",
+          "scope": "node-mirror"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.21",
     "date": "2026-11-27",
     "sections": {
@@ -43,6 +57,38 @@
         {
           "text": "move the spawn allowlist entry to where the install call now lives",
           "scope": "node-delivery"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.19",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "record task-dispatcher-remote-node.test.ts growth with a live exception",
+          "scope": "gates"
+        },
+        {
+          "text": "drop unused nodeTokenPath re-export flagged by deadcode-prod",
+          "scope": "gates"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.18",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "declare untraced test coverage, split node-client under bloat threshold",
+          "scope": "gates"
         }
       ],
       "perf": []
@@ -184,6 +230,10 @@
       ],
       "fixes": [
         {
+          "text": "retry failed attachments, test previewImage, extract delivery mainRef wiring",
+          "scope": "nodes"
+        },
+        {
           "text": "read the clock once per render in the load gauge",
           "scope": "board"
         },
@@ -290,6 +340,10 @@
         {
           "text": "measure node deliveries whose bar mixes CI and local checks",
           "scope": "node-delivery"
+        },
+        {
+          "text": "carry node attachments to the primary, read delivery commits against origin/main",
+          "scope": "nodes"
         }
       ],
       "perf": []
