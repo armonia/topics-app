@@ -66,3 +66,10 @@ Agents SHALL have tools to create, list, run, pause and delete jobs, and none to
 
 ### Relation to OUTBOUND-03 (human confirmation for mail and Google)
 OUTBOUND-03 asks a person to say yes to EACH message sent as mail or written to Google, and that stays: a job's delivery is not a mail and is not on that door. The person's yes for a delivery is given once, in two places that only they control: they write the adapter and the owner destination in the app settings, and they turn on any job an agent made. After that each run sends to that one destination and to no other, which is why a `deliver` block can name `owner` or a destination but an agent cannot widen where the adapter points. An adapter MUST NOT be used to send mail: that goes through `send_mail` and its per-message confirmation.
+
+### Requirement: SCHED-09 — Create and follow a job from the Automations view
+The Automations view SHALL let a person create, edit, pause, run now and delete a scheduled job, and read each run's outcome, duration, output and the cause of a skipped or lost one, reading only `/api/scheduled-jobs`, so it is whole with no hub configured. The schedule field SHALL show the next three occurrences, computed with the module the server schedules with.
+
+#### Scenario: Create a command job and follow it with no hub
+- **WHEN** a person creates a command job in the view and the clock reaches its first occurrence
+- **THEN** the history shows the run with its outcome and output, and the person can pause, run now and delete it

@@ -5,11 +5,12 @@ import { CLOSER_LABELS, KIND_LABELS, STATUS_LABEL, type TaskLabel } from '../../
 import { scheduledCardsApi, type ScheduledCard, type ScheduledCardInput } from '../../lib/scheduledCards';
 import { Menu } from '../Shared/Menu';
 import { Segmented } from '../Shared/Segmented';
+import { cronPreset, presetCron, type CronPreset } from '../../lib/schedulePresets';
 import { TOOLBAR_CONTROL_H, TOOLBAR_ICON_W } from './constants';
 
 const LABELS: TaskLabel[] = [...CLOSER_LABELS, ...KIND_LABELS];
 const COLUMNS: ScheduledCardInput['status'][] = ['backlog', 'todo', 'in_progress', 'review'];
-type Preset = 'daily' | 'weekly' | 'hourly' | 'custom';
+type Preset = CronPreset;
 const PRESETS: Preset[] = ['daily', 'weekly', 'hourly', 'custom'];
 // A new recurrence starts in the zone of whoever writes it; Europe/Rome only when the browser does not say.
 const defaultTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Rome';
@@ -45,9 +46,9 @@ export function ScheduledCardsControl({ projectId }: { projectId: string }) {
     setForm({ text: '', status: 'backlog', labels: [], cron: '0 9 * * 1', timeZone: defaultTimeZone() });
   };
   const edit = (card: ScheduledCard) => {
-    const match = /^(\d{1,2}) (\d{1,2}) \* \* (\*|1)$/.exec(card.cron);
-    setEditing(card.id); setPreset(match ? (match[3] === '*' ? 'daily' : 'weekly') : card.cron === '0 * * * *' ? 'hourly' : 'custom');
-    if (match) setPresetTime(`${match[2]!.padStart(2, '0')}:${match[1]!.padStart(2, '0')}`);
+    const found = cronPreset(card.cron);
+    setEditing(card.id); setPreset(found.preset);
+    if (found.time) setPresetTime(found.time);
     setLabelDraft(card.labels.join(', '));
     setForm({ text: card.text, status: card.status, labels: card.labels, cron: card.cron, timeZone: card.timeZone, enabled: card.enabled });
   };
@@ -63,10 +64,7 @@ export function ScheduledCardsControl({ projectId }: { projectId: string }) {
   };
   const choosePreset = (value: Preset) => {
     setPreset(value);
-    const [hour, minute] = presetTime.split(':');
-    if (value === 'daily') setForm({ ...form, cron: `${Number(minute)} ${Number(hour)} * * *` });
-    if (value === 'weekly') setForm({ ...form, cron: `${Number(minute)} ${Number(hour)} * * 1` });
-    if (value === 'hourly') setForm({ ...form, cron: '0 * * * *' });
+    if (value !== 'custom') setForm({ ...form, cron: presetCron(value, presetTime) });
   };
   const toggle = async (card: ScheduledCard) => {
     try { await scheduledCardsApi.setEnabled(projectId, card.id, !card.enabled); await refresh(); }
@@ -134,8 +132,7 @@ export function ScheduledCardsControl({ projectId }: { projectId: string }) {
             />
             {(preset === 'daily' || preset === 'weekly') && <input type="time" value={presetTime} aria-label={tr('board.scheduled.time')} onChange={event => {
               const value = event.target.value; setPresetTime(value);
-              const [hour, minute] = value.split(':');
-              setForm({ ...form, cron: `${Number(minute)} ${Number(hour)} * * ${preset === 'weekly' ? '1' : '*'}` });
+              if (preset === 'daily' || preset === 'weekly') setForm({ ...form, cron: presetCron(preset, value) });
             }} className="rounded border border-white/15 bg-app-bg px-2 py-1.5 text-app-text" />}
             <input required value={form.cron} onChange={event => { setPreset('custom'); setForm({ ...form, cron: event.target.value }); }} aria-label={tr('board.scheduled.cron')} placeholder="0 9 * * 1" className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 font-mono text-app-text" />
             <input required value={form.timeZone} onChange={event => setForm({ ...form, timeZone: event.target.value })} aria-label={tr('board.scheduled.timeZone')} className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-app-text" />

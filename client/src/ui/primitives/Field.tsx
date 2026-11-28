@@ -63,7 +63,7 @@ export function TextField({
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
-  type?: 'text' | 'search' | 'email' | 'number' | 'date';
+  type?: 'text' | 'search' | 'email' | 'number' | 'date' | 'time' | 'datetime-local';
   icon?: LucideIcon;
   hint?: ReactNode;
   /** Set: the field is drawn invalid and says why under it. */
