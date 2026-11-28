@@ -55,10 +55,10 @@ const KIND_ICON: Record<UnitKind, LucideIcon> = {
   app: AppWindow, servizio: Server, sessione: Asterisk, lavoro: Zap, devserver: Zap, mcp: Plug, macos: Monitor, altro: Cpu, resto: Box, // allow-italian: the census's wire values
 };
 
-const STOP_BUTTON = 'inline-flex h-6 items-center gap-1 justify-self-end rounded-sm bg-black/[0.035] px-[7px] text-mini text-app-text-secondary hover:bg-black/[0.06] hover:text-app-text dark:bg-white/[0.05] dark:hover:bg-white/[0.14] @max-3xl:h-9 @max-3xl:px-2.5 @max-3xl:text-compact disabled:opacity-60';
+const STOP_BUTTON = 'inline-flex h-6 items-center gap-1 justify-self-end rounded-sm bg-black/[0.035] px-1.75 text-mini text-app-text-secondary hover:bg-black/[0.06] hover:text-app-text dark:bg-white/[0.05] dark:hover:bg-white/[0.14] @max-3xl:h-9 @max-3xl:px-2.5 @max-3xl:text-compact disabled:opacity-60';
 const TRACK = 'bg-black/[0.07] dark:bg-white/[0.08]';
 const ROW_GRID = '@3xl:grid @3xl:grid-cols-[minmax(0,1fr)_46px_118px_42px_108px_64px] @3xl:items-center @3xl:gap-x-2.5';
-const DOT = 'h-[7px] w-[7px] flex-none rounded-full';
+const DOT = 'h-1.75 w-1.75 flex-none rounded-full';
 
 interface HubReads {
   census: unknown;
@@ -126,12 +126,12 @@ export function MachineProcessesPane() {
 
   return (
     <div className="@container h-full overflow-auto bg-app-bg" data-testid="machine-processes">
-      <div className="mx-auto max-w-[1180px] px-[18px] pb-[22px] pt-3.5 @max-3xl:px-2.5 @max-3xl:pb-7">
+      <div className="mx-auto max-w-295 px-4.5 pb-5.5 pt-3.5 @max-3xl:px-2.5 @max-3xl:pb-7">
         <header className="mb-3 flex flex-wrap items-center gap-2.5">
           <h1 className="m-0 text-title font-semibold text-app-text-heading @max-3xl:hidden">{tr('processes.title')}</h1>
           <span className="flex-1 @max-3xl:hidden" />
           <span className={`flex items-center gap-1.5 text-mini tabular-nums ${FAINT} @max-3xl:text-compact`} data-testid="machine-processes-updated">
-            <span className={`h-[7px] w-[7px] flex-none rounded-full ${!stale ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-amber-500'}`} />
+            <span className={`h-1.75 w-1.75 flex-none rounded-full ${!stale ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-amber-500'}`} />
             {at === null ? tr('processes.reading') : `${tr(stale ? 'processes.lastRead' : 'processes.now')} · ${updatedLabel(now - at, tr)}`}
           </span>
         </header>
@@ -220,7 +220,7 @@ function MacSection({ gauges: g, rows, onStopped }: { gauges: MacGauges; rows: P
         <Gauge label={tr('processes.disk')} value={formatPct(g.disk?.pct ?? null)} share={g.disk?.pct == null ? null : g.disk.pct / 100} warn={(g.disk?.pct ?? 0) >= 85} note={g.disk?.note ?? null} testId="machine-gauge-disk" />
       </div>
       {g.lines.map((line, i) => (
-        <div key={i} className={`flex min-h-[34px] items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 ${g.level > 0 ? 'bg-amber-500/[0.06]' : ''}`} data-testid="machine-mac-line">
+        <div key={i} className={`flex min-h-8.5 items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 ${g.level > 0 ? 'bg-amber-500/[0.06]' : ''}`} data-testid="machine-mac-line">
           <Activity size={14} className={`flex-none ${g.level > 0 ? WARNING_TEXT : FAINT}`} aria-hidden="true" />
           <span className="min-w-0 flex-1 text-compact text-app-text">{line}</span>
         </div>
@@ -308,16 +308,16 @@ export function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopp
     finally { setStopping(false); }
   }, [r.script, onStopped]);
   const metric = (label: string, value: ReactNode, cls = '') => (
-    <span className={cls}><span className={`mr-[3px] ${FAINT}`}>{label}</span>{value}</span>
+    <span className={cls}><span className={`mr-0.75 ${FAINT}`}>{label}</span>{value}</span>
   );
   return (
     <div
-      className={`${ROW_GRID} grid grid-cols-[minmax(0,1fr)_auto] gap-y-1 border-b border-app-border-subtle px-2.5 py-[7px] last:border-b-0 hover:bg-app-hover @3xl:min-h-9 @3xl:py-[3px]`}
+      className={`${ROW_GRID} grid grid-cols-[minmax(0,1fr)_auto] gap-y-1 border-b border-app-border-subtle px-2.5 py-1.75 last:border-b-0 hover:bg-app-hover @3xl:min-h-9 @3xl:py-0.75`}
       data-testid="machine-process-row"
       data-kind={r.kind}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <span className={`flex h-[22px] w-[22px] flex-none items-center justify-center rounded-xs bg-black/[0.035] dark:bg-white/[0.05] ${r.kind === 'sessione' ? 'text-orange-500 dark:text-orange-400' : 'text-app-text-secondary'}`}>{/* allow-italian: the census's wire value */}
+        <span className={`flex h-5.5 w-5.5 flex-none items-center justify-center rounded-xs bg-black/[0.035] dark:bg-white/[0.05] ${r.kind === 'sessione' ? 'text-orange-500 dark:text-orange-400' : 'text-app-text-secondary'}`}>{/* allow-italian: the census's wire value */}
           <Icon size={13} aria-hidden="true" />
         </span>
         <span className="flex min-w-0 flex-col">
@@ -325,7 +325,7 @@ export function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopp
           {r.script ? (
             <button
               type="button"
-              className="inline-flex w-fit max-w-full items-center gap-[3px] truncate rounded-xs bg-primary/10 px-1 -ml-1 text-mini text-primary @max-3xl:text-compact"
+              className="inline-flex w-fit max-w-full items-center gap-0.75 truncate rounded-xs bg-primary/10 px-1 -ml-1 text-mini text-primary @max-3xl:text-compact"
               title={tr('processes.openProject', { project: r.script.project })}
               onClick={() => window.dispatchEvent(new CustomEvent('topics:open-project', { detail: { projectPath: r.script?.projectPath } }))}
               data-testid="machine-process-script"
@@ -342,7 +342,7 @@ export function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopp
       </div>
       <span className={`hidden text-right text-compact tabular-nums @3xl:block ${r.cpuPct === null ? FAINT : ''}`} data-testid="machine-process-cpu" title={cpuTitle}>{cpu}</span>
       <span className="hidden items-center justify-end gap-1.5 text-compact tabular-nums @3xl:flex">
-        <span className={`h-1 max-w-[52px] flex-1 overflow-hidden rounded-sm ${TRACK}`}><i className={`block h-full ${r.memWarn ? 'bg-amber-500' : 'bg-app-text-tertiary'}`} style={{ width: `${Math.round(r.memShare * 100)}%` }} /></span>
+        <span className={`h-1 max-w-13 flex-1 overflow-hidden rounded-sm ${TRACK}`}><i className={`block h-full ${r.memWarn ? 'bg-amber-500' : 'bg-app-text-tertiary'}`} style={{ width: `${Math.round(r.memShare * 100)}%` }} /></span>
         <span className={memTone}>{formatMem(r.memMB)}</span>
       </span>
       <span className={`hidden text-right text-compact tabular-nums @3xl:block ${r.gpuPct === null ? FAINT : ''}`} data-testid="machine-process-gpu">{formatPct(r.gpuPct)}</span>
@@ -354,7 +354,7 @@ export function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopp
           </button>
         )}
       </span>
-      <div className="col-span-2 flex flex-wrap gap-x-2.5 gap-y-1 whitespace-nowrap pl-[30px] text-compact tabular-nums text-app-text-secondary @3xl:hidden">
+      <div className="col-span-2 flex flex-wrap gap-x-2.5 gap-y-1 whitespace-nowrap pl-7.5 text-compact tabular-nums text-app-text-secondary @3xl:hidden">
         {metric(tr('processes.cpu'), cpu)}
         {metric(tr('processes.memory'), formatMem(r.memMB), memTone)}
         {metric(tr('processes.gpu'), formatPct(r.gpuPct))}
@@ -367,13 +367,13 @@ export function ProcessRowView({ row: r, onStopped }: { row: ProcessRow; onStopp
 // ── PC ───────────────────────────────────────────────────────────────────────
 
 /** The PC's state as a coloured dot and its word: the Processes view's PC section and the load screen's header. */
-export function PcStateBadge({ state, className = '', dotClassName = 'h-[7px] w-[7px]', testId = 'machine-pc-state' }: { state: PcView['state']; className?: string; dotClassName?: string; testId?: string }) {
+export function PcStateBadge({ state, className = '', dotClassName = 'h-1.75 w-1.75', testId = 'machine-pc-state' }: { state: PcView['state']; className?: string; dotClassName?: string; testId?: string }) {
   const tr = useT();
   // On with ssh closed is a command away on the PC, not a dead machine: amber, as the hub had it.
   const dot = state === 'lavora' || state === 'acceso' ? 'bg-emerald-500 dark:bg-emerald-400' : state === 'dorme' ? 'bg-app-text-faint opacity-50' : state === 'closed' ? 'bg-amber-500' : 'bg-red-500'; // allow-italian: the hub's wire values
   const stateText = state === 'lavora' || state === 'acceso' ? SUCCESS_TEXT : state === 'dorme' ? FAINT : state === 'closed' ? WARNING_TEXT : DANGER_TEXT; // allow-italian: the hub's wire values
   return (
-    <span className={`inline-flex items-center gap-[5px] ${stateText} ${className}`} data-testid={testId} data-state={state}><span className={`flex-none rounded-full ${dot} ${dotClassName}`} />{tr(`processes.pc.${state}`)}</span>
+    <span className={`inline-flex items-center gap-1.25 ${stateText} ${className}`} data-testid={testId} data-state={state}><span className={`flex-none rounded-full ${dot} ${dotClassName}`} />{tr(`processes.pc.${state}`)}</span>
   );
 }
 
@@ -396,7 +396,7 @@ function PcSection({ pc, stale }: { pc: PcView; stale: boolean }) {
         </div>
       )}
       {[...pc.lines, ...pc.heavy.map((h) => tr('processes.pc.heavy', { name: h.name, cores: String(h.cores).replace('.', ',') }))].map((line, i) => (
-        <div key={i} className="flex min-h-[38px] items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 last:border-b-0">
+        <div key={i} className="flex min-h-9.5 items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 last:border-b-0">
           <Activity size={14} className={`flex-none ${FAINT}`} aria-hidden="true" />
           <span className="min-w-0 flex-1 text-compact text-app-text @max-3xl:text-prose">{line}</span>
         </div>
@@ -420,8 +420,8 @@ function PcUnread({ pc }: { pc: PcView }) {
       <div className={SECTION_HEAD}>
         <Cpu size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />
         <span className="text-compact font-semibold text-app-text-heading">{tr('processes.pc')}</span>
-        <span className={`inline-flex min-w-0 flex-1 items-center gap-[5px] truncate text-mini ${WARNING_TEXT} @max-3xl:text-compact`}>
-          <span className="h-[7px] w-[7px] flex-none rounded-full bg-amber-500" />{tr('processes.pc.unread')}
+        <span className={`inline-flex min-w-0 flex-1 items-center gap-1.25 truncate text-mini ${WARNING_TEXT} @max-3xl:text-compact`}>
+          <span className="h-1.75 w-1.75 flex-none rounded-full bg-amber-500" />{tr('processes.pc.unread')}
         </span>
       </div>
       {pc.metrics.length > 0 && (
@@ -478,7 +478,7 @@ function ServicesAndLog({ services, readAt }: { services: ServiceRow[]; readAt: 
         {offOpen && offRows.map((s) => <ServiceRowView key={s.id} s={s} log={null} />)}
         <div className={`flex items-center gap-1.5 px-2.5 py-2 text-mini ${FAINT} @max-3xl:text-compact`} data-testid="machine-services-foot">
           {unread ? tr('processes.services.unread') : <>
-          {toWatch === 0 && <span className="h-[7px] w-[7px] flex-none rounded-full bg-emerald-500 dark:bg-emerald-400" />}
+          {toWatch === 0 && <span className="h-1.75 w-1.75 flex-none rounded-full bg-emerald-500 dark:bg-emerald-400" />}
           {toWatch === 0 && <span>{tr('processes.services.allOk')}</span>}
           {toWatch === 0 && off > 0 && <span aria-hidden="true">·</span>}
           {off > 0 && (
@@ -514,12 +514,12 @@ function ServiceRowView({ s, log }: { s: ServiceRow; log: { open: boolean; toggl
   const off = s.state === 'spento'; // allow-italian: the hub's wire value
   return (
     <div
-      className={`flex min-h-[38px] items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 ${bad ? 'bg-red-500/[0.06]' : ''} ${log?.open ? 'bg-app-hover' : ''} ${off ? 'opacity-60' : ''}`}
+      className={`flex min-h-9.5 items-center gap-2.5 border-b border-app-border-subtle px-2.5 py-1 ${bad ? 'bg-red-500/[0.06]' : ''} ${log?.open ? 'bg-app-hover' : ''} ${off ? 'opacity-60' : ''}`}
       data-testid="machine-service-row"
       data-state={s.state}
       title={s.what ?? undefined}
     >
-      <span className={`h-[7px] w-[7px] flex-none rounded-full ${dot}`} />
+      <span className={`h-1.75 w-1.75 flex-none rounded-full ${dot}`} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-compact text-app-text @max-3xl:text-prose">
           {s.url
@@ -535,7 +535,7 @@ function ServiceRowView({ s, log }: { s: ServiceRow; log: { open: boolean; toggl
       </div>
       {s.port !== null && <span className={`font-mono text-mini ${FAINT} @max-3xl:text-compact`}>:{s.port}</span>}
       {log && (
-        <button type="button" onClick={log.toggle} aria-label={log.open ? tr('processes.log.close') : tr('processes.log.open')} title={log.open ? tr('processes.log.close') : tr('processes.log.open')} data-testid="machine-service-log-toggle" className={`flex h-[26px] w-[26px] items-center justify-center rounded-xs ${FAINT} hover:bg-app-hover hover:text-app-text @max-3xl:h-9 @max-3xl:w-9`}>
+        <button type="button" onClick={log.toggle} aria-label={log.open ? tr('processes.log.close') : tr('processes.log.open')} title={log.open ? tr('processes.log.close') : tr('processes.log.open')} data-testid="machine-service-log-toggle" className={`flex h-6.5 w-6.5 items-center justify-center rounded-xs ${FAINT} hover:bg-app-hover hover:text-app-text @max-3xl:h-9 @max-3xl:w-9`}>
           {log.open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
         </button>
       )}
@@ -581,7 +581,7 @@ function LogSection({ open, onAsked }: { open: boolean; onAsked: () => void }) {
   const [paused, setPaused] = useState(false);
   const lines = useProxyLog(open, paused);
   const shown = errorsOnly ? lines.filter((l) => l.tone === 'error') : lines;
-  const pill = (on: boolean) => `inline-flex h-[22px] items-center rounded-sm px-2 text-mini @max-3xl:h-7 @max-3xl:text-compact ${on ? 'bg-primary/10 text-primary' : 'bg-black/[0.035] text-app-text-secondary dark:bg-white/[0.05]'}`;
+  const pill = (on: boolean) => `inline-flex h-5.5 items-center rounded-sm px-2 text-mini @max-3xl:h-7 @max-3xl:text-compact ${on ? 'bg-primary/10 text-primary' : 'bg-black/[0.035] text-app-text-secondary dark:bg-white/[0.05]'}`;
   return (
     <section ref={ref} aria-label={tr('processes.log')} className={SECTION} data-testid="machine-processes-log" data-open={open ? 'true' : 'false'}>
       <div className={SECTION_HEAD}>
@@ -592,19 +592,19 @@ function LogSection({ open, onAsked }: { open: boolean; onAsked: () => void }) {
       {open ? (
         <>
           <div className="flex items-center gap-1.5 border-b border-app-border-subtle px-2.5 py-1.5">
-            <span className={`inline-flex items-center gap-[5px] text-mini @max-3xl:text-compact ${paused ? FAINT : SUCCESS_TEXT}`}>
-              <span className={`h-[7px] w-[7px] rounded-full ${paused ? 'bg-app-text-faint' : 'bg-emerald-500 dark:bg-emerald-400'}`} />
+            <span className={`inline-flex items-center gap-1.25 text-mini @max-3xl:text-compact ${paused ? FAINT : SUCCESS_TEXT}`}>
+              <span className={`h-1.75 w-1.75 rounded-full ${paused ? 'bg-app-text-faint' : 'bg-emerald-500 dark:bg-emerald-400'}`} />
               {paused ? tr('processes.log.paused') : tr('processes.log.live')}
             </span>
             <span className="flex-1" />
             <button type="button" className={pill(!errorsOnly)} onClick={() => setErrorsOnly(false)}>{tr('processes.log.all')}</button>
             <button type="button" className={pill(errorsOnly)} onClick={() => setErrorsOnly(true)} data-testid="machine-log-errors">{tr('processes.log.errors')}</button>
-            <button type="button" onClick={() => setPaused((v) => !v)} aria-label={paused ? tr('processes.log.resume') : tr('processes.log.pause')} title={paused ? tr('processes.log.resume') : tr('processes.log.pause')} className={`flex h-[26px] w-[26px] items-center justify-center rounded-xs ${FAINT} hover:bg-app-hover hover:text-app-text @max-3xl:h-9 @max-3xl:w-9`}>
+            <button type="button" onClick={() => setPaused((v) => !v)} aria-label={paused ? tr('processes.log.resume') : tr('processes.log.pause')} title={paused ? tr('processes.log.resume') : tr('processes.log.pause')} className={`flex h-6.5 w-6.5 items-center justify-center rounded-xs ${FAINT} hover:bg-app-hover hover:text-app-text @max-3xl:h-9 @max-3xl:w-9`}>
               {paused ? <Play size={13} aria-hidden="true" /> : <Pause size={13} aria-hidden="true" />}
             </button>
           </div>
           {/* A line is read whole: the project and branch at its end are what it says. */}
-          <div role="log" aria-label={tr('processes.log.source')} tabIndex={0} className="max-h-[206px] overflow-auto bg-app-inset px-2.5 pb-2 pt-1.5 font-mono text-mini leading-[1.7] tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-primary/50 @max-3xl:max-h-none" data-testid="machine-log-lines">
+          <div role="log" aria-label={tr('processes.log.source')} tabIndex={0} className="max-h-51.5 overflow-auto bg-app-inset px-2.5 pb-2 pt-1.5 font-mono text-mini leading-[1.7] tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-primary/50 @max-3xl:max-h-none" data-testid="machine-log-lines">
             {shown.length === 0 && <div className={FAINT}>{tr('processes.log.empty')}</div>}
             {shown.map((l, i) => (
               <div key={`${l.ts}-${i}`} className="whitespace-pre-wrap break-all text-app-text-secondary" data-tone={l.tone} data-testid="machine-log-line">

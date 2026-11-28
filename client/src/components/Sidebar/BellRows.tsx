@@ -41,7 +41,7 @@ type HubEntry = Exclude<BellEntry, { source: 'topics' }>;
 
 const WAITING_ICON: Record<WaitingKind, LucideIcon> = { decisione: Scale, spesa: CreditCard, pubblico: Megaphone, vista: Eye }; // allow-italian: the hub's wire values
 
-const BUTTON = 'inline-flex items-center gap-[5px] font-medium whitespace-nowrap border transition-colors disabled:opacity-60';
+const BUTTON = 'inline-flex items-center gap-1.25 font-medium whitespace-nowrap border transition-colors disabled:opacity-60';
 const PRIMARY = `${BUTTON} bg-primary border-primary text-white hover:bg-primary-hover`;
 const SECONDARY = `${BUTTON} border-black/15 dark:border-white/20 bg-app-surface text-app-text hover:bg-app-hover`;
 
@@ -128,11 +128,11 @@ export function RowShell({ icon: Icon, tint, first, title, second, at, clock, ac
   const body = (
     <>
       {iconLabel
-        ? <span className={`flex-shrink-0 self-start ${isMobile ? 'mt-0.5' : 'mt-[3px]'} ${tint}`} title={iconLabel} data-testid="bell-row-status"><Icon size={isMobile ? 16 : 15} aria-hidden="true" /><span className="sr-only">{iconLabel}</span></span>
-        : <Icon size={isMobile ? 16 : 15} className={`flex-shrink-0 self-start ${isMobile ? 'mt-0.5' : 'mt-[3px]'} ${tint}`} aria-hidden="true" />}
+        ? <span className={`flex-shrink-0 self-start ${isMobile ? 'mt-0.5' : 'mt-0.75'} ${tint}`} title={iconLabel} data-testid="bell-row-status"><Icon size={isMobile ? 16 : 15} aria-hidden="true" /><span className="sr-only">{iconLabel}</span></span>
+        : <Icon size={isMobile ? 16 : 15} className={`flex-shrink-0 self-start ${isMobile ? 'mt-0.5' : 'mt-0.75'} ${tint}`} aria-hidden="true" />}
       <span className="min-w-0 flex-1" title={full}>
         <span className={`block font-medium text-app-text ${isMobile ? 'text-body-lg leading-[19px]' : `text-compact leading-4 ${unfolded ? 'break-words' : 'truncate'}`}`}>{title}</span>
-        <span className={`flex items-center gap-[5px] text-app-text-secondary min-w-0 ${isMobile ? 'text-prose leading-[18px] flex-wrap gap-y-0.5' : unfolded ? 'text-compact leading-4 flex-wrap gap-y-0.5' : 'text-compact leading-4 whitespace-nowrap overflow-hidden'} ${wrapped ? '[&_.truncate]:whitespace-normal [&_.truncate]:overflow-visible [&_.truncate]:[overflow-wrap:anywhere]' : ''}`}>
+        <span className={`flex items-center gap-1.25 text-app-text-secondary min-w-0 ${isMobile ? 'text-prose leading-[18px] flex-wrap gap-y-0.5' : unfolded ? 'text-compact leading-4 flex-wrap gap-y-0.5' : 'text-compact leading-4 whitespace-nowrap overflow-hidden'} ${wrapped ? '[&_.truncate]:whitespace-normal [&_.truncate]:overflow-visible [&_.truncate]:[overflow-wrap:anywhere]' : ''}`}>
           {second}
           {at !== null && <span className="flex-shrink-0 text-app-text-muted">·</span>}
           {at !== null && <BellTime at={at} clock={clock} className="text-app-text-muted" />}
@@ -158,7 +158,7 @@ export function RowShell({ icon: Icon, tint, first, title, second, at, clock, ac
           )
           : <div data-inbox-row="" tabIndex={first ? 0 : -1} className={text}>{body}</div>}
       {aside && <div className="flex-shrink-0 self-center">{aside}</div>}
-      {actions && <div className={`flex items-center flex-shrink-0 ${isMobile ? 'basis-full pl-[26px] gap-1.5 mt-1' : 'gap-1'}`}>{actions}</div>}
+      {actions && <div className={`flex items-center flex-shrink-0 ${isMobile ? 'basis-full pl-6.5 gap-1.5 mt-1' : 'gap-1'}`}>{actions}</div>}
     </li>
   );
 }
@@ -233,7 +233,7 @@ export function HubRow({ entry, first, onNavigate, onShowAccounts, jarvis }: {
                   {dueLabel(item.due, now, tr)}
                 </span>
               )}
-              <span className={`flex-shrink-0 px-[5px] rounded-xs font-semibold text-mini leading-4 bg-amber-500/15 ${WARNING_TEXT}`}>{tr(`bell.kind.${item.kind}`)}</span>
+              <span className={`flex-shrink-0 px-1.25 rounded-xs font-semibold text-mini leading-4 bg-amber-500/15 ${WARNING_TEXT}`}>{tr(`bell.kind.${item.kind}`)}</span>
               {item.from && <span className="flex-shrink-0 text-app-text-muted" data-testid="bell-from">{tr('bell.from', { who: item.from })}</span>}
               {item.why && <span className="truncate" data-testid="bell-why">{item.why}</span>}
             </>
@@ -295,7 +295,7 @@ export function HubRow({ entry, first, onNavigate, onShowAccounts, jarvis }: {
           full={joined([a.title, a.reason])}
           second={(
             <>
-              <span className={`flex-shrink-0 px-[5px] rounded-xs font-semibold text-mini leading-4 bg-amber-500/15 ${WARNING_TEXT}`}>{tr(a.gate ? 'bell.kind.gate' : 'bell.kind.automation')}</span>
+              <span className={`flex-shrink-0 px-1.25 rounded-xs font-semibold text-mini leading-4 bg-amber-500/15 ${WARNING_TEXT}`}>{tr(a.gate ? 'bell.kind.gate' : 'bell.kind.automation')}</span>
               {a.reason && <span className="truncate" data-testid="bell-why">{a.reason}</span>}
             </>
           )}
@@ -380,7 +380,7 @@ export function HubRow({ entry, first, onNavigate, onShowAccounts, jarvis }: {
           at={null}
           second={<span className="truncate">{tr(fiveHourFull ? 'bell.quota.fiveHourHint' : 'bell.quota.weekHint')}</span>}
           aside={(
-            <span className="flex flex-col items-end gap-[3px] w-16" data-testid="bell-quota" data-pct={pct}>
+            <span className="flex flex-col items-end gap-0.75 w-16" data-testid="bell-quota" data-pct={pct}>
               <span className={`text-compact font-semibold tabular-nums ${WARNING_TEXT}`}>{pct}%</span>
               <span className="w-full h-1 rounded-full bg-app-border overflow-hidden" aria-hidden="true">
                 <span className="block h-full bg-amber-500" style={{ width: `${Math.min(100, pct)}%` }} />

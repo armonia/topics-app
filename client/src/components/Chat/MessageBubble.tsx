@@ -667,7 +667,7 @@ export const MessageBubble = memo(function MessageBubble({
               // The loader inside has 8px padding above and below (27px tall); this
               // box keeps the finished row's 14px footprint and lets it overflow,
               // so the end of the turn moves nothing (chat-scroll-at-rest).
-              className="text-mini mt-0.5 h-[14px] flex items-start whitespace-nowrap justify-start"
+              className="text-mini mt-0.5 h-3.5 flex items-start whitespace-nowrap justify-start"
             >
               <TurnActivityIndicator
                 since={Date.parse(msg.timestamp)}
@@ -693,7 +693,7 @@ export const MessageBubble = memo(function MessageBubble({
               // inherited 16.5px line grow it, and the swap from the live row
               // pushed the transcript up 2.5px at every end of turn (card
               // 40ea050c, `chat-turn-end-still`).
-              className={`text-mini leading-[14px] mt-0.5 h-[14px] transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
+              className={`text-mini leading-[14px] mt-0.5 h-3.5 transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
                 msg.role === 'user' ? 'justify-end' : 'justify-start'
               } ${
                 // La riga di servizio (ora, durata, costo) e' una delle cose che

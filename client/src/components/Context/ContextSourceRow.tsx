@@ -115,7 +115,7 @@ export function ContextSourceRow({ source, onToggle, onEdit }: ContextSourceRowP
                 ref={textareaRef}
                 value={editContent}
                 onChange={e => setEditContent(e.target.value)}
-                className="w-full px-2 py-1.5 border border-app-border-light rounded text-mini bg-surface dark:bg-elevated text-app-text font-mono resize-y min-h-[80px] focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full px-2 py-1.5 border border-app-border-light rounded text-mini bg-surface dark:bg-elevated text-app-text font-mono resize-y min-h-20 focus:outline-none focus:ring-1 focus:ring-primary"
                 rows={6}
               />
               <div className="flex items-center gap-2">

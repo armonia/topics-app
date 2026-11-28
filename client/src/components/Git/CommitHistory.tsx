@@ -45,9 +45,9 @@ function RowFile({ file, onOpen }: { file: GitCommitFile; onOpen: () => void }) 
     <button
       onClick={onOpen}
       title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}
-      className="w-full flex items-center gap-1.5 px-3 py-[3px] text-left hover:bg-app-hover transition-colors"
+      className="w-full flex items-center gap-1.5 px-3 py-0.75 text-left hover:bg-app-hover transition-colors"
     >
-      <span className={`${stateColor(file.status)} text-mini font-bold w-[14px] text-center flex-shrink-0`}>
+      <span className={`${stateColor(file.status)} text-mini font-bold w-3.5 text-center flex-shrink-0`}>
         {file.status}
       </span>
       <span className="truncate text-app-text-body min-w-0">
@@ -208,7 +208,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
           spazio ci sarebbe: aprire la cronologia non deve far sparire la lista
           delle modifiche. */}
       {expanded && (
-        <div className={inPopover ? 'pb-1 overflow-y-auto flex-1 min-h-0' : 'pb-1 overflow-y-auto flex-1 min-h-0 max-h-[220px]'}>
+        <div className={inPopover ? 'pb-1 overflow-y-auto flex-1 min-h-0' : 'pb-1 overflow-y-auto flex-1 min-h-0 max-h-55'}>
           {errore && <div className="px-3 py-1 text-mini text-red-500">{errore}</div>}
           {!errore && !loading && commits.length === 0 && (
             <div className="px-3 py-1 text-mini text-app-text-muted">{t('git.history.noCommits')}</div>
@@ -223,7 +223,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
                   aria-expanded={aperto}
                   title={`${c.message}\n${c.author} · ${c.ago}`}
                   data-testid="commit-row"
-                  className={`w-full flex items-center gap-1.5 px-3 py-[3px] text-left transition-colors ${aperto ? 'bg-app-hover' : 'hover:bg-app-hover'}`}
+                  className={`w-full flex items-center gap-1.5 px-3 py-0.75 text-left transition-colors ${aperto ? 'bg-app-hover' : 'hover:bg-app-hover'}`}
                 >
                   <GitCommit size={10} className="flex-shrink-0 text-app-text-tertiary" />
                   <span className="truncate text-app-text-body min-w-0">{c.message}</span>

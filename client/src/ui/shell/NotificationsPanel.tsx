@@ -37,7 +37,7 @@ export function NotificationsPanel({ title, items, onOpen, onMarkAllRead, markAl
       fixed
       onClose={onClose}
       ariaLabel={title}
-      className="left-2 top-11 flex max-h-[min(560px,calc(100dvh-56px))] w-[360px] flex-col overflow-hidden max-sm:inset-x-0 max-sm:top-0 max-sm:max-h-[80dvh] max-sm:w-auto max-sm:rounded-t-none max-sm:border-x-0 max-sm:border-t-0 max-sm:pt-[env(safe-area-inset-top)]"
+      className="left-2 top-11 flex max-h-[min(560px,calc(100dvh-56px))] w-90 flex-col overflow-hidden max-sm:inset-x-0 max-sm:top-0 max-sm:max-h-[80dvh] max-sm:w-auto max-sm:rounded-t-none max-sm:border-x-0 max-sm:border-t-0 max-sm:pt-[env(safe-area-inset-top)]"
     >
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-app-border pl-3.5 pr-2">
         <h2 className="min-w-0 flex-1 truncate text-prose font-semibold text-app-text">{title}</h2>

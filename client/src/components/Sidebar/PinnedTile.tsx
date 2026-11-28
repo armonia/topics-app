@@ -635,7 +635,7 @@ export function PinnedTile({
             // l'icona avrà: senza, quando arriva il nome scivola via di 18px a
             // cose ferme. Solo mentre sonda — un progetto che risulta senza
             // icona torna a zero ingombro, che è la decisione già presa.
-            : <span aria-hidden="true" className="block w-[18px]" />}
+            : <span aria-hidden="true" className="block w-4.5" />}
       </span>
 
       {/* THE MEASURING BOX (see `pinnedLabelFit`): the whole name in a box of

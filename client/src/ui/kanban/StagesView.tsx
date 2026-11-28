@@ -195,7 +195,7 @@ export function FlowStageTable({ columns, rows, copy, phone, onCell, onFlow, onS
             </ul>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-app-border px-3 py-2">
               <div className="flex items-center gap-1 text-compact text-app-text-secondary">{f.stuckColumn}: <StuckCell row={row} onStuck={onStuck} /></div>
-              <div className="min-w-[8rem] flex-1"><ShareBar share={row.share} none={f.shareNone} tip={f.shareTip} /></div>
+              <div className="min-w-32 flex-1"><ShareBar share={row.share} none={f.shareNone} tip={f.shareTip} /></div>
             </div>
           </section>
         ))}
@@ -206,7 +206,7 @@ export function FlowStageTable({ columns, rows, copy, phone, onCell, onFlow, onS
   const all = rows.find((r) => r.flow === undefined);
   return (
     <div className="w-full min-w-0 overflow-x-auto rounded-lg border border-app-border bg-surface">
-      <div role="table" aria-label={f.label} className="w-full min-w-[920px] text-prose">
+      <div role="table" aria-label={f.label} className="w-full min-w-230 text-prose">
         <div role="row" className={clsx('grid items-center gap-x-1 border-b border-app-border bg-app-inset px-1 py-1', TABLE_COLUMNS)}>
           <span role="columnheader" className="px-2 text-compact font-medium text-app-text-tertiary">{f.flowColumn}</span>
           {columns.map((c, i) => (

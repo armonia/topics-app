@@ -53,7 +53,7 @@ export function DayStrip({ row, now, className = '', glyph = false }: { row: Aut
   return (
     <span className={`flex min-w-0 items-center gap-1.5 ${className}`} title={label} data-testid="automation-strip-box">
       {glyph && <StateGlyph row={row} />}
-      <span role="img" aria-label={label} className="grid h-3.5 min-w-0 flex-1 grid-cols-[repeat(24,minmax(0,1fr))] gap-[2px]" data-testid="automation-strip" data-runs={strip.runs} data-failed={strip.failed}>
+      <span role="img" aria-label={label} className="grid h-3.5 min-w-0 flex-1 grid-cols-[repeat(24,minmax(0,1fr))] gap-0.5" data-testid="automation-strip" data-runs={strip.runs} data-failed={strip.failed}>
         {strip.cells.map((c, i) => (
           <i key={i} data-cell={c} className={`rounded-[2px] ${CELL[c]} ${i === strip.nowIndex ? 'outline outline-1 outline-offset-1 outline-app-text-muted' : ''}`} />
         ))}
@@ -156,7 +156,7 @@ function TableRow({ row, now, clock, selected, gatewayDown, ran, brake, flowOpen
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); }
         if (e.key.toLowerCase() === 'p' && row.flow && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); onFlow(); }
       }}
-      className={`${GRID} min-h-[38px] cursor-pointer border-t border-app-border-subtle py-1.5 text-compact first:border-t-0 hover:bg-app-hover @max-2xl:py-2.5 ${selected ? 'bg-primary/10 shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/10' : ''}`}
+      className={`${GRID} min-h-9.5 cursor-pointer border-t border-app-border-subtle py-1.5 text-compact first:border-t-0 hover:bg-app-hover @max-2xl:py-2.5 ${selected ? 'bg-primary/10 shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/10' : ''}`}
     >
       <span className="flex min-w-0 flex-col @max-2xl:order-1">
         <span className="flex min-w-0 items-center gap-1.5 text-app-text">
@@ -221,7 +221,7 @@ export function AutomationTable({ rows, limit, now, clock, selectedKey, gatewayD
   const hidden = rows.length - shown.length;
   return (
     <div className="overflow-hidden rounded border border-app-border bg-surface" data-testid="automation-table">
-      <div className={`${GRID} h-[30px] border-b border-app-border-subtle bg-app-inset text-mini font-semibold text-app-text-secondary @max-2xl:hidden`}>
+      <div className={`${GRID} h-7.5 border-b border-app-border-subtle bg-app-inset text-mini font-semibold text-app-text-secondary @max-2xl:hidden`}>
         <span>{tr('auto.col.name')}</span>
         <span>{tr('auto.col.next')}</span>
         <span>{tr('auto.col.day')}</span>

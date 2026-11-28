@@ -61,7 +61,7 @@ export function TryPanel({ copy, cases, caseId, onCase, onRun, onClose, job, res
         <div className="flex flex-col gap-3">
           <p>{c.lead}</p>
           <div className="flex flex-wrap items-end gap-2">
-            <Select label={c.pickCase} className="min-w-[240px] flex-1" value={caseId} options={cases} onChange={onCase} disabled={busy} />
+            <Select label={c.pickCase} className="min-w-60 flex-1" value={caseId} options={cases} onChange={onCase} disabled={busy} />
             <Button variant="primary" icon={Play} onClick={busy ? false : onRun} title={runDisabledTitle}>{c.run}</Button>
           </div>
           {job && job.status === 'running' && (

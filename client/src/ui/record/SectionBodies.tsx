@@ -30,7 +30,7 @@ export function FieldsBody({ fields, copy, onOpenField, onOpenSheet }: {
         {fields.map((f) => (
           <li key={f.id}>
             <button type="button" onClick={() => onOpenField?.(f.id)} className={ROW}>
-              <span className="w-[92px] shrink-0 truncate text-compact text-app-text-tertiary">{f.label}</span>
+              <span className="w-23 shrink-0 truncate text-compact text-app-text-tertiary">{f.label}</span>
               <span className={clsx('min-w-0 flex-1 break-words text-prose', f.corrected ? 'text-amber-700 dark:text-amber-400' : 'text-app-text')}>{f.value}</span>
             </button>
           </li>

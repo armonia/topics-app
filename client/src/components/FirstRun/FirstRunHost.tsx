@@ -131,7 +131,7 @@ export function FirstRunHost() {
     return (
       <div ref={overlayRef} className={`${MODAL_OVERLAY} items-start overflow-auto p-4 sm:p-8`} data-testid="first-run-backdrop">
         <section role="dialog" aria-modal="true" aria-labelledby="first-run-title" data-testid="first-run" data-step="intro" className={`${MODAL_PANEL} relative my-auto w-full max-w-3xl overflow-hidden p-6 text-app-text sm:p-10`}>
-          <div aria-hidden="true" className="first-run-glow pointer-events-none absolute -top-24 left-1/2 h-64 w-[28rem] -translate-x-1/2 rounded-full bg-primary/30 blur-3xl" />
+          <div aria-hidden="true" className="first-run-glow pointer-events-none absolute -top-24 left-1/2 h-64 w-112 -translate-x-1/2 rounded-full bg-primary/30 blur-3xl" />
           <div className="relative">
             <p className="first-run-rise mb-2 text-mini font-medium uppercase tracking-widest text-primary" style={step(0)}>{t('firstRun.intro.kicker')}</p>
             <h1 id="first-run-title" className="first-run-rise text-display-sm font-semibold" style={step(1)}>{t('firstRun.intro.title')}</h1>
