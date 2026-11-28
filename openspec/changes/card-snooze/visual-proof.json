@@ -1,0 +1,12 @@
+[
+  {
+    "component": "client/src/components/Board/Card.tsx",
+    "widths": { "375": "proof/375.jpg", "768": "proof/768.jpg", "1440": "proof/1440.jpg", "3440": "proof/3440.jpg" },
+    "reference": "No earlier version: the snooze popover is new. It reuses the Button and TextField primitives, like the other card popovers."
+  },
+  {
+    "component": "client/src/ui/primitives/Field.tsx",
+    "widths": { "375": "proof/375.jpg", "768": "proof/768.jpg", "1440": "proof/1440.jpg", "3440": "proof/3440.jpg" },
+    "reference": "TextField gains a native datetime-local type, used only by the card snooze popover shown in these shots."
+  }
+]
