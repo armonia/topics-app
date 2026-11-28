@@ -779,22 +779,22 @@ describe("static gates on the realign merge, before the land goes on", () => {
     const res = await landOn(repo, {
       staticGates: async (cwd) => {
         seen.push(readFileSync(join(cwd, "main-uno.txt"), "utf8").trim()); // the MERGED tree
-        return "bun run lint:design-system (exit 1): 4 raw controls";
+        return { kind: "red" as const, detail: "bun run lint:design-system (exit 1): 4 raw controls" };
       },
     }).tryMerge("t1", "Card with a red merge");
-    expect(res.status).toBe("skipped");
-    expect(res).toMatchObject({ code: "realign-gates-red", reason: expect.stringContaining("lint:design-system") });
+    expect(res).toMatchObject({ status: "skipped", code: "realign-gates-red", reason: expect.stringContaining("lint:design-system") });
     expect(seen).toEqual(["uno"]);
     expect([BRANCH, "main"].map((ref) => git(repo, "rev-parse", ref).trim())).toEqual([tipBefore, mainBefore]);
   }, WITH_REAL_GIT);
-
   test("a green gate on the merge lands as before; an up-to-date branch is not measured", async () => {
     let calls = 0;
     const staticGates = async () => { calls += 1; return null; };
-    expect((await landOn(aged(), { staticGates }).tryMerge("t1", "Green merge")).status).toBe("merged");
+    expect((await landOn(aged(), { staticGates }).tryMerge("t1", "Green")).status).toBe("merged");
     expect(calls).toBe(1);
     const fresh = repoWithOldBranch({ avanzamentoMain: [], lavoroDelRamo: [["ramo.txt", "x\n"]] });
     expect((await landOn(fresh, { staticGates }).tryMerge("t2", "Fresh card")).status).toBe("merged");
     expect(calls).toBe(1);
+    const unmeasured = async () => ({ kind: "unmeasured" as const, detail: "no deps" });
+    expect(await landOn(aged(), { staticGates: unmeasured }).tryMerge("t3", "X")).toMatchObject({ code: "realign-gates-unmeasured" });
   }, WITH_REAL_GIT);
 });

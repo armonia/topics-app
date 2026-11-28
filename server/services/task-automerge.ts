@@ -31,7 +31,7 @@
 
 import { join } from "path";
 import { existsSync } from "fs";
-import { REALIGN_GATES_INSTRUCTION, runStaticGates } from "./task-automerge-gates";
+import { REALIGN_GATES_INSTRUCTION, runStaticGates, type StaticGateVerdict } from "./task-automerge-gates";
 import { worktreeRegistrationLost } from "./worktree-registration";
 import { carriedBranch, isPlainBranchName, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { findAttributionViolations } from "./land-attribution-gate";
@@ -138,6 +138,7 @@ export type LandSkipCode =
   | "realign-needed"
   /** The realign merge made a tree a fast static gate rejects: the land stopped before pushing it (`staticGates`). */
   | "realign-gates-red"
+  | "realign-gates-unmeasured"
   /** The branch on origin holds commits this checkout does not have and the fetch could not bring them in. */
   | "branch-stale"
   /** The delivered commit is not in this checkout: the delivery never arrived here (a node bundle that failed to plant). */
@@ -259,6 +260,7 @@ export function landFallout(
       return { status: "review", reason: "il ramo è indietro su main e il riallineamento non si è potuto provare" };
     case "realign-needed":
       return { status: "review", reason: "il ramo è indietro su main: l'atterraggio automatico non lo riallinea" };
+    case "realign-gates-unmeasured": return { status: "review", reason: "i cancelli statici non hanno potuto misurare la fusione con main: niente è stato spinto" };
     case "realign-gates-red":
       return { status: "in_progress", reason: "la fusione con main fa uscire rosso un cancello statico", resume: REALIGN_GATES_INSTRUCTION };
     case "branch-stale":
@@ -474,7 +476,7 @@ export interface AutoMergeDeps {
    */
   landViaPullRequest?: typeof landViaPullRequest;
   /** Injected for tests. Default: `runStaticGates`. First red as text, or `null`. */
-  staticGates?: (cwd: string) => Promise<string | null>;
+  staticGates?: (cwd: string) => Promise<StaticGateVerdict | null>;
 }
 
 /** What `buildClient` answers: the exit code, plus what is ON DISK afterwards. */
@@ -545,7 +547,7 @@ const MIGRATIONS_SQL_DIR = "server/db/migrations";
 const MIGRATIONS_MANIFEST = "server/db/migrations-embedded.ts";
 const MIGRATIONS_MANIFEST_SCRIPT = "scripts/gen-migrations-manifest.ts";
 
-function defaultStaticGates(cwd: string): Promise<string | null> {
+function defaultStaticGates(cwd: string): Promise<StaticGateVerdict | null> {
   return runStaticGates(cwd, runRepoScript);
 }
 
@@ -687,7 +689,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   function realignmentFor(
     target: { repoPath: string; defaultBranch: string; readonly branch: string },
     onRealigned: (note: string) => void,
-    gates?: (cwd: string) => Promise<string | null>,
+    gates?: (cwd: string) => Promise<StaticGateVerdict | null>,
   ) {
     const { repoPath, defaultBranch } = target;
     async function branchWorktree(): Promise<string | null> {
@@ -772,13 +774,11 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
 
     /** Fast static gates on the merged tree; red = branch reset, so the next land measures again. */
     async function redGates(wtPath: string, before: string | null, behind: number): Promise<AutoMergeResult | null> {
-      const red = gates ? await gates(wtPath) : null;
-      if (!red) return null;
+      const verdict = gates ? await gates(wtPath) : null; if (!verdict) return null;
       if (before) await runGit(wtPath, ["reset", "--hard", before]);
-      return {
-        status: "skipped", code: "realign-gates-red",
-        reason: `il ramo '${target.branch}' era indietro di ${behind} commit su '${defaultBranch}' e la fusione fa uscire rosso un cancello statico: ${red}. Non ho spinto niente, il ramo è com'era`,
-      };
+      const unmeasured = verdict.kind === "unmeasured";
+      return { status: "skipped", code: unmeasured ? "realign-gates-unmeasured" : "realign-gates-red",
+        reason: `il ramo '${target.branch}' era indietro di ${behind} commit su '${defaultBranch}' e ${unmeasured ? "i cancelli statici non hanno potuto misurare la fusione" : "la fusione fa uscire rosso un cancello statico"}: ${verdict.detail}. Non ho spinto niente, il ramo è com'era` };
     }
 
     async function realignOnMain(): Promise<AutoMergeResult | null> {
@@ -881,7 +881,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     return chain(target.repoPath, async () => {
       let note: string | null = null;
       const base = await comparisonBase(target.repoPath, target.defaultBranch);
-      const blocked = await realignmentFor({ ...target, defaultBranch: base }, (n) => { note = n; }).realignOnMain();
+      const blocked = await realignmentFor({ ...target, defaultBranch: base }, (n) => { note = n; }, staticGates).realignOnMain();
       if (!blocked) return { ok: true, note };
       if (blocked.status === "conflict") {
         const files = blocked.realignConflict?.files ?? [];
