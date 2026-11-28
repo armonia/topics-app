@@ -3,8 +3,10 @@
  *
  * Two keys, each with a single owner:
  *   - `pane-store-v2`        : full snapshot (panes/groups/closedStack).
- *                              Written debounced (100 ms) on `lastSeq` change,
- *                              cross-tab broadcast via the `storage` event.
+ *                              Written debounced (100 ms) on `lastSeq`
+ *                              change, skipped when its content is identical
+ *                              to the last write, cross-tab broadcast via the
+ *                              `storage` event.
  *                              `focusedPaneId` is intentionally NOT here —
  *                              sanitizeSnapshot strips it on inbound (it's
  *                              per-device, not per-account).
@@ -54,9 +56,26 @@ const DEBOUNCE_MS = 100;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 
-function writeSnapshotNow(): void {
+/** Serialized content of the last snapshot written, without the volatile
+ *  `savedAt` stamp, so an identical state is not written twice. */
+let lastWrittenContent: string | null = null;
+
+/** `force` is the page-exit flush: the key is shared by every window of the
+ *  origin, so another window may have overwritten it with a snapshot this one
+ *  discarded. Our own memory of what we wrote is then stale and must not skip
+ *  the write (this window's drafts live only here). */
+function writeSnapshotNow(force = false): void {
   try {
     const state = usePaneStore.getState();
+    // `lastSeq` rides inside the snapshot and ticks on every action: it is the
+    // counter, not content, so it stays out of the comparison.
+    const { lastSeq: _tick, ...body } = selectLocalSnapshot(state);
+    const content = JSON.stringify({ ...body, server_seq: state.lastServerSeq });
+    // A device-local action (focus, active space) and a no-op remote echo tick
+    // the sequence without changing anything this snapshot holds: rewriting
+    // it on every tab switch was a write storm into a WAL WebKit never
+    // checkpoints, inflating the renderer's resident memory.
+    if (!force && content === lastWrittenContent) return;
     const snap = {
       ...selectLocalSnapshot(state),
       // LWW key for the warm-boot hydrate and the cross-tab gate: the highest
@@ -70,6 +89,8 @@ function writeSnapshotNow(): void {
       senderId: getTabId(),
     };
     localStorage.setItem(LOCAL_KEY, JSON.stringify(snap));
+    // Only after a successful write: a quota error must not count as written.
+    lastWrittenContent = content;
   } catch {
     /* quota / private mode — server sync is the source of truth */
   }
@@ -168,7 +189,7 @@ export function hydrateFromLocalSnapshot(): void {
 
 function flushNow(): void {
   if (timer) { clearTimeout(timer); timer = null; }
-  writeSnapshotNow();
+  writeSnapshotNow(true);
 }
 
 /**
@@ -194,12 +215,14 @@ export function initLocalPersistence(): void {
   // (syncCrossTab) and open the same tab there. Nothing is subscribed.
   if (isNestedInTopicsPane()) return;
 
-  // Full snapshot: debounced.
+  // Full snapshot: debounced, triggered by every sequence tick (remote updates
+  // too, which do not move `localSeq` but must reach localStorage) and
+  // de-duplicated by content in `writeSnapshotNow`.
   usePaneStore.subscribe(
     (s: PaneStore) => s.lastSeq,
     () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(writeSnapshotNow, DEBOUNCE_MS);
+      timer = setTimeout(() => writeSnapshotNow(), DEBOUNCE_MS);
     },
   );
 
