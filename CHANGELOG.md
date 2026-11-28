@@ -9,6 +9,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **openspec** · archive tetto-contesto-agenti; CHAT-COMPACT-06 joins the chat spec
+- Catch a land denial with no sha, and reorder a misplaced docblock
 
 ## 2.5.21 — 2026-11-27
 
@@ -20,6 +21,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **native** · a wake is a continuation too; one list of machine marks for continuation and sentByPerson
 
 ### Sotto il cofano
+- Trace the main-claim review check to KANBAN-11, not a card id
 - **openspec** · tetto-contesto-agenti, the ceiling at turn start and its three new scenarios
 - node-pool: repo copy gets the drain fix (needs_input and waiting cards do not count), with a regression test
 - **openspec** · tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k
@@ -27,6 +29,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - picker keeps projects under ~/.claude, a queued card can move boards, merged parent header shows its name
 - Declare coverage of the merged-parent name test
 - **openspec** · tetto-contesto-agenti, wakes are continuations
+- secret-store: fix three more ways to lose a secret
 - node-pool: permanent node gets ci-governor files again (shared PERMANENT_FILES list), with a test
 
 ## 2.5.20 — 2026-11-27
@@ -38,8 +41,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **node-delivery** · move the spawn allowlist entry to where the install call now lives
 
 ### Sotto il cofano
+- secret-store: mutex per file, derived recipient, Keychain limit and read-back, no env identity, secrets dir, CI age retry
 - review-checks brakes: load gets its own budget clock, only the load reason is released by it (card 9fecea98)
 - review-checks brakes test: complete the spent clocks literal (card 9fecea98)
+- age is a spawned test binary, not dead code
+- Prove "already on main" before writing it, and warn review of a false claim
 - **native** · the ceiling reaches the loop inside the turn's own process
 - **openspec** · tetto-contesto-agenti, CHAT-COMPACT-06 and its bar; token-audit measures an agent's calls
 - **openspec** · no machine path in the proposal
