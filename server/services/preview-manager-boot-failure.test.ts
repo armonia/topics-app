@@ -18,6 +18,10 @@ function harness(over: Partial<PreviewManagerDeps> = {}) {
     deps: null as unknown as PreviewManagerDeps,
   };
   h.deps = {
+    // Pinned: a machine can carry TOPICS_PREVIEW_PORTS in its environment
+    // (a node sharing itself with CI runners does), and these assertions are
+    // about the url, not about which pool the machine happens to declare.
+    portRange: [3400, 3450],
     worktreeOf: () => WT,
     resolveCommand: () => ({ cmd: ["bun", "run", "dev"], deepLinkPath: "/" }),
     spawn: (cmd, opts) => { h.spawned.push({ cmd, ...opts }); return fakeProc(); },
@@ -90,6 +94,18 @@ describe("preview boot failures", () => {
     expect(polls).toBeGreaterThan(2);
   });
 
+  // A machine with no browser failed mute: the card reached review with no photo
+  // and nothing to act on, and a board that requires one parked it for ever.
+  it("writes WHY the screenshot failed when the capture knows", async () => {
+    const h = harness({
+      screenshot: async () => false,
+      screenshotFailure: () => "the capture browser (WebKit) is missing on this machine",
+    });
+    await createPreviewManager(h.deps).prepareForReview("t1");
+    const note = h.reviewNotes.map((n) => n.content).join("\n");
+    expect(note).toContain("Motivo: the capture browser (WebKit) is missing");
+  });
+
   it("stays silent when the project has no start command at all", async () => {
     const h = harness({ resolveCommand: () => null });
     const pm = createPreviewManager(h.deps);
@@ -124,14 +140,82 @@ describe("preview deep-link file", () => {
     expect((await pm.ensurePreview("t1"))?.url).toBe("http://localhost:3400/home");
   });
 
-  it("ignores a file content that is not a path", async () => {
+  // A command that declares a deep-link file PROMISES to name the page worth a
+  // photo. Falling back to the bare `/` photographed the app with no topic open:
+  // the empty-shell gate retired that shot on three cards (27/11), over four
+  // attempts each, and nobody could tell the seed had never spoken.
+  it("refuses to photograph the bare home when the page is never announced, and says why", async () => {
+    let t = 0;
+    const procs: ReturnType<typeof fakeProc>[] = [];
+    const h = harness({
+      now: () => t, sleep: async (ms) => { t += ms; },
+      resolveCommand: () => ({ cmd: ["x"], deepLinkPath: "/", deepLinkFile: "/tmp/dl-{port}" }),
+      readDeepLink: () => null,
+      spawn: () => { const p = fakeProc(); procs.push(p); return p; },
+    });
+    const pm = createPreviewManager(h.deps);
+    expect(await pm.ensurePreview("t1")).toBeNull();
+    expect(procs[0].killed).toBe(true); // torn down, so the next attempt seeds again
+    await pm.prepareForReview("t1");
+    const note = h.reviewNotes.map((n) => n.content).join("\n");
+    expect(note).toContain("non ha mai annunciato la pagina da fotografare");
+    expect(h.reviewNotes.some((n) => n.kind === "service")).toBe(true);
+  });
+
+  it("ignores a file content that is not a path, and refuses the bare home with it", async () => {
     const h = harness({
       resolveCommand: () => ({ cmd: ["x"], deepLinkPath: "/", deepLinkFile: "/tmp/dl-{port}" }),
       readDeepLink: () => "garbage",
       now: (() => { let t = 0; return () => (t += 20_000); })(),
     });
     const pm = createPreviewManager(h.deps);
-    expect((await pm.ensurePreview("t1"))?.url).toBe("http://localhost:3400/");
+    expect(await pm.ensurePreview("t1")).toBeNull();
+  });
+
+  it("keeps the fallback when the project declares a page of its own", async () => {
+    let t = 0;
+    const h = harness({
+      now: () => t, sleep: async (ms) => { t += ms; },
+      resolveCommand: () => ({ cmd: ["x"], deepLinkPath: "/report", deepLinkFile: "/tmp/dl-{port}" }),
+      readDeepLink: () => null,
+    });
+    expect((await createPreviewManager(h.deps).ensurePreview("t1"))?.url).toBe("http://localhost:3400/report");
+  });
+});
+
+describe("a saved url that names no page", () => {
+  // `output_url` outlives the server: the bare `/` written by an old blind boot
+  // came back at every attempt and got the same empty shot retired for ever.
+  function withSavedUrl(saved: string, deepLinkFile?: string) {
+    let t = 0;
+    const h = harness({
+      now: () => t, sleep: async (ms) => { t += ms; },
+      currentOutputUrl: () => saved,
+      resolveCommand: () => ({ cmd: ["x"], deepLinkPath: "/", ...(deepLinkFile ? { deepLinkFile } : {}) }),
+      readDeepLink: () => "/?topic=abc",
+      emptyAppShell: async (url) => !url.includes("topic="),
+      setPreviewImage: () => {},
+      // The saved address IS verifiably this task's own preview: without this
+      // the reuse would be refused for another reason and the test would prove
+      // nothing about the guard.
+      listenerPid: async () => 99,
+      processCwd: async () => WT.absPath,
+    });
+    const set: string[] = [];
+    h.deps.setOutputUrl = (_t, url) => { if (url) set.push(url); };
+    return { h, set };
+  }
+
+  it("is not reused: the preview boots again and lands on the announced page", async () => {
+    const { h, set } = withSavedUrl("http://localhost:3402/", "/tmp/dl-{port}");
+    await createPreviewManager(h.deps).prepareForReview("t1");
+    expect(set).toEqual(["http://localhost:3400/?topic=abc"]);
+  });
+
+  it("is reused as before when the project announces no page", async () => {
+    const { h, set } = withSavedUrl("http://localhost:3402/");
+    await createPreviewManager(h.deps).prepareForReview("t1");
+    expect(set).toEqual([]); // nothing booted: the saved url answered and was kept
   });
 });
 

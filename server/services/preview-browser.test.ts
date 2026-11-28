@@ -118,6 +118,53 @@ describe("preview browser (KANBAN-119)", () => {
     expect(existsSync(out)).toBe(false);
   });
 
+  // A MACHINE WITH NO BROWSER MUST NOT FAIL MUTE. A cloud node created before
+  // the provisioning downloaded WebKit answered "Executable doesn't exist", the
+  // capture returned false with no reason, the card reached review without a
+  // photo and a board that requires one parked it in the backlog for ever
+  // (two cards, 27/11).
+  function missingEngine(failures: number) {
+    const { pw } = fakePlaywright();
+    const realLaunch = pw.webkit.launch;
+    let left = failures;
+    (pw.webkit as unknown as { launch: () => Promise<unknown> }).launch = async function (this: unknown, ...args: unknown[]) {
+      if (left-- > 0) throw new Error("browserType.launch: Executable doesn't exist at /home/x/.cache/ms-playwright/webkit-2222/pw_run.sh");
+      return (realLaunch as (...a: unknown[]) => Promise<unknown>).apply(this, args);
+    };
+    return { pw };
+  }
+
+  test("downloads WebKit once when the machine has none, then takes the shot", async () => {
+    const { pw } = missingEngine(1);
+    let installs = 0;
+    const pb = createPreviewBrowser({
+      loadPlaywright: async () => pw, sleep: noSleep, log: quiet,
+      installEngine: async () => { installs++; return 0; },
+    });
+    const out = join(mkdtempSync(join(tmpdir(), "preview-browser-")), "shot.png");
+
+    expect(await pb.screenshot("http://localhost:4100/", out, { width: 1440 })).toBe(true);
+    expect(installs).toBe(1);
+    expect(pb.lastFailure()).toBeNull();
+    await pb.close();
+  });
+
+  test("a failed download leaves the reason in one line, for the card", async () => {
+    const { pw } = missingEngine(2);
+    let installs = 0;
+    const pb = createPreviewBrowser({
+      loadPlaywright: async () => pw, sleep: noSleep, log: quiet,
+      installEngine: async () => { installs++; return 1; },
+    });
+    const out = join(mkdtempSync(join(tmpdir(), "preview-browser-")), "shot.png");
+
+    expect(await pb.screenshot("http://localhost:4100/", out, { width: 1440 })).toBe(false);
+    expect(installs).toBe(1);
+    expect(pb.lastFailure()).toContain("WebKit");
+    expect(pb.lastFailure()).not.toContain("\n");
+    await pb.close();
+  });
+
   test("server.ts wires the preview captures to this module, not to the Chromium browser service", () => {
     const src = readServerSource();
     const start = src.indexOf("previewManager = createPreviewManager({");
