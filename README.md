@@ -169,6 +169,7 @@ containers. Copy `.env.example` to `.env`.
 | `CLAUDE_MODEL` · `OPENAI_MODEL` | Model ids | — |
 | `STT_PROVIDER` · `STT_LANGUAGE` | Dictation engine and language | `auto` |
 | `TOPICS_REPLICA_STOP_COMMAND` · `TOPICS_REPLICA_START_COMMAND` | Shell commands that stop and start the replica (Litestream) of the DB around a primary switch. The stop goes through the service manager (`launchctl bootout`, `systemctl stop`), never a kill a supervisor undoes. Both empty = no replica managed | — |
+| `TOPICS_REPLICA_RESTORE_COMMAND` · `TOPICS_REPLICA_AGE_SECRET` · `TOPICS_CLAIM_CHANNELS_COMMAND` | For `bun run primary claim` on a node, when the primary died without warning: the shell command that restores the latest replica to `$TOPICS_RESTORE_OUTPUT`, the secret-store name of the replica's age identity (handed to that command as `$TOPICS_REPLICA_AGE_IDENTITY`, in its environment only), and an optional command that brings the messaging service up from its latest pack. Restore empty = no claim | — |
 | `REVIEW_PR_REPO` · `REVIEW_PR_WORKFLOW` | Repo whose new PRs get an automatic review, and the `revisione-pr` workflow file. Both empty = off | — |
 
 **Picking the default provider.** With `AI_PROVIDER` unset your keys decide:

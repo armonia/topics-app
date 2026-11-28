@@ -50,8 +50,13 @@ export interface NodeProbeDeps {
   log?: (message: string, err?: unknown) => void;
 }
 
-/** One probe of every paired node, all at once. Resolves when the last one has answered or failed. */
-async function probeOnce(deps: NodeProbeDeps): Promise<void> {
+/**
+ * One probe of every paired node, all at once. Resolves when the last one has answered or failed,
+ * with how many nodes gave the expected answer: a call that carried this server's epoch and got
+ * past the node's epoch check (track T9 waits for one at boot).
+ */
+async function probeOnce(deps: NodeProbeDeps): Promise<number> {
+  let answered = 0;
   const nodes = deps.list().filter((m): m is Machine & { baseUrl: string } => !!m.baseUrl && !deps.isCloud(m.baseUrl));
   await Promise.all(nodes.map(async (node) => {
     const token = deps.tokenOf(node.id);
@@ -61,6 +66,7 @@ async function probeOnce(deps: NodeProbeDeps): Promise<void> {
     } catch (err) {
       if (!(isNodeError(err) && err.reason === "not_found")) return;
     }
+    answered += 1;
     try {
       let row = deps.touch(node.id);
       // A node built before these routes answers neither: the row then keeps «unknown», never a guess.
@@ -77,6 +83,7 @@ async function probeOnce(deps: NodeProbeDeps): Promise<void> {
       deps.log?.(`nodo: battito di ${node.name} non scritto`, err);
     }
   }));
+  return answered;
 }
 
 /** The node's worktree summary into its row; a node without the routes is skipped without a call. */
@@ -98,15 +105,15 @@ async function reportWorktrees(
 
 /**
  * The function the 30-second ticker calls. Rounds never overlap: a tunnel that hangs holds one
- * round, it does not pile one more on top of it every 30 seconds.
+ * round, it does not pile one more on top of it every 30 seconds. The promise settles when the
+ * round it started (or the one already running) ends, so the boot can wait on the first one.
  */
-export function createNodeProbe(deps: NodeProbeDeps): () => void {
-  let running = false;
+export function createNodeProbe(deps: NodeProbeDeps): () => Promise<number> {
+  let round: Promise<number> | null = null;
   return () => {
-    if (running) return;
-    running = true;
-    void probeOnce(deps)
-      .catch((err) => deps.log?.("nodo: sonda dei nodi fallita", err))
-      .finally(() => { running = false; });
+    round ??= probeOnce(deps)
+      .catch((err) => { deps.log?.("nodo: sonda dei nodi fallita", err); return 0; })
+      .finally(() => { round = null; });
+    return round;
   };
 }

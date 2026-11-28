@@ -8,8 +8,12 @@ import { createAppContext } from "../utils";
 import { setUploadRootsProvider } from "../browser-tool-dispatcher";
 import { uploadAllowedRoots, parseExtraRoots } from "../lib/upload-allowlist";
 import { homedir } from "os";
-import { initPrimaryRole } from "../lib/primary-role";
-import { bootPrimaryChange, holdRetiredRole } from "../lib/primary-fence";
+import { holdInternalWritesUntilNodesAnswer, initPrimaryRole } from "../lib/primary-role";
+import { bootPrimaryChange, holdRetiredRole, restartThisServerSoon } from "../lib/primary-fence";
+import { nodeForUrl, wireReplacedPrimary } from "../lib/primary-replaced";
+import { replicaCommandsFromEnv, runReplicaCommand } from "../lib/primary-replica";
+import { readNodeToken } from "../services/node-client";
+import { isCloudBaseUrl } from "../providers/claude-cloud/node";
 import type { BaseScope } from "./scope";
 
 export function bootCore(scope: BaseScope) {
@@ -26,6 +30,26 @@ export function bootCore(scope: BaseScope) {
   });
   // A server that sent its switch commit stays a secondary, whatever its epoch file says.
   holdRetiredRole(primaryRole);
+  // A node that claimed the primary while this server was off answers its calls with a newer epoch:
+  // from that answer on this server writes nothing more (track T9). Only a node it paired and holds
+  // a token for is believed. Until one of them answered at this epoch, writes wait, so a primary
+  // back from a trip does not write first.
+  const pairedNodes = () => ctx.machineStore.list().filter((m): m is typeof m & { baseUrl: string } =>
+    !!m.baseUrl && !isCloudBaseUrl(m.baseUrl) && readNodeToken(ctx.STATE_DIR, m.id) !== null);
+  wireReplacedPrimary({
+    appDataDir: ctx.APP_DATA_DIR,
+    role: primaryRole,
+    machineFor: (url) => nodeForUrl(pairedNodes(), url),
+    stopReplica: () => {
+      const { stop } = replicaCommandsFromEnv();
+      return stop ? runReplicaCommand("stop", stop, (line) => console.warn(line)) : null;
+    },
+    restart: restartThisServerSoon,
+  });
+  if (primaryRole.isPrimary() && primaryRole.epoch() > 0 && pairedNodes().length > 0) {
+    holdInternalWritesUntilNodesAnswer();
+    console.log("[primary] waiting for a paired node to answer at this epoch before writing (bun run primary release ends the wait by hand)");
+  }
   if (!primaryRole.isPrimary()) {
     console.log(`[primary] this server is NOT the primary (epoch ${primaryRole.epoch()}): dispatcher, scheduled cards and hub reader stay off`);
   }

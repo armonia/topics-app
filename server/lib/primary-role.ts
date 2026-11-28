@@ -294,8 +294,37 @@ export function getPrimaryRole(): PrimaryRole | null {
  */
 export function guardNodesCall(req: Request, caller: { deviceId: string | null } | null): Response | null {
   const stale = active?.rejectStale(req) ?? null;
-  if (!stale) active?.adoptFrom(req, caller);
+  if (!stale) {
+    active?.adoptFrom(req, caller);
+    noteCallFromPrimary(req, caller);
+  }
   return stale;
+}
+
+let lastPrimaryCallAt: number | null = null;
+
+/**
+ * An authenticated `/api/nodes/*` call that declares the epoch and the machine
+ * this server recognizes as the primary: the primary is alive right now. Kept
+ * in memory and never throttled, so `primary claim` reads a signal at most one
+ * probe round old (track T9). Loopback calls and other devices change nothing.
+ */
+function noteCallFromPrimary(req: Request, caller: { deviceId: string | null } | null): void {
+  if (!active || !caller?.deviceId) return;
+  const state = active.state();
+  if (state.epoch === 0 || declaredEpoch(req) !== state.epoch) return;
+  if (!state.primaryMachineId || declaredMachine(req) !== state.primaryMachineId) return;
+  lastPrimaryCallAt = Date.now();
+}
+
+/** When the primary last called this server since it started, in ms since the epoch; null when it never did. */
+export function lastCallFromPrimary(): number | null {
+  return lastPrimaryCallAt;
+}
+
+/** @internal Tests only: forget the last call. */
+export function resetLastCallFromPrimary(): void {
+  lastPrimaryCallAt = null;
 }
 
 let internalWritesFenced = false;
@@ -309,7 +338,43 @@ export function fenceInternalWrites(on: boolean): void {
   internalWritesFenced = on;
 }
 
+let bootHold = false;
+
+/**
+ * A primary that boots after being away (track T9) does not know yet whether a
+ * node claimed the primary while it was off. Its own writers, and the writes
+ * of the interface (`bootHoldRefusal`), stay off until a paired node answered
+ * a call that carried this server's epoch, or refused it with a newer one
+ * (then this server retires). No timer ends it: a tunnel that comes back an
+ * hour later is exactly the case where writing first would split the data.
+ * `bun run primary release` lets a person end it when the nodes are gone.
+ */
+export function holdInternalWritesUntilNodesAnswer(): void {
+  bootHold = true;
+}
+
+export function releaseBootHold(): void {
+  bootHold = false;
+}
+
+export function isBootHoldActive(): boolean {
+  return bootHold;
+}
+
 export function isThisServerPrimary(): boolean {
-  if (internalWritesFenced) return false;
+  if (internalWritesFenced || bootHold) return false;
   return active ? active.isPrimary() : true;
+}
+
+type StaleAnswerHandler = (url: string, body: unknown) => void;
+let staleAnswerHandler: StaleAnswerHandler | null = null;
+
+/** Wired at boot by `primary-replaced.ts`: what to do when a node says this primary was replaced. */
+export function onStaleAnswer(handler: StaleAnswerHandler | null): void {
+  staleAnswerHandler = handler;
+}
+
+/** Called by the node client on every 409 it receives, with the parsed body. */
+export function reportStaleAnswer(url: string, body: unknown): void {
+  staleAnswerHandler?.(url, body);
 }

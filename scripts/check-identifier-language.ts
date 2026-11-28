@@ -86,6 +86,10 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // litestream: the SQLite replication tool the primary claim restores from (`server/lib/primary-claim-litestream.test.ts`); a product name, not a word.
+  "litestream",
+  // plaintext: the cryptography term for unencrypted data (`scripts/probe-claim-loss.ts` checks the replica never holds it); the dictionary lacks it.
+  "plaintext",
   // gws: the Google Workspace CLI the reference Gmail mailbox adapter calls (`server/mail/inbox/gmail-adapter.ts`); it is a command name, not a word.
   "gws",
   // unsubscribe: the name every subscribe/unsubscribe pair in the client stores uses (`client/src/lib/keyedListeners.ts`); the dictionary lacks it.

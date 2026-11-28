@@ -13,12 +13,24 @@
  * computer is known NOT to have taken over, makes this server the primary again
  * at a higher epoch and restarts it (`POST /__daemon/primary-reclaim`).
  * Exit 0 reclaimed, 1 refused.
+ *
+ * `bun run primary claim [--force]`: on a node, when the primary died without
+ * warning, takes the primary over from the last replica of its DB (track T9,
+ * `POST /__daemon/primary-claim`). `--force` claims even though the primary
+ * called this node in the last ten minutes, or never called it since this
+ * node started. Exit 0 claimed, 1 refused, 3 claimed with a warning (the
+ * channels command failed: the warning says what).
+ *
+ * `bun run primary release`: a primary back from being away waits for one of
+ * its nodes to answer before it writes; when the nodes are gone for good, this
+ * ends the wait by hand (`POST /__daemon/primary-release`). Exit 0 released,
+ * 1 not waiting.
  */
 import { readState } from "../server/services/daemon-state";
 
 const [command, machine, ...rest] = process.argv.slice(2);
-if (!(command === "switch" && machine) && command !== "reclaim") {
-  console.error("usage: bun run primary switch <machine id, name or hostname> [--drain-minutes N]\n       bun run primary reclaim");
+if (!(command === "switch" && machine) && command !== "reclaim" && command !== "claim" && command !== "release") {
+  console.error("usage: bun run primary switch <machine id, name or hostname> [--drain-minutes N]\n       bun run primary reclaim\n       bun run primary claim [--force]\n       bun run primary release");
   process.exit(64);
 }
 const at = rest.indexOf("--drain-minutes");
@@ -37,7 +49,9 @@ for (const scheme of ["https", "http"]) {
     res = await fetch(`${scheme}://127.0.0.1:${state.port}/__daemon/primary-${command}`, {
       method: "POST",
       headers: { authorization: `Bearer ${state.token}`, "content-type": "application/json" },
-      body: JSON.stringify(command === "switch" ? { machine, ...(Number.isFinite(minutes) ? { drainTimeoutMs: minutes * 60_000 } : {}) } : {}),
+      body: JSON.stringify(command === "switch"
+        ? { machine, ...(Number.isFinite(minutes) ? { drainTimeoutMs: minutes * 60_000 } : {}) }
+        : command === "claim" ? { force: [machine, ...rest].includes("--force") } : {}),
       tls: { rejectUnauthorized: false },
     } as RequestInit);
     break;
@@ -56,6 +70,20 @@ if (!report) {
 }
 if (command === "reclaim") {
   console.log(report.ok ? `reclaimed at epoch ${report.epoch}: restarting as the primary` : `refused: ${report.error}`);
+  process.exit(report.ok ? 0 : 1);
+}
+if (command === "release") {
+  console.log(report.ok ? "released: this server writes as the primary" : `refused: ${report.error}`);
+  process.exit(report.ok ? 0 : 1);
+}
+if (command === "claim") {
+  for (const key of ["outcome", "code", "error", "epoch", "counts", "newestWrite", "lastHeardFromPrimary"]) {
+    if (report[key] !== undefined) console.log(`${key}: ${typeof report[key] === "object" ? JSON.stringify(report[key]) : report[key]}`);
+  }
+  if (report.ok && report.warning) {
+    console.error(`WARNING: ${report.warning}`);
+    process.exit(3);
+  }
   process.exit(report.ok ? 0 : 1);
 }
 for (const key of ["outcome", "step", "error", "epoch", "counts", "parked", "files", "transcripts", "bytes"]) {

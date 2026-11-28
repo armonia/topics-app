@@ -8,6 +8,7 @@ import { createActivityRouter } from "../routes/activity";
 import { hostname as osHostname } from "node:os";
 import { createNodeClient, readNodeToken } from "../services/node-client";
 import { createNodeProbe } from "../services/node-heartbeat";
+import { releaseBootHold } from "../lib/primary-role";
 import { CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, isCloudBaseUrl } from "../providers/claude-cloud/node";
 import { initVapid } from "../push-service";
 import { execFile } from "node:child_process";
@@ -80,7 +81,10 @@ export async function bootHeartbeat(scope: AfterRouters2) {
           ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
         }
       }
-      probeNodes();
+      // A primary back from being away holds its writes until one paired node answered at its
+      // epoch (`holdInternalWritesUntilNodesAnswer`, track T9): a round where every node failed
+      // proves nothing, so it keeps waiting for the next one.
+      void probeNodes().then((answered) => { if (answered > 0) releaseBootHold(); });
       const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);
       for (const m of flipped) {
         ctx.broadcastToAll({ type: "machine:updated", machine: m, payload_version: 1 });
