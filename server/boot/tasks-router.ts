@@ -17,7 +17,8 @@ import { realMainCiPort } from "../services/main-ci-watch";
 import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
 import { classifyWorktreeSource } from "../services/worktree-manager";
 import { tryGetProvider } from "../providers";
-import { startProcessDetection, stopCardCommandProcesses, stopTopicCommandProcesses } from "../routes/processes";
+import { startProcessDetection, stopCardCommandProcesses } from "../routes/processes";
+import { stopTopicProcessesAndPreview } from "./chat-preview";
 import { createTasksRouter, ownBranchFiles, runGitCap } from "../routes/tasks";
 import { landingFiles, referencedByTheJudge } from "../services/landing-files";
 import { defaultLifecycleHooks } from "../services/lifecycle-hooks";
@@ -56,7 +57,7 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     },
     landings: landingQueue,
     stopCardProcesses: stopCardCommandProcesses,
-    stopTopicProcesses: stopTopicCommandProcesses,
+    stopTopicProcesses: stopTopicProcessesAndPreview,
     repoRootFor: repoRootForCard,
     workspaceDir: DISPATCH_WORKSPACE_DIR,
     // Il titolo leggibile di una card dettata (`services/task-title.ts`). Si
