@@ -428,10 +428,10 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         // THE ROW IS WRITTEN BEFORE ANYBODY IS ASKED, and it holds the message:
         // a restart between now and the answer keeps both the question and what
         // it is about. A key that exists already is this call's own earlier leg.
-        const payload: MailPayload = { sessionKey, account: account.name, to, subject, body: text, ...(cc ? { cc } : {}), frozen };
+        const payload: MailPayload = { sessionKey, account: account.name, to, subject, body: text, ...(cc ? { cc } : {}), frozen, digest };
         if (deliveryKey) {
           const known = ledger.registry.payloadOf<MailPayload>(deliveryKey);
-          if (!ledger.registry.hold(deliveryKey, MAIL_DELIVERY_KIND, payload) && known) payload.askId = known.askId;
+          if (!ledger.registry.hold(deliveryKey, MAIL_DELIVERY_KIND, payload) && known) { payload.askId = known.askId; payload.toolCallId = known.toolCallId; }
         }
 
         let outcome: ConfirmOutcome;
@@ -457,8 +457,12 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         if (outcome.state === "pending") {
           // The thread row goes into the register row: it is how a click on it
           // finds this message once nobody is polling any more.
-          if (deliveryKey && outcome.askId && outcome.askId !== payload.askId) {
-            ledger.registry.updatePayload(deliveryKey, { ...payload, askId: outcome.askId });
+          if (deliveryKey && ((outcome.askId && outcome.askId !== payload.askId) || (outcome.toolCallId && outcome.toolCallId !== payload.toolCallId))) {
+            ledger.registry.updatePayload(deliveryKey, {
+              ...payload,
+              ...(outcome.askId ? { askId: outcome.askId } : {}),
+              ...(outcome.toolCallId ? { toolCallId: outcome.toolCallId } : {}),
+            });
           }
           // A click after a restart may have sent it from the row meanwhile.
           if (deliveryKey && ledger.registry.get(deliveryKey)?.state !== "pending") return answerKnown(deliveryKey, holdToken(body?.hold));

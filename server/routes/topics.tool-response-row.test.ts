@@ -22,6 +22,7 @@ import { beginAsk, cancelAsk } from "../lib/ask-user-bridge";
 import { registerProvider, removeProvider } from "../providers";
 import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL } from "../../shared/plan-decision";
 import type { AnswerRelay } from "../lib/answer-relay";
+import { pickChatMailRow, registerMailChatAnswer, type ChatMailRow } from "../lib/outbound-mail-ledger";
 
 // A REAL provider in the registry, as the route resolves it (`topic.provider`).
 // Its two answers to a resume are switched per test on the instance, so no
@@ -163,6 +164,96 @@ describe("POST /api/chat/tool-response: the answer goes where the question is", 
       expect(h.writes).toEqual([{ toolCallId: "toolu_send", status: "running", opts: { rowId: "turn-row" } }]);
     } finally {
       cancelAsk(sk);
+    }
+  });
+
+  /** A register with the rows of one chat row, answering the way the real handler does (same picking, one state per row). */
+  const fakeRegister = (rows: Array<ChatMailRow & { subject: string }>) => {
+    const sent: string[] = [];
+    registerMailChatAnswer((_s, _t, questions, said) => {
+      const picked = pickChatMailRow(rows, questions);
+      if (picked === "none" || picked === "mismatch") return picked;
+      const row = rows.find((r) => r.key === picked.row.key)!;
+      if (row.state !== "pending") return "settled";
+      row.state = said === "Conferma" ? "delivering" : "not_delivered";
+      if (said === "Conferma") sent.push(row.subject);
+      return "answered";
+    });
+    return sent;
+  };
+  const askOf = (digest: string) => ({ kind: "questions", answers: { [`Invio.\n\nConfermi? (${digest})`]: "Conferma" } });
+  const noOf = (digest: string) => ({ kind: "questions", answers: { [`Invio.\n\nConfermi? (${digest})`]: "Annulla" } });
+
+  test("a second click on a panel the register already settled sends nothing and writes nothing", async () => {
+    const sk = "topic:send-second-click";
+    const h = harness([NOTICE, toolRow("toolu_send2", "mcp__topics__send_mail")]);
+    // Registered AFTER harness(): the router wiring would overwrite it.
+    const sent = fakeRegister([{ key: "mail:a", state: "pending", digest: "abcd1234", subject: "A" }]);
+    try {
+      expect((await h.answer(sk, "toolu_send2", askOf("abcd1234"))).status).toBe(200);
+      const writesAfterFirst = h.writes.length;
+      const late = await h.answer(sk, "toolu_send2", askOf("abcd1234"));
+      expect(late.status).toBe(200);
+      expect(h.writes.length).toBe(writesAfterFirst);
+      expect(h.writes.some((w) => w.status === "error")).toBe(false);
+      expect(sent).toEqual(["A"]);
+    } finally {
+      registerMailChatAnswer(null);
+    }
+  });
+
+  test("a click after a no leaves the closed row alone", async () => {
+    const sk = "topic:send-click-after-no";
+    const h = harness([NOTICE, toolRow("toolu_send3", "mcp__topics__send_mail")]);
+    const sent = fakeRegister([{ key: "mail:a", state: "pending", digest: "abcd1234", subject: "A" }]);
+    try {
+      await h.answer(sk, "toolu_send3", noOf("abcd1234"));
+      const writesAfterNo = h.writes.length;
+      const late = await h.answer(sk, "toolu_send3", askOf("abcd1234"));
+      expect(late.status).toBe(200);
+      expect(h.writes.length).toBe(writesAfterNo);
+      expect(h.writes.some((w) => w.status === "error")).toBe(false);
+      expect(sent).toEqual([]);
+    } finally {
+      registerMailChatAnswer(null);
+    }
+  });
+
+  test("two sends on one panel, A delivered and B pending: the click on B sends B, once", async () => {
+    const sk = "topic:send-two-b";
+    const h = harness([NOTICE, toolRow("toolu_two", "mcp__topics__send_mail")]);
+    const sent = fakeRegister([
+      { key: "mail:a", state: "delivered", digest: "aaaa0001", subject: "A" },
+      { key: "mail:b", state: "pending", digest: "bbbb0002", subject: "B" },
+    ]);
+    try {
+      expect((await h.answer(sk, "toolu_two", askOf("bbbb0002"))).status).toBe(200);
+      await h.answer(sk, "toolu_two", askOf("bbbb0002"));
+      expect(sent).toEqual(["B"]);
+    } finally {
+      registerMailChatAnswer(null);
+    }
+  });
+
+  test("two sends on one panel, the panel still shows A and B is pending: nothing is sent", async () => {
+    const sk = "topic:send-two-a";
+    const h = harness([NOTICE, toolRow("toolu_two2", "mcp__topics__send_mail")]);
+    const rows = [
+      { key: "mail:a", state: "delivered", digest: "aaaa0001", subject: "A" },
+      { key: "mail:b", state: "pending", digest: "bbbb0002", subject: "B" },
+    ];
+    const sent = fakeRegister(rows);
+    try {
+      const resp = await h.answer(sk, "toolu_two2", askOf("aaaa0001"));
+      expect(resp.status).toBe(200);
+      expect(sent).toEqual([]);
+      expect(rows[1]!.state).toBe("pending");
+      // A question naming neither message is refused out loud.
+      const lost = await h.answer(sk, "toolu_two2", askOf("cccc0003"));
+      expect(lost.status).toBe(409);
+      expect(sent).toEqual([]);
+    } finally {
+      registerMailChatAnswer(null);
     }
   });
 

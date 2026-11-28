@@ -46,6 +46,10 @@ export interface MailPayload {
   frozen: FrozenAttachments;
   /** The thread row of the question, once the card road drew it. */
   askId?: string;
+  /** The chat row of the question, once the chat road painted it. */
+  toolCallId?: string;
+  /** The message fingerprint the question text ends with: what a chat click must name to reach this row. */
+  digest?: string;
   /** Set once the card was told that this send ended `unknown`. */
   announced?: boolean;
 }
@@ -76,10 +80,38 @@ export function messageIdOf(stdout: string): string | undefined {
   }
 }
 
+/** One register row seen from the chat row its question was painted on. */
+export interface ChatMailRow {
+  key: string;
+  state: string;
+  digest?: string;
+}
+
+/**
+ * THE CLICK IS BOUND TO THE MESSAGE, not to the chat row. Two `send_mail` calls
+ * of one model message can end up painted on the same row, so the row id does
+ * not say which message the person read: the question text does, because it
+ * ends with the message fingerprint. Returns the row the clicked question is
+ * about, `none` when the chat row has no mail row at all (an ordinary question)
+ * and `mismatch` when it has some but none is the one the click names.
+ */
+export function pickChatMailRow(rows: ChatMailRow[], questions: string[]): { row: ChatMailRow } | "none" | "mismatch" {
+  if (rows.length === 0) return "none";
+  // Two identical messages share a fingerprint: the one still waiting wins over a delivered twin.
+  const names = rows.filter((r) => r.digest && questions.some((q) => q.endsWith(`(${r.digest})`)));
+  const named = names.find((r) => r.state === "pending") ?? names[0];
+  if (named) return { row: named };
+  // A row written before the fingerprint was kept: only unambiguous when alone.
+  if (rows.length === 1 && !rows[0]!.digest) return { row: rows[0]! };
+  return "mismatch";
+}
+
 export interface MailLedger {
   registry: DeliveryRegistry;
   /** The `pending` row whose question is the thread row `askId`, if any. */
   pendingByAsk(askId: string): string | null;
+  /** Every row, in any state, whose question was painted on the chat row `toolCallId` of this session. */
+  rowsByToolCall(sessionKey: string, toolCallId: string): ChatMailRow[];
   /**
    * Boot, for the mail rows: what was mid-send becomes `unknown` (the same rule
    * the register applies), and every `unknown` mail the card was not told about
@@ -96,6 +128,11 @@ export function createMailLedger(db: Database, now: () => Date = () => new Date(
       const row = db.query("SELECT key FROM deliveries WHERE kind = ? AND state = 'pending' AND json_extract(payload_json, '$.askId') = ? LIMIT 1")
         .get(MAIL_DELIVERY_KIND, askId) as { key: string } | null;
       return row?.key ?? null;
+    },
+    rowsByToolCall(sessionKey, toolCallId) {
+      const rows = db.query("SELECT key, state, json_extract(payload_json, '$.digest') AS digest FROM deliveries WHERE kind = ? AND json_extract(payload_json, '$.toolCallId') = ? AND json_extract(payload_json, '$.sessionKey') = ?")
+        .all(MAIL_DELIVERY_KIND, toolCallId, sessionKey) as Array<{ key: string; state: string; digest: string | null }>;
+      return rows.map((r) => ({ key: r.key, state: r.state, ...(r.digest ? { digest: r.digest } : {}) }));
     },
     recoverAtBoot() {
       // Order free with the engine's own boot step: whichever runs first turns
@@ -135,5 +172,25 @@ export function answerPendingMailFromThread(askId: string | undefined, text: str
   } catch (error) {
     console.warn("[outbound] answer to a pending mail failed:", error);
     return false;
+  }
+}
+
+/** What a chat click came to: nothing to do with a mail, answered, already settled, or naming no row. */
+export type MailChatVerdict = "none" | "answered" | "settled" | "mismatch" | "empty";
+type MailChatAnswer = (sessionKey: string, toolCallId: string, questions: string[], text: string) => MailChatVerdict;
+let mailChatAnswer: MailChatAnswer | null = null;
+
+export function registerMailChatAnswer(handler: MailChatAnswer | null): void {
+  mailChatAnswer = handler;
+}
+
+/** Same as the thread answer, for the chat panel: the click names the row and the question it was painted with. */
+export function answerMailFromChat(sessionKey: string, toolCallId: string, questions: string[], text: string): MailChatVerdict {
+  if (!mailChatAnswer) return "none";
+  try {
+    return mailChatAnswer(sessionKey, toolCallId, questions, text);
+  } catch (error) {
+    console.warn("[outbound] chat answer to a pending mail failed:", error);
+    return "none";
   }
 }

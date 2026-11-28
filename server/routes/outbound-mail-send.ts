@@ -11,7 +11,7 @@ import type { Database } from "bun:sqlite";
 import { CLI_SEARCH_DIRS, resolveCliPath, runCli } from "../lib/outbound-cli";
 import { OutboundConfigError, pickAccount, readMailConfig, type EnvMap, type MailAccount } from "../lib/outbound-config";
 import { CONFIRM_LABEL } from "../lib/outbound-gate";
-import { createMailLedger, messageIdOf, registerPendingMailAnswer, type MailLedger, type MailPayload, type MailSentRecord } from "../lib/outbound-mail-ledger";
+import { createMailLedger, messageIdOf, pickChatMailRow, registerPendingMailAnswer, registerMailChatAnswer, type MailLedger, type MailPayload, type MailSentRecord } from "../lib/outbound-mail-ledger";
 import { discardStaging, verifyFrozen } from "../lib/outbound-staging";
 
 /** The subject line is quoted in the card trace; a book is not a subject. */
@@ -236,8 +236,7 @@ export function createMailSend(deps: MailSendDeps) {
 
   // A yes on a question nobody is polling any more (a restart, an agent
   // that stopped) is still a yes to THAT message: the server sends from the row.
-  registerPendingMailAnswer((askId, answer) => {
-    const key = ledger.pendingByAsk(askId);
+  const answerPending = (key: string | null, answer: string): boolean => {
     const message = key ? ledger.registry.payloadOf<MailPayload>(key) : null;
     if (!key || !message) return false;
     const quoted = shortSubject(message.subject);
@@ -263,6 +262,17 @@ export function createMailSend(deps: MailSendDeps) {
     if (!ledger.registry.start(key)) return true;
     void sendConfirmed(message, account, key).catch((error) => console.warn("[outbound] send from the register failed:", error));
     return true;
+  };
+  registerPendingMailAnswer((askId, answer) => answerPending(ledger.pendingByAsk(askId), answer));
+  registerMailChatAnswer((sessionKey, toolCallId, questions, answer) => {
+    const rows = ledger.rowsByToolCall(sessionKey, toolCallId);
+    // An answer with no text is no click on a mail: nothing is closed by it.
+    if (!answer) return rows.length ? "empty" : "none";
+    const picked = pickChatMailRow(rows, questions);
+    if (picked === "none" || picked === "mismatch") return picked;
+    // Any state but `pending` was settled already: a late click touches nothing.
+    if (picked.row.state !== "pending") return "settled";
+    return answerPending(picked.row.key, answer) ? "answered" : "none";
   });
 
   return { ledger, answerKnown, sendConfirmed };

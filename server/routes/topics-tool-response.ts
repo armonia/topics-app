@@ -3,9 +3,10 @@ import { patchLiveTool } from "../lib/turn-body-flush";
 import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
 import { type AIProvider } from "../providers";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
-import { deliverAnswer, hasPendingAsk, openAskIdentity, ASK_NOT_CURRENT_LINE } from "../lib/ask-user-bridge";
+import { askStillPolled, deliverAnswer, hasPendingAsk, openAskIdentity, ASK_NOT_CURRENT_LINE } from "../lib/ask-user-bridge";
 import { storedToolCall, routeAnswer, liveQuestionCallId, questionTexts, answerAsNextMessage, type StoredQuestionCall } from "../lib/question-outlives-asker";
 import { type AnswerRelay } from "../lib/answer-relay";
+import { answerMailFromChat } from "../lib/outbound-mail-ledger";
 import { markAnswerOwed } from "../lib/owed-answers";
 import { isPlanApprovalAnswer } from "../lib/plan-approval";
 import { decodeCol } from "../../shared/message-blob";
@@ -110,6 +111,41 @@ export function createToolResponseRoutes(
         updateToolCallFields(sessionKey, toolCallId, patch, { rowId: toolRowId });
         patchLiveTool(sessionKey, toolCallId, patch);
       };
+      // A SEND CONFIRMATION WHOSE TURN DIED WITH THE SERVER. The register row
+      // kept the message and the chat row it was painted on; with no live leg
+      // to collect the yes, the server sends from the row, as the card's
+      // `answerTo` road does. A live leg still takes the answer first.
+      if (response.kind === 'questions' && toolRowId && !askStillPolled(sessionKey)) {
+        // The click is bound to the MESSAGE it was painted with, not to the
+        // chat row: two sends of one model message can share a row, and the
+        // question text ends with the fingerprint that tells them apart.
+        const answers = (response.answers || {}) as Record<string, unknown>;
+        // The question and the answer are read from the SAME entry. A mail
+        // click always carries text.
+        const entry = Object.entries(answers).find((e): e is [string, string] => typeof e[1] === 'string');
+        const said = entry?.[1];
+        const verdict = answerMailFromChat(sessionKey, toolCallId, entry ? [entry[0]] : [], entry?.[1] ?? '');
+        if (verdict === 'empty') return json({ error: 'The answer carries no text. Nothing was sent.', code: 'mail_answer_empty' }, 400);
+        // A message the register already settled (an old tab clicking again)
+        // answers as done and writes nothing: the provider path would fail and
+        // paint `error` on a mail that left.
+        if (verdict === 'settled') return json({ ok: true, deliveredAs: 'register' });
+        // The panel shows a message that is not the one waiting on this row:
+        // nothing is sent, and the person is told.
+        if (verdict === 'mismatch') {
+          return json({ error: 'This confirmation is about another message than the one waiting. Nothing was sent.', code: 'mail_question_mismatch' }, 409);
+        }
+        if (verdict === 'answered' && said !== undefined) {
+          const submittedAt = new Date().toISOString();
+          const answered = { kind: 'questions' as const, answers: answers as Record<string, string>, submittedAt };
+          patchToolRow({ status: 'success', userResponse: answered });
+          broadcastToAll({
+            type: 'stream:tool_update', sessionKey, topicId: getTopicBySessionKey(sessionKey)?.id, toolCallId,
+            status: 'success', userResponse: answered,
+          });
+          return json({ ok: true, submittedAt, deliveredAs: 'register' });
+        }
+      }
       const answeringBridgeAsk = response.kind === 'questions' && (hasPendingAsk(sessionKey) || askRowId !== null);
       if (answeringBridgeAsk) {
         // AND THE ANSWER NAMES THE QUESTION, here too.

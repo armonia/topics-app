@@ -20,7 +20,7 @@ import { CONFIRM_LABEL, confirmKey, _resetOutboundHolds } from "./outbound-gate"
 import { cancelAsk, deliverAnswer } from "./ask-user-bridge";
 import { _resetRoutedAsks } from "../services/board-ask-routing";
 import { _resetTurnBodyFlushers } from "./turn-body-flush";
-import { answerPendingMailFromThread, createMailLedger, messageIdOf, registerPendingMailAnswer } from "./outbound-mail-ledger";
+import { pickChatMailRow, answerMailFromChat, answerPendingMailFromThread, createMailLedger, messageIdOf, registerPendingMailAnswer, registerMailChatAnswer } from "./outbound-mail-ledger";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "mail-once-")));
 const LOG = join(root, "starts.log");
@@ -73,19 +73,20 @@ afterEach(() => {
   cancelAsk(SESSION, "end of test");
   _resetRoutedAsks(); _resetOutboundHolds(); _resetTurnBodyFlushers();
   registerPendingMailAnswer(null);
+  registerMailChatAnswer(null);
   for (const db of opened.splice(0)) db.close();
   if (existsSync(LOG)) unlinkSync(LOG);
 });
 afterAll(() => { rmSync(root, { recursive: true, force: true }); });
 
 /** One server process: its own connection on the register file and its own router. */
-function boot(cli = "mail-ok") {
+function boot(cli = "mail-ok", messageRows: unknown[] = []) {
   const db = openRegister();
   opened.push(db);
   const comments: Array<{ id: string; content: string; options: string[] }> = [];
   const ctx = {
     db: {
-      prepare: (sql: string) => ({ get: () => (String(sql).includes("FROM messages") ? undefined : CARD), all: () => [] }),
+      prepare: (sql: string) => ({ get: () => (String(sql).includes("FROM messages") ? undefined : CARD), all: () => (String(sql).includes("FROM messages") ? messageRows : []) }),
       query: () => ({ get: () => null }),
     },
     json: (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } }),
@@ -202,6 +203,111 @@ describe("a mail leaves once", () => {
     expect(answerPendingMailFromThread(askId, "Annulla")).toBe(true);
     expect(after.ledger.registry.get(`mail:${key}`)?.state).toBe("not_delivered");
     expect((await leg(after, key)).body.refused).toBe(true);
+    expect(starts()).toBe(0);
+  });
+
+  test("a click on the chat panel after a restart sends from the row, once", async () => {
+    const server = boot();
+    const key = "mail:call-chat-panel-01";
+    const frozen = { dir: "", files: [] };
+    server.ledger.registry.hold(key, "mail", {
+      sessionKey: SESSION, account: "first", to: "someone@example.test", subject: "Quote", body: "Hello", frozen, toolCallId: "tool-chat-1", digest: "aaaa1111",
+    });
+    const asked = ["Invio una mail.\n\nConfermi? (aaaa1111)"];
+    // Another session's panel with the same id is not this message.
+    expect(answerMailFromChat("topic:other", "tool-chat-1", asked, CONFIRM_LABEL)).toBe("none");
+    expect(answerMailFromChat(SESSION, "tool-chat-1", asked, CONFIRM_LABEL)).toBe("answered");
+    await until(() => server.ledger.registry.get(key)?.state === "delivered");
+    expect(answerMailFromChat(SESSION, "tool-chat-1", asked, CONFIRM_LABEL)).toBe("settled");
+    expect(starts()).toBe(1);
+  });
+
+  test("two messages on one chat row: the click sends the message it names, never the other", async () => {
+    const server = boot();
+    const frozen = { dir: "", files: [] };
+    const base = { sessionKey: SESSION, account: "first", to: "someone@example.test", body: "Hello", frozen, toolCallId: "tool-shared" };
+    server.ledger.registry.hold("mail:call-two-aaaa-01", "mail", { ...base, subject: "Mail A", digest: "aaaa0001" });
+    server.ledger.registry.hold("mail:call-two-bbbb-02", "mail", { ...base, subject: "Mail B", digest: "bbbb0002" });
+    const asksA = ["Oggetto: Mail A\n\nConfermi? (aaaa0001)"];
+    const asksB = ["Oggetto: Mail B\n\nConfermi? (bbbb0002)"];
+    expect(answerMailFromChat(SESSION, "tool-shared", asksA, CONFIRM_LABEL)).toBe("answered");
+    await until(() => server.ledger.registry.get("mail:call-two-aaaa-01")?.state === "delivered");
+    // A is gone and B waits: the panel still showing A touches nothing.
+    expect(answerMailFromChat(SESSION, "tool-shared", asksA, CONFIRM_LABEL)).toBe("settled");
+    expect(server.ledger.registry.get("mail:call-two-bbbb-02")?.state).toBe("pending");
+    expect(starts()).toBe(1);
+    // A question that names neither row sends nothing and says so.
+    expect(answerMailFromChat(SESSION, "tool-shared", ["Confermi? (cccc0003)"], CONFIRM_LABEL)).toBe("mismatch");
+    expect(answerMailFromChat(SESSION, "tool-shared", asksB, CONFIRM_LABEL)).toBe("answered");
+    await until(() => server.ledger.registry.get("mail:call-two-bbbb-02")?.state === "delivered");
+    expect(starts()).toBe(2);
+  });
+
+  // The wiring, end to end: the gate paints on the last running `send_mail` of
+  // the chat row, the route puts that row and the message fingerprint into the
+  // register row, and a click after a restart is matched on the fingerprint.
+  describe.each([
+    { delivered: "Mail A", waiting: "Mail B" },
+    { delivered: "Mail B", waiting: "Mail A" },
+  ])("two send_mail of one model message, $delivered delivered and $waiting waiting", ({ delivered, waiting }) => {
+    test("the click after a restart sends the waiting one, once, and never the other", async () => {
+      const rows = [{ id: "row-1", tool_calls: "[]", blocks: JSON.stringify([
+        { kind: "tool", toolCall: { id: "toolu_A", name: "mcp__topics__send_mail", status: "success" } },
+        { kind: "tool", toolCall: { id: "toolu_B", name: "mcp__topics__send_mail", status: "running" } },
+      ]) }];
+      const server = boot("mail-ok", rows);
+      const post = async (key: string, subject: string, hold?: string) => {
+        const res = await server.fetchImpl(`${ARGS.baseUrl}/api/sessions/${SESSION}/outbound/mail`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...MESSAGE, subject, key, legMs: 120, ...(hold ? { hold } : {}) }),
+        });
+        return await res.json() as Record<string, unknown>;
+      };
+      const settle = async (key: string, subject: string) => {
+        const first = await post(key, subject);
+        expect(first.pending).toBe(true);
+        deliverAnswer(SESSION, { [confirmKey(digestOf(server.comments))]: CONFIRM_LABEL });
+        await post(key, subject, first.hold as string);
+        _resetOutboundHolds(); _resetRoutedAsks(); cancelAsk(SESSION, "next message");
+      };
+      const keyOf = (subject: string) => `call-wiring-${subject.slice(-1).toLowerCase()}`;
+      await settle(keyOf(delivered), delivered);
+      expect(starts()).toBe(1);
+      expect((await post(keyOf(waiting), waiting)).pending).toBe(true);
+      const askOf = (index: number) => /Confermi\? \([0-9a-f]+\)/.exec(questions(server.comments)[index]!.content)![0];
+      const askDelivered = askOf(0);
+      const askWaiting = askOf(1);
+      for (const subject of [delivered, waiting]) {
+        const payload = server.ledger.registry.payloadOf<{ toolCallId?: string; digest?: string }>(`mail:${keyOf(subject)}`)!;
+        expect(payload.toolCallId).toBe("toolu_B");
+        expect(askOf(subject === delivered ? 0 : 1)).toBe(`Confermi? (${payload.digest})`);
+      }
+
+      // Restart: new process, nobody polling.
+      _resetOutboundHolds(); _resetRoutedAsks(); cancelAsk(SESSION, "restart");
+      const after = boot("mail-ok", rows);
+      expect(answerMailFromChat(SESSION, "toolu_B", [askDelivered], CONFIRM_LABEL)).toBe("settled");
+      expect(after.ledger.registry.get(`mail:${keyOf(waiting)}`)?.state).toBe("pending");
+      expect(starts()).toBe(1);
+      expect(answerMailFromChat(SESSION, "toolu_B", [askWaiting], CONFIRM_LABEL)).toBe("answered");
+      await until(() => after.ledger.registry.get(`mail:${keyOf(waiting)}`)?.state === "delivered");
+      expect(starts()).toBe(2);
+    });
+  });
+
+  test("two identical messages on one chat row: the one still waiting is picked", () => {
+    const rows = [{ key: "k1", state: "delivered", digest: "abcd0001" }, { key: "k2", state: "pending", digest: "abcd0001" }];
+    expect(pickChatMailRow(rows, ["Confermi? (abcd0001)"])).toEqual({ row: rows[1]! });
+  });
+
+  test("a no on the chat panel after a restart closes the row and sends nothing", () => {
+    const server = boot();
+    const key = "mail:call-chat-panel-02";
+    server.ledger.registry.hold(key, "mail", {
+      sessionKey: SESSION, account: "first", to: "someone@example.test", subject: "Quote", body: "Hello", frozen: { dir: "", files: [] }, toolCallId: "tool-chat-2", digest: "dddd0004",
+    });
+    expect(answerMailFromChat(SESSION, "tool-chat-2", ["Confermi? (dddd0004)"], "Annulla")).toBe("answered");
+    expect(server.ledger.registry.get(key)?.state).toBe("not_delivered");
     expect(starts()).toBe(0);
   });
 
