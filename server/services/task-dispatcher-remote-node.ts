@@ -334,6 +334,8 @@ export interface RemoteNodeLane {
   /** Cancel one confined remote run without touching another slot. */
   /** null = not remote, false = remote cancellation still unconfirmed, true = stopped. */
   cancelTask(taskId: string): Promise<boolean | null>;
+  /** Retires the run a card left on its node; false = not cancelled, the card must stay there. */
+  retirePreviousRun(task: Task): Promise<boolean>;
 }
 
 export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
