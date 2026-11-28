@@ -470,3 +470,22 @@ describe('cruscotto auto-dispatch: le card spostate perché il Mac era pieno', (
     expect(html.match(/data-testid="dispatch-dashboard-moved-row"/g)).toHaveLength(1);
   });
 });
+
+describe('grafico memoria: le etichette dell\'asse non si tagliano', () => {
+  // The first grid line starts at the left padding; its end-anchored label sits
+  // 5 px before it. The padding must grow with the digits of the top value.
+  const firstLineX1 = (html: string) => Number(/<line x1="(\d+)"/.exec(html)![1]);
+  test('il padding sinistro cresce con le cifre del massimo (12, 64, 128 GB)', () => {
+    const pads = [12, 64, 128].map((max) => {
+      const hist = [
+        { at: new Date(NOW - 50 * 60_000).toISOString(), freeGB: max, running: 0 },
+        { at: new Date(NOW - 1 * 60_000).toISOString(), freeGB: 0, running: 0 },
+      ];
+      const html = renderToStaticMarkup(<MemoryChart history={hist} startGB={null} now={NOW} width={372} />);
+      expect(html).toContain(`${chartMax([max, 0], null)} GB`);
+      return firstLineX1(html);
+    });
+    expect(pads[0]).toBeGreaterThanOrEqual(30);
+    expect(pads[2]).toBeGreaterThan(pads[0]!);
+  });
+});

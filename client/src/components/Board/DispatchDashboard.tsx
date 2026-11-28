@@ -45,7 +45,14 @@ function SectionLabel({ children, right }: { children: React.ReactNode; right?: 
 // ── the chart: free memory, last hour, with the threshold and the working cards ──
 // The drawing space is as wide as the chart on screen: the labels stay
 // at a true 10 px in the narrow panel (400) and in the phone sheet too.
-const PL = 30, PR = 8, PT = 8, CH = 84, SY = 98, SH = 16, VH_CARDS = 136, VH_PLAIN = 112;
+const PL_MIN = 30, PR = 8, PT = 8, CH = 84, SY = 98, SH = 16, VH_CARDS = 136, VH_PLAIN = 112;
+
+// Left room for the axis labels ("12 GB", "128 GB"). A fixed 30 px cut the first
+// digit off once the top label had three characters. Estimate: ~7 px per glyph at
+// the 10 px label size, plus the 5 px gap before the axis line.
+function leftPaddingFor(topLabel: string): number {
+  return Math.max(PL_MIN, Math.ceil(topLabel.length * 7) + 7);
+}
 
 export function MemoryChart({ history, startGB, now, width: initialWidth = 372, cpuHolds = false }: {
   history: DispatchMemoryQueueSnapshot['history'];
@@ -79,6 +86,7 @@ export function MemoryChart({ history, startGB, now, width: initialWidth = 372, 
   // the line ends before "now", instead of passing old data off as current.
   const t0 = points[0]!.t, tEnd = Math.max(now, points[points.length - 1]!.t), span = Math.max(60_000, tEnd - t0);
   const AXIS_TOP = chartMax(points.map((p) => p.v), startGB);
+  const PL = leftPaddingFor(`${AXIS_TOP} GB`);
   const ticks = [0, 1, 2, 3].map((k) => (AXIS_TOP / 3) * k);
   const x = (t: number) => PL + ((t - t0) / span) * (W - PL - PR);
   const y = (v: number) => PT + CH - (Math.min(v, AXIS_TOP) / AXIS_TOP) * CH;

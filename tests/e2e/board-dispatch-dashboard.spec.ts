@@ -225,6 +225,38 @@ test.describe("Il pannello auto-dispatch è un cruscotto dei consumi", () => {
     expect(started).toHaveLength(0);
   });
 
+  // One fresh page per width and maximum: a loop that re-navigates inside one test
+  // loses the sidebar state the board needs, so each case gets its own test.
+  for (const width of [375, 1440]) {
+    for (const top of [12, 64, 128]) {
+      test(`DISPATCHDASH-06: massimo ${top} GB a ${width} px, l'etichetta in cima è intera e dentro il grafico`, async ({ page }) => {
+        // Same series shape as stubQueue, scaled so the axis tops out at `top` GB.
+        const end = Date.now();
+        const history = Array.from({ length: 61 }, (_, i) => ({ at: new Date(end - (60 - i) * 60_000).toISOString(), freeGB: i % 2 ? top : top * 0.8, running: 1 }));
+        await stubMachine(page, 2);
+        await page.route((url) => url.pathname === "/api/dispatch/memory-queue", (route) =>
+          route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ reading: { freeGB: top, at: null }, threshold: { startGB: null }, queue: [], running: [], consumers: [], history }) }));
+        await page.setViewportSize({ width, height: 1800 });
+        await page.goto("/");
+        await openBoard(page);
+        await gear(page).click();
+        const chart = page.getByTestId("board-settings-menu").getByTestId("dispatch-chart");
+        await expect(chart).toBeVisible({ timeout: 15000 });
+        // The top label is the highest axis text; it must sit wholly inside the chart box.
+        const box = await chart.boundingBox();
+        const label = await chart.locator("svg text").evaluateAll((els) => {
+          const texts = els.filter((e) => /\d+ GB$/.test(e.textContent ?? ""));
+          const topEl = texts.reduce((a, b) => (b.getBoundingClientRect().top < a.getBoundingClientRect().top ? b : a));
+          const r = topEl.getBoundingClientRect();
+          return { text: topEl.textContent, left: r.left, right: r.right };
+        });
+        expect(label.text, `etichetta in cima a ${top} GB, ${width} px`).toMatch(/^\d+ GB$/);
+        expect(label.left, `etichetta «${label.text}» tagliata a ${width} px`).toBeGreaterThanOrEqual(box!.x);
+        expect(label.right, `etichetta «${label.text}» oltre il bordo a ${width} px`).toBeLessThanOrEqual(box!.x + box!.width);
+      });
+    }
+  }
+
   test("DISPATCHDASH-05: a 400 px le 3 card in attesa di memoria hanno chip progetto e attesa su una riga, il motivo sta una volta sola nell'intestazione", async ({ page }) => {
     await stubMachine(page, 0);
     await stubQueue(page);
