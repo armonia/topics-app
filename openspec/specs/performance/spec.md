@@ -219,6 +219,57 @@ banco.
 - **THEN** la pane viene smontata e al ritorno ricarica l'URL persistito con un avviso
 - **AND** una pane visibile, trattenuta, più recente di 10 minuti o con l'impostazione spenta resta montata
 
+### Requirement: LEAK-02 — La crescita del renderer ha una barra, in byte e in footprint
+
+Il processo che disegna la app (`com.apple.WebKit.WebContent` sotto il guscio
+Tauri) il 27/11/2026 è arrivato a **2337 MB di footprint dopo 9 h 34 min** di
+sessione, il più grosso del Mac, con lo swap a 6,7 GB su 7: la macchina ha
+tenuto ferme cinque card per mancanza di memoria. Nessun cancello se ne è
+accorto, perché LEAK-01 misura la **sessione lunga del server** e i budget del
+bundle misurano i byte a build time: la crescita del renderer nel tempo non era
+misurata da niente.
+
+Il sistema DEVE misurarla su **due assi**, perché nessuno dei due si vede dove
+si vede l'altro:
+
+1. **i byte dell'heap, in CI.** Un giro di churn (apri, visita e chiudi N
+   topic) ripetuto a tetto di residenza già raggiunto DEVE lasciare l'heap
+   piatto. La lettura va presa dopo una raccolta forzata
+   (`HeapProfiler.collectGarbage` e poi `Runtime.getHeapUsage` via CDP):
+   forzarla è ciò che separa la spazzatura non ancora spazzata, che è rumore,
+   dagli oggetti ancora raggiungibili, che sono la perdita. È un **limite
+   inferiore** del footprint: non vede i layer di CoreAnimation né le immagini
+   decodificate, quindi una crescita che vede è vera, mentre un heap piatto non
+   assolve il footprint;
+2. **il footprint del renderer, sulla macchina vera.** Un comando a mano
+   (`bun run check:renderer-growth`) DEVE campionare `footprint -p` del
+   renderer più grosso per alcuni minuti e uscire **non-zero** se la pendenza
+   supera una soglia scritta. Il giudizio DEVE stare in una funzione pura,
+   provata con serie registrate: una barra che gira solo su macOS, con la app
+   aperta, non ha altro modo di avere dei test.
+
+Il cancello DEVE poter diventare rosso: la prova è una serie sintetica con la
+pendenza osservata (circa 4 MB/min) che esce rossa, e una curva piatta che esce
+verde.
+
+#### Scenario: un giro in più non lascia byte dietro
+
+- **GIVEN** il giro di churn ripetuto con il tetto di residenza già raggiunto
+- **WHEN** l'heap è letto dopo una raccolta forzata, a ogni giro
+- **THEN** la crescita per giro resta sotto il budget scritto, e sopra il budget il test è rosso nominando i byte
+
+#### Scenario: la pendenza del footprint oltre la soglia è rossa
+
+- **GIVEN** una serie di campioni di footprint del renderer che sale oltre la soglia al minuto
+- **WHEN** il giudizio la valuta
+- **THEN** esce non-zero e dice la pendenza misurata, la soglia e il pid del renderer
+
+#### Scenario: una curva piatta esce verde, e una serie troppo corta non giudica
+
+- **GIVEN** campioni entro la soglia, oppure meno campioni del minimo
+- **WHEN** il giudizio li valuta
+- **THEN** la curva piatta esce zero, e la serie troppo corta lo dice invece di dare un verdetto
+
 ### Requirement: LEAK-04 — Una callback che pulisce DEVE scattare una volta per ogni contesto che se ne va
 
 `BrowserService` riceve un `onDestroy(contextId)`, e il server ci appende lo

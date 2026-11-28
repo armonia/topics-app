@@ -182,6 +182,10 @@
         // glob, per la stessa ragione delle famiglie qui sopra.
         "scripts/layer-growth.ts",
         "scripts/mem-growth.ts",
+        // The same curve with a declared limit and an exit code, narrowed to
+        // the app's renderer: `bun run check:renderer-growth`. It ships as a
+        // check, hence the `!`.
+        "scripts/renderer-growth-check.ts!",
         "scripts/event-loop-lag.ts",
         // `bun scripts/prompt-ab.ts` — il banco A/B sul prompt del giudice: si
         // lancia a mano quando si vuole rimisurare quale formulazione declassa
@@ -534,7 +538,7 @@
   // signs nothing but api.anthropic.com. It is preinstalled on macOS and on ubuntu-latest.
   // `xcode-select` and `swiftc` are run by server/reasoning-translation/apple-adapter.ts on macOS only,
   // to build and probe the on-device translation helper; both ship with the Mac, not with the repo.
-  "ignoreBinaries": ["xcode-select", "swiftc", "pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat", "mkfifo", "trash", "openssl", "age-keygen", "age"],
+  "ignoreBinaries": ["xcode-select", "swiftc", "pkill", "pgrep", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat", "mkfifo", "trash", "openssl", "age-keygen", "age"],
   // NON è un import: è il primo argomento di
   // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
   // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la

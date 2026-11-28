@@ -141,16 +141,28 @@ export function collectHeapReport(): Record<string, HeapReport & { error?: strin
 const SAMPLE_EVERY_MS = 30_000;
 const SAMPLES = 31;
 
+/** One snapshot, right now: DOM census plus every registered owner's weight. */
+export function heapSnapshot(): { dom: DomCensus; owners: Record<string, HeapReport> } {
+  return { dom: domCensus(), owners: collectHeapReport() };
+}
+
 /**
  * Avvia la sonda se armata. Ritorna una funzione di stop idempotente.
  *
  * Campiona nel TEMPO e non una volta sola: una fotografia dice quanto c'e'
  * adesso, una serie dice se cresce — e "cresce senza potatura" e' la diagnosi
  * che serve. Dieci campioni a mezzo minuto coprono cinque minuti d'uso.
+ *
+ * `__topicsHeapSnapshot` lives on `window` regardless of arming: it lets a
+ * test (or a console) take ONE snapshot right now, without waiting the
+ * fifteen minutes of the time series — same spirit as `__topicsMessageSweep`
+ * in `hooks/useChat.ts`.
  */
 export function initDevHeapProbe(): () => void {
   let timer: ReturnType<typeof setInterval> | null = null;
   let stopped = false;
+
+  (window as unknown as { __topicsHeapSnapshot?: typeof heapSnapshot }).__topicsHeapSnapshot = heapSnapshot;
 
   void readProbeFlag(FLAG_KEY).then((armed) => {
     if (!armed || stopped) return;
@@ -176,5 +188,6 @@ export function initDevHeapProbe(): () => void {
       clearInterval(timer);
       timer = null;
     }
+    delete (window as unknown as { __topicsHeapSnapshot?: typeof heapSnapshot }).__topicsHeapSnapshot;
   };
 }

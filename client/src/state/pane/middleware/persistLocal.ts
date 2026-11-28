@@ -3,8 +3,12 @@
  *
  * Two keys, each with a single owner:
  *   - `pane-store-v2`        : full snapshot (panes/groups/closedStack).
- *                              Written debounced (100 ms) on `lastSeq` change,
- *                              cross-tab broadcast via the `storage` event.
+ *                              Written debounced (100 ms) on `localSeq`
+ *                              change (not `lastSeq`: a device-local action
+ *                              ticks that counter too, for a change this
+ *                              snapshot can't see - see the subscription's
+ *                              own comment), cross-tab broadcast via the
+ *                              `storage` event.
  *                              `focusedPaneId` is intentionally NOT here —
  *                              sanitizeSnapshot strips it on inbound (it's
  *                              per-device, not per-account).
@@ -194,9 +198,19 @@ export function initLocalPersistence(): void {
   // (syncCrossTab) and open the same tab there. Nothing is subscribed.
   if (isNestedInTopicsPane()) return;
 
-  // Full snapshot: debounced.
+  // Full snapshot: debounced, and watching `localSeq` rather than `lastSeq`
+  // for the same reason `syncServer.ts` does (see its own comment on the
+  // identical PUT-storm bug): `lastSeq` also ticks on a device-local action
+  // (FOCUS_PANE, SET_ACTIVE_SPACE), whose content this snapshot deliberately
+  // excludes (`focusedPaneId`/`activeSpaceId` have their own synchronous keys
+  // below) - so re-writing it on every tab switch cost a full, growing-with-
+  // topic-count body for a change this snapshot can't even see. Measured on
+  // this engine: 16 topics, 10 laps of switching between already-open tabs,
+  // 161 `pane-store-v2` writes - one per click - into a WAL WebKit never
+  // checkpoints while the session lives (localstorage-write-volume.spec.ts),
+  // which inflates the renderer's own resident memory, not just disk.
   usePaneStore.subscribe(
-    (s: PaneStore) => s.lastSeq,
+    (s: PaneStore) => s.localSeq,
     () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(writeSnapshotNow, DEBOUNCE_MS);
