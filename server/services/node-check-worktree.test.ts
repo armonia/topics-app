@@ -247,13 +247,21 @@ describe("a detached node check checkout still reaches a measured CI row", () =>
     // uses finds nothing on its own, same as the production reader.
     expect(await githubPort().branch(lease!.cwd)).toEqual({ ok: false, error: expect.any(String) });
 
-    const { port } = fakePort({ runs: async () => ({ ok: true, value: [run({ head_sha: commit })] }) });
+    // A fake `branch` that answers "topics/card" regardless of `cwd` would
+    // never notice a missing fallback: the real git reader is the one that
+    // actually fails on a detached HEAD, same as production.
+    const { port, calls } = fakePort({
+      branch: (cwd) => githubPort().branch(cwd),
+      runs: async () => ({ ok: true, value: [run({ head_sha: commit })] }),
+    });
     const row = (await awaitCiEvidence(
       { cwd: lease!.cwd, sha: commit, taskId: "awaitci-test", checks: [E2E_CI_CHECK], branch: BRANCH },
       { port, ...fakeClock(), stopping: () => false },
     ))[0]!;
 
     expect(row.notMeasured).toBeFalsy();
+    expect(row.ok).toBe(true);
+    expect(calls.push).toEqual([{ sha: commit, branch: BRANCH, lease: undefined }]);
     await lease!.release();
   }, WITH_REAL_GIT);
 });
