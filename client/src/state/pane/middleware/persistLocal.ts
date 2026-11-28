@@ -63,7 +63,10 @@ let lastWrittenContent: string | null = null;
 function writeSnapshotNow(): void {
   try {
     const state = usePaneStore.getState();
-    const content = JSON.stringify({ ...selectLocalSnapshot(state), server_seq: state.lastServerSeq });
+    // `lastSeq` rides inside the snapshot and ticks on every action: it is the
+    // counter, not content, so it stays out of the comparison.
+    const { lastSeq: _tick, ...body } = selectLocalSnapshot(state);
+    const content = JSON.stringify({ ...body, server_seq: state.lastServerSeq });
     // A device-local action (focus, active space) and a no-op remote echo tick
     // the sequence without changing anything this snapshot holds: rewriting
     // it on every tab switch was a write storm into a WAL WebKit never
