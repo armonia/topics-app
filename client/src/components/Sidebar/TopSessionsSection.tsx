@@ -9,8 +9,6 @@
  */
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { Button } from '../../ui/primitives/Button';
-import { TextField } from '../../ui/primitives/Field';
 import { apiFetch } from '../../lib/shell/net';
 import type { TopSession, TopSessionsResult } from '../../../../shared/top-sessions';
 
@@ -69,14 +67,14 @@ export function TopSessionsSection() {
             <span>{tr('topSessions.context', { tokens: compactTokens(s.avgContext) })}</span>
             <span>{tr('topSessions.open', { time: openFor(s.openMs) })}</span>
             <span className="ml-auto flex gap-1">
-              <span data-testid="top-session-open" className="inline-flex"><Button variant="ghost" size="sm" onClick={() => open(s)}>{tr('topSessions.openAction')}</Button></span>
-              <span data-testid="top-session-write" className="inline-flex"><Button variant="ghost" size="sm" onClick={() => setWriting(writing === s.id ? null : s.id)}>{tr('topSessions.writeAction')}</Button></span>
+              <button type="button" data-testid="top-session-open" onClick={() => open(s)} className="rounded px-1 text-app-text-secondary hover:bg-app-hover">{tr('topSessions.openAction')}</button>
+              <button type="button" data-testid="top-session-write" onClick={() => setWriting(writing === s.id ? null : s.id)} className="rounded px-1 text-app-text-secondary hover:bg-app-hover">{tr('topSessions.writeAction')}</button>
             </span>
           </div>
           {writing === s.id && (
             <form className="mt-1 flex gap-1" onSubmit={(e) => { e.preventDefault(); void send(s); }}>
-              <div data-testid="top-session-input" className="min-w-0 flex-1"><TextField size="sm" value={text} onChange={setText} onEnter={() => { if (text.trim()) void send(s); }} /></div>
-              <Button variant="primary" size="sm" onClick={text.trim() ? () => { void send(s); } : false}>{tr('topSessions.send')}</Button>
+              <input data-testid="top-session-input" value={text} onChange={(e) => setText(e.target.value)} className="min-w-0 flex-1 rounded border border-app-border bg-transparent px-1 text-mini" />
+              <button type="submit" disabled={!text.trim()} className="rounded px-1 text-mini text-primary disabled:opacity-40">{tr('topSessions.send')}</button>
             </form>
           )}
         </div>
