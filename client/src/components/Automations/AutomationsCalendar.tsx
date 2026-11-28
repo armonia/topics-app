@@ -18,7 +18,7 @@ import { calendarDays, type CalendarEntry, type CalendarKind } from '../../lib/a
 import { WARNING_TEXT } from '../../lib/popoverStyles';
 import type { Clock } from './automationsUi';
 
-const CHIP = 'inline-flex h-[26px] items-center gap-1.5 whitespace-nowrap rounded-sm border px-2.5 text-mini @max-2xl:h-8';
+const CHIP = 'inline-flex h-6.5 items-center gap-1.5 whitespace-nowrap rounded-sm border px-2.5 text-mini @max-2xl:h-8';
 
 type Tr = ReturnType<typeof useT>;
 
@@ -81,7 +81,7 @@ export function AutomationsCalendar({ items, now, clock, who = {}, onOpenDetail 
       </div>
       {days.length === 0 && <p className="mt-4 text-compact text-app-text-secondary">{tr('auto.cal.empty')}</p>}
       {days.map((d) => (
-        <div key={String(d.day)} className="mt-[18px]" data-testid="automations-calendar-day">
+        <div key={String(d.day)} className="mt-4.5" data-testid="automations-calendar-day">
           <h4 className="m-0 mb-1.5 text-mini font-semibold uppercase tracking-[0.04em] text-app-text-tertiary">
             {dayLabel(tr, clock, d.day, d.offset)}
           </h4>

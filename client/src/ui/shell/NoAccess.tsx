@@ -12,8 +12,8 @@ export function NoAccess({ title, body, action }: { title: string; body: ReactNo
       <span className="mb-1 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-black/[0.05] text-app-text-tertiary dark:bg-white/[0.08]">
         <Lock size={18} aria-hidden="true" />
       </span>
-      <p className="max-w-[440px] text-body-lg font-semibold text-app-text">{title}</p>
-      <div className="max-w-[440px] text-prose leading-6 text-app-text-secondary">{body}</div>
+      <p className="max-w-110 text-body-lg font-semibold text-app-text">{title}</p>
+      <div className="max-w-110 text-prose leading-6 text-app-text-secondary">{body}</div>
       {action && <div className="mt-2 flex flex-wrap items-center justify-center gap-2">{action}</div>}
     </div>
   );

@@ -23,7 +23,7 @@ export function NewTabScreen({ title, groups, onOpen, copy }: {
       <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 pb-10 pt-10 sm:px-8 sm:pt-16">
         <h2 className="text-headline font-semibold text-app-text">{title}</h2>
         {groups.filter((g) => g.items.length > 0).map((g) => (
-        <section key={g.id} aria-label={g.label} className="mt-6 w-full max-w-[720px]">
+        <section key={g.id} aria-label={g.label} className="mt-6 w-full max-w-180">
         <h3 className="mb-2 text-compact font-semibold text-app-text-tertiary">{g.label}</h3>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {g.items.map((item) => {

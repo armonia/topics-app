@@ -69,7 +69,7 @@ function Row({ row, copy, phone }: { row: ProgramRowModel; copy: UiCopy; phone?:
       {...pressable(open)}
       className={clsx(
         GRID,
-        'min-h-[52px] border-b border-app-border px-4 py-2 last:border-b-0',
+        'min-h-13 border-b border-app-border px-4 py-2 last:border-b-0',
         row.selected ? 'bg-sky-500/[0.08]' : open && 'hover:bg-app-hover',
         open && ['cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/60'],
       )}
@@ -124,7 +124,7 @@ export function ProgramsScreen({
       icon={Search}
       type="search"
       size="sm"
-      className={phone ? 'w-full' : 'w-[300px]'}
+      className={phone ? 'w-full' : 'w-75'}
     />
   );
   const table = (
@@ -166,7 +166,7 @@ export function ProgramsScreen({
           ))}
         </div>
         {shown === 0 && (
-          <EmptyState icon={Search} title={c.emptyTitle} className="min-h-[220px]" action={
+          <EmptyState icon={Search} title={c.emptyTitle} className="min-h-55" action={
             <>
               {query.trim() && <Button variant="primary" icon={Plus} onClick={onAddQuery}>{c.addFromQuery(query.trim())}</Button>}
               <Button onClick={() => { onQuery(''); onFamily('all'); }}>{c.emptyReset}</Button>

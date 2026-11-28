@@ -222,7 +222,7 @@ function Dial({ label, hint, value, options, onChange }: {
         align="right"
         value={String(value)}
         onChange={onChange}
-        className="max-w-full min-w-[140px] flex-shrink-0"
+        className="max-w-full min-w-35 flex-shrink-0"
         options={options}
       />
     </div>

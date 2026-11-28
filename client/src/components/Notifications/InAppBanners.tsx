@@ -65,7 +65,7 @@ export function InAppBanners() {
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-[9998] flex w-[320px] max-w-[calc(100vw-2rem)] flex-col gap-2"
+      className="fixed bottom-4 right-4 z-[9998] flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
       data-testid="in-app-banners"
     >
       {banners.map((b) => (
@@ -105,7 +105,7 @@ export function InAppBanners() {
             const taskId = bannerTaskId(b.url);
             if (!taskId || !b.actions?.length) return null;
             return (
-              <div className="mt-2 flex flex-wrap gap-1.5 pl-[22px]" data-testid="in-app-banner-actions">
+              <div className="mt-2 flex flex-wrap gap-1.5 pl-5.5" data-testid="in-app-banner-actions">
                 {b.actions.map((a) => (
                   <button
                     key={a.id}

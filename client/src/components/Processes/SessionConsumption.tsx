@@ -93,7 +93,7 @@ export function SessionRowView({ session: s, now, variant, windowS, machineLabel
         </div>
       )}
       {variant !== 'drawer' && (
-        <div className="flex min-w-0 items-center gap-1.5 pb-0.5 pl-[32px] pr-2.5 text-compact text-app-text-secondary">
+        <div className="flex min-w-0 items-center gap-1.5 pb-0.5 pl-8 pr-2.5 text-compact text-app-text-secondary">
           <span className="min-w-0 truncate" data-testid="session-detail">{detail.join(' · ')}</span>
           <span className="flex-1" />
           {s.from && <span className="flex flex-none items-center gap-1 whitespace-nowrap"><Server className="h-3 w-3 text-app-text-muted" aria-hidden="true" />{tr('consumption.from', { who: s.from })}</span>}
@@ -135,7 +135,7 @@ export function SessionRowView({ session: s, now, variant, windowS, machineLabel
                 <li key={p.name} className="flex items-center gap-2 py-0.5 text-compact tabular-nums text-app-text-secondary">
                   <span className="min-w-0 flex-1 truncate">{p.count > 1 ? tr('consumption.procsCount', { name: p.name, n: p.count }) : p.name}</span>
                   <span>{p.cpuPct === null ? '-' : pct1(p.cpuPct)}</span>
-                  <span className="w-[72px] text-right">{formatMem(p.memMB)}</span>
+                  <span className="w-18 text-right">{formatMem(p.memMB)}</span>
                 </li>
               ))}
             </ul>
@@ -146,7 +146,7 @@ export function SessionRowView({ session: s, now, variant, windowS, machineLabel
   );
 }
 
-const QUIET_BUTTON = 'inline-flex h-6 items-center gap-1 rounded-sm bg-black/[0.035] px-[7px] text-mini text-app-text-secondary hover:bg-black/[0.06] hover:text-app-text disabled:opacity-60 dark:bg-white/[0.05] dark:hover:bg-white/[0.14] @max-3xl:h-9 @max-3xl:px-2.5 @max-3xl:text-compact';
+const QUIET_BUTTON = 'inline-flex h-6 items-center gap-1 rounded-sm bg-black/[0.035] px-1.75 text-mini text-app-text-secondary hover:bg-black/[0.06] hover:text-app-text disabled:opacity-60 dark:bg-white/[0.05] dark:hover:bg-white/[0.14] @max-3xl:h-9 @max-3xl:px-2.5 @max-3xl:text-compact';
 
 type StopTarget = { kind: 'card'; boardId: string; cardId: string } | { kind: 'chat'; sessionKey: string };
 

@@ -93,7 +93,7 @@ describe('the leading-glyph column of the sidebar', () => {
     // tiles with an icon is the same empty box, one surface over (card
     // 058ea722: "stessa cosa anche per le pinned"). allow-italian: quoted report
     expect(
-      source('PinnedTile.tsx').includes('w-[14px]'),
+      source('PinnedTile.tsx').includes('w-3.5'),
       'PinnedTile.tsx still draws the 14px placeholder for a tile without an icon',
     ).toBe(false);
   });

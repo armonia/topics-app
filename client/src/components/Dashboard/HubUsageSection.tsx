@@ -147,7 +147,7 @@ export function HubUsageSection({ kpis, children }: { kpis: DashboardKPIs | null
 
   return (
     <div data-testid="hub-usage-section" className="@container flex flex-col">
-      <header className="sticky top-0 z-[2] flex h-[38px] flex-none items-center gap-2 border-b border-app-border bg-app-bg px-4 @max-2xl:px-3">
+      <header className="sticky top-0 z-[2] flex h-9.5 flex-none items-center gap-2 border-b border-app-border bg-app-bg px-4 @max-2xl:px-3">
         <BarChart3 size={14} className="flex-none text-app-text-muted" aria-hidden="true" />
         <h1 className="m-0 text-prose font-semibold text-app-text">{tr('usage.open')}</h1>
         <span className="flex-1" />
@@ -168,7 +168,7 @@ export function HubUsageSection({ kpis, children }: { kpis: DashboardKPIs | null
         </div>
       </header>
 
-      <div className="flex max-w-[1240px] flex-col gap-3 px-4 pb-6 pt-3.5 @max-2xl:px-3">
+      <div className="flex max-w-310 flex-col gap-3 px-4 pb-6 pt-3.5 @max-2xl:px-3">
         {failure && <div role="alert" data-testid="hub-usage-failure" className="rounded border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-compact text-red-600 dark:text-red-400">{failure}</div>}
         {decision && <Decide name={decision.project.title} pct={decision.project.claude} cap={decision.project.budgetPct ?? 0} raiseTo={decision.raiseTo} onRaise={() => raise(decision.project.name, decision.raiseTo)} />}
 
@@ -188,7 +188,7 @@ export function HubUsageSection({ kpis, children }: { kpis: DashboardKPIs | null
             top={saving?.ratio != null ? tr('hubUsage.kpi.ratio', { ratio: saving.ratio.toLocaleString(locale === 'it' ? 'it-IT' : 'en-US', { maximumFractionDigits: 1 }) }) : ''}
             value={saving ? money(saving.savedUsd) : null} />
           <Kpi testId="hub-usage-kpi-muse" icon={<Bot size={14} />} top={tr('hubUsage.kpi.museTop')} label={tr('hubUsage.kpi.muse')} wide
-            value={jobs === null ? null : <>{jobs}<small className="ml-[3px] text-mini font-normal text-app-text-muted">{tr('hubUsage.kpi.museUnit')}</small></>} />
+            value={jobs === null ? null : <>{jobs}<small className="ml-0.75 text-mini font-normal text-app-text-muted">{tr('hubUsage.kpi.museUnit')}</small></>} />
         </div>
         <SplitStrip usage={usage} tr={tr} />
 
@@ -230,7 +230,7 @@ function LivePill({ answering, at, now, locale, onRetry }: { answering: boolean;
     : at === null ? tr('hubUsage.hubDownNever') : tr('hubUsage.hubDown', { time: new Date(at).toLocaleTimeString(locale === 'it' ? 'it-IT' : 'en-US', { hour: '2-digit', minute: '2-digit' }) });
   return (
     <span className="flex items-center gap-1.5 @max-2xl:hidden" data-testid="hub-usage-live" data-live={answering ? 'true' : 'false'}>
-      <span className="inline-flex h-[22px] items-center gap-[5px] whitespace-nowrap rounded-full border border-app-border px-2 text-mini tabular-nums text-app-text-muted">
+      <span className="inline-flex h-5.5 items-center gap-1.25 whitespace-nowrap rounded-full border border-app-border px-2 text-mini tabular-nums text-app-text-muted">
         <span className={`h-1.5 w-1.5 flex-none rounded-full ${answering ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-amber-500'}`} />
         {text}
       </span>
@@ -270,7 +270,7 @@ function Kpi({ testId, icon, top, label, value, good = false, wide = false }: {
   testId: string; icon: ReactNode; top: string; label: string; value: ReactNode | null; good?: boolean; wide?: boolean;
 }) {
   return (
-    <div data-testid={testId} className={`${CARD} flex min-w-0 flex-col gap-[3px] px-3 py-2.5 ${wide ? '@max-2xl:col-span-2' : ''}`}>
+    <div data-testid={testId} className={`${CARD} flex min-w-0 flex-col gap-0.75 px-3 py-2.5 ${wide ? '@max-2xl:col-span-2' : ''}`}>
       <div className="flex items-center justify-between gap-2 text-app-text-muted">
         <span aria-hidden="true">{icon}</span>
         <span className={`truncate text-mini tabular-nums ${good && top ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>{top}</span>
@@ -374,7 +374,7 @@ function ModelChart({ usage, locale, money, tr }: { usage: HubUsage | null; loca
       </div>
       <div className="mt-2 flex flex-wrap gap-3 text-mini text-app-text-muted">
         {paths.map((p) => (
-          <span key={p.key} className="inline-flex items-center gap-[5px]"><i className={`inline-block h-2 w-2 rounded-[2px] ${p.tone.bg}`} />{modelName(p.key, tr)}</span>
+          <span key={p.key} className="inline-flex items-center gap-1.25"><i className={`inline-block h-2 w-2 rounded-[2px] ${p.tone.bg}`} />{modelName(p.key, tr)}</span>
         ))}
       </div>
     </section>

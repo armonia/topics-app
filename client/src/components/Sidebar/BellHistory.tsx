@@ -157,10 +157,10 @@ function HistoryRow({ row, lit, onClose }: { row: NotificationRow; lit: boolean;
         data-testid="inbox-history-row"
         data-lit={lit ? 'true' : undefined}
       >
-        {createElement(historyRowIcon(row), { size: 15, className: 'self-start mt-[3px] flex-shrink-0 text-app-text-tertiary', 'aria-hidden': true })}
+        {createElement(historyRowIcon(row), { size: 15, className: 'self-start mt-0.75 flex-shrink-0 text-app-text-tertiary', 'aria-hidden': true })}
         <span className="min-w-0 flex-1">
           <span className={`block font-medium text-app-text truncate ${isMobile ? 'text-body-lg' : 'text-compact leading-4'}`}>{system ? tr('inbox.system') : title}</span>
-          <span className={`flex items-center gap-[5px] text-app-text-secondary min-w-0 whitespace-nowrap ${isMobile ? 'text-prose' : 'text-compact leading-4'}`}>
+          <span className={`flex items-center gap-1.25 text-app-text-secondary min-w-0 whitespace-nowrap ${isMobile ? 'text-prose' : 'text-compact leading-4'}`}>
             <span className="truncate">{system ? title : row.body}</span>
             {Number.isFinite(at) && <span className="flex-shrink-0 text-app-text-muted">·</span>}
             {Number.isFinite(at) && <BellTime at={at} className="text-app-text-muted" />}

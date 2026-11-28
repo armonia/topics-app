@@ -706,7 +706,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         onClose={closeContextMenu}
         minWidth={180}
       >
-        <div className="px-3 py-1 text-mini text-app-text-muted truncate max-w-[280px] border-b border-app-border mb-0.5">
+        <div className="px-3 py-1 text-mini text-app-text-muted truncate max-w-70 border-b border-app-border mb-0.5">
           {label}
         </div>
         {count === 1 && (
@@ -750,7 +750,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       return (
         <SkeletonRows
           count={6}
-          rowClassName={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px]`}
+          rowClassName={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-0.75`}
           glyph={14}
         />
       );
@@ -838,7 +838,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               // un checkout cambierebbe il repo di sopra sotto ai piedi
               // dell'utente, e non c'e niente qui dentro che glielo fa capire.
               <span
-                className="truncate max-w-[110px] text-app-text-muted cursor-default"
+                className="truncate max-w-27.5 text-app-text-muted cursor-default"
                 title={gitStatus!.repoName ? `${gitStatus!.repoName} · ${gitStatus!.branch}` : gitStatus!.branch}
               >
                 {gitStatus!.repoName ? `${gitStatus!.repoName} · ${gitStatus!.branch}` : gitStatus!.branch}
@@ -850,22 +850,22 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 onClick={(e) => { e.stopPropagation(); setShowBranches(!showBranches); }}
                 className="flex items-center gap-0.5 min-w-0 hover:text-primary transition-colors text-app-text-muted"
               >
-                <span className="truncate max-w-[80px]" title={gitStatus!.branch}>{gitStatus!.branch}</span>
+                <span className="truncate max-w-20" title={gitStatus!.branch}>{gitStatus!.branch}</span>
                 <ChevronDown size={10} className={`text-app-text-muted flex-shrink-0 transition-transform ${branchChevronReveal} ${showBranches ? 'rotate-180 !opacity-100' : ''}`} />
               </button>
             ))}
             {hasData && fileCount > 0 && (
-              <span className="text-mini font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full" title={`${fileCount} changed files`}>
+              <span className="text-mini font-medium text-primary bg-primary/10 px-1.5 py-0.25 rounded-full" title={`${fileCount} changed files`}>
                 {fileCount}
               </span>
             )}
             {hasData && gitStatus!.behind > 0 && (
-              <button onClick={handlePull} disabled={pulling} className="flex items-center gap-0.5 px-1 py-[1px] rounded-full text-mini font-medium text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-40 transition-colors" title={`Pull ${gitStatus!.behind} commits`}>
+              <button onClick={handlePull} disabled={pulling} className="flex items-center gap-0.5 px-1 py-0.25 rounded-full text-mini font-medium text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-40 transition-colors" title={`Pull ${gitStatus!.behind} commits`}>
                 {pulling ? <Spinner size="xs" tone="current" /> : <>↓{gitStatus!.behind}</>}
               </button>
             )}
             {hasData && gitStatus!.ahead > 0 && (
-              <button onClick={handlePush} disabled={pushing} className="flex items-center gap-0.5 px-1 py-[1px] rounded-full text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20 disabled:opacity-40 transition-colors" title={`Push ${gitStatus!.ahead} commits`}>
+              <button onClick={handlePush} disabled={pushing} className="flex items-center gap-0.5 px-1 py-0.25 rounded-full text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20 disabled:opacity-40 transition-colors" title={`Push ${gitStatus!.ahead} commits`}>
                 {pushing ? <Spinner size="xs" tone="current" /> : <>↑{gitStatus!.ahead}</>}
               </button>
             )}
@@ -887,7 +887,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               </button>
             )}
             <button onClick={handleRefresh} className="w-5 h-5 inline-flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary flex-shrink-0" title={tr('git.refreshAndFetch')}>
-              <span className="inline-flex items-center justify-center w-[10px] h-[10px]">
+              <span className="inline-flex items-center justify-center w-2.5 h-2.5">
                 {loading && !notGit ? <Spinner size="xs" tone="current" /> : <RefreshCw size={10} />}
               </span>
             </button>
@@ -973,7 +973,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     // ogni riga della colonna. Era full-bleed con `px-3` — due
                     // px in piu' del canonico e nessun rientro — cioe' una
                     // fascia sotto un'intestazione che e' una card.
-                    className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px] group/file cursor-pointer select-none ${
+                    className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-0.75 group/file cursor-pointer select-none ${
                       isSelected ? SELECTED_SURFACE : ''
                     }`}
                     title={fileTitle(file)}
@@ -1039,7 +1039,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       onChange={e => { setCommitMessage(e.target.value); setMsgSource(null); }}
                       rows={1}
                       placeholder="Message"
-                      className="flex-1 min-w-0 resize-none px-1.5 py-[2px] text-mini leading-[16px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+                      className="flex-1 min-w-0 resize-none px-1.5 py-0.5 text-mini leading-[16px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
                       onKeyDown={e => {
                         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                           e.preventDefault();
@@ -1066,7 +1066,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     <button
                       onClick={handleCommit}
                       disabled={committing || !commitMessage.trim() || stagedFiles.length === 0}
-                      className="flex items-center gap-0.5 px-1.5 h-[22px] text-mini font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                      className="flex items-center gap-0.5 px-1.5 h-5.5 text-mini font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
                       title="Commit staged changes"
                     >
                       {committing ? (
@@ -1086,7 +1086,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       role="alert"
                       className="mx-2 mb-1 px-2 py-1 rounded border border-red-500/40 bg-red-500/10 text-mini leading-[14px] text-red-600 dark:text-red-400 flex items-start gap-1 flex-shrink-0"
                     >
-                      <AlertCircle size={11} className="flex-shrink-0 mt-[1px]" />
+                      <AlertCircle size={11} className="flex-shrink-0 mt-0.25" />
                       <span className="min-w-0 flex-1 break-words whitespace-pre-wrap font-mono">
                         {tr('git.commitFailed')} {commitError}
                       </span>
@@ -1248,7 +1248,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         key={`${group}-${file.path}`}
         // Stessa forma delle righe dell'albero dei file: la card, senza il suo
         // passo verticale. Vedi TREE_ROW_CARD.
-        className={`flex items-center gap-2 ${TREE_ROW_CARD} px-2 py-[4px] cursor-pointer text-compact group select-none ${
+        className={`flex items-center gap-2 ${TREE_ROW_CARD} px-2 py-1 cursor-pointer text-compact group select-none ${
           isMultiSelected ? SELECTED_SURFACE : isDiffOpen ? SELECTED_SURFACE_SOFT : ''
         }`}
         title={fileTitle(file)}
@@ -1297,7 +1297,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   return (
     <div data-testid="git-changes" className="flex h-full">
       {/* Left: status panel */}
-      <div className="w-[280px] flex-shrink-0 border-r border-app-border flex flex-col overflow-hidden">
+      <div className="w-70 flex-shrink-0 border-r border-app-border flex flex-col overflow-hidden">
         {/* Header info */}
         <div className="px-3 py-2.5 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 space-y-1.5">
           <div className="flex items-center justify-between">
@@ -1700,7 +1700,7 @@ function DiscardConfirmDialog({ files, untracked, onConfirm, onCancel }: { files
             : tr('git.discardUntrackedSome').replace('{n}', String(notTracked))}
         </p>
       )}
-      <div className="bg-app-hover rounded px-3 py-2 max-h-[120px] overflow-y-auto">
+      <div className="bg-app-hover rounded px-3 py-2 max-h-30 overflow-y-auto">
         {files.length === 1 ? (
           <span className="font-mono">{fileNames[0]}</span>
         ) : (

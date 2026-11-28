@@ -103,7 +103,7 @@ export function CommandPalette({ query, onQuery, groups, words = NO_WORDS, activ
         aria-modal="true"
         aria-label={placeholder}
         data-global-search=""
-        className="command-palette-enter relative flex max-h-[min(580px,80dvh)] w-full max-w-[640px] flex-col self-start overflow-hidden rounded-xl border border-app-border bg-surface shadow-2xl"
+        className="command-palette-enter relative flex max-h-[min(580px,80dvh)] w-full max-w-160 flex-col self-start overflow-hidden rounded-xl border border-app-border bg-surface shadow-2xl"
       >
         <div className="flex h-12 shrink-0 items-center gap-2.5 border-b border-app-border px-4">
           <Search size={16} className="shrink-0 text-app-text-tertiary" aria-hidden="true" />
