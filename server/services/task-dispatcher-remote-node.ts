@@ -37,7 +37,7 @@ import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } fro
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
 import { createRunWithBundle } from "./node-bundle-ladder";
-import { type LaunchEntry, type ParkDeps, parkRun, runsOn } from "./task-dispatcher-remote-node-park";
+import { type LaunchEntry, launchesInFlight, type ParkDeps, parkRun, runsOn } from "./task-dispatcher-remote-node-park";
 
 /**
  * THE REMOTE LANE'S HOST CAPABILITY: how this board talks to a paired node, and
@@ -337,6 +337,8 @@ export interface RemoteNodeLane {
   cancelTask(taskId: string): Promise<boolean | null>;
   /** The runs in flight on one node: what a primary switch to that node has to wait for. */
   runsOn(machineId: string): Array<{ taskId: string; sessionKey: string }>;
+  /** The launches on their way to ANY machine whose node has not named the run yet: a switch parks them all. */
+  launchesInFlight(): Array<{ taskId: string; sessionKey: string }>;
   /**
    * Stop one remote run for good and put its card back in the queue with the note:
    * the run is cancelled on the node (best effort, the node is about to restart
@@ -487,6 +489,8 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * `returnEmptyNodeRunToTodo`.
    */
   function parkNodeCard(task: Task, reason: string): void {
+    // A primary switch already put the card back in the queue: parking it here would overwrite that requeue.
+    if (launching.get(task.id)?.parked) return;
     try { releaseAndEmit({ taskId: task.id, requeue: false, parkState: CHIP_BLOCKED, reason }); }
     catch (err) { log(`nodo: parcheggio della card ${task.id} non riuscito`, err); return; }
     if (task.overflowedAt) {
@@ -1838,5 +1842,5 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
 
   const parkDeps: ParkDeps = { host, launching, lastNodeRun };
 
-  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask, runsOn: (machineId) => runsOn(parkDeps, machineId), parkRun: (taskId, note) => parkRun(parkDeps, taskId, note) };
+  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask, runsOn: (machineId) => runsOn(parkDeps, machineId), launchesInFlight: () => launchesInFlight(parkDeps), parkRun: (taskId, note) => parkRun(parkDeps, taskId, note) };
 }

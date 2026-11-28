@@ -27,6 +27,7 @@ export interface PrimarySwitchTriggerDeps {
     busyTurns: () => Array<{ taskId: string; sessionKey: string }>;
     /** The card runs on one node: the target's own, which its restart would kill. */
     nodeRunsOn: (machineId: string) => Array<{ taskId: string; sessionKey: string }>;
+    nodeLaunchesInFlight: () => Array<{ taskId: string; sessionKey: string }>;
     parkNodeRun: (taskId: string, note: string) => Promise<boolean | null>;
   };
   release: (args: { taskId: string; requeue: boolean; reason?: string; by?: string }) => unknown;
@@ -153,8 +154,14 @@ export async function handlePrimarySwitch(req: Request, deps: PrimarySwitchTrigg
       undrain: (reason) => { deps.schedule.resumeStarts(); deps.dispatcher.undrain(reason); },
       stillWorking: (): WorkInFlight[] => {
         // Runs on the TARGET die with its restart and its DB is set aside at boot, so they are
-        // waited for like local turns. Runs on a third node keep running and are reattached by the new primary.
-        const cards = [...deps.dispatcher.busyTurns(), ...deps.dispatcher.nodeRunsOn(resolved.target.id)];
+        // waited for like local turns. Runs on a third node keep running and are reattached by the
+        // new primary, but only once the node named them: a launch still on its way to ANY machine
+        // has no run id in the DB, so it is waited for or parked too.
+        const byTask = new Map<string, WorkInFlight & { taskId: string }>();
+        for (const c of [...deps.dispatcher.busyTurns(), ...deps.dispatcher.nodeRunsOn(resolved.target.id), ...deps.dispatcher.nodeLaunchesInFlight()]) {
+          if (!byTask.has(c.taskId)) byTask.set(c.taskId, c);
+        }
+        const cards = [...byTask.values()];
         const covered = new Set(cards.map((c) => c.sessionKey));
         const chats = [...ctx.activeStreams.keys()].filter((sk) => !covered.has(sk)).map((sessionKey) => ({ sessionKey }));
         const jobs = deps.schedule.inFlightRuns().map((r) => ({ scheduledJobId: r.jobId, sessionKey: `scheduled-run:${r.runId}` }));

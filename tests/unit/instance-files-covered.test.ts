@@ -21,7 +21,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import * as instanceFiles from "../../server/lib/instance-files";
@@ -32,6 +32,7 @@ import {
   applyPendingPrimaryChange, collectAttachmentFiles, collectStateFiles, commitIncoming, DB_NAME, isSafeBundleName, sha256File,
   snapshotDatabase, writeIncomingChunk, type SwitchManifest,
 } from "../../server/lib/primary-switch";
+import { adoptLegacyVapidKeys, vapidKeysPath } from "../../server/push-service";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
@@ -105,6 +106,45 @@ describe("the server reads no instance file the primary switch does not carry", 
     for (const entry of [TOPIC_MEMORY, WAITING_ITEMS, CLAUDE_CLOUD_RUNS, VAPID_KEYS]) {
       const name = Object.entries(exported).find(([, v]) => v === entry)![0];
       expect([...used]).toContain(name);
+    }
+  });
+});
+
+describe("the server keeps its state in the folder the switch collects", () => {
+  /**
+   * `resolveStateDir(x)` falls back to `x` when the environment names no state
+   * folder, so `x` must be the root the app context resolves (`ctx.STATE_DIR`,
+   * which the switch collects). A module that passed its own folder kept the
+   * VAPID keys under `server/`, where no switch ever looked.
+   */
+  const SAME_ROOT = new Set(["process.cwd()", "baseDir", "rootDir"]);
+  test("every fallback handed to resolveStateDir is the root of the app context", () => {
+    const wrong: string[] = [];
+    for (const { file, text } of server) {
+      if (file.split("\\").join("/") === "server/lib/data-dir.ts") continue;
+      for (const m of text.matchAll(/\bresolveStateDir\(((?:[^()]|\([^()]*\))*)\)/g)) {
+        const arg = m[1]!.trim();
+        // `dirname(import.meta.dir)` is the repo root only for a module sitting directly in `server/`.
+        const topLevel = /^server[\\/][^\\/]+$/.test(file) && arg === "dirname(import.meta.dir)";
+        if (!SAME_ROOT.has(arg) && !topLevel) wrong.push(`${file}: resolveStateDir(${arg})`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  test("the VAPID keys of an install that kept them under server/ move to the state folder, unchanged", () => {
+    const root = mkdtempSync(join(tmpdir(), "vapid-legacy-"));
+    try {
+      const legacy = join(root, "server", "vapid-keys.json");
+      mkdirSync(join(root, "server"), { recursive: true });
+      writeFileSync(legacy, "the key every subscription is bound to");
+      const keysPath = vapidKeysPath(join(root, "state"));
+      expect(keysPath).toBe(instanceEntryPath(VAPID_KEYS, { stateDir: join(root, "state") }));
+      adoptLegacyVapidKeys(keysPath, legacy);
+      expect(readFileSync(keysPath, "utf-8")).toBe("the key every subscription is bound to");
+      expect(existsSync(legacy)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

@@ -134,6 +134,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       .filter(([, slot]) => !isNodeSessionKey(slot.sessionKey))
       .map(([taskId, slot]) => ({ taskId, sessionKey: slot.sessionKey })),
     nodeRunsOn: (machineId) => ctx.runs.remote.runsOn(machineId),
+    nodeLaunchesInFlight: () => ctx.runs.remote.launchesInFlight(),
     parkNodeRun: (taskId, note) => ctx.runs.remote.parkRun(taskId, note),
     drain: (reason) => {
       if (shared.draining !== reason) log(`drain: nessun turno nuovo fino al riavvio (${reason}); ${inFlight.size} in volo`);

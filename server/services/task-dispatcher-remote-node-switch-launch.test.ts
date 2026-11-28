@@ -76,6 +76,23 @@ describe("a launch toward the destination, still waiting for createRun", () => {
   });
 });
 
+describe("a launch parked while it still checks the checkout", () => {
+  it("a check that fails after the park does not park the card over the switch's requeue", async () => {
+    const identity = gate<{ name: string; email: string } | null>();
+    const h = harness({ gitIdentityOf: () => identity.promise });
+    h.seed();
+    await dispatch(h);
+    expect(await h.dispatcher.parkNodeRun(TASK, "Passaggio del principale in corso")).toBe(true);
+    expect(h.task().status).toBe("todo");
+
+    // No git identity: a launch that still owned the card would park it blocked in the backlog.
+    identity.resolve(null);
+    await flush();
+    expect(h.task().status, "the card stays in the queue the switch put it in").toBe("todo");
+    expect(h.calls).not.toContain("create");
+  });
+});
+
 describe("a launch parked while the node-run hook or createRun is still answering", () => {
   /** A hook runner that answers when the test says so. */
   function slowHook() {

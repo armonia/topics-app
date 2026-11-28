@@ -50,6 +50,23 @@ export function runsOn(deps: ParkDeps, machineId: string): Array<{ taskId: strin
   return rows;
 }
 
+/**
+ * Every launch whose node has not named its run yet, on ANY machine (the target, a third node,
+ * the cloud lane). Such a card has no run id the new primary could reattach to: its DB copy says
+ * `in_progress` with no run, and nothing on the new primary ever moves it again. A switch parks
+ * them before the snapshot, so the card travels back in the queue.
+ */
+export function launchesInFlight(deps: ParkDeps): Array<{ taskId: string; sessionKey: string }> {
+  const { inFlight } = deps.host;
+  const rows = [...inFlight.entries()]
+    .filter(([, slot]) => !slot.node && pendingMachineOf(slot.sessionKey) !== null)
+    .map(([taskId, slot]) => ({ taskId, sessionKey: slot.sessionKey }));
+  for (const [taskId, entry] of deps.launching) {
+    if (!entry.parked && !inFlight.has(taskId)) rows.push({ taskId, sessionKey: pendingKeyOf(entry.machineId) });
+  }
+  return rows;
+}
+
 export async function parkRun(deps: ParkDeps, taskId: string, note: string): Promise<boolean | null> {
   const { svc, log, inFlight, releaseAndEmit } = deps.host;
   const slot = inFlight.get(taskId);

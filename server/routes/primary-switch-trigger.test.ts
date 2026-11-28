@@ -16,7 +16,8 @@ import { setPrimaryFence } from "../lib/primary-fence";
 import { fenceInternalWrites, initPrimaryRole } from "../lib/primary-role";
 import { createScheduleEngine, type ActionExecutor } from "../schedule/engine";
 import { handlePrimarySwitch, type PrimarySwitchTriggerDeps } from "./primary-switch-trigger";
-import type { Database } from "bun:sqlite";
+import { Database } from "bun:sqlite";
+import { DB_NAME } from "../lib/primary-switch";
 import { flush, dispatch, harness, MACHINE, TASK } from "../services/task-dispatcher-remote-node-test-support";
 
 const STAMP = "2026-01-01T00:10:00.000Z";
@@ -77,7 +78,7 @@ describe("primary switch trigger: the scheduled jobs engine", () => {
           list: () => [{ id: "m-local", name: "local", hostname: "local-host" }, NODE],
         },
       } as unknown as PrimarySwitchTriggerDeps["ctx"],
-      dispatcher: { drain: () => calls.push("dispatcher.drain"), undrain: () => calls.push("dispatcher.undrain"), busyTurns: () => [], nodeRunsOn: () => [], parkNodeRun: async () => null },
+      dispatcher: { drain: () => calls.push("dispatcher.drain"), undrain: () => calls.push("dispatcher.undrain"), busyTurns: () => [], nodeRunsOn: () => [], nodeLaunchesInFlight: () => [], parkNodeRun: async () => null },
       release: () => undefined,
       schedule: {
         pauseStarts: () => { calls.push("schedule.pause"); engine.pauseStarts(); },
@@ -135,6 +136,7 @@ describe("primary switch trigger: card runs on the destination", () => {
         undrain: () => undefined,
         busyTurns: () => [],
         nodeRunsOn: (machineId) => { asked.push(machineId); return onTarget(); },
+        nodeLaunchesInFlight: () => [],
         parkNodeRun: async (taskId, note) => { parkedRuns.push([taskId, note]); return true; },
       },
       release: (args) => { releases.push(args.taskId); },
@@ -254,4 +256,81 @@ describe("primary switch trigger: a card launch still in the air toward the dest
     const report = await switching;
     expect(report.parked).toEqual([]);
   }, 15_000);
+});
+
+describe("primary switch trigger: a card launch still in the air toward a THIRD machine", () => {
+  // The switch goes to TARGET; the card is launching on MACHINE, a node that is not the destination.
+  const TARGET = { id: "m-destination", name: "destination", hostname: "destination-host", baseUrl: "https://destination.example" };
+  const THIRD = { id: MACHINE, name: "node", hostname: "node-host", baseUrl: "https://node.example" };
+
+  test("is parked before the snapshot, and the DB the new primary receives has the card back in the queue", async () => {
+    writeFileSync(join(root, "state", "nodes", `${TARGET.id}.token`), "a-node-token-of-enough-length");
+    initPrimaryRole({ db, stateFile: join(root, "primary-state.json"), localMachineId: () => "m-local", log: () => {} });
+    let answer!: (v: { runId: string }) => void;
+    const h = harness({ createRun: () => new Promise((r) => { answer = r; }) });
+    h.seed();
+    // The bench DB holds the cards only; the switch reads the rest of the schema (counts, transcripts), copied from the real one.
+    const have = new Set((h.db.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((r) => r.name));
+    for (const t of db.query("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string; sql: string }>) {
+      if (!have.has(t.name)) { h.db.run(t.sql); continue; }
+      const cols = new Set((h.db.query(`PRAGMA table_info(${t.name})`).all() as Array<{ name: string }>).map((c) => c.name));
+      for (const c of db.query(`PRAGMA table_info(${t.name})`).all() as Array<{ name: string; type: string }>) {
+        if (!cols.has(c.name)) h.db.run(`ALTER TABLE ${t.name} ADD COLUMN ${c.name} ${c.type}`);
+      }
+    }
+    // What the destination receives, chunk by chunk: the bytes of the DB snapshot.
+    const shipped = new Map<string, Uint8Array[]>();
+    const deps: PrimarySwitchTriggerDeps = {
+      ctx: {
+        // The snapshot is of the DB the dispatcher writes: the card must be in it.
+        db: h.db,
+        STATE_DIR: join(root, "state"),
+        APP_DATA_DIR: join(root, "data"),
+        activeStreams: new Map(),
+        machineStore: {
+          upsertLocal: () => ({ id: "m-local", name: "local", hostname: "local-host" }),
+          list: () => [{ id: "m-local", name: "local", hostname: "local-host" }, TARGET, THIRD],
+        },
+      } as unknown as PrimarySwitchTriggerDeps["ctx"],
+      dispatcher: h.dispatcher,
+      release: () => undefined,
+      schedule: { pauseStarts: () => undefined, resumeStarts: () => undefined, inFlightRuns: () => [], cancelOpenRuns: () => 0 },
+      abortTurn: async () => undefined,
+      fetch: (async (url: unknown, init?: RequestInit) => {
+        if (init?.method !== "PUT") return new Response(JSON.stringify({ code: "not_ready", error: "no" }), { status: 409 });
+        const name = new URL(String(url)).searchParams.get("name")!;
+        shipped.set(name, [...(shipped.get(name) ?? []), new Uint8Array(init.body as Uint8Array)]);
+        return new Response("{}", { status: 200 });
+      }) as unknown as typeof fetch,
+    };
+    await dispatch(h);
+    expect(h.calls).toContain("create");
+    expect(h.dispatcher.nodeRunsOn(TARGET.id), "nothing runs on the destination").toEqual([]);
+
+    const res = await handlePrimarySwitch(
+      new Request("http://localhost/__daemon/primary-switch", { method: "POST", body: JSON.stringify({ machine: TARGET.id, drainTimeoutMs: 0 }) }),
+      deps,
+    );
+    const report = await res.json() as { parked: string[] };
+    expect(report.parked).toEqual([TASK]);
+
+    // The card as the new primary opens it: back in the queue, no run id, so its dispatcher starts it again.
+    const bytes = Buffer.concat(shipped.get(DB_NAME) ?? []);
+    expect(bytes.byteLength, "the snapshot was shipped").toBeGreaterThan(0);
+    const copy = join(root, "received.db");
+    writeFileSync(copy, bytes);
+    const received = new Database(copy, { readonly: true });
+    try {
+      const card = received.query("SELECT status, node_run_id FROM tasks WHERE id = ?").get(TASK) as { status: string; node_run_id: string | null };
+      expect(card).toEqual({ status: "todo", node_run_id: null });
+    } finally {
+      received.close();
+    }
+
+    // The third node answers late: the run it created has no owner and is cancelled there.
+    answer({ runId: "run-late" });
+    await flush();
+    expect(h.calls).toContain("cancel:run-late");
+    expect(h.task().status).toBe("todo");
+  });
 });
