@@ -30,7 +30,7 @@
 //   • Serialized per repo path, so two approvals on the same project can't race.
 
 import { join } from "path";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { worktreeRegistrationLost } from "./worktree-registration";
 import { carriedBranch, isPlainBranchName, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { findAttributionViolations } from "./land-attribution-gate";
@@ -135,6 +135,8 @@ export type LandSkipCode =
   | "realign-blocked"
   /** The automatic land found the branch behind `main` and refused to realign it (`DeliverySnapshot.noRealign`). */
   | "realign-needed"
+  /** The realign merge made a tree a fast static gate rejects: the land stopped before pushing it (`staticGates`). */
+  | "realign-gates-red"
   /** The branch on origin holds commits this checkout does not have and the fetch could not bring them in. */
   | "branch-stale"
   /** The delivered commit is not in this checkout: the delivery never arrived here (a node bundle that failed to plant). */
@@ -201,6 +203,13 @@ const REBASE_INSTRUCTION =
   "il ramo deve portare SOLO i tuoi commit. Poi rimetti in review con update_task(status=\"review\"). " +
   "Resta vietato toccare main: niente push, niente merge verso main.";
 
+/** What the agent does when the realign merge itself turned a fast static gate red. */
+const REALIGN_GATES_INSTRUCTION =
+  "Il land ha riportato main dentro il tuo ramo e la fusione fa uscire rosso un cancello statico (comando e riga nel commento sopra): " +
+  "non ho spinto niente e il ramo è tornato com'era. Nel tuo worktree fai `git fetch origin && git merge origin/main`, " +
+  "correggi ciò che il cancello boccia, committa, poi rimetti in review con update_task(status=\"review\"). " +
+  "Resta vietato toccare main: niente push, niente merge verso main.";
+
 /**
  * Dal perché-non-è-atterrato a dove-finisce-la-card. Pura, così la regola si
  * prova senza un repo e senza una board.
@@ -256,6 +265,8 @@ export function landFallout(
       return { status: "review", reason: "il ramo è indietro su main e il riallineamento non si è potuto provare" };
     case "realign-needed":
       return { status: "review", reason: "il ramo è indietro su main: l'atterraggio automatico non lo riallinea" };
+    case "realign-gates-red":
+      return { status: "in_progress", reason: "la fusione con main fa uscire rosso un cancello statico", resume: REALIGN_GATES_INSTRUCTION };
     case "branch-stale":
       return { status: "review", reason: "il ramo su origin ha commit che il checkout locale non ha" };
     case "delivery-absent":
@@ -468,6 +479,12 @@ export interface AutoMergeDeps {
    * `"head-differs"` and `"main-ahead"` fall back to the local merge unchanged.
    */
   landViaPullRequest?: typeof landViaPullRequest;
+  /**
+   * Injected for tests. Default: the fast static gates the CI runs in its `gates`
+   * job (`STATIC_GATE_SCRIPTS`), in `cwd`. Answers the first red as
+   * `"<command>: <last line>"`, or `null` when all are green.
+   */
+  staticGates?: (cwd: string) => Promise<string | null>;
 }
 
 /** What `buildClient` answers: the exit code, plus what is ON DISK afterwards. */
@@ -538,6 +555,28 @@ const MIGRATIONS_SQL_DIR = "server/db/migrations";
 const MIGRATIONS_MANIFEST = "server/db/migrations-embedded.ts";
 const MIGRATIONS_MANIFEST_SCRIPT = "scripts/gen-migrations-manifest.ts";
 
+/**
+ * The fast static gates of the CI `gates` job, run on the realign merge before the
+ * land pushes it (seconds, not the 15-40 minutes of the whole CI). Only the ones
+ * the repo being landed declares: another project has none of these scripts.
+ */
+const STATIC_GATE_SCRIPTS = ["lint:design-system", "check:deadcode-prod", "gates:fast"];
+
+async function defaultStaticGates(cwd: string): Promise<string | null> {
+  let declared: Record<string, string> = {};
+  try { declared = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")).scripts ?? {}; } catch { return null; }
+  // Without installed dependencies every gate fails for a reason that is not the tree's.
+  if (!existsSync(join(cwd, "node_modules"))) return null;
+  for (const script of STATIC_GATE_SCRIPTS) {
+    if (!declared[script]) continue;
+    const r = await runRepoScript(cwd, [script]);
+    if (r.code === 0) continue;
+    const out = `${r.stderr}\n${r.stdout}`.split("\n").map((l) => l.trim()).filter(Boolean);
+    return `bun run ${script} (exit ${r.code}): ${(out.at(-1) ?? "no output").slice(0, 300)}`;
+  }
+  return null;
+}
+
 function defaultRegenerateManifest(cwd: string): Promise<GitRunResult> {
   return runRepoScript(cwd, [MIGRATIONS_MANIFEST_SCRIPT]);
 }
@@ -548,6 +587,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   const runBuild = deps.runBuild ?? defaultRunBuild;
   const regenerateBaseline = deps.regenerateBaseline ?? defaultRegenerateBaseline;
   const regenerateManifest = deps.regenerateManifest ?? defaultRegenerateManifest;
+  const staticGates = deps.staticGates ?? defaultStaticGates;
   const verifyBundle = deps.verifyBundle ?? bundleBreakageReason;
   const log = deps.log ?? (() => {});
 
@@ -675,6 +715,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
   function realignmentFor(
     target: { repoPath: string; defaultBranch: string; readonly branch: string },
     onRealigned: (note: string) => void,
+    gates?: (cwd: string) => Promise<string | null>,
   ) {
     const { repoPath, defaultBranch } = target;
     async function branchWorktree(): Promise<string | null> {
@@ -757,6 +798,25 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       return commit.code === 0;
     }
 
+    /**
+     * The merge of main into the branch makes a tree nobody measured: run the fast
+     * static gates on it before the land goes on. Red = back to where the branch
+     * was, so the next land realigns (and measures) again instead of finding a
+     * branch that is "up to date" with a red tree in it.
+     */
+    async function redGates(wtPath: string, before: string | null, behind: number): Promise<AutoMergeResult | null> {
+      if (!gates) return null;
+      const red = await gates(wtPath);
+      if (!red) return null;
+      if (before) await runGit(wtPath, ["reset", "--hard", before]);
+      return {
+        status: "skipped", code: "realign-gates-red",
+        reason:
+          `il ramo '${target.branch}' era indietro di ${behind} commit su '${defaultBranch}' e la fusione con main fa uscire rosso un cancello statico: ${red}. ` +
+          "Non ho spinto niente e il ramo è com'era prima della fusione",
+      };
+    }
+
     async function realignOnMain(): Promise<AutoMergeResult | null> {
       // `merge-base --is-ancestor` invece di contare: una domanda sola, e la
       // risposta «main è già dentro» è quella del caso normale.
@@ -794,6 +854,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         }
       }
 
+      const headBefore = (await runGit(wtPath, ["rev-parse", "HEAD"])).stdout.trim() || null;
       try {
         const msg = `Riporta ${defaultBranch} nel ramo prima del land`;
         const merge = await runGit(wtPath, ["merge", "--no-edit", "-m", msg, defaultBranch]);
@@ -811,7 +872,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
               `il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro; ` +
               `l'unico conflitto era su ${which} (${files.join(", ")}), che ho rigenerato dallo script che la scrive ` +
               "prima di valutare i cancelli");
-            return null;
+            return await redGates(wtPath, headBefore, behind);
           }
           await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
           // Un merge può fallire SENZA conflitti: git si rifiuta di partire
@@ -831,7 +892,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         }
         await refreshMigrationsManifest(wtPath);
         onRealigned(`il ramo era indietro di ${behind} commit su '${defaultBranch}': ci ho riportato main dentro (fusione pulita, nessun conflitto) prima di valutare i cancelli`);
-        return null;
+        return await redGates(wtPath, headBefore, behind);
       } finally {
         if (!live) {
           await discardWorktree(runGit, repoPath, wtPath);
@@ -983,6 +1044,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     const realignOnMain = () => realignmentFor(
       { repoPath, defaultBranch: base, get branch() { return branch; } },
       (note) => { realigned = note; },
+      staticGates,
     ).realignOnMain();
 
     /**
