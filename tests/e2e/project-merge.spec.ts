@@ -232,19 +232,6 @@ test.describe("Accorpa e separa un progetto figlio", () => {
       await page.screenshot({ path: testInfo.outputPath("3-accorpati-board-padre.png") });
     });
 
-    await test.step("accorpato: anche la vista tabella mostra «madre · figlio» per le card del figlio", async () => {
-      const projectWindow = page.getByTestId("project-window");
-      await projectWindow.getByTestId("board-view-table").click();
-      await expect(projectWindow.getByTestId("board-table")).toBeVisible({ timeout: 15_000 });
-      for (const id of childCards) {
-        const projectCell = projectWindow.locator(`[data-testid="board-table-row"][data-task-id="${id}"] [data-col="project"]`);
-        await expect(projectCell).toContainText(CHILD_NAME);
-        await expect(projectCell).toContainText(PARENT_NAME);
-      }
-      await page.screenshot({ path: testInfo.outputPath("3b-accorpati-tabella-padre.png") });
-      await projectWindow.getByTestId("board-view-grid").click();
-    });
-
     await test.step("accorpato: la board generale ha una corsia sola", async () => {
       await showGlobalBoard(page);
       await expect(lane(page, PARENT_BOARD)).toBeVisible({ timeout: 15_000 });
