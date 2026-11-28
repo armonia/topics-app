@@ -179,6 +179,43 @@ describe("overflow: la card prende un posto libero altrove appena ce n'è uno", 
     expect(h.task(CARD).status).toBe("todo");
   });
 
+  it("una card «solo Mac» con la macchina di un nodo del giro prima riparte qui, non sul nodo", async () => {
+    const h = harness({ floor: false });
+    h.seed(CARD, { machineId: PC, stayLocal: true });
+    await h.tick();
+    expect(h.turns).toEqual(["topic:topic-1"]);
+    expect(h.created).toEqual([]);
+  });
+
+  it("la corsa vecchia sul nodo viene ritirata prima che la card «solo Mac» riparta qui", async () => {
+    const h = harness({ floor: false });
+    h.seed(CARD, { machineId: PC, stayLocal: true });
+    h.svc.setNodeRun(CARD, "run-old");
+    await h.tick();
+    expect(h.cancels).toEqual(["https://pc.local#run-old"]);
+    expect(h.svc.nodeRunOf(CARD)).toBeNull();
+    expect(h.turns).toEqual(["topic:topic-1"]);
+  });
+
+  it("se la corsa vecchia non si cancella la card resta sul suo nodo e non parte qui", async () => {
+    const h = harness({ floor: false });
+    h.seed(CARD, { machineId: PC, stayLocal: true });
+    h.svc.setNodeRun(CARD, "run-old");
+    h.failCancel.current = true;
+    await h.tick();
+    expect(h.task(CARD).machineId).toBe(PC);
+    expect(h.svc.nodeRunOf(CARD)).toBe("run-old");
+    expect(h.turns).toEqual([]);
+  });
+
+  it("isRemoteTask: una card con il pin e la macchina di un nodo non è remota", async () => {
+    const h = harness({ floor: false });
+    h.seed(CARD, { machineId: PC, stayLocal: true });
+    h.db.run("UPDATE tasks SET dispatch_state = 'queued', dispatch_error = 'waiting-memory' WHERE id = ?", [CARD]);
+    const res = await h.dispatcher.startAnyway(PID, CARD);
+    expect(res).not.toEqual({ ok: false, code: "not_local_task" });
+  });
+
   it("una card assegnata a mano a una macchina offline che non si può accendere torna qui", async () => {
     const h = harness({ pcOnline: false });
     h.seed(CARD, { machineId: PC });

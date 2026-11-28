@@ -172,3 +172,13 @@ test("a model no engine lists is refused on create and edit, naming the model an
   expect(body.available).toContain("claude-sonnet-5-5");
   expect(taskModelIsCurrent("claude-sonnet-5-5", snapshot)).toBe(true);
 });
+
+test("card creation keeps the «this Mac only» pin, as the PATCH does", async () => {
+  const db = freshDb();
+  const r = createTasksRouter(makeCtx(db, []), undefined, { taskModelSnapshot: () => snapshot });
+  const res = await call(r, "POST", "/api/boards/p-pin/tasks", { text: "Pinned card", stayLocal: true });
+  expect(res?.status).toBe(201);
+  const body = await res?.json();
+  const row = db.prepare("SELECT stay_local FROM tasks WHERE id = ?").get((body.task ?? body).id) as { stay_local: number };
+  expect(row.stay_local).toBe(1);
+});

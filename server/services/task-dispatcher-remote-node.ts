@@ -335,6 +335,8 @@ export interface RemoteNodeLane {
   /** Cancel one confined remote run without touching another slot. */
   /** null = not remote, false = remote cancellation still unconfirmed, true = stopped. */
   cancelTask(taskId: string): Promise<boolean | null>;
+  /** Retires the run a card left on its node; false = not cancelled, the card must stay there. */
+  retirePreviousRun(task: Task): Promise<boolean>;
   /** The runs in flight on one node: what a primary switch to that node has to wait for. */
   runsOn(machineId: string): Array<{ taskId: string; sessionKey: string }>;
   /** The launches on their way to ANY machine whose node has not named the run yet: a switch parks them all. */
@@ -1747,6 +1749,42 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   }
 
   /**
+   * A card leaves its node for this machine ("this Mac only"): the run it left over there is
+   * retired first, by the same road `launchOnNode` takes (cancel on the node, then clear the id),
+   * or the node keeps a mirror in review and a buried run keeps working. False = the cancel did
+   * not go through and the card must stay where it is, to be tried again next round.
+   */
+  async function retirePreviousRun(task: Task): Promise<boolean> {
+    const previous = lastNodeRun.get(task.id);
+    if (!previous) return true;
+    const client = host.client;
+    if (!client || !task.machineId) return false;
+    const baseUrl = client.baseUrlOf(task.machineId);
+    const policy = task.delegatedStartCapabilityId ? host.delegatedPolicyForTask?.(task.id) ?? null : null;
+    const token = policy
+      ? client.delegatedTokenOf?.(task.machineId, policy.id) ?? client.tokenOf(task.machineId)
+      : client.tokenOf(task.machineId);
+    if (!baseUrl || !token) return false;
+    try {
+      await withTimeout(client.cancelRun({
+        baseUrl, token, runId: previous,
+        delegation: policy ? {
+          capabilityId: policy.id,
+          subjectPersonId: policy.initiatorPersonId,
+          subjectDeviceId: policy.initiatorDeviceId,
+        } : undefined,
+      }), MIRROR_CANCEL_TIMEOUT_MS);
+    } catch (err) {
+      if (!(isNodeError(err) && err.status === 404)) {
+        log(`node: run ${previous} of card ${task.id} not retired, the card stays on its node`, err);
+        return false;
+      }
+    }
+    lastNodeRun.delete(task.id);
+    return true;
+  }
+
+  /**
    * Mirrors left open on the node by cards that left the cycle (done or archived) after their run
    * came home. `landNodeDelivery` closes the slot here, and nothing else archived the mirror over
    * there: it stayed in review and the node GC kept its worktree forever (16/11, 145 worktrees on
@@ -1842,5 +1880,5 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
 
   const parkDeps: ParkDeps = { host, launching, lastNodeRun };
 
-  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask, runsOn: (machineId) => runsOn(parkDeps, machineId), launchesInFlight: () => launchesInFlight(parkDeps), parkRun: (taskId, note) => parkRun(parkDeps, taskId, note) };
+  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask, retirePreviousRun, runsOn: (machineId) => runsOn(parkDeps, machineId), launchesInFlight: () => launchesInFlight(parkDeps), parkRun: (taskId, note) => parkRun(parkDeps, taskId, note) };
 }

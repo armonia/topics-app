@@ -130,6 +130,8 @@ export function harness(opts: {
   const worktrees: Array<{ baseBranch?: string } | undefined> = [];
   const turns: string[] = [];
   const logs: string[] = [];
+  const cancels: string[] = [];
+  const failCancel = { current: false };
   let now = Date.UTC(2026, 9, 30, 10, 0, 0);
   let nextRun = 0;
   const runCard = new Map<string, string>();
@@ -184,7 +186,7 @@ export function harness(opts: {
         };
       },
       fetchBundle: async () => ({ empty: true as const }),
-      cancelRun: async () => {},
+      cancelRun: async ({ baseUrl, runId }) => { if (failCancel.current) throw new Error("node down"); cancels.push(`${baseUrl}#${runId}`); },
       baseUrlOf: (id) => ADDRESS[id] ?? null,
       tokenOf: () => "tok",
       nameOf: (id) => NAME[id] ?? null,
@@ -239,7 +241,7 @@ export function harness(opts: {
   const advance = (ms: number) => { now += ms; };
   const poll = async () => { await dispatcher.reconcile({ reason: "poll" }); await flush(); };
   return {
-    db, svc, dispatcher, created, bodies, pushed, worktrees, turns, logs, seed, sendBack, tick, poll, advance, now: () => now,
+    db, svc, dispatcher, cancels, failCancel, created, bodies, pushed, worktrees, turns, logs, seed, sendBack, tick, poll, advance, now: () => now,
     task: (id: string) => svc.get(id)!.task, thread: (id: string) => svc.get(id)!.comments.map((c) => c.content).join("\n"),
   };
 }
