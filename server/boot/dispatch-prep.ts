@@ -19,6 +19,7 @@ import { createCommandAction } from "../schedule/command-action";
 import { createRegistryRunner } from "../schedule/command-runner";
 import { createJobsService } from "../schedule/jobs-service";
 import { createScheduleDelivery } from "../schedule/deliver/wiring";
+import { startMailInbox } from "../mail/inbox/wiring";
 import { recordSubjectNotice } from "../attention/owner-notices";
 import { jobSubject } from "../../shared/attention";
 import { createExternalSessionsService } from "../services/external-sessions";
@@ -140,6 +141,8 @@ export function bootDispatchPrep(scope: AfterRouters1) {
     },
   });
   const scheduleDelivery = createScheduleDelivery(ctx.db, scheduleNow);
+  // Incoming mail: a round of the server, only for mailboxes the person declared (change posta-per-gli-agenti, P2).
+  startMailInbox(ctx.db, scheduleDelivery.alert, scheduleNow);
   const scheduleEngine = createScheduleEngine(ctx.db, {
     executors: { card: createCardAction(ctx.db, dispatcherSvc), command: commandAction.executor }, now: scheduleNow,
     // Outcomes leave the app and failures are counted after every tick (R22 to R24); the sweep never throws into the tick.
