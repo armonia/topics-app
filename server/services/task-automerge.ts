@@ -30,7 +30,8 @@
 //   • Serialized per repo path, so two approvals on the same project can't race.
 
 import { join } from "path";
-import { existsSync, readFileSync } from "fs";
+import { existsSync } from "fs";
+import { REALIGN_GATES_INSTRUCTION, runStaticGates } from "./task-automerge-gates";
 import { worktreeRegistrationLost } from "./worktree-registration";
 import { carriedBranch, isPlainBranchName, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { findAttributionViolations } from "./land-attribution-gate";
@@ -201,13 +202,6 @@ const REBASE_INSTRUCTION =
   "aggiornato (`git rebase main`: il tronco è il main LOCALE, perché è lì che il land fonde, e il land ci porta " +
   "dentro `origin/main` da solo prima di toccare il tuo ramo), NON un merge di main dentro il ramo: dopo la rebase " +
   "il ramo deve portare SOLO i tuoi commit. Poi rimetti in review con update_task(status=\"review\"). " +
-  "Resta vietato toccare main: niente push, niente merge verso main.";
-
-/** What the agent does when the realign merge itself turned a fast static gate red. */
-const REALIGN_GATES_INSTRUCTION =
-  "Il land ha riportato main dentro il tuo ramo e la fusione fa uscire rosso un cancello statico (comando e riga nel commento sopra): " +
-  "non ho spinto niente e il ramo è tornato com'era. Nel tuo worktree fai `git fetch origin && git merge origin/main`, " +
-  "correggi ciò che il cancello boccia, committa, poi rimetti in review con update_task(status=\"review\"). " +
   "Resta vietato toccare main: niente push, niente merge verso main.";
 
 /**
@@ -479,11 +473,7 @@ export interface AutoMergeDeps {
    * `"head-differs"` and `"main-ahead"` fall back to the local merge unchanged.
    */
   landViaPullRequest?: typeof landViaPullRequest;
-  /**
-   * Injected for tests. Default: the fast static gates the CI runs in its `gates`
-   * job (`STATIC_GATE_SCRIPTS`), in `cwd`. Answers the first red as
-   * `"<command>: <last line>"`, or `null` when all are green.
-   */
+  /** Injected for tests. Default: `runStaticGates`. First red as text, or `null`. */
   staticGates?: (cwd: string) => Promise<string | null>;
 }
 
@@ -555,26 +545,8 @@ const MIGRATIONS_SQL_DIR = "server/db/migrations";
 const MIGRATIONS_MANIFEST = "server/db/migrations-embedded.ts";
 const MIGRATIONS_MANIFEST_SCRIPT = "scripts/gen-migrations-manifest.ts";
 
-/**
- * The fast static gates of the CI `gates` job, run on the realign merge before the
- * land pushes it (seconds, not the 15-40 minutes of the whole CI). Only the ones
- * the repo being landed declares: another project has none of these scripts.
- */
-const STATIC_GATE_SCRIPTS = ["lint:design-system", "check:deadcode-prod", "gates:fast"];
-
-async function defaultStaticGates(cwd: string): Promise<string | null> {
-  let declared: Record<string, string> = {};
-  try { declared = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")).scripts ?? {}; } catch { return null; }
-  // Without installed dependencies every gate fails for a reason that is not the tree's.
-  if (!existsSync(join(cwd, "node_modules"))) return null;
-  for (const script of STATIC_GATE_SCRIPTS) {
-    if (!declared[script]) continue;
-    const r = await runRepoScript(cwd, [script]);
-    if (r.code === 0) continue;
-    const out = `${r.stderr}\n${r.stdout}`.split("\n").map((l) => l.trim()).filter(Boolean);
-    return `bun run ${script} (exit ${r.code}): ${(out.at(-1) ?? "no output").slice(0, 300)}`;
-  }
-  return null;
+function defaultStaticGates(cwd: string): Promise<string | null> {
+  return runStaticGates(cwd, runRepoScript);
 }
 
 function defaultRegenerateManifest(cwd: string): Promise<GitRunResult> {
@@ -798,22 +770,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       return commit.code === 0;
     }
 
-    /**
-     * The merge of main into the branch makes a tree nobody measured: run the fast
-     * static gates on it before the land goes on. Red = back to where the branch
-     * was, so the next land realigns (and measures) again instead of finding a
-     * branch that is "up to date" with a red tree in it.
-     */
+    /** Fast static gates on the merged tree; red = branch reset, so the next land measures again. */
     async function redGates(wtPath: string, before: string | null, behind: number): Promise<AutoMergeResult | null> {
-      if (!gates) return null;
-      const red = await gates(wtPath);
+      const red = gates ? await gates(wtPath) : null;
       if (!red) return null;
       if (before) await runGit(wtPath, ["reset", "--hard", before]);
       return {
         status: "skipped", code: "realign-gates-red",
-        reason:
-          `il ramo '${target.branch}' era indietro di ${behind} commit su '${defaultBranch}' e la fusione con main fa uscire rosso un cancello statico: ${red}. ` +
-          "Non ho spinto niente e il ramo è com'era prima della fusione",
+        reason: `il ramo '${target.branch}' era indietro di ${behind} commit su '${defaultBranch}' e la fusione fa uscire rosso un cancello statico: ${red}. Non ho spinto niente, il ramo è com'era`,
       };
     }
 
