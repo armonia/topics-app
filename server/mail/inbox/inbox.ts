@@ -3,7 +3,8 @@
  *
  * Not a job of the scheduled-jobs engine: a round of the server, one mailbox
  * at a time, under a lease kept in SQLite so two servers on the same file never
- * read the same mailbox together. Per mailbox and per round: ONE `list` call
+ * read the same mailbox together: the lease outlasts the longest round, and the
+ * commit refuses a round whose lease another server took over. Per mailbox and per round: ONE `list` call
  * (30 s at most), then one transaction (`commitRound`). Nothing of the state
  * lives in memory, so a restart loses nothing.
  *
@@ -13,7 +14,7 @@
  * to one per scope and day).
  */
 import type { Database } from "bun:sqlite";
-import { AdapterError, LIST_LIMIT, type ListAdapter } from "./contract";
+import { AdapterError, LIST_LIMIT, LIST_TIMEOUT_MS, type ListAdapter } from "./contract";
 import { isOwnAddress, isReadable, type Mailbox } from "./mailboxes";
 import { commitRound, readState, recordFailure, releaseLease, takeLease, type StoredMessage } from "./store";
 
@@ -22,7 +23,9 @@ export const FAST_CADENCE_MS = 15_000;
 export const FAST_WINDOW_MS = 30 * 60_000;
 export const STALE_AFTER_MS = 10 * 60_000;
 export const FAILURES_BEFORE_ALERT = 3;
-const LEASE_TTL_MS = 45_000;
+// Longer than the longest round: two list calls (an expired cursor asks again), each up to its time limit plus the
+// pipe and kill grace of the spawn, plus the commit. The commit also checks the lease is still its own (`leaseOwner`).
+const LEASE_TTL_MS = 2 * (LIST_TIMEOUT_MS + 5_000) + 20_000;
 const BEAT_MS = 5_000;
 
 export interface InboxAlert { subject: string; scope: string; title: string; body: string }
@@ -78,7 +81,7 @@ export function createInbox(options: InboxOptions) {
       if (response.expired) response = await list({ cursor: null, sinceMs, limit: LIST_LIMIT });
       if (response.expired) throw new AdapterError("the adapter still reports an expired cursor with no cursor");
       commitRound(db, {
-        mailbox: box.name, messages: response.messages, cursor: response.cursor ?? state.cursor, now: now(),
+        mailbox: box.name, messages: response.messages, cursor: response.cursor ?? state.cursor, now: now(), leaseOwner: owner,
         isOwn: (from) => isOwnAddress(box, from),
         onStored: (fresh) => options.onStored?.(box, fresh),
       });

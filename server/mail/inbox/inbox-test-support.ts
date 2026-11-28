@@ -43,7 +43,7 @@ export const message = (id: string, receivedAt: string, patch: Partial<ContractM
   subject: `Subject ${id}`, snippet: `Snippet ${id}`, authResults: "mx.example.test; dmarc=pass", sentAt: receivedAt, receivedAt, ...patch,
 });
 
-/** An adapter that serves a list of messages after the cursor (a timestamp in ms) and records every request. */
+/** An adapter that serves the oldest `limit` messages after the cursor (a timestamp in ms) and records every request. */
 export function scriptedAdapter(all: ContractMessage[]) {
   const requests: ListRequest[] = [];
   const state = { failWith: null as Error | null, expireCursors: false, gate: null as Promise<void> | null };
@@ -53,9 +53,10 @@ export function scriptedAdapter(all: ContractMessage[]) {
     if (state.failWith) throw state.failWith;
     if (request.cursor && state.expireCursors) return { messages: [], cursor: null, more: false, expired: true } satisfies ListResponse;
     const from = request.cursor ? Number(request.cursor) : request.sinceMs;
-    const messages = all.filter((item) => Date.parse(item.receivedAt) > from);
-    const newest = messages.length ? Math.max(...messages.map((item) => Date.parse(item.receivedAt))) : null;
-    return { messages, cursor: newest === null ? request.cursor : String(newest), more: false, expired: false };
+    const after = all.filter((item) => Date.parse(item.receivedAt) > from).sort((a, b) => Date.parse(a.receivedAt) - Date.parse(b.receivedAt));
+    const messages = after.slice(0, request.limit);
+    const newest = messages.length ? Date.parse(messages[messages.length - 1]!.receivedAt) : null;
+    return { messages, cursor: newest === null ? request.cursor : String(newest), more: after.length > messages.length, expired: false };
   };
   return { adapter, requests, state };
 }

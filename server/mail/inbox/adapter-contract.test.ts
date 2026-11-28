@@ -76,6 +76,24 @@ function contractSuite(name: string, make: () => ListAdapter) {
       expect(kept.cursor).toBe(String(AFTER_ALL));
     });
 
+    test("a window larger than the limit comes in chunks, oldest first, the cursor moving at every call", async () => {
+      const adapter = make();
+      const ids: string[] = [];
+      const cursors: Array<string | null> = [];
+      let request = { cursor: null as string | null, sinceMs: BEFORE_ALL, limit: 1 };
+      for (let call = 0; call < 10; call++) {
+        const response = await adapter(request);
+        expect(response.messages.length).toBeLessThanOrEqual(1);
+        ids.push(...response.messages.map((item) => item.id));
+        cursors.push(response.cursor);
+        if (!response.more) break;
+        request = { ...request, cursor: response.cursor };
+      }
+      expect(ids).toEqual(["m1", "m2", "m3"]);
+      expect(new Set(cursors).size).toBe(3);
+      expect(Number(cursors[cursors.length - 1])).toBe(Date.parse(T3));
+    });
+
     test("no field carries a body", async () => {
       const response = await make()({ cursor: null, sinceMs: BEFORE_ALL, limit: 100 });
       for (const item of response.messages) expect(Object.keys(item)).not.toContain("body");
@@ -90,6 +108,29 @@ describe("Gmail reference adapter: what only it can do wrong", () => {
   test("more pages than it reads is an error, not a silent hole", async () => {
     const endless: GwsCall = async (_resource, method) => (method === "get" ? RECORDED.m1 : { messages: [{ id: "m1" }], nextPageToken: "again" });
     await expect(createGmailList(endless)({ cursor: null, sinceMs: BEFORE_ALL, limit: 100 })).rejects.toThrow("more pages");
+  });
+
+  test("a busy window costs one chunk of reads per call, never the whole window", async () => {
+    const total = 2_000;
+    let gets = 0;
+    const busy: GwsCall = async (_resource, method, params) => {
+      if (method === "get") {
+        gets++;
+        const index = Number(String(params.id).slice(1));
+        return { id: params.id, internalDate: String(BEFORE_ALL + index * 1_000), payload: { headers: [{ name: "From", value: "a@example.test" }] } };
+      }
+      const all = Array.from({ length: total }, (_, i) => ({ id: `x${total - 1 - i}` })); // newest first, like Gmail
+      const offset = params.pageToken ? Number(params.pageToken) : 0;
+      const page = all.slice(offset, offset + Number(params.maxResults));
+      return { messages: page, ...(offset + page.length < total ? { nextPageToken: String(offset + page.length) } : {}) };
+    };
+    const list = createGmailList(busy);
+    const first = await list({ cursor: null, sinceMs: BEFORE_ALL, limit: 100 });
+    expect(first.more).toBe(true);
+    expect(gets).toBe(first.messages.length);
+    expect(first.messages[0]!.id).toBe("x0");
+    const second = await list({ cursor: first.cursor, sinceMs: BEFORE_ALL, limit: 100 });
+    expect(second.messages[0]!.id).toBe(`x${first.messages.length}`);
   });
 
   test("a message with no internalDate is refused", async () => {

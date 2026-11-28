@@ -9,7 +9,7 @@ import { createOwnerAlert } from "../../schedule/deliver/owner-alert";
 import { createDeliveryRegistry } from "../../schedule/deliver/registry";
 import { parseDeliverySettings } from "../../schedule/deliver/settings";
 import type { AdapterCall, AdapterResult } from "../../schedule/deliver/adapter";
-import { commandListAdapter } from "./contract";
+import { commandListAdapter, LIST_TIMEOUT_MS, type ListAdapter } from "./contract";
 import { CADENCE_MS, createInbox, FAST_CADENCE_MS, type InboxAlert, type InboxOptions } from "./inbox";
 import { mergeMailboxes, parseMailboxes } from "./mailboxes";
 import { clock, createTestDb, mailbox, message, scriptedAdapter, type TestDb } from "./inbox-test-support";
@@ -33,7 +33,7 @@ const T2 = "2026-11-28T09:10:00.000Z";
 const T3 = "2026-11-28T09:20:00.000Z";
 const rows = (connection: Database = db) => connection.query("SELECT provider_id, own FROM mail_messages ORDER BY provider_id").all() as Array<{ provider_id: string; own: number }>;
 
-function build(extra: Partial<InboxOptions> & { adapter: ReturnType<typeof scriptedAdapter>["adapter"] }, connection: Database = db, boxes = [mailbox()]) {
+function build(extra: Partial<InboxOptions> & { adapter: ListAdapter }, connection: Database = db, boxes = [mailbox()]) {
   const { adapter, ...rest } = extra;
   return createInbox({ db: connection, now: time.now, mailboxes: () => boxes, adapterFor: () => adapter, alert: (alert) => alerts.push(alert), owner: "server-a", ...rest });
 }
@@ -42,12 +42,42 @@ describe("one row per message, through restarts", () => {
   test("the same message twice is one row", async () => {
     const script = scriptedAdapter([message("a", T1)]);
     const inbox = build({ adapter: script.adapter });
-    await inbox.tick();
+    expect(await inbox.tick()).toEqual({ box: "read" });
     time.advance(CADENCE_MS);
     // A provider that repeats the message (overlap): the cursor is forgotten on purpose.
     db.prepare("UPDATE mail_inbox_state SET cursor = NULL").run();
-    await inbox.tick();
+    expect(await inbox.tick()).toEqual({ box: "read" });
     expect(rows()).toEqual([{ provider_id: "a", own: 0 }]);
+    expect(readState(db, "box").failures).toBe(0);
+  });
+
+  test("the hook of the waits sees only the rows that are new, never a repeated message", async () => {
+    const all = [message("a", T1)];
+    const script = scriptedAdapter(all);
+    const seen: string[][] = [];
+    const inbox = build({ adapter: script.adapter, onStored: (_box, fresh) => seen.push(fresh.map((row) => row.id)) });
+    await inbox.tick();
+    all.push(message("b", T2));
+    db.prepare("UPDATE mail_inbox_state SET cursor = NULL").run();
+    time.advance(CADENCE_MS);
+    expect(await inbox.tick()).toEqual({ box: "read" });
+    expect(seen).toEqual([["a"], ["b"]]);
+  });
+
+  test("a window larger than one call is caught up over rounds, the cursor moving every time", async () => {
+    const start = Date.parse(T1);
+    const script = scriptedAdapter(Array.from({ length: 250 }, (_, i) => message(`m${String(i).padStart(3, "0")}`, new Date(start + i * 1_000).toISOString())));
+    const inbox = build({ adapter: script.adapter });
+    const cursors: Array<string | null> = [];
+    for (let round = 0; round < 3; round++) {
+      // No clock move: a mailbox with more to read is due again at the next beat.
+      expect(await inbox.tick()).toEqual({ box: "read" });
+      cursors.push(readState(db, "box").cursor);
+    }
+    expect(new Set(cursors).size).toBe(3);
+    expect(rows()).toHaveLength(250);
+    expect(script.requests).toHaveLength(3);
+    expect(await inbox.tick()).toEqual({ box: "not_due" });
   });
 
   test("a stop halfway through the transaction writes nothing and holds the cursor; the next round has no hole and no double", async () => {
@@ -262,6 +292,46 @@ describe("two servers on one file", () => {
     expect(await running).toBe("read");
     expect(script.requests).toHaveLength(1);
     expect(rows(other)).toHaveLength(1);
+  });
+});
+
+describe("the lease outlasts the longest round", () => {
+  test("a round on the expired-cursor path, two list calls at their full time limit, still holds the mailbox", async () => {
+    const script = scriptedAdapter([message("a", T1)]);
+    script.state.expireCursors = true;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let calls = 0;
+    const slow: ListAdapter = async (request) => {
+      calls++;
+      // Each call costs what the spawn allows at most: its time limit, the pipe grace and the kill grace.
+      time.advance(LIST_TIMEOUT_MS + 4_000);
+      if (calls === 2) await gate;
+      return script.adapter(request);
+    };
+    db.prepare("INSERT INTO mail_inbox_state (mailbox, cursor) VALUES ('box', ?)").run(String(Date.parse(T1)));
+    const other = testDb.open();
+    const first = build({ adapter: slow }, db);
+    const second = createInbox({ db: other, now: time.now, mailboxes: () => [mailbox()], adapterFor: () => scriptedAdapter([message("a", T1)]).adapter, alert: () => {}, owner: "server-b" });
+    const running = first.readMailbox(mailbox());
+    while (calls < 2) await Bun.sleep(5);
+    expect(await second.readMailbox(mailbox())).toBe("busy");
+    release();
+    expect(await running).toBe("read");
+    expect(rows()).toHaveLength(1);
+  });
+
+  test("a round whose lease another server took over writes nothing and leaves the cursor", async () => {
+    const script = scriptedAdapter([message("a", T1)]);
+    let release: () => void = () => {};
+    script.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    const running = build({ adapter: script.adapter }).readMailbox(mailbox());
+    while (script.requests.length === 0) await Bun.sleep(5);
+    db.prepare("UPDATE mail_inbox_state SET lease_owner = 'server-b' WHERE mailbox = 'box'").run();
+    release();
+    expect(await running).toBe("failed");
+    expect(rows()).toEqual([]);
+    expect(readState(db, "box").cursor).toBeNull();
   });
 });
 

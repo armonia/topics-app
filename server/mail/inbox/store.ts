@@ -65,6 +65,8 @@ export interface CommitRound {
   isOwn: (from: string) => boolean;
   /** Runs inside the transaction on the rows that are new: the point where the waits are matched. */
   onStored?: (fresh: StoredMessage[]) => void;
+  /** Who must still hold the lease when the round is written; a round whose lease was taken over writes nothing. */
+  leaseOwner?: string;
 }
 
 const INSERT_MESSAGE = `INSERT INTO mail_messages (mailbox, provider_id, thread_id, message_id, in_reply_to, from_addr, to_addrs, subject, snippet, auth_results, sent_at, received_at, own)
@@ -73,6 +75,10 @@ const INSERT_MESSAGE = `INSERT INTO mail_messages (mailbox, provider_id, thread_
 /** Writes one round. Returns the rows that were new. Throws with nothing written when anything inside fails. */
 export function commitRound(db: Database, round: CommitRound): StoredMessage[] {
   const write = db.transaction((): StoredMessage[] => {
+    if (round.leaseOwner !== undefined) {
+      const holder = db.query("SELECT lease_owner FROM mail_inbox_state WHERE mailbox = ?").get(round.mailbox) as { lease_owner: string | null } | null;
+      if (holder?.lease_owner !== round.leaseOwner) throw new Error(`the lease of mailbox ${round.mailbox} was taken over during the round`);
+    }
     const insert = db.prepare(INSERT_MESSAGE);
     const fresh: StoredMessage[] = [];
     for (const message of round.messages) {
