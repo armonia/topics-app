@@ -13,10 +13,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDatabase, initDatabase, isFencedWriteError } from "../db";
-import { setPrimaryFence } from "./primary-fence";
-import { createPrimaryRole, fenceInternalWrites, initPrimaryRole, isThisServerPrimary, onStaleAnswer, type PrimaryRole } from "./primary-role";
+import { bootHoldRefusal, setPrimaryFence } from "./primary-fence";
+import {
+  createPrimaryRole, fenceInternalWrites, holdInternalWritesUntilNodesAnswer, initPrimaryRole, isThisServerPrimary, onStaleAnswer, type PrimaryRole,
+  releaseBootHold,
+} from "./primary-role";
 import { applyPendingPrimaryChange, DB_NAME, readRetired } from "./primary-switch";
-import { wireReplacedPrimary } from "./primary-replaced";
+import { nodeForUrl, wireReplacedPrimary } from "./primary-replaced";
 import { createNodeClient } from "../services/node-client";
 
 const NODE_URL = "https://node.example.test:3333";
@@ -29,7 +32,8 @@ let db: Database;
 let appDataDir: string;
 let role: PrimaryRole;
 let restarts: number;
-const nodeDbs: Database[] = [];
+let replicaStops: number;
+const nodeDatabases: Database[] = [];
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "primary-replaced-"));
@@ -42,10 +46,13 @@ beforeEach(() => {
   role = initPrimaryRole({ db, stateFile: join(appDataDir, "primary-state.json"), localMachineId: () => "m-old", log: () => {} });
   role.adopt({ primaryMachineId: "m-old", epoch: 3 });
   restarts = 0;
+  replicaStops = 0;
   wireReplacedPrimary({
     appDataDir,
     role,
-    machineFor: (url) => (url.startsWith(NODE_URL) ? { id: "m-node", name: "node" } : null),
+    // The node this server paired: the same matching the boot wires.
+    machineFor: (url) => nodeForUrl([{ id: "m-node", name: "node", baseUrl: NODE_URL }], url),
+    stopReplica: () => { replicaStops++; return null; },
     restart: () => { restarts++; },
     now: () => STAMP,
     log: () => {},
@@ -56,13 +63,14 @@ afterEach(() => {
   onStaleAnswer(null);
   // Back to "no primary chosen": no epoch on the calls of the next test file.
   const blank = new Database(":memory:");
-  nodeDbs.push(blank);
+  nodeDatabases.push(blank);
   blank.exec(migration);
   initPrimaryRole({ db: blank, stateFile: join(root, "none.json"), localMachineId: () => "m-none", log: () => {} });
   setPrimaryFence(null);
   fenceInternalWrites(false);
+  releaseBootHold();
   closeDatabase();
-  for (const d of nodeDbs.splice(0)) d.close();
+  for (const d of nodeDatabases.splice(0)) d.close();
   if (previousDataDir === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = previousDataDir;
   try { rmSync(root, { recursive: true, force: true }); } catch { /* temp dir cleanup only */ }
 });
@@ -70,7 +78,7 @@ afterEach(() => {
 /** The old primary's client to a node whose role sits at `nodeEpoch`; the node answers with its real stale check, else `otherwise`. */
 function clientOfNode(nodeEpoch: number, otherwise: () => Response = () => new Response("{}", { status: 404 })) {
   const nodeDb = new Database(":memory:");
-  nodeDbs.push(nodeDb);
+  nodeDatabases.push(nodeDb);
   nodeDb.exec(migration);
   const nodeRole = createPrimaryRole({ db: nodeDb, stateFile: join(root, `node-${nodeEpoch}.json`), localMachineId: () => "m-node", log: () => {} });
   nodeRole.adopt({ primaryMachineId: "m-node", epoch: nodeEpoch });
@@ -92,8 +100,8 @@ function writeOnce(): unknown {
   }
 }
 
-const call = (client: ReturnType<typeof clientOfNode>) =>
-  client.readRun({ baseUrl: NODE_URL, token: "t", runId: "probe" }).then(() => null, (err: unknown) => err);
+const call = (client: ReturnType<typeof clientOfNode>, baseUrl = NODE_URL) =>
+  client.readRun({ baseUrl, token: "t", runId: "probe" }).then(() => null, (err: unknown) => err);
 
 describe("a primary replaced while it was away", () => {
   test("the node's stale answer fences the DB at once and the next boot sets it aside as .prima-<epoch>", async () => {
@@ -104,6 +112,8 @@ describe("a primary replaced while it was away", () => {
     expect(isThisServerPrimary()).toBe(false);
     expect(isFencedWriteError(writeOnce())).toBe(true);
     expect(restarts).toBe(1);
+    // The replica stops before the restart renames the DB it watches.
+    expect(replicaStops).toBe(1);
 
     // The restart: the process ends (every handle and the in-memory fence go with it), then the
     // boot renames the DB before anything opens it.
@@ -132,6 +142,34 @@ describe("a primary replaced while it was away", () => {
     expect(isThisServerPrimary()).toBe(true);
     expect(writeOnce()).toBeNull();
     expect(restarts).toBe(0);
+  });
+
+  test("a newer epoch from a URL that is not a paired node, or from a pairing, is only logged", async () => {
+    // A server that is not the paired node: another port, another host, a path that only shares a prefix.
+    for (const stranger of ["https://node.example.test:33334", "https://elsewhere.example.test:3333", `${NODE_URL}0`]) {
+      expect(await call(clientOfNode(99), stranger)).not.toBeNull();
+    }
+    // A pairing goes to a URL nobody vouched for yet, even the node's own.
+    expect(await clientOfNode(99).pairRequest(NODE_URL).then(() => null, (err: unknown) => err)).not.toBeNull();
+
+    expect(readRetired(appDataDir)).toBeNull();
+    expect(isThisServerPrimary()).toBe(true);
+    expect(writeOnce()).toBeNull();
+    expect(restarts + replicaStops).toBe(0);
+  });
+
+  test("a primary back from being away writes nothing until it is released", () => {
+    holdInternalWritesUntilNodesAnswer();
+    expect(isThisServerPrimary()).toBe(false);
+    expect(bootHoldRefusal("/api/tasks", "POST")?.status).toBe(503);
+    // Reads, the live channel, the node routes and the login stay open.
+    expect(bootHoldRefusal("/api/tasks", "GET")).toBeNull();
+    expect(bootHoldRefusal("/ws", "GET")).toBeNull();
+    expect(bootHoldRefusal("/api/nodes/runs/x", "POST")).toBeNull();
+    expect(bootHoldRefusal("/api/auth/login", "POST")).toBeNull();
+    releaseBootHold();
+    expect(isThisServerPrimary()).toBe(true);
+    expect(bootHoldRefusal("/api/tasks", "POST")).toBeNull();
   });
 
   test("a server that already is a secondary does not retire on a node's answer", async () => {

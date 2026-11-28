@@ -20,25 +20,33 @@ import { setPrimaryFence } from "./primary-fence";
 export interface ReplacedPrimaryDeps {
   appDataDir: string;
   role: Pick<PrimaryRole, "isPrimary" | "epoch">;
-  /** The paired machine behind a node URL, when this server knows it. */
+  /** The node behind a URL, only when this server paired it and holds its token; null for any other URL. */
   machineFor: (url: string) => { id: string; name: string } | null;
+  /**
+   * Stops the replica of the DB (Litestream) through the service manager, before the restart
+   * renames the DB it watches; returns why it failed, or null. Absent: no replica managed.
+   */
+  stopReplica?: () => string | null;
   restart: () => void;
   now?: () => string;
   log?: (line: string) => void;
 }
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host || url;
-  } catch {
-    return url;
-  }
+/** The node whose base URL the call went to: the same origin and a path at or under its base. */
+export function nodeForUrl<T extends { baseUrl: string }>(nodes: T[], url: string): T | null {
+  return nodes.find((m) => {
+    const base = m.baseUrl.replace(/\/+$/, "");
+    return url === base || url.startsWith(`${base}/`) || url.startsWith(`${base}?`);
+  }) ?? null;
 }
 
 /**
  * The reaction to a 409 from a node. Acts only on `stale_primary_epoch` with an
- * epoch ABOVE this server's, and only while this server believes it is the
- * primary and has no retired marker yet; anything else changes nothing.
+ * epoch ABOVE this server's, from a node this server paired and holds a token
+ * for, and only while this server believes it is the primary and has no
+ * retired marker yet. An answer from any other URL is logged and changes
+ * nothing: setting the production DB aside cannot be undone by a command, so
+ * a URL nobody vouched for must never be able to trigger it.
  * Returns the marker it wrote, or null.
  */
 export function retireOnStaleAnswer(deps: ReplacedPrimaryDeps, url: string, body: unknown): RetiredState | null {
@@ -47,16 +55,19 @@ export function retireOnStaleAnswer(deps: ReplacedPrimaryDeps, url: string, body
   const epoch = answer.epoch;
   if (typeof epoch !== "number" || !Number.isInteger(epoch) || epoch <= deps.role.epoch()) return null;
   if (!deps.role.isPrimary() || readRetired(deps.appDataDir)) return null;
+  const log = deps.log ?? ((line: string) => console.warn(line));
   const machine = deps.machineFor(url);
-  const host = hostOf(url);
+  if (!machine) {
+    log(`[primary] a server that is not a paired node answered at epoch ${epoch}, above this server's ${deps.role.epoch()}: ignored`);
+    return null;
+  }
   const marker: RetiredState = {
     epoch,
-    toMachineId: machine?.id ?? host,
-    toName: machine?.name ?? host,
+    toMachineId: machine.id,
+    toName: machine.name,
     at: (deps.now ?? (() => new Date().toISOString()))(),
     phase: "pending-set-aside",
   };
-  const log = deps.log ?? ((line: string) => console.warn(line));
   let written = true;
   try {
     // The marker first: a crash right after it still boots as a secondary that sets its DB aside.
@@ -68,6 +79,10 @@ export function retireOnStaleAnswer(deps: ReplacedPrimaryDeps, url: string, body
   // Up whatever happened above: refusing writes is what keeps the two DBs apart.
   setPrimaryFence(marker);
   log(`[primary] ${marker.toName} answered at epoch ${epoch}, above this server's ${deps.role.epoch()}: the primary was claimed while this server was away, writes are refused`);
+  // The replica stops before the DB it watches is renamed: what it publishes from here on would be
+  // a generation the node that claimed the primary never restored.
+  const replicaFailed = deps.stopReplica?.() ?? null;
+  if (replicaFailed) log(`[primary] the replica of the DB did not stop (${replicaFailed}): stop it by hand before it publishes again`);
   // Without the marker a restart would boot back as the primary: the server stays up, fenced, instead.
   if (written) deps.restart();
   return marker;

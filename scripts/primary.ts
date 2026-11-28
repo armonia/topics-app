@@ -17,14 +17,20 @@
  * `bun run primary claim [--force]`: on a node, when the primary died without
  * warning, takes the primary over from the last replica of its DB (track T9,
  * `POST /__daemon/primary-claim`). `--force` claims even though the primary
- * called this node in the last ten minutes. Exit 0 claimed, 1 refused, 3
- * claimed with a warning (the channels command failed: the warning says what).
+ * called this node in the last ten minutes, or never called it since this
+ * node started. Exit 0 claimed, 1 refused, 3 claimed with a warning (the
+ * channels command failed: the warning says what).
+ *
+ * `bun run primary release`: a primary back from being away waits for one of
+ * its nodes to answer before it writes; when the nodes are gone for good, this
+ * ends the wait by hand (`POST /__daemon/primary-release`). Exit 0 released,
+ * 1 not waiting.
  */
 import { readState } from "../server/services/daemon-state";
 
 const [command, machine, ...rest] = process.argv.slice(2);
-if (!(command === "switch" && machine) && command !== "reclaim" && command !== "claim") {
-  console.error("usage: bun run primary switch <machine id, name or hostname> [--drain-minutes N]\n       bun run primary reclaim\n       bun run primary claim [--force]");
+if (!(command === "switch" && machine) && command !== "reclaim" && command !== "claim" && command !== "release") {
+  console.error("usage: bun run primary switch <machine id, name or hostname> [--drain-minutes N]\n       bun run primary reclaim\n       bun run primary claim [--force]\n       bun run primary release");
   process.exit(64);
 }
 const at = rest.indexOf("--drain-minutes");
@@ -64,6 +70,10 @@ if (!report) {
 }
 if (command === "reclaim") {
   console.log(report.ok ? `reclaimed at epoch ${report.epoch}: restarting as the primary` : `refused: ${report.error}`);
+  process.exit(report.ok ? 0 : 1);
+}
+if (command === "release") {
+  console.log(report.ok ? "released: this server writes as the primary" : `refused: ${report.error}`);
   process.exit(report.ok ? 0 : 1);
 }
 if (command === "claim") {

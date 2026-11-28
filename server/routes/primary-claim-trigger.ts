@@ -3,13 +3,21 @@
  * (track T9). Behind the same loopback and daemon-token gate as every
  * `/__daemon/*` endpoint; it builds the claim's dependencies from the live
  * server and runs it. One claim at a time.
+ *
+ * `POST /__daemon/primary-release`: the local half of `bun run primary
+ * release`, the way out of the boot wait of a primary whose nodes are gone
+ * for good (`holdInternalWritesUntilNodesAnswer`).
  */
 import { hostname as osHostname } from "node:os";
+import { join } from "node:path";
 import type { AppContext } from "../types";
-import { getPrimaryRole } from "../lib/primary-role";
+import { getPrimaryRole, isBootHoldActive, lastCallFromPrimary, releaseBootHold } from "../lib/primary-role";
 import { receiveChecksFor, restartThisServerSoon } from "../lib/primary-fence";
 import { claimPrimary, claimSettingsFromEnv } from "../lib/primary-claim";
 import { createSecretStore } from "../lib/secret-store";
+
+/** The checkout this server runs from: the machine row records the version read there. */
+const ROOT_DIR = join(import.meta.dir, "..", "..");
 
 let running = false;
 
@@ -17,29 +25,23 @@ function answer(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
 
-/** When the device of the primary that paired this server last called it, or null. */
-function lastHeardFromChannel(ctx: Pick<AppContext, "db">, deviceId: string | undefined): number | null {
-  if (!deviceId) return null;
-  const row = ctx.db.query("SELECT last_seen_at FROM devices WHERE id = ?").get(deviceId) as { last_seen_at: number | null } | null;
-  return typeof row?.last_seen_at === "number" ? row.last_seen_at : null;
-}
-
-export async function handlePrimaryClaim(req: Request, deps: { ctx: Pick<AppContext, "db" | "STATE_DIR" | "APP_DATA_DIR" | "machineStore"> }): Promise<Response> {
+export async function handlePrimaryClaim(req: Request, deps: { ctx: Pick<AppContext, "STATE_DIR" | "APP_DATA_DIR"> }): Promise<Response> {
   if (running) return answer({ ok: false, outcome: "refused", code: "claim_in_progress", error: "a claim is running" }, 409);
   const role = getPrimaryRole();
   if (!role) return answer({ ok: false, outcome: "refused", code: "unavailable", error: "the primary role is not wired on this server" }, 503);
-  const body = await req.json().catch(() => ({})) as { force?: unknown };
+  // Taken before the first await: two requests in the same tick must not both get past the check.
   running = true;
   try {
+    const body = await req.json().catch(() => ({})) as { force?: unknown };
     const report = await claimPrimary({
       role,
-      localMachineId: deps.ctx.machineStore.upsertLocal().id,
+      rootDir: ROOT_DIR,
       hostname: osHostname(),
       stateDir: deps.ctx.STATE_DIR,
       receive: receiveChecksFor(deps.ctx.STATE_DIR, deps.ctx.APP_DATA_DIR),
       settings: claimSettingsFromEnv(),
       readSecret: (name) => createSecretStore({ stateDir: deps.ctx.STATE_DIR }).read(name),
-      lastHeardFromPrimary: () => lastHeardFromChannel(deps.ctx, role.channel()?.deviceId),
+      lastHeardFromPrimary: lastCallFromPrimary,
       force: body.force === true,
       restart: restartThisServerSoon,
     });
@@ -47,4 +49,11 @@ export async function handlePrimaryClaim(req: Request, deps: { ctx: Pick<AppCont
   } finally {
     running = false;
   }
+}
+
+export function handlePrimaryRelease(): Response {
+  if (!isBootHoldActive()) return answer({ ok: false, code: "not_waiting", error: "this server is not waiting for its nodes" }, 409);
+  releaseBootHold();
+  console.warn("[primary] the wait for the nodes was ended by hand: this server writes as the primary");
+  return answer({ ok: true }, 200);
 }

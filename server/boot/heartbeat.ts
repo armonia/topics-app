@@ -81,7 +81,10 @@ export async function bootHeartbeat(scope: AfterRouters2) {
           ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
         }
       }
-      probeNodes();
+      // A primary back from being away holds its writes until one paired node answered at its
+      // epoch (`holdInternalWritesUntilNodesAnswer`, track T9): a round where every node failed
+      // proves nothing, so it keeps waiting for the next one.
+      void probeNodes().then((answered) => { if (answered > 0) releaseBootHold(); });
       const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);
       for (const m of flipped) {
         ctx.broadcastToAll({ type: "machine:updated", machine: m, payload_version: 1 });
@@ -92,9 +95,6 @@ export async function bootHeartbeat(scope: AfterRouters2) {
   }
 
   tickHeartbeat();
-  // The first round of node calls is what tells a primary back from a trip whether a node claimed
-  // its place meanwhile: its own writers wait for it (`holdInternalWritesUntilNodesAnswer`, track T9).
-  void probeNodes().finally(releaseBootHold);
 
   const heartbeatTimer = setInterval(tickHeartbeat, HEARTBEAT_INTERVAL_MS);
 

@@ -75,6 +75,13 @@ describe("il battito di un nodo accoppiato", () => {
     expect(s.announced).toEqual([]);
   });
 
+  it("the round resolves with how many nodes gave the expected answer: none when every one failed", async () => {
+    const down = setup([machine({ id: "down" }), machine({ id: "revoked" })], { down: "unreachable", revoked: "unauthorized" });
+    expect(await down.probe()).toBe(0);
+    const one = setup([machine({ id: "down" }), machine({ id: "pc" })], { down: "unreachable" });
+    expect(await one.probe()).toBe(1);
+  });
+
   it("uno che non risponde non ferma gli altri", async () => {
     const s = setup([machine({ id: "giu" }), machine({ id: "pc" })], { giu: "unreachable" });
     s.probe();

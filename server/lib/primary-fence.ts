@@ -16,7 +16,7 @@ import {
   applyPendingPrimaryChange, DB_NAME, isRefusedWhenRetired, movedResponse, readRetired, replicaCommandsFromEnv, RETIRED_FILE,
   type ReceiveChecks, type ReplicaCommands, type RetiredState,
 } from "./primary-switch";
-import { fenceInternalWrites, type PrimaryRole } from "./primary-role";
+import { fenceInternalWrites, isBootHoldActive, type PrimaryRole } from "./primary-role";
 import { setDatabaseReadOnly, selectRetiredDatabaseFile } from "../db";
 
 let fence: RetiredState | null = null;
@@ -44,7 +44,24 @@ export function retiredRefusal(pathname: string, method: string): Response | nul
  * fenced server gets `primary_moved`.
  */
 export function gatedRefusal(accessGate: () => Response | null, pathname: string, method: string): Response | null {
-  return accessGate() ?? retiredRefusal(pathname, method);
+  return accessGate() ?? retiredRefusal(pathname, method) ?? bootHoldRefusal(pathname, method);
+}
+
+export const BOOT_HOLD_CODE = "primary_waiting_for_nodes";
+
+/**
+ * While a primary back from being away waits for its nodes (`holdInternalWritesUntilNodesAnswer`,
+ * track T9), a write from the interface is refused too: a node may have claimed the primary
+ * meanwhile, and what this server wrote first would be lost with its DB. Reads, the node routes
+ * and the login stay open, as on a server that handed the primary over.
+ */
+export function bootHoldRefusal(pathname: string, method: string): Response | null {
+  if (!isBootHoldActive() || pathname === "/ws" || pathname.startsWith("/ws/")) return null;
+  if (!isRefusedWhenRetired(pathname, method, "set-aside")) return null;
+  return new Response(JSON.stringify({
+    code: BOOT_HOLD_CODE,
+    error: "This computer is waiting for its nodes to confirm it is still the primary: retry in a moment",
+  }), { status: 503, headers: { "content-type": "application/json", "cache-control": "no-store", "retry-after": "30" } });
 }
 
 /** What `bootPrimaryChange` needs to know; the defaults are the paths `createAppContext` uses. */

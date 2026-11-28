@@ -17,12 +17,24 @@
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { claimPrimary, type ClaimReport } from "../server/lib/primary-claim";
 import { createPrimaryRole } from "../server/lib/primary-role";
 import { DB_NAME, INCOMING_DIR } from "../server/lib/primary-switch";
+import { closeDatabase, initDatabase } from "../server/db";
+
+/** The `machines` table as the migrations build it, read from a throwaway DB under `root`. */
+function machinesTableSql(root: string): string {
+  const dataRoot = join(root, "schema");
+  try {
+    const db = initDatabase(join(import.meta.dir, ".."), dataRoot);
+    return (db.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'machines'").get() as { sql: string }).sql;
+  } finally {
+    closeDatabase();
+  }
+}
 
 const PRIMARY_STATE_MIGRATION = join(import.meta.dir, "../server/db/migrations/20261118110000-primary-state.sql");
 /** Written in every row: a replica that contains it in clear text was not encrypted. */
@@ -78,10 +90,12 @@ export async function measureClaimLoss(opts: { seconds: number; intervalMs?: num
     // The dead primary: its DB, written at a steady pace.
     const db = new Database(liveDb);
     db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
-    db.exec(`CREATE TABLE tasks (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL);
-      CREATE TABLE topics (id TEXT PRIMARY KEY);
+    db.exec(`CREATE TABLE tasks (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, machine_id TEXT);
+      CREATE TABLE topics (id TEXT PRIMARY KEY, machine_id TEXT);
       CREATE TABLE messages (id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL, body TEXT NOT NULL);`);
     db.exec(readFileSync(PRIMARY_STATE_MIGRATION, "utf-8"));
+    // The real machines table: the claim finds or writes the row of the computer that boots on the copy.
+    db.exec(machinesTableSql(root));
     const insert = db.query("INSERT INTO messages (timestamp, body) VALUES (?, ?)");
     let writtenRows = 0;
     const write = () => { insert.run(new Date().toISOString(), PLAINTEXT_MARKER); writtenRows++; };
@@ -113,8 +127,8 @@ export async function measureClaimLoss(opts: { seconds: number; intervalMs?: num
     role.adopt({ primaryMachineId: "m-dead", epoch: 1 });
     const report = await claimPrimary({
       role,
-      localMachineId: "m-node",
-      hostname: "node",
+      rootDir: join(import.meta.dir, ".."),
+      hostname: hostname(),
       stateDir,
       receive: {
         secretsDir: join(stateDir, ".topics-secrets"), appDataDir, dbPath: join(stateDir, "data", DB_NAME),
@@ -123,7 +137,8 @@ export async function measureClaimLoss(opts: { seconds: number; intervalMs?: num
       settings: { restore: `litestream restore -config "${config}" -o "$TOPICS_RESTORE_OUTPUT" "${liveDb}"`, ageSecret: "replica/age" },
       readSecret: async () => identity,
       lastHeardFromPrimary: () => null,
-      force: false,
+      // No primary ever called this throwaway node: the person running the probe is the one who says it is dead.
+      force: true,
       restart: () => {},
       log: () => {},
     });

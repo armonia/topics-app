@@ -20,7 +20,7 @@
  * config), never on a command line, in a log or in a file of ours.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -29,6 +29,7 @@ import {
   type SwitchManifest, verifyDatabaseFile,
 } from "./primary-switch";
 import type { PrimaryRole } from "./primary-role";
+import { createMachineStore } from "../services/machine-store";
 
 /** Instance settings, read from the environment; every default is empty and leaves the claim off. */
 export const RESTORE_COMMAND_ENV = "TOPICS_REPLICA_RESTORE_COMMAND";
@@ -52,34 +53,55 @@ export function claimSettingsFromEnv(env: NodeJS.ProcessEnv = process.env): Clai
   };
 }
 
-/** Runs one configured command line through the shell with extra environment; returns why it failed, or null. */
-export type ClaimCommandRunner = (command: string, extraEnv: Record<string, string>) => string | null;
+/** Runs one configured command line through the shell with extra environment; resolves with why it failed, or null. */
+export type ClaimCommandRunner = (command: string, extraEnv: Record<string, string>) => Promise<string | null>;
 
-export const runClaimCommand: ClaimCommandRunner = (command, extraEnv) => {
+/** Asynchronous: a restore that takes minutes must not stop the server that runs it from answering. */
+export const runClaimCommand: ClaimCommandRunner = (command, extraEnv) => new Promise((resolve) => {
   const shell = process.platform === "win32" ? ["cmd", "/c", command] : ["sh", "-c", command];
   try {
     // Output ignored: whatever the command prints is not ours to copy into a log.
-    const r = spawnSync(shell[0]!, shell.slice(1), {
-      stdio: "ignore", env: { ...process.env, ...extraEnv }, timeout: CLAIM_COMMAND_TIMEOUT_MS, killSignal: "SIGKILL",
+    const child = spawn(shell[0]!, shell.slice(1), {
+      stdio: "ignore", env: { ...process.env, ...extraEnv },
       // `cmd /c` reads the rest of its line raw: quoting it again as one argument would break the command.
       windowsVerbatimArguments: process.platform === "win32",
     });
-    return r.status === 0 && !r.error ? null : (r.error?.message ?? `exit ${r.status}, signal ${r.signal}`);
+    const timer = setTimeout(() => child.kill("SIGKILL"), CLAIM_COMMAND_TIMEOUT_MS);
+    child.once("error", (err) => { clearTimeout(timer); resolve(err.message); });
+    child.once("exit", (code, signal) => { clearTimeout(timer); resolve(code === 0 ? null : `exit ${code}, signal ${signal}`); });
   } catch (err) {
-    return err instanceof Error ? err.message : String(err);
+    resolve(err instanceof Error ? err.message : String(err));
   }
-};
+});
+
+/**
+ * The id this computer will have once it boots on the restored copy. The boot
+ * finds its own row by hostname (`upsertLocal`), and the copy comes from
+ * ANOTHER computer's DB, where this one may have no row or a row under the name
+ * the other one paired it with: the id this server has in its own DB means
+ * nothing there. So the very same rule runs on the copy, before it is hashed,
+ * and writes the row there when it is missing; the boot then finds that row.
+ */
+export function localMachineIdIn(dbPath: string, rootDir: string): string {
+  const db = new Database(dbPath);
+  try {
+    return createMachineStore(db, rootDir).upsertLocal().id;
+  } finally {
+    db.close();
+  }
+}
 
 export interface ClaimDeps {
   role: Pick<PrimaryRole, "isPrimary" | "epoch" | "state">;
-  localMachineId: string;
+  /** The checkout the server runs from (the machine row records its version). */
+  rootDir: string;
   hostname: string;
   stateDir: string;
   /** The folders and replica the boot will write: the same checks a planned switch's receiver runs. */
   receive: ReceiveChecks;
   settings: ClaimSettings;
   readSecret: (name: string) => Promise<string | null>;
-  /** When the primary's device last called this server, in ms since the epoch; null when unknown. */
+  /** When the primary last called this server since it started (`lastCallFromPrimary`), in ms since the epoch; null when it never did. */
   lastHeardFromPrimary: () => number | null;
   force: boolean;
   restart: () => void;
@@ -129,6 +151,9 @@ export async function claimPrimary(deps: ClaimDeps): Promise<ClaimReport> {
   if (!deps.settings.restore) {
     return refuse("no_restore_command", `${RESTORE_COMMAND_ENV} is not set: there is no replica to take the primary from`);
   }
+  if (heard === null && !deps.force) {
+    return refuse("no_primary_signal", "the primary has not called this server since it started, so nothing says it is dead: check it, then claim with --force");
+  }
   if (heard !== null && now() - heard < PRIMARY_ALIVE_WINDOW_MS && !deps.force) {
     const seconds = Math.round((now() - heard) / 1000);
     return refuse("primary_alive", `the primary called this server ${seconds} s ago, so it may not be dead: check it, then claim with --force`);
@@ -143,15 +168,18 @@ export async function claimPrimary(deps: ClaimDeps): Promise<ClaimReport> {
   mkdirSync(join(deps.stateDir, INCOMING_DIR), { recursive: true, mode: 0o700 });
   const restored = join(deps.stateDir, INCOMING_DIR, DB_NAME);
   const dropped = (code: string, error: string): ClaimReport => {
-    discardIncoming(deps.stateDir);
     log(`[primary] claim refused (${code}): ${error}`);
+    discardIncoming(deps.stateDir);
     return refuse(code, error);
   };
-  const failed = run(deps.settings.restore, { [RESTORE_OUTPUT_ENV]: restored, ...(identity ? { [AGE_IDENTITY_ENV]: identity } : {}) });
+  const failed = await run(deps.settings.restore, { [RESTORE_OUTPUT_ENV]: restored, ...(identity ? { [AGE_IDENTITY_ENV]: identity } : {}) });
   if (failed) return dropped("restore_failed", `the restore command failed: ${failed}`);
   if (!existsSync(restored)) return dropped("restore_empty", `the restore command wrote nothing at ${RESTORE_OUTPUT_ENV}`);
   let counts: RowCounts;
+  let toMachineId: string;
   try {
+    // The row first, the checks after: the counts and the hash then describe the file the boot opens.
+    toMachineId = localMachineIdIn(restored, deps.rootDir);
     counts = verifyDatabaseFile(restored);
   } catch (err) {
     return dropped("integrity", err instanceof Error ? err.message : String(err));
@@ -162,7 +190,7 @@ export async function claimPrimary(deps: ClaimDeps): Promise<ClaimReport> {
   const manifest: SwitchManifest = {
     version: 1,
     epoch,
-    toMachineId: deps.localMachineId,
+    toMachineId,
     toHostname: deps.hostname,
     fromMachineId: deps.role.state().primaryMachineId ?? "unknown",
     createdAt: new Date(now()).toISOString(),
@@ -177,7 +205,7 @@ export async function claimPrimary(deps: ClaimDeps): Promise<ClaimReport> {
 
   let warning: string | undefined;
   if (deps.settings.channels) {
-    const channelsFailed = run(deps.settings.channels, {});
+    const channelsFailed = await run(deps.settings.channels, {});
     if (channelsFailed) {
       warning = `the channels command failed (${channelsFailed}): this primary runs without them until they are brought up by hand`;
       log(`[primary] ${warning}`);
