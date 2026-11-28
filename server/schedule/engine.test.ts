@@ -18,7 +18,7 @@ import { freshDb, PID } from "../services/tasks-test-db";
 
 const MIGRATIONS = join(import.meta.dir, "../db/migrations");
 const migrate = (db: Database) => {
-  for (const file of ["20261014225051-scheduled-cards.sql", "20261121105631-scheduled-jobs.sql"]) db.run(readFileSync(join(MIGRATIONS, file), "utf8"));
+  for (const file of ["20261014225051-scheduled-cards.sql", "20261121105631-scheduled-jobs.sql", "20261126180000-scheduled-delivery-guards.sql"]) db.run(readFileSync(join(MIGRATIONS, file), "utf8"));
 };
 
 let db: Database;
@@ -81,7 +81,7 @@ describe("two engines on one file", () => {
     try {
       a.run("PRAGMA journal_mode = WAL");
       a.run("CREATE TABLE tasks (id TEXT PRIMARY KEY)");
-      for (const file of ["20261014225051-scheduled-cards.sql", "20261121105631-scheduled-jobs.sql"]) a.run(readFileSync(join(MIGRATIONS, file), "utf8").replace(/REFERENCES tasks\(id\)[^,\n]*/g, ""));
+      for (const file of ["20261014225051-scheduled-cards.sql", "20261121105631-scheduled-jobs.sql", "20261126180000-scheduled-delivery-guards.sql"]) a.run(readFileSync(join(MIGRATIONS, file), "utf8").replace(/REFERENCES tasks\(id\)[^,\n]*/g, ""));
       b.run("PRAGMA busy_timeout = 2000");
       const first = fakeCommand(); const second = fakeCommand();
       const engineB = createScheduleEngine(b, { executors: { command: second.executor }, now: () => clock });
