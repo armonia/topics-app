@@ -90,6 +90,7 @@ test.describe("project family label (accorpa)", () => {
   test("the card chip and the table's project column both read «Sito Armonia · Nuvola»", async ({ page }) => {
     await resetPaneStore(page.request, []);
     await page.goto("/");
+    test.info().annotations.push({ type: "spec", description: "WORKTREE-STD-06" });
     await page.evaluate(() => {
       for (const k of Object.keys(localStorage)) if (k.startsWith("topics.board.")) localStorage.removeItem(k);
       localStorage.setItem("topics.board.preset", "all");

@@ -8,7 +8,7 @@ import { projectNameIndexIds, resolveProjectRefs } from './boardProjectsStore';
  * the name map was built only from the VISIBLE tasks' project ids, and the
  * parent never appeared there.
  *
- * @covers 9e98df9f
+ * @covers WORKTREE-STD-06
  */
 describe('projectNameIndexIds', () => {
   test('adds the index\'s ids to the visible tasks\' ids, so a parent with no task of its own still resolves', () => {
