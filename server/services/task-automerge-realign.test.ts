@@ -222,7 +222,7 @@ describe("il land riallinea il ramo su main da sé", () => {
     });
     const mainPrima = git(repo, "rev-parse", "main").trim();
     const done = await landOn(repo).realign("t1");
-    expect(done).toEqual({ ok: true, note: expect.stringContaining("2 commit") });
+    expect(done).toEqual({ ok: true, note: expect.stringContaining("2 commit"), commit: expect.any(String) });
     expect(log(repo, BRANCH)).toContain("Riporta main nel ramo prima del land");
     expect(git(repo, "rev-parse", "main").trim()).toBe(mainPrima);
     // Already inside: nothing to do, nothing to say.
@@ -261,7 +261,7 @@ describe("il land riallinea il ramo su main da sé", () => {
         return { code: 0, stdout: "", stderr: "" };
       },
     }).realign("t1");
-    expect(res).toEqual({ ok: true, note: expect.stringContaining("2 commit") });
+    expect(res).toEqual({ ok: true, note: expect.stringContaining("2 commit"), commit: expect.any(String) });
     // The script saw the union merge (both lines, arrival order) and wrote the sorted one.
     expect(seen).toHaveLength(1);
     expect(seen[0]).toContain("002-b");
@@ -491,6 +491,9 @@ describe("l'atterraggio automatico non riallinea (noRealign)", () => {
     expect(out.ok).toBe(true);
     // The branch now carries main: the next land has nothing to realign.
     expect(git(repo, "merge-base", "--is-ancestor", "main", BRANCH)).toBe("");
+    // The commit the realign reports IS the branch's new tip: a checkout
+    // measuring the branch elsewhere must follow this, not the commit it had before.
+    if (out.ok) expect(out.commit).toBe(git(repo, "rev-parse", BRANCH).trim());
   }, WITH_REAL_GIT);
 });
 
