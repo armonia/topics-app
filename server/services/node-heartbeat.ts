@@ -98,15 +98,15 @@ async function reportWorktrees(
 
 /**
  * The function the 30-second ticker calls. Rounds never overlap: a tunnel that hangs holds one
- * round, it does not pile one more on top of it every 30 seconds.
+ * round, it does not pile one more on top of it every 30 seconds. The promise settles when the
+ * round it started (or the one already running) ends, so the boot can wait on the first one.
  */
-export function createNodeProbe(deps: NodeProbeDeps): () => void {
-  let running = false;
+export function createNodeProbe(deps: NodeProbeDeps): () => Promise<void> {
+  let round: Promise<void> | null = null;
   return () => {
-    if (running) return;
-    running = true;
-    void probeOnce(deps)
+    round ??= probeOnce(deps)
       .catch((err) => deps.log?.("nodo: sonda dei nodi fallita", err))
-      .finally(() => { running = false; });
+      .finally(() => { round = null; });
+    return round;
   };
 }

@@ -309,7 +309,39 @@ export function fenceInternalWrites(on: boolean): void {
   internalWritesFenced = on;
 }
 
+let bootHold: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * A primary that boots after being away (track T9) does not know yet whether a
+ * node claimed the primary while it was off. Its own writers stay off until the
+ * first round of calls to its nodes answered (a node that took over answers
+ * `stale_primary_epoch`) or `maxMs` passed, whichever comes first.
+ */
+export function holdInternalWritesUntilNodesAnswer(maxMs: number): void {
+  if (bootHold) clearTimeout(bootHold);
+  bootHold = setTimeout(releaseBootHold, maxMs);
+  bootHold.unref?.();
+}
+
+export function releaseBootHold(): void {
+  if (bootHold) clearTimeout(bootHold);
+  bootHold = null;
+}
+
 export function isThisServerPrimary(): boolean {
-  if (internalWritesFenced) return false;
+  if (internalWritesFenced || bootHold) return false;
   return active ? active.isPrimary() : true;
+}
+
+type StaleAnswerHandler = (url: string, body: unknown) => void;
+let staleAnswerHandler: StaleAnswerHandler | null = null;
+
+/** Wired at boot by `primary-replaced.ts`: what to do when a node says this primary was replaced. */
+export function onStaleAnswer(handler: StaleAnswerHandler | null): void {
+  staleAnswerHandler = handler;
+}
+
+/** Called by the node client on every 409 it receives, with the parsed body. */
+export function reportStaleAnswer(url: string, body: unknown): void {
+  staleAnswerHandler?.(url, body);
 }

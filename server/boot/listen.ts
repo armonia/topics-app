@@ -71,6 +71,20 @@ export async function bootListen(scope: AfterFront) {
 
   const fetchCompresso = withHttpLog(withJsonCompression(opzioniServer.fetch));
 
+  /**
+   * A replaced primary is refused BEFORE authentication on the main port too, as
+   * on the tunnel ports below. After a claim (track T9) this server runs on the
+   * DB of the primary it replaced, where the device that primary calls with does
+   * not exist: authenticating first would answer 401, and the old primary would
+   * never learn it was replaced. `rejectStale` reads one header and changes
+   * nothing, and only a primary sends that header.
+   */
+  const fetchMain = async function (this: unknown, req: Request, srv: Server<WSData>) {
+    const stale = getPrimaryRole()?.rejectStale(req);
+    if (stale) return stale;
+    return fetchCompresso.call(this as never, req, srv);
+  } as typeof fetchCompresso;
+
 
   // ─── Bind, then ask who is there ────────────────────────────────────────────
   // The bind is the question: the kernel answers EADDRINUSE or it does not. Only
@@ -83,7 +97,7 @@ export async function bootListen(scope: AfterFront) {
   try {
     const attempt = await listenWithSquatterFallback(
       PORT,
-      (port) => Bun.serve<WSData>({ ...opzioniServer, port, fetch: fetchCompresso }),
+      (port) => Bun.serve<WSData>({ ...opzioniServer, port, fetch: fetchMain }),
     );
     server = attempt.listener;
     if (attempt.movedToEphemeral) {

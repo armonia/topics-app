@@ -121,6 +121,10 @@
         // of the browser tree with only an agent using it and again with a
         // person watching. Run by hand, imported by nobody.
         "scripts/browser-qos-probe.ts",
+        // `bun scripts/probe-claim-loss.ts [seconds] [runs]` - the seconds of writes a
+        // claim loses when the primary dies without warning (track T9), with a real
+        // Litestream 0.3.x and age-keygen in PATH. Run by hand; its test runs one round.
+        "scripts/probe-claim-loss.ts",
         // `bun scripts/project-quota-check.ts --db PATH [--now ISO]`
         // - limiti-consumo-progetto's probe: every project's points in the last
         // 24h and 7d with the split by surface, read-only, run by hand against a

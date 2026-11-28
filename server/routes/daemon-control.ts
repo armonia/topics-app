@@ -3,6 +3,7 @@
  * Every one of them is gated by the allowed-host check, the local-transport check and the daemon token.
  */
 import { handlePrimaryReclaim, handlePrimarySwitch } from "./primary-switch-trigger";
+import { handlePrimaryClaim } from "./primary-claim-trigger";
 import { readState, uptimeMsSince } from "../services/daemon-state";
 import { aiBridgeEnabled } from "../providers/claude-code";
 import { nativeDetachedEnabled } from "../providers/native/detached-turn";
@@ -158,6 +159,10 @@ export function createDaemonControl(scope: Pick<AfterHttp, "BOOT_COMMIT" | "abor
       if (method === "POST" && pathname === "/__daemon/primary-reclaim") {
         // `bun run primary reclaim`: takes the primary back after an uncertain switch (routes/primary-switch-trigger.ts).
         return handlePrimaryReclaim({ ctx });
+      }
+      if (method === "POST" && pathname === "/__daemon/primary-claim") {
+        // `bun run primary claim`: the primary died without warning, this server takes over from its replica (track T9).
+        return handlePrimaryClaim(req, { ctx });
       }
       if (method === "POST" && pathname === "/__daemon/primary-switch") {
         // `bun run primary switch <machine>`: hands this primary over (track T4, routes/primary-switch-trigger.ts).

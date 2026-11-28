@@ -19,7 +19,7 @@
  */
 import type { ProvidersSnapshot } from "../../shared/types";
 import { CLAUDE_CODING_PROVIDERS } from "../../shared/task-coding-models";
-import { getPrimaryRole } from "../lib/primary-role";
+import { getPrimaryRole, reportStaleAnswer } from "../lib/primary-role";
 import type { WorktreePlanEntryPayload } from "../../shared/worktree-plan";
 import type { WorktreePolicy, WorktreeSummary } from "../../shared/worktree-summary";
 export {
@@ -369,8 +369,10 @@ async function readErrorBody(res: Response): Promise<{ error?: string; code?: st
  * whenever it is there, because the status alone cannot tell a wrong host
  * from a revoked device (both 403).
  */
-async function nodeErrorFromResponse(res: Response, what: string): Promise<NodeError> {
+async function nodeErrorFromResponse(res: Response, what: string, url: string): Promise<NodeError> {
   const body = await readErrorBody(res);
+  // A node that took over the primary while this one was away answers `stale_primary_epoch` (track T9).
+  if (res.status === 409) reportStaleAnswer(url, body);
   const detail = body.error ? `: ${body.error}` : "";
   const msg = `${what} answered ${res.status}${detail}`;
   if (body.code === "host_not_allowed" || (res.status === 403 && body.error === "host not allowed")) {
@@ -420,7 +422,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     } catch (err) {
       throw new NodeError(reasonFromThrown(err), `${what}: ${messageOf(err)}`);
     }
-    if (!res.ok) throw await nodeErrorFromResponse(res, what);
+    if (!res.ok) throw await nodeErrorFromResponse(res, what, url);
     return res;
   };
 
