@@ -27,7 +27,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { inspectDelivery } from "../services/scheduled-review-inspect";
-import { buildSensePrompt, deliveryDiff, diffIsClipped, newSenseNonce, falseMainClaims, isOnMain, runSense, senseModelFor } from "../services/scheduled-review-sense";
+import { buildSensePrompt, deliveryClaimWords, deliveryDiff, diffIsClipped, newSenseNonce, falseMainClaims, isOnMain, runSense, senseModelFor } from "../services/scheduled-review-sense";
 import { reviewScheduled, scheduledReviewDue, type ScheduledReviewCard, type ScheduledReviewOutcome } from "../services/scheduled-review";
 
 /** `unmeasuredStop`'s reason when the bar is `running`: a verdict is coming, not a missing one. */
@@ -291,7 +291,6 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   const scheduledMinutes = (projectId: string): number => {
     try { return readWorkflowRules(db, projectId).scheduledReviewMinutes; } catch { return 0; }
   };
-  const NOT_A_WRITER = new Set(["user", "guest", "system", "dispatcher", "verifier"]);
 
   function startScheduledPass(t: Task): void {
     const minutes = scheduledMinutes(t.projectId);
@@ -332,10 +331,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       files: async (c) => (opts?.deliveryFiles ? opts.deliveryFiles(c.id, c.deliveryCommit!) : null),
       personPaths: (projectId) => readWorkflowRules(db, projectId).personPaths,
       inspect: doors.inspect ?? ((c, files) => inspectDelivery(repo, c.id, c.deliveryCommit!, files)),
-      falseMainClaims: doors.falseMainClaims ?? (async () => {
-        const words = thread().filter((c) => !NOT_A_WRITER.has(commentAuthorLabel(c.author).kind)).slice(-3).map((c) => c.content).join("\n");
-        return falseMainClaims(repo, words);
-      }),
+      falseMainClaims: doors.falseMainClaims ?? (async () => falseMainClaims(repo, deliveryClaimWords(thread()))),
       onMain: doors.onMain ?? ((c) => isOnMain(repo, c.deliveryCommit!)),
       bouncedBefore: () => {
         const earlier = thread().filter((c) => c.content.includes(marker)).pop();

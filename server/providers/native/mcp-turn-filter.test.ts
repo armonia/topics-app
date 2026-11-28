@@ -78,7 +78,7 @@ async function mcpToolNamesSent(workspace: string): Promise<string[]> {
 }
 
 beforeAll(() => {
-  for (const k of ["TOPICS_MCP_CONFIG_FILE", "TOPICS_NATIVE_MCP", "TOPICS_SESSION_MCP_ALLOW", "TOPICS_SESSION_MCP_DENY", "TOPICS_SESSION_MCP_INHERIT_ALL", "JARVIS_CHANNELS_HOME", "APP_DATA_DIR"]) {
+  for (const k of ["TOPICS_MCP_CONFIG_FILE", "TOPICS_NATIVE_MCP", "TOPICS_SESSION_MCP_ALLOW", "TOPICS_SESSION_MCP_DENY", "TOPICS_SESSION_MCP_INHERIT_ALL", "JARVIS_CHANNELS_HOME", "APP_DATA_DIR", "TOPICS_CACHE_KEEPALIVE"]) {
     envBackup[k] = process.env[k];
     delete process.env[k];
   }
@@ -93,6 +93,8 @@ beforeAll(() => {
     JSON.stringify({ claudeAiOauth: { accessToken: "fake-but-fresh", refreshToken: "r", expiresAt: Date.now() + 3_600_000 } }),
   );
   process.env.HOME = home;
+  // No keep-alive ping: its timer outlives the test, and by then HOME and fetch are the real ones again.
+  process.env.TOPICS_CACHE_KEEPALIVE = "off";
 
   const engineHome = join(home, "jarvis-channels");
   mkdirSync(engineHome, { recursive: true });

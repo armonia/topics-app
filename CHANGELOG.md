@@ -2,19 +2,68 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.5.20 — 2026-11-27
+## 2.5.22 — 2026-11-27
+
+### Correzioni
+- **node-mirror** · a null attachment is gone for good, not a hiccup to retry forever
 
 ### Sotto il cofano
+- **openspec** · archive tetto-contesto-agenti; CHAT-COMPACT-06 joins the chat spec
+- Catch a land denial with no sha, and reorder a misplaced docblock
+
+## 2.5.21 — 2026-11-27
+
+### Correzioni
+- **native** · the agent's ceiling is checked when a turn starts; a lightened argument stays as it was
+- **native** · an agent's ceiling never clips fresh tool results; token-audit bounds the markers too
+- **native** · an agent's ceiling applies only on a turn a person opened; a resume keeps its request
+- **native** · the ceiling skips a continuation, not every turn nobody typed in the composer
+- **native** · a wake is a continuation too; one list of machine marks for continuation and sentByPerson
+
+### Sotto il cofano
+- Trace the main-claim review check to KANBAN-11, not a card id
+- **openspec** · tetto-contesto-agenti, the ceiling at turn start and its three new scenarios
+- node-pool: repo copy gets the drain fix (needs_input and waiting cards do not count), with a regression test
+- **openspec** · tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k
+- **openspec** · tetto-contesto-agenti, the ceiling skips continuations; a Discord message from Jarvis's channel gets it
+- picker keeps projects under ~/.claude, a queued card can move boards, merged parent header shows its name
+- Declare coverage of the merged-parent name test
+- **openspec** · tetto-contesto-agenti, wakes are continuations
+- secret-store: fix three more ways to lose a secret
+- node-pool: permanent node gets ci-governor files again (shared PERMANENT_FILES list), with a test
+
+## 2.5.20 — 2026-11-27
+
+### Novità
+- **native** · an agent's chats compact at an absolute token ceiling
+
+### Correzioni
+- **node-delivery** · move the spawn allowlist entry to where the install call now lives
+
+### Sotto il cofano
+- secret-store: mutex per file, derived recipient, Keychain limit and read-back, no env identity, secrets dir, CI age retry
 - review-checks brakes: load gets its own budget clock, only the load reason is released by it (card 9fecea98)
 - review-checks brakes test: complete the spent clocks literal (card 9fecea98)
+- age is a spawned test binary, not dead code
+- Prove "already on main" before writing it, and warn review of a false claim
+- **native** · the ceiling reaches the loop inside the turn's own process
+- **openspec** · tetto-contesto-agenti, CHAT-COMPACT-06 and its bar; token-audit measures an agent's calls
+- **openspec** · no machine path in the proposal
 
 ## 2.5.19 — 2026-11-27
+
+### Correzioni
+- **gates** · record task-dispatcher-remote-node.test.ts growth with a live exception
+- **gates** · drop unused nodeTokenPath re-export flagged by deadcode-prod
 
 ### Sotto il cofano
 - Card legata a un nodo pieno: il pavimento di memoria del Mac non la nasconde al controllo delle card ferme
 - Card ferme: per una card legata a un nodo cade solo il pavimento di memoria del Mac, il disco pieno e la spesa restano un motivo (fermano anche la corsia remota)
 
 ## 2.5.18 — 2026-11-27
+
+### Correzioni
+- **gates** · declare untraced test coverage, split node-client under bloat threshold
 
 ### Sotto il cofano
 - Test della scala del bundle: un'identità git sua, il runner della CI non ne ha una globale
@@ -25,6 +74,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Correzioni
 - **dispatch** · split node-client.ts under the bloat threshold, name the reason for a declined remote claim
+- **node-delivery** · widen the install-call slice after the checkout revert's extra comments
 
 ### Sotto il cofano
 - Nodo senza origin: il bundle del ramo si allarga quando il nodo dice che gli mancano i commit
@@ -120,6 +170,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **deploy** · Windows node scripts move into deploy/windows-node, single node-tools list, no personal paths
 
 ### Correzioni
+- **nodes** · retry failed attachments, test previewImage, extract delivery mainRef wiring
 - **board** · read the clock once per render in the load gauge
 - **board** · close the review's 5 blocking gaps on archive/revoke/dedupe
 - **land** · close a card whose delivery already reached main
@@ -144,6 +195,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **review-checks** · give isMacOnlyDiff's git read a deadline and list it
 - **browser** · pin playwright-core to the exact locked version, install with integrity and a deadline
 - **gates** · ci-impact fixtures no longer read as the file's own @covers
+- **node-delivery** · say why on the card, and lock the install call with a test
 
 ### Sotto il cofano
 - **board** · bloat baseline raises only tasks-land.ts, the one file the scheduled review pushes over its ceiling
@@ -204,6 +256,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **lint** · drop the unused afterAll import in the swap-exhausted check test
 - **board** · the new board requirements are in the spec, and the person-owned word list carries its language marker
 - **node-checks** · give each run its own checkout folder
+- **node-delivery** · measure node deliveries whose bar mixes CI and local checks
+- **nodes** · carry node attachments to the primary, read delivery commits against origin/main
 
 ### Sotto il cofano
 - close the remaining 26/11 review gaps on archive() and blockedByTaskId
