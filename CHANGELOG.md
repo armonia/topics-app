@@ -20,18 +20,29 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Give PreviewButton its own key: it shared topic.id with ChangedFilesStrip
 - **spawn-deadline** · list the detached session resume
+- Record the land guard's size as a live exception, not a silent bump
 - Keep cards reachable when an aliased board id still holds cards
 - Chat previews: memory admission, cap on live chat previews (default 2), button closes the oldest
 - rename helper
 - fix helper calls
 - **design** · spec-flow 0.8.0 turns on check-design-system
 - Send a mail once even if the server restarts
+- Primary switch: launches on their way to any machine are parked before the snapshot, the VAPID keys live in the state folder the switch collects, and nothing a switch leaves in a checkout is seen by git
+- Primary switch: the receiver refuses before the commit a replica it cannot stop or a folder it cannot write, a failed replica stop throws before anything moves, and the sender retires only once the new primary confirms its restore; a failed restore is dropped and the sender stays the primary
 - design-baseline: registra TopSessionsSection (debito di un file nuovo di main)
+- node-pool: resolve HERE through symlinks, slots from env
+- Primary switch: the receiver asks again after the replica stop and right before the rename whether anyone holds the DB, the CLI prints a switch warning and exits 3, the legacy VAPID keys are copied and left in place, and the owner-only restore test runs on the new flow
 - il selettore del dropdown segue la classe max-h-75
 - Sidebar top sessions: use design-system Button and TextField, clearing the red design gate on main
+- Review checks: put the repo's pinned Bun first in the child PATH
+- Declare what the pinned-bun test covers
+- REVIEW-BUN-01
+- Primary switch: the replica and the marker files get modules of their own so the switch stays under the size threshold, the lsof spawn is listed with its reason, the gitignore test runs git in the isolated env, and the CLI test names what it covers
 - Mark the ui kit exports that the production graph now reaches but does not use
 - Record pre-existing design-system debt for TopSessionsSection (main merge)
+- Primary switch: the tests import the replica settings and the restore status file from their own modules, so production keeps no export only a test reads
 - Revert "fix(design-system): TopSessionsSection uses Button/TextField primitives"
+- Primary switch: after the rename the copy set aside is asked who holds it, and a replica a supervisor restarted while lsof answered undoes the rename and refuses
 - baseline follows the scores that rose tonight [skip ci]
 
 ## 2.5.28 — 2026-11-28
@@ -48,16 +59,23 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **schedule** · watchdog TERM handler kills its sleep via $!, restore 20s test windows
 
 ### Sotto il cofano
+- Adatta i test di task-automerge alla guardia del land per sovrapposizione
 - Remove on-demand node-pool slots, keep the permanent node only
 - Preview seed: correct the proven cause and lock it with tests
 - Lavori programmati 3/8: registro di tool e spawn aggiornati per l'adattatore
+- Run the foreign-probe of a mixed-ancestry land on an isolated worktree, never on the live checkout
 
 ## 2.5.25 — 2026-11-28
 
 ### Sotto il cofano
+- Primary switch receiver: replica stopped and started around the DB swap, files before the DB with the role file last, room checked before the commit, one list of instance files (topic memory, waiting items, cloud runs, VAPID keys now travel)
 - Make the walkFileTree yield test load-independent
 - **schedule** · widen real-command wait windows to stop CI flake
+- Primary switch: context files and agent engine settings travel with the instance list, a no_space refusal leaves the sender the primary (test), the probe resumes by session id and asks the real door
+- Dispatcher node lane: the primary switch park and runsOn logic moves to its own module, bringing task-dispatcher-remote-node.ts back under the bloat ceiling
+- merge in an open checkout unless the index is dirty or a modified file overlaps the merge
 - Trace the systemd-temp-entries test to GATE-13 so check:untraced-tests passes
+- Primary switch: the replica command spawn is listed with its reason, and the secret store file from main is named among the files that never travel
 - Preview photo: the announced page is the contract, not the bare home
 
 ## 2.5.24 — 2026-11-28
@@ -65,7 +83,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - node-pool: realign the permanent node without draining slots
 - cut-run test falls back to lsof on macOS and always kills the runner group
+- Primary switch: a node launch counts as running on its machine from the moment it starts, is waited for or parked, and a run born under the fence is cancelled
 - node-pool: AI bridge on the nodes and a cap on new cards when behind
+
+## 2.5.23 — 2026-11-28
+
+### Sotto il cofano
+- Primary switch: destination runs parked, new primary id on the epoch, newer transcript wins, primary_moved under the fence, attachments travel, retired DB under another name, real-fence probe
 
 ## 2.5.22 — 2026-11-27
 
@@ -92,6 +116,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - node-pool: repo copy gets the drain fix (needs_input and waiting cards do not count), with a regression test
 - Revert "Revert the detached node-check worktree: CI rows can no longer read a branch"
 - **openspec** · tetto-contesto-agenti, the ceiling only on a person's turn; T4's bar is the share over 200k
+- Primary switch: the fence turns the live DB read-only; scheduled runs drained and parked
 - **openspec** · tetto-contesto-agenti, the ceiling skips continuations; a Discord message from Jarvis's channel gets it
 - picker keeps projects under ~/.claude, a queued card can move boards, merged parent header shows its name
 - Declare coverage of the merged-parent name test
@@ -227,6 +252,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - rerun the touched-test check after a load-induced relay flake
 - **relay** · retry tsc file listing once under load before judging the program
 - Revert "test(relay): retry tsc file listing once under load before judging the program"
+- Primary switch: the fence stops internal writers and node polls too
+- Primary switch: node runs reattach on the new primary, ignore switch leftovers, finite drain timeout
+- Primary switch: declare the requirement the node-run switch test covers
 - rerun the review check
 
 ## 2.5.9 — 2026-11-27
@@ -346,7 +374,18 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - close the remaining 26/11 review gaps on archive() and blockedByTaskId
 - Auto-land: a land waiting on the pull request's CI forgets the offer so the sweep asks again at the verdict
+- Primary switch: gate fixes
+- Primary switch: guard the owner-only mode of the restored DB
+- primary-role-two-servers: boot the children with the worktree opt-out
+- Pace the fake CLI of two re-adoption tests with an in-process timer
+- pty-bridge-mjs: attach the probe listeners before connecting
+- late-scan-route-grace: keep the daemon socket under Bun's 104 byte limit
 - the refusal to archive names the card, and stops refusing for a blocker that stays
+- Child watch: skip the stale sweep while the database is closed
+- task-diff-file git-hung: give the complete-blob case a long git deadline
+- git-watcher test: widen the wait for a broadcast with the machine's time slack
+- cache-keepalive test: turn the event loop while settling, the token read is real I/O
+- numbered fake CLI: English name for the line end index
 - no new command starts while the Mac load is over 2 per core (card 9fecea98)
 - il popup di login nasce vuoto, così la pagina madre non lo perde (#1702)
 
@@ -389,6 +428,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - close the three gaps left in archive() by the 26/11 review
 - **e2e** · the narrowest column is 248, and the word hides beside the Windows cluster
 - a rimando after a land is not a closed card, and a job-level red is not always a preexisting one
+- Primary switch: hand the primary to another computer with a drain, nothing lost
+- wip
+- wip2
 
 ## 2.5.1 — 2026-11-25
 
