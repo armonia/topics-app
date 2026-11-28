@@ -3,10 +3,22 @@ import { readFileSync, readdirSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import type { EmbeddedMigration } from "./db/migrations-embedded";
 import { MIGRATION_STEPS } from "./db/migration-steps";
-import { resolveDataDir } from "./lib/data-dir";
+import { LIVE_DB_NAME, resolveDataDir, RETIRED_DB_NAME } from "./lib/data-dir";
 import { instrumentSlowStatements } from "./lib/db-slow-log";
 
 let _db: Database | null = null;
+
+let retiredDatabaseFile = false;
+
+/** Before `initDatabase` (the retired marker is read at boot): which file this server opens. */
+export function selectRetiredDatabaseFile(on: boolean): void {
+  retiredDatabaseFile = on;
+}
+
+/** The DB file this process opens, or would open, under a data folder. */
+export function databaseFilePath(dataDir: string): string {
+  return join(dataDir, retiredDatabaseFile ? RETIRED_DB_NAME : LIVE_DB_NAME);
+}
 
 /**
  * Initialize SQLite database with WAL mode and run pending migrations.
@@ -20,7 +32,7 @@ export function initDatabase(baseDir: string, dataRoot: string = baseDir): Datab
   const dataDir = resolveDataDir(dataRoot);
   mkdirSync(dataDir, { recursive: true });
 
-  const dbPath = join(dataDir, "topics.db");
+  const dbPath = databaseFilePath(dataDir);
   const isNew = !existsSync(dbPath);
 
   const db = new Database(dbPath);
@@ -75,6 +87,52 @@ export function initDatabase(baseDir: string, dataRoot: string = baseDir): Datab
 export function getDatabase(): Database {
   if (!_db) throw new Error("Database not initialized. Call initDatabase() first.");
   return _db;
+}
+
+/** Whether the singleton is open now: for a timer that outlives a close (a test between two databases, a shutdown). */
+export function isDatabaseOpen(): boolean {
+  return _db !== null;
+}
+
+let fencedReadOnly = false;
+
+/**
+ * The write fence of a primary switch (track T4), at the one place every
+ * writer goes through: the live handle turns `query_only`, so from the fence on
+ * NO path writes into the DB that was handed over, whatever timer or route it
+ * comes from. Before the handle opens (the fence is read at boot) only the
+ * wish is kept: `applyFencedReadOnly` turns it on once the boot has run, so a
+ * boot step that writes does not stop the server from coming up.
+ */
+export function setDatabaseReadOnly(on: boolean): void {
+  fencedReadOnly = on;
+  if (_db) _db.run(`PRAGMA query_only = ${on ? "ON" : "OFF"}`);
+}
+
+/** End of boot: a fence read from disk before the DB opened reaches the handle now. */
+export function applyFencedReadOnly(): void {
+  if (fencedReadOnly) setDatabaseReadOnly(true);
+}
+
+/** A write refused by the fence: what the process-level handlers absorb instead of crashing on it. */
+export function isFencedWriteError(err: unknown): boolean {
+  return fencedReadOnly && (err as { code?: unknown } | null)?.code === "SQLITE_READONLY";
+}
+
+/**
+ * A write that is only bookkeeping around a request (a device's `last_seen_at`,
+ * a credential learned as a node's): under the fence it is skipped, never
+ * raised. The fence refuses the real writes itself, with `primary_moved`; a
+ * bookkeeping write that threw before the front door answered turned that
+ * answer into a 500 for every request of the fenced server. Any other error
+ * still propagates.
+ */
+export function bestEffortWrite(write: () => void): void {
+  try {
+    write();
+  } catch (err) {
+    if (!isFencedWriteError(err)) throw err;
+  }
 }
 
 /**

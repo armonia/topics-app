@@ -1101,6 +1101,26 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     }
 
     /**
+     * `foreignNotOnMain` on a scratch worktree detached at `cwd`'s current HEAD,
+     * never on `cwd` itself. The probe resets its own checkout after every pick
+     * (see `foreignNotOnMain`'s docblock): run on a live, shared checkout that
+     * would reset away another session's uncommitted work.
+     */
+    async function foreignNotOnMainIsolated(cwd: string, own: { others: string[] }): Promise<string[] | null> {
+      const head = await runGit(cwd, ["rev-parse", "HEAD"]);
+      if (head.code !== 0 || !head.stdout.trim()) return null;
+      const wtPath = join(scratchDir("land"), scratchId(repoPath));
+      await discardWorktree(runGit, repoPath, wtPath);
+      const add = await runGit(repoPath, ["worktree", "add", "--detach", wtPath, head.stdout.trim()]);
+      if (add.code !== 0) return null;
+      try {
+        return await foreignNotOnMain(wtPath, own);
+      } finally {
+        await discardWorktree(runGit, repoPath, wtPath);
+      }
+    }
+
+    /**
      * The diff of one commit with what a replay changes stripped: blob ids and
      * hunk line numbers. Same idea as `git patch-id`, which cannot be used
      * through `runGit` because it reads its input from stdin.
@@ -1609,15 +1629,31 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // would have touched.
         // Merge in a checkout that already has the default branch open and live.
         const mergeInOpenCheckout = async (cwd: string, checkoutBranch: string, live: boolean): Promise<AutoMergeResult> => {
-          const st = await runGit(cwd, ["status", "--porcelain", "--untracked-files=no"]);
-          if (st.stdout.trim() !== "") {
-            return { status: "skipped", code: "dirty-checkout", reason: `il checkout ${cwd} è su '${defaultBranch}' con modifiche non committate a file tracciati. Mergia a mano o pulisci il checkout` };
+          // A staged change would be folded into the merge (git refuses a merge with a non-empty index only in some cases), so it stops the land.
+          const staged = await runGit(cwd, ["diff", "--cached", "--name-only"]);
+          const stagedFiles = staged.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+          if (stagedFiles.length > 0) {
+            return { status: "skipped", code: "dirty-checkout", reason: `il checkout ${cwd} è su '${defaultBranch}' con file in stage (${stagedFiles.slice(0, 5).join(", ")}). Fai commit o unstage, poi riprova` };
           }
           const diverged = await syncLandingBase(cwd);
           if (diverged) return diverged;
+          // Unstaged edits stay where they are unless the merge would change the same file: only that overlap stops the land.
+          const modified = await runGit(cwd, ["diff", "--name-only"]);
+          const modifiedFiles = modified.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+          if (modifiedFiles.length > 0) {
+            const incoming = await runGit(cwd, ["diff", "--name-only", `HEAD...${mergeRef()}`]);
+            const incomingFiles = new Set(incoming.stdout.split("\n").map((l) => l.trim()).filter(Boolean));
+            const overlap = incoming.code !== 0 ? modifiedFiles : modifiedFiles.filter((f) => incomingFiles.has(f));
+            if (overlap.length > 0) {
+              return { status: "skipped", code: "dirty-checkout", reason: `il checkout ${cwd} è su '${defaultBranch}' con modifiche non committate a file che il merge cambierebbe (${overlap.slice(0, 5).join(", ")}). Mergia a mano o pulisci quei file` };
+            }
+          }
           // Mixed by ancestry is not mixed by content: see `foreignNotOnMain`.
+          // `cwd` here is a live, shared checkout (it may hold another session's
+          // uncommitted edits, just allowed through above): the probe runs on an
+          // isolated worktree instead, never on `cwd` itself.
           if (onlyOwn) {
-            const missing = await foreignNotOnMain(cwd, onlyOwn);
+            const missing = await foreignNotOnMainIsolated(cwd, onlyOwn);
             if (missing === null || missing.length > 0) return partialLandRefused(cwd, onlyOwn, missing);
           }
           const stopped = await lookBeforeMerge(cwd);

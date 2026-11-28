@@ -34,6 +34,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { recordCardLiveTree, recordCardMemPeak, treeFootprintKB } from "../lib/card-memory-peaks";
 import { lowPriorityArgv } from "../lib/low-priority";
+import { pinnedBunPath } from "../lib/pinned-bun-path";
 import { GATES_STEPS } from "./ci-evidence";
 
 /**
@@ -559,6 +560,9 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
     // At agent priority (nice 15, `utility` QoS on macOS): five tsc, an
     // eslint and four unit shards per delivery must never outrank
     // the person using this machine. See server/lib/low-priority.ts.
+    // A repo that pins its Bun gets it first in the child's PATH (see pinned-bun-path.ts).
+    const pinned = pinnedBunPath(opts.cwd, opts.env?.PATH ?? process.env.PATH);
+    if (pinned.note) console.warn(pinned.note);
     proc = Bun.spawn(lowPriorityArgv(["/bin/sh", "-lc", check.cmd]), {
       cwd: opts.cwd,
       // Its own process group, so a kill reaches what the shell forks after
@@ -589,6 +593,7 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
         TOPICS_GATE_SLOTS: process.env.TOPICS_GATE_SLOTS || String(slotCount({})),
         NO_COLOR: "1",
         ...opts.env,
+        ...(pinned.path ? { PATH: pinned.path } : {}),
       },
     });
     // stdout is collected whole; stderr is read as it arrives, because two of

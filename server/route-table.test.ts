@@ -26,6 +26,7 @@ const GOLDEN_ORDER = [
   "worktreesRouter",
   "machineWorktreesRouter",
   "machinesRouter",
+  "nodePrimaryRouter",
   "nodeWorktreesRouter",
   "nodesRouter",
   "filesRouter",

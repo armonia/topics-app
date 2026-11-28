@@ -5,11 +5,17 @@ import { isClaudeModel, resolveSubagentLaunch } from "./subagent-launch";
 
 const scout: AgentProfile = { name: "scout", description: "Sweep.", model: "sonnet", effort: "low", source: "user", path: "/h/scout.md" };
 const oracle: AgentProfile = { name: "oracle", description: "Hard question.", model: null, effort: "max", source: "user", path: "/h/oracle.md" };
-const profiles = new Map([["scout", scout], ["oracle", oracle]]);
+const userWorker: AgentProfile = { name: "worker", description: "Mechanical stage.", model: "sonnet", effort: null, source: "user", path: "/h/worker.md" };
+const projectWorker: AgentProfile = { name: "worker", description: "Mechanical stage.", model: "sonnet", effort: null, source: "project", path: "/proj/worker.md" };
+const profiles = new Map([["scout", scout], ["oracle", oracle], ["worker", userWorker]]);
 const sonnetParent = { model: "claude-sonnet-5-5[1m]", effort: "xhigh" };
 
-function launch(call: Record<string, unknown>, parent: { model: string | null; effort: string | null } = sonnetParent) {
-  const r = resolveSubagentLaunch({ call, profiles, parent });
+function launch(
+  call: Record<string, unknown>,
+  parent: { model: string | null; effort: string | null; belongsToTask?: boolean } = sonnetParent,
+  profileMap: ReadonlyMap<string, AgentProfile> = profiles,
+) {
+  const r = resolveSubagentLaunch({ call, profiles: profileMap, parent });
   if (!r.ok) throw new Error(r.error);
   return r.launch;
 }
@@ -67,7 +73,27 @@ describe("resolveSubagentLaunch", () => {
     const effort = resolveSubagentLaunch({ call: { effort: "ultra" }, profiles, parent: sonnetParent });
     expect(effort.ok).toBe(false);
     const agent = resolveSubagentLaunch({ call: { agentType: "nobody" }, profiles, parent: sonnetParent });
-    expect(agent).toEqual({ ok: false, error: 'unknown agent_type "nobody": use one of oracle, scout' });
+    expect(agent).toEqual({ ok: false, error: 'unknown agent_type "nobody": use one of oracle, scout, worker' });
+  });
+
+  test("the user's worker profile inherits the parent's model in a plain chat", () => {
+    const l = launch({ agentType: "worker" });
+    expect(l).toMatchObject({ model: "claude-sonnet-5-5[1m]", modelSource: "parent" });
+  });
+
+  test("the user's worker profile keeps its Sonnet inside a board task", () => {
+    const l = launch({ agentType: "worker" }, { ...sonnetParent, belongsToTask: true });
+    expect(l).toMatchObject({ model: "sonnet", modelSource: "profile" });
+  });
+
+  test("a project's own worker profile is honoured even in a plain chat", () => {
+    const l = launch({ agentType: "worker" }, sonnetParent, new Map([["worker", projectWorker]]));
+    expect(l).toMatchObject({ model: "sonnet", modelSource: "profile" });
+  });
+
+  test("an explicit call model still beats the chat default for worker", () => {
+    const l = launch({ agentType: "worker", model: "opus" });
+    expect(l).toMatchObject({ model: "opus", modelSource: "call" });
   });
 
   test("what counts as a Claude model", () => {
