@@ -47,7 +47,8 @@
  */
 import { createPublicKey, verify as verificaFirmaEd25519, type KeyObject } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import { instanceEntryPath, LICENSE_TOKEN } from "./instance-files";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Il vocabolario
@@ -416,7 +417,7 @@ export function verificaGettone(gettone: string, o: OptionsVerify): Entitlement 
 /** Un file accanto a `installation-id`, e per lo stesso motivo: deve
  *  sopravvivere a un ripristino del database da un backup. */
 export function percorsoGettone(stateDir: string): string {
-  return join(stateDir, "license-token");
+  return instanceEntryPath(LICENSE_TOKEN, { stateDir });
 }
 
 /** Il gettone grezzo: prima la variabile d'ambiente (collaudo, contenitori),

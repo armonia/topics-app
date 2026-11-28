@@ -63,6 +63,8 @@ interface NodeDeliveryMeterDeps {
   legMs?: number;
   /** Legs before giving up on a round that never settles. */
   maxLegs?: number;
+  /** Checkouts measured at once (default 3): a leg that only waits for CI holds no CPU. */
+  maxParallel?: number;
   /** Seam for the test: whether a path is on disk right now. */
   existsSync?: (path: string) => boolean;
 }
@@ -74,10 +76,20 @@ export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
   const maxLegs = deps.maxLegs ?? 80;
   const exists = deps.existsSync ?? existsSync;
   const measuring = new Set<string>();
-  // One throwaway checkout at a time, whichever card it is for: the review
-  // sweep above may now run several remeasures at once, but a node delivery
-  // never had a worktree of its own to run that many checkouts in parallel.
-  let queueTail: Promise<void> = Promise.resolve();
+  // A few throwaway checkouts at a time, whichever card they are for. The CPU is
+  // already capped by the checks gate's lane, which a leg waiting only for CI
+  // gives back, so a card stuck behind GitHub's queue must not hold the others.
+  const maxParallel = Math.max(1, deps.maxParallel ?? 3);
+  let active = 0;
+  const waiters: Array<() => void> = [];
+  async function acquire(): Promise<void> {
+    if (active < maxParallel) { active += 1; return; }
+    await new Promise<void>((resolve) => waiters.push(resolve));
+  }
+  function releaseSlot(): void {
+    const next = waiters.shift();
+    if (next) next(); else active -= 1;
+  }
 
   /** Every exit that leaves the card with checks_state NULL and no round running says why, on the log AND the card. */
   function giveUp(taskId: string, reason: string): void {
@@ -135,9 +147,8 @@ export function createNodeDeliveryMeter(deps: NodeDeliveryMeterDeps) {
         measuring.delete(taskId);
       }
     };
-    const prevTail = queueTail;
-    queueTail = prevTail.then(run, run);
-    return queueTail;
+    await acquire();
+    try { await run(); } finally { releaseSlot(); }
   }
 
   return { measure, isMeasuring: (taskId: string) => measuring.has(taskId) };

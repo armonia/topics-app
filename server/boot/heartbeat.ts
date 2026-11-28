@@ -179,8 +179,8 @@ export async function bootHeartbeat(scope: AfterRouters2) {
   }
 
 
-  // Initialize VAPID keys on startup
-  initVapid();
+  // Initialize VAPID keys on startup, in the state folder the primary switch collects.
+  initVapid(ctx.STATE_DIR);
 
   // Dev bundle hot-delivery: rebuilt /public → open windows self-reload.
   // Inert unless STATE_DIR/topics-dev.json exists (never in standalone installs).

@@ -187,3 +187,33 @@ describe("node delivery meter", () => {
     expect(events).toEqual(["before@pre-realign-sha", "measured@post-realign-sha", "release", "recapture", "land"]);
   });
 });
+
+describe("node delivery meter parallelism", () => {
+  test("measures wait for CI side by side up to the cap, the next one queues", async () => {
+    const started: string[] = [];
+    const gates = new Map<string, () => void>();
+    const m = createNodeDeliveryMeter({
+      readTask: () => inReview,
+      declaredChecks: () => [{ name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd }],
+      checkout: async () => ({ cwd: "/tmp/wt", head: async () => "abc1234", release: async () => undefined }),
+      runGate: async (id) => {
+        started.push(id);
+        await new Promise<void>((resolve) => gates.set(id, resolve));
+        return { ok: true, comment: "" } as unknown as ChecksLeg;
+      },
+      recapture: async () => undefined,
+      tryLand: async () => undefined,
+      legMs: 1,
+      maxParallel: 3,
+      existsSync: () => true,
+    });
+    const all = ["a", "b", "c", "d"].map((id) => m.measure(id));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(started).toEqual(["a", "b", "c"]);
+    gates.get("a")!();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(started).toEqual(["a", "b", "c", "d"]);
+    for (const id of ["b", "c", "d"]) gates.get(id)!();
+    await Promise.all(all);
+  });
+});
