@@ -87,14 +87,25 @@ function promptText(content: unknown): string | null {
 /** Sessions by id, filled one transcript line at a time. */
 export type SessionTotals = Map<string, SessionSums>;
 
+/** The fields of a transcript line this module reads; everything else is ignored. */
+interface TranscriptLine {
+  type?: string;
+  timestamp?: string;
+  customTitle?: unknown;
+  cwd?: unknown;
+  entrypoint?: unknown;
+  isSidechain?: boolean;
+  message?: { content?: unknown; model?: unknown; usage?: Usage };
+}
+
 /** Folds one transcript line into its session; `subagent` lines only add spend. */
 export function addLine(totals: SessionTotals, sessionId: string, subagent: boolean, line: string, now: number): void {
   if (!line) return;
-  let r: Record<string, any>;
-  try { r = JSON.parse(line); } catch { return; }
+  let r: TranscriptLine;
+  try { r = JSON.parse(line) as TranscriptLine; } catch { return; }
   const sums = totals.get(sessionId) ?? blank(sessionId);
   totals.set(sessionId, sums);
-  const at = Date.parse(r.timestamp);
+  const at = Date.parse(r.timestamp ?? "");
   if (!subagent) {
     if (r.type === "custom-title" && typeof r.customTitle === "string" && r.customTitle.trim()) sums.title = r.customTitle.trim();
     if (!sums.cwd && typeof r.cwd === "string") sums.cwd = r.cwd;
@@ -104,7 +115,7 @@ export function addLine(totals: SessionTotals, sessionId: string, subagent: bool
   }
   const u: Usage | undefined = r.type === "assistant" ? r.message?.usage : undefined;
   if (!u || !Number.isFinite(at) || now - at > WINDOW_WEEK_MS || at > now) return;
-  const model = typeof r.message.model === "string" ? r.message.model : "unknown";
+  const model = typeof r.message?.model === "string" ? r.message.model : "unknown";
   const w = (n(u.input_tokens) + 5 * n(u.output_tokens) + 1.25 * n(u.cache_creation_input_tokens) + 0.1 * n(u.cache_read_input_tokens)) * modelFactor(model);
   sums.weighted7d += w;
   if (now - at <= WINDOW_24H_MS) {
