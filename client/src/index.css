@@ -1526,6 +1526,8 @@ html, body {
    left edge is 256(1-e) + 70e, monotone and never below 70. Two curves, or
    two durations, and for a few frames the strip crosses the lights. */
 .content-chrome-inset {
+  /* --row-inset: keep in sync with ROW_INSET in selectionStyles.ts (6px). */
+  --row-inset: 6px;
   transition: padding-left 200ms ease, left 200ms ease;
 }
 
