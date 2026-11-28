@@ -13,7 +13,7 @@
  *
  * Video on: the recording is the proof.
  *
- * @covers R25
+ * @covers SCHED-09
  */
 import { expect, type Page } from "@playwright/test";
 import { resolve } from "node:path";
