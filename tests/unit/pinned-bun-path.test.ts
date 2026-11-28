@@ -1,3 +1,6 @@
+/**
+ * @covers REVIEW-BUN-01
+ */
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
