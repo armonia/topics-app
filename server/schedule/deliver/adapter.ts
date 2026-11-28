@@ -65,7 +65,7 @@ const DEFAULT_LIMITS: SpawnLimits = { timeoutMs: ADAPTER_TIMEOUT_MS, pipeGraceMs
 /** The process and everything it started: its own group on a POSIX system, the tree on Windows. */
 function killTree(pid: number): void {
   try {
-    if (process.platform === "win32") Bun.spawnSync(["taskkill", "/pid", String(pid), "/T", "/F"], { stdout: "ignore", stderr: "ignore" });
+    if (process.platform === "win32") Bun.spawnSync(["taskkill", "/pid", String(pid), "/T", "/F"], { stdout: "ignore", stderr: "ignore", timeout: 5_000 });
     else process.kill(-pid, "SIGKILL");
   } catch { /* already gone */ }
 }
