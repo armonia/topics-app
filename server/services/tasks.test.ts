@@ -2426,7 +2426,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          for_you = '{"asked":"a","happened":"b","done":"c","remains":"d","options":[]}', for_you_key = 'k',
          -- The review-sweep measure count: non-default values so the
          -- list/detail comparison covers all three columns.
-         remeasure_commit = 'abc1234', remeasure_tries = 2, remeasure_at = 1700000000000
+         remeasure_commit = 'abc1234', remeasure_tries = 2, remeasure_at = 1700000000000,
+         -- 20261128110000: «Rimanda a». Same reason as the columns above.
+         wake_at = '2020-01-01T00:00:00.000Z'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

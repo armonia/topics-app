@@ -6155,3 +6155,24 @@ leaving it in review with no photo and no explanation.
 #### Scenario: a machine with no capture browser
 - **GIVEN** a launch that answers that the browser executable does not exist
 - **THEN** the browser SHALL be downloaded once, and a failed download SHALL leave a one-line reason for the card
+
+### Requirement: KANBAN-127 — «Rimanda a <data>» snoozes a card to backlog and it wakes itself back to todo
+
+A card's menu SHALL offer «Rimanda a <data>» (snooze to a date): picking a date
+and time SHALL move the card to `backlog`, store it as `wakeAt`, and show a
+chip with that date on the card's face. No agent and no process outside the
+server SHALL be needed to bring it back: the server's recurring tick SHALL
+release every card whose `wakeAt` has passed, moving it to `todo` and clearing
+`wakeAt`, on its own and without a restart. From a snoozed card the menu SHALL
+offer «Annulla il rimando» (cancel the snooze), which clears `wakeAt` without
+changing status.
+
+#### Scenario: a snoozed card wakes itself up
+- **GIVEN** a card in `backlog` with `wakeAt` one minute in the past
+- **WHEN** the server's recurring tick runs
+- **THEN** the card SHALL be in `todo` with `wakeAt` cleared, with no agent and no external script involved
+
+#### Scenario: the gesture, at two widths
+- **GIVEN** a card in any status
+- **WHEN** the person picks «Rimanda a <data>» and a date from the card's menu
+- **THEN** the card SHALL show in `backlog` with a chip carrying that date, readable at 375px and at 1440px

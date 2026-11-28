@@ -454,11 +454,28 @@ export function scheduledChip(
   if (!s?.by) return null;
   const when = s.at ? new Date(s.at) : null;
   const at = when && !Number.isNaN(when.getTime())
-    ? new Intl.DateTimeFormat(locale, { timeZone: 'Europe/Rome', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    ? new Intl.DateTimeFormat(locale, { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
       .format(when).replace(',', '')
     : null;
   const label = at ? `${s.by} · ${at}` : s.by;
   return { label, title: tr('board.card.scheduledTitle', { label }) };
+}
+
+/**
+ * «Rimanda a»: on a `backlog` card with a `wakeAt`, shows when it comes back
+ * to `todo` on its own (e.g. «back Thu 26/11 09:00»). `null` elsewhere.
+ */
+export function wakeChip(
+  task: Pick<BoardTask, 'wakeAt' | 'status'>,
+  tr: Translate,
+  locale?: string,
+): { label: string; title: string } | null {
+  if (task.status !== 'backlog' || !task.wakeAt) return null;
+  const when = new Date(task.wakeAt);
+  if (Number.isNaN(when.getTime())) return null;
+  const at = new Intl.DateTimeFormat(locale, { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .format(when).replace(',', '');
+  return { label: tr('board.card.wakeAt', { date: at }), title: tr('board.card.wakeAtTitle', { date: at }) };
 }
 
 /**
@@ -575,6 +592,8 @@ export interface BoardTask {
   dueDate?: string;
   /** The scheduled run outside Topics that works this card (who, when). Absent = none. */
   scheduled?: { by: string; at: string | null };
+  /** «Rimanda a»: the card wakes itself back to `todo` at this instant. ON THE WIRE only while pending. */
+  wakeAt?: string;
   createdAt: string;
   /** ON THE WIRE: it arrives only when it has a value (absent = never happened). */
   completedAt?: string;
@@ -937,6 +956,9 @@ export interface UpdateTaskBody {
   text?: string;
   description?: string | null;
   kanbanOrder?: number;
+  /** «Rimanda a»: a future ISO instant that returns the card from `backlog`
+   *  to `todo` on its own. Sending any OTHER `status` without this clears it. */
+  wakeAt?: string | null;
   /** http(s) URL of the reviewable output; empty string clears it. */
   outputUrl?: string;
   /** Screenshot della consegna per la card (path assoluto allowlistato);

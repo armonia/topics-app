@@ -46,7 +46,7 @@ import { decodeCol } from "../../shared/message-blob";
 const projectSlugs = new Map<string, string>();
 
 export function bootDispatcher(scope: AfterHeadlessTurns) {
-  const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, scheduleEngine, tickScheduledCards, announceTick, taskAttemptStore, turniInVolo, worktreeGc } = scope;
+  const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, scheduleEngine, tickScheduledCards, announceTick, releaseWakingCards, taskAttemptStore, turniInVolo, worktreeGc } = scope;
   // Before the first tick: a node whose breaker was open stays out after the restart every land of server/ causes.
   persistNodeBreakers(join(ctx.STATE_DIR, NODE_BREAKERS_FILE));
   // Where a node's own attachments (a screenshot, a clip) land once fetched
@@ -535,7 +535,14 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
   });
   late.resourceBlock = () => chatPreviewFloor({ cardGB: AGENT_COST_FLOOR_MEM_GB, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: true }).reason;
 
-  const scheduledCardsTimer = scheduleEngine.start(isThisServerPrimary, announceTick);
+  // The wake-at release has to run on every beat too, not just at boot: it does not
+  // call scheduleEngine.tick() a second time, it only adds the backlog -> todo sweep
+  // around the one `start()` already runs (card 68c4eb9c — the release never fired
+  // past boot, because this beat called `announceTick` straight, skipping it).
+  const scheduledCardsTimer = scheduleEngine.start(isThisServerPrimary, (result) => {
+    releaseWakingCards();
+    announceTick(result);
+  });
   // A command that was running when the server stopped is read again now, not 15 s from now (R12).
   if (isThisServerPrimary()) tickScheduledCards();
 

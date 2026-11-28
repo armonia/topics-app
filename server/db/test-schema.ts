@@ -218,7 +218,9 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261128090000: the review sweep's measure count, per delivered commit.
   remeasure_commit TEXT,
   remeasure_tries INTEGER NOT NULL DEFAULT 0,
-  remeasure_at INTEGER NOT NULL DEFAULT 0
+  remeasure_at INTEGER NOT NULL DEFAULT 0,
+  -- 20261128110000: card snooze. The backlog card's own wake instant.
+  wake_at TEXT DEFAULT NULL
 )`;
 
 /**

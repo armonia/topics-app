@@ -11,7 +11,9 @@ import { useIsMergedHere } from './mergedBoards';
 import { useToast } from '../Shared/Toast';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
-import { STATUS_GLYPH_PX, STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, dueDateChip, scheduledChip, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardSettings, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
+import { Button } from '../../ui/primitives/Button';
+import { TextField } from '../../ui/primitives/Field';
+import { STATUS_GLYPH_PX, STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, dueDateChip, scheduledChip, wakeChip, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardSettings, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
 import { recallColumnPages, rememberColumnPages } from '../../lib/columnPages';
 import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
@@ -560,6 +562,9 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
   // Right-click menu (archive/select live here now — NOT as a trash icon that
   // crowds the card header). Cursor-positioned, portaled, viewport-clamped.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; includePeek?: boolean } | null>(null);
+  // «Rimanda a»: the context menu closes into this tiny prompt, same portal,
+  // anchored at the point the menu itself opened at.
+  const [snoozeAt, setSnoozeAt] = useState<{ x: number; y: number; value: string } | null>(null);
   const [sessionPeekOpen, setSessionPeekOpen] = useState(false);
   const [peekIntent] = useState(() => createSessionPeekIntent(() => setSessionPeekOpen(true)));
   const cardElementRef = useRef<HTMLDivElement | null>(null);
@@ -875,6 +880,28 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
     try { await boardApi.restore(task.projectId, task.id); onRefetch(); }
     catch (e) { fail(e, failedWord('restore')); }
   };
+  // «Rimanda a»: parks the card in backlog with a date. The server sends it
+  // back to todo on its own once it passes (card 975aba21) — the same thing an
+  // external script used to do by hand, outside Topics.
+  // Default proposal for the picker: tomorrow at 09:00, local time.
+  const defaultSnoozeValue = () => {
+    const d = new Date(Date.now() + 24 * 3600 * 1000);
+    d.setHours(9, 0, 0, 0);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const snoozeFailed = tr('board.card.actionFailed', { action: tr('board.task.snooze') });
+  const snooze = async (at: string) => {
+    const iso = new Date(at).toISOString();
+    clearError();
+    try { await boardApi.update(task.projectId, task.id, { status: 'backlog', wakeAt: iso }); onRefetch(); }
+    catch (e) { fail(e, snoozeFailed); }
+  };
+  const cancelSnooze = async () => {
+    clearError();
+    try { await boardApi.update(task.projectId, task.id, { wakeAt: null }); onRefetch(); }
+    catch (e) { fail(e, snoozeFailed); }
+  };
   // «Aspetta» senza buttare via: interrompe il turno e basta. Prima l'unica
   // voce del menu era «Archivia», che su un task vivo chiede «Archivia e
   // ferma» — un gesto solo per due intenzioni, con quella distruttiva
@@ -1109,7 +1136,8 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
   // Compact cards skip the band: their live chips are drawn after it (`card-compact-chips`).
   const dueChip = dueDateChip(task, tr, Date.now(), locale);
   const plannedChip = scheduledChip(task, tr, locale);
-  const hasMetaRow = !compact && !!(channel || owner || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || dueChip || plannedChip || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const wakeChipValue = wakeChip(task, tr, locale);
+  const hasMetaRow = !compact && !!(channel || owner || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || dueChip || plannedChip || wakeChipValue || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1564,6 +1592,13 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
               title={dueChip.title}
               className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${dueChip.overdue ? 'bg-red-500/15 text-red-800 dark:text-red-300' : 'bg-black/5 dark:bg-white/10 text-app-text-heading'}`}
             ><CalendarClock className="h-3 w-3 shrink-0" /> {dueChip.label}</span>
+          )}
+          {wakeChipValue && (
+            <span
+              data-testid="card-wake-at"
+              title={wakeChipValue.title}
+              className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
+            ><AlarmClock className="h-3 w-3 shrink-0" /> {wakeChipValue.label}</span>
           )}
           {/* Who actually wrote the last collaborator comment, and from
               which device — separate from `assignedTo`, which is free text
@@ -2320,6 +2355,29 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
               ><Square className={`h-3.5 w-3.5 fill-current ${STATUS_INK.danger}`} /> {stopWord.label}</button>
             </>
           )}
+          {!archived && task.status !== 'done' && (
+            <>
+              <div className={POPOVER_DIVIDER} />
+              <button
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const at = { x: ctxMenu.x, y: ctxMenu.y, value: defaultSnoozeValue() };
+                  setCtxMenu(null);
+                  setSnoozeAt(at);
+                }}
+                title={tr('board.task.snoozeTitle')}
+                className={POPOVER_ITEM}
+              ><AlarmClock className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.task.snooze')}</button>
+              {task.wakeAt && (
+                <button
+                  role="menuitem"
+                  onClick={(e) => { e.stopPropagation(); setCtxMenu(null); void cancelSnooze(); }}
+                  className={POPOVER_ITEM}
+                ><X className="h-3.5 w-3.5 text-app-text-secondary" /> {tr('board.task.snoozeCancel')}</button>
+              )}
+            </>
+          )}
           <div className={POPOVER_DIVIDER} />
           {archived ? (
             <button
@@ -2336,6 +2394,27 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
               className={POPOVER_ITEM_DANGER}
             ><Trash2 className="h-3.5 w-3.5" /> {dropWord.label}</button>
           )}
+        </ContextMenuPortal>
+      )}
+      {snoozeAt && (
+        <ContextMenuPortal open x={snoozeAt.x} y={snoozeAt.y} onClose={() => setSnoozeAt(null)} minWidth={220}>
+          <form
+            className="flex flex-col gap-2 p-2"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => { e.preventDefault(); setSnoozeAt(null); void snooze(snoozeAt.value); }}
+          >
+            <TextField
+              type="datetime-local"
+              label={tr('board.task.snoozePrompt')}
+              autoFocus
+              value={snoozeAt.value}
+              onChange={(value) => setSnoozeAt({ ...snoozeAt, value })}
+              onEnter={() => { const v = snoozeAt.value; if (v) { setSnoozeAt(null); void snooze(v); } }}
+            />
+            <Button variant="primary" onClick={snoozeAt.value ? () => { const v = snoozeAt.value; setSnoozeAt(null); void snooze(v); } : false}>
+              {tr('board.task.snooze')}
+            </Button>
+          </form>
         </ContextMenuPortal>
       )}
     </div>
