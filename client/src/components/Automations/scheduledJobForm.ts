@@ -3,17 +3,16 @@
  * the fields become the request. No React, so the rules are testable alone.
  */
 import { cronPreset, presetCron, type CronPreset } from '../../lib/schedulePresets';
-import { joinCommand, splitCommand, type JobInput, type JobSchedule, type ScheduledJob } from '../../lib/scheduledJobs';
+import { joinCommand, splitCommand, type JobAction, type JobInput, type JobSchedule, type ScheduledJob } from '../../lib/scheduledJobs';
 
 export type WhenKind = CronPreset | 'every' | 'once';
-export type ActionKind = 'command' | 'card';
-
 export interface JobDraft {
   name: string;
-  actionKind: ActionKind;
   commandLine: string;
-  cardText: string;
-  cardStatus: 'backlog' | 'todo';
+  /** Absolute directory the command runs in; empty when the project gives it. */
+  cwd: string;
+  /** The action as stored, so an edit keeps what the form does not show (input, environment, time limit). */
+  base: Extract<JobAction, { kind: 'command' }> | null;
   whenKind: WhenKind;
   time: string;
   everyMinutes: string;
@@ -28,7 +27,7 @@ export const browserTimeZone = (): string => Intl.DateTimeFormat().resolvedOptio
 
 export function emptyDraft(): JobDraft {
   return {
-    name: '', actionKind: 'command', commandLine: '', cardText: '', cardStatus: 'backlog', whenKind: 'daily', time: '09:00',
+    name: '', commandLine: '', cwd: '', base: null, whenKind: 'daily', time: '09:00',
     everyMinutes: '15', onceAt: '', cron: '0 9 * * 1', timeZone: browserTimeZone(), projectId: '', deliver: 'app',
   };
 }
@@ -42,11 +41,7 @@ function localInput(iso: string): string {
 
 export function draftOf(job: ScheduledJob): JobDraft {
   const draft = { ...emptyDraft(), name: job.name, projectId: job.projectId ?? '', deliver: job.deliver ? 'owner' as const : 'app' as const };
-  if (job.action.kind === 'command') { draft.actionKind = 'command'; draft.commandLine = joinCommand(job.action.argv); }
-  if (job.action.kind === 'card') {
-    draft.actionKind = 'card'; draft.cardText = job.action.text;
-    draft.cardStatus = job.action.status === 'todo' ? 'todo' : 'backlog';
-  }
+  if (job.action.kind === 'command') { draft.commandLine = joinCommand(job.action.argv); draft.cwd = job.action.cwd ?? ''; draft.base = job.action; }
   const schedule = job.schedule;
   if (schedule.kind === 'every') { draft.whenKind = 'every'; draft.everyMinutes = String(schedule.minutes); }
   else if (schedule.kind === 'at') { draft.whenKind = 'once'; draft.onceAt = localInput(schedule.at); }
@@ -70,9 +65,7 @@ export function inputOf(draft: JobDraft): JobInput {
     name: draft.name.trim(),
     projectId: draft.projectId || null,
     schedule: scheduleOf(draft),
-    action: draft.actionKind === 'command'
-      ? { kind: 'command', argv: splitCommand(draft.commandLine) }
-      : { kind: 'card', text: draft.cardText.trim(), status: draft.cardStatus, labels: [] },
+    action: { ...draft.base, kind: 'command', argv: splitCommand(draft.commandLine), cwd: draft.cwd.trim() || null },
     deliver: draft.deliver === 'owner' ? { to: 'owner' } : null,
   };
 }

@@ -18,7 +18,7 @@ import { previewOccurrences, type JobRun, type ScheduledJob } from '../../lib/sc
 import { Segmented } from '../Shared/Segmented';
 import { Select } from '../Shared/Select';
 import { BOX, BUTTON, BUTTON_PRIMARY, ICON_BUTTON, SECTION, SECTION_COUNT, SECTION_REST } from './automationsUi';
-import { draftOf, emptyDraft, inputOf, scheduleOf, type ActionKind, type JobDraft, type WhenKind } from './scheduledJobForm';
+import { draftOf, emptyDraft, inputOf, scheduleOf, type JobDraft, type WhenKind } from './scheduledJobForm';
 import { useScheduledJobs, type ScheduledJobsData } from './useScheduledJobs';
 
 const INPUT = 'h-8 w-full rounded-sm border border-app-border-input bg-app-input px-2 text-compact text-app-text outline-none placeholder:text-app-text-muted focus-visible:border-primary';
@@ -219,21 +219,15 @@ function JobForm({ initial, id, data, onDone }: { initial: JobDraft; id: string 
       <Field label={tr('sj.name')}>
         <input required maxLength={120} className={INPUT} data-testid="sj-name-input" value={draft.name} onChange={(e) => set('name', e.target.value)} placeholder={tr('sj.namePlaceholder')} />
       </Field>
-      <div className="grid gap-1.5">
-        <span className="text-mini text-app-text-secondary">{tr('sj.what')}</span>
-        <Segmented<ActionKind> value={draft.actionKind} ariaLabel={tr('sj.what')} testId="sj-action" onChange={(v) => set('actionKind', v)} options={[{ value: 'command', label: tr('sj.action.command') }, { value: 'card', label: tr('sj.action.card') }]} />
-        {draft.actionKind === 'command' ? (
-          <input required className={`${INPUT} font-mono`} aria-label={tr('sj.command')} data-testid="sj-command" value={draft.commandLine} onChange={(e) => set('commandLine', e.target.value)} placeholder={tr('sj.commandPlaceholder')} />
-        ) : (
-          <>
-            <input required maxLength={240} className={INPUT} aria-label={tr('sj.cardText')} data-testid="sj-card-text" value={draft.cardText} onChange={(e) => set('cardText', e.target.value)} placeholder={tr('sj.cardText')} />
-            <Segmented value={draft.cardStatus} ariaLabel={tr('sj.cardColumn')} testId="sj-card-status" onChange={(v) => set('cardStatus', v)} options={[{ value: 'backlog', label: 'Backlog' }, { value: 'todo', label: 'Todo' }]} />
-          </>
-        )}
-      </div>
+      <Field label={tr('sj.command')}>
+        <input required className={`${INPUT} font-mono`} data-testid="sj-command" value={draft.commandLine} onChange={(e) => set('commandLine', e.target.value)} placeholder={tr('sj.commandPlaceholder')} />
+      </Field>
+      <Field label={tr('sj.cwd')}>
+        <input required={!draft.projectId} className={`${INPUT} font-mono`} data-testid="sj-cwd" value={draft.cwd} onChange={(e) => set('cwd', e.target.value)} placeholder={tr('sj.cwdPlaceholder')} />
+      </Field>
       <div className="grid gap-1.5">
         <span className="text-mini text-app-text-secondary">{tr('sj.when')}</span>
-        <Segmented<WhenKind> value={draft.whenKind} ariaLabel={tr('sj.when')} testId="sj-when" onChange={(v) => set('whenKind', v)} options={WHEN_KINDS.map((value) => ({ value, label: tr(`sj.when.${value}`) }))} />
+        <Segmented<WhenKind> value={draft.whenKind} ariaLabel={tr('sj.when')} testId="sj-when" onChange={(v) => set('whenKind', v)} options={WHEN_KINDS.filter((value) => id === null || (value === 'once') === (initial.whenKind === 'once')).map((value) => ({ value, label: tr(`sj.when.${value}`) }))} />
         <div className="grid grid-cols-2 gap-2 @max-2xl:grid-cols-1">
           {(draft.whenKind === 'daily' || draft.whenKind === 'weekly') && (
             <Field label={tr('sj.time')}><input type="time" required className={INPUT} data-testid="sj-time" value={draft.time} onChange={(e) => set('time', e.target.value)} /></Field>

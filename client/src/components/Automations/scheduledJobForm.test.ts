@@ -18,7 +18,7 @@ describe('the scheduled job form', () => {
   });
 
   test('a job read back into the form writes the same request', () => {
-    const input = inputOf({ ...emptyDraft(), name: ' Saluto ', commandLine: 'echo "a b"', whenKind: 'every', everyMinutes: '10', deliver: 'owner' });
+    const input = inputOf({ ...emptyDraft(), name: ' Saluto ', commandLine: 'echo "a b"', cwd: '/tmp', whenKind: 'every', everyMinutes: '10', deliver: 'owner' });
     const job = { id: 'j', createdBy: 'user', enabled: true, nextRunAt: null, lastRun: null, ...input };
     expect(inputOf(draftOf(job))).toEqual(input);
     expect(input.name).toBe('Saluto');

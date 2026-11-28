@@ -21,6 +21,7 @@ import { test } from "./fixtures/layout.fixture";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { resetPaneStore } from "./helpers/api-fixtures";
+import { canonicalTmpRoot } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { VIDEO_ON } from "./video-evidence";
 
@@ -69,6 +70,7 @@ test.describe("scheduled jobs in the Automations view, no hub", () => {
     const form = section.getByTestId("sj-form");
     await form.getByTestId("sj-name-input").fill("Saluto");
     await form.getByTestId("sj-command").fill("echo ciao-lavori");
+    await form.getByTestId("sj-cwd").fill(canonicalTmpRoot());
 
     // The preview follows the time field.
     await form.getByTestId("sj-time").fill("09:00");

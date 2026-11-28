@@ -10,8 +10,8 @@ import { apiFetch } from './shell/net';
 export type { JobSchedule } from '../../../shared/schedule';
 
 export type JobAction =
-  | { kind: 'command'; argv: string[]; cwd?: string | null }
-  | { kind: 'card'; text: string; status: string; labels: string[] }
+  | { kind: 'command'; argv: string[]; cwd?: string | null; stdin?: string | null; env?: Record<string, string>; timeoutSec?: number }
+  | { kind: 'card'; text: string }
   | { kind: 'agent' };
 
 export interface JobRun {
