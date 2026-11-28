@@ -30,8 +30,8 @@ export function ValueOrigin({ origin, copy, onUse, onEdit, applied, onOpenDocume
   inline?: boolean;
 }) {
   return (
-    <div role="dialog" aria-label={copy.inbox.why(origin.value)} ref={inline ? (el) => el?.scrollIntoView?.({ block: 'nearest' }) : undefined} className={inline ? 'relative w-full overflow-hidden rounded-xl border border-app-border bg-surface' : 'absolute left-0 top-full z-20 mt-3 w-[520px] overflow-hidden rounded-xl border border-app-border bg-surface shadow-[0_12px_32px_rgba(0,0,0,0.16)]'}>
-      {!inline && <span aria-hidden="true" className="absolute -top-[7px] left-10 h-3 w-3 rotate-45 border-l border-t border-app-border bg-surface" />}
+    <div role="dialog" aria-label={copy.inbox.why(origin.value)} ref={inline ? (el) => el?.scrollIntoView?.({ block: 'nearest' }) : undefined} className={inline ? 'relative w-full overflow-hidden rounded-xl border border-app-border bg-surface' : 'absolute left-0 top-full z-20 mt-3 w-130 overflow-hidden rounded-xl border border-app-border bg-surface shadow-[0_12px_32px_rgba(0,0,0,0.16)]'}>
+      {!inline && <span aria-hidden="true" className="absolute -top-1.75 left-10 h-3 w-3 rotate-45 border-l border-t border-app-border bg-surface" />}
       <div className={clsx('flex items-center gap-2 border-b border-app-border px-4 py-2.5', inline && 'flex-wrap')}>
         <Chip tone="pink" icon={Sparkles} strong>{copy.common.ai}</Chip>
         <span className={clsx('text-prose font-semibold text-app-text', inline ? 'min-w-0 basis-[calc(100%-5rem)]' : 'flex-1')}>{copy.inbox.why(origin.value)}</span>
@@ -77,8 +77,8 @@ export function ValueOrigin({ origin, copy, onUse, onEdit, applied, onOpenDocume
  */
 export function OriginUnknown({ value, copy, onClose }: { value: string; copy: UiCopy; onClose?: () => void }) {
   return (
-    <div role="dialog" aria-label={copy.inbox.why(value)} className="absolute left-0 top-full z-20 mt-3 w-[420px] overflow-hidden rounded-xl border border-app-border bg-surface shadow-[0_12px_32px_rgba(0,0,0,0.16)]">
-      <span aria-hidden="true" className="absolute -top-[7px] left-10 h-3 w-3 rotate-45 border-l border-t border-app-border bg-surface" />
+    <div role="dialog" aria-label={copy.inbox.why(value)} className="absolute left-0 top-full z-20 mt-3 w-105 overflow-hidden rounded-xl border border-app-border bg-surface shadow-[0_12px_32px_rgba(0,0,0,0.16)]">
+      <span aria-hidden="true" className="absolute -top-1.75 left-10 h-3 w-3 rotate-45 border-l border-t border-app-border bg-surface" />
       <div className="flex items-center gap-2 border-b border-app-border px-4 py-2.5">
         <span className="flex-1 truncate text-prose font-semibold text-app-text">{copy.inbox.why(value)}</span>
         {onClose && (

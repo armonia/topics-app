@@ -132,6 +132,10 @@ export interface AppSettings {
   securityAlertsProjectId: string | null;
   /** Thresholds and declared proofs of the self-check round, as a JSON object (see `topics-check.ts`). NULL = defaults, no proofs. */
   topicsCheck: string | null;
+  /** JSON: adapter command, owner destination, quiet hours and the agent-job mode (`server/schedule/deliver/settings.ts`). NULL = nothing configured. */
+  scheduledDelivery: string | null;
+  /** JSON list of declared mailboxes, one list to receive and to send (`server/mail/inbox/mailboxes.ts`). NULL = none declared. */
+  mailboxes: string | null;
   /** Folder every worktree is created in (`worktree-standard`, T1). NULL = `<topicsHome>/worktrees`. */
   worktreeRoot: string | null;
   /** Cap on the worktrees of one project. NULL = `DEFAULT_WORKTREE_MAX_PER_PROJECT`. */
@@ -181,6 +185,8 @@ const EMPTY: AppSettings = {
   firstRunDoneAt: null,
   securityAlertsProjectId: null,
   topicsCheck: null,
+  scheduledDelivery: null,
+  mailboxes: null,
   worktreeRoot: null,
   worktreeMaxPerProject: null,
   worktreeDiskFloorGb: null,
@@ -222,6 +228,8 @@ interface Row {
   first_run_done_at: string | null;
   security_alerts_project_id: string | null;
   topics_check_json: string | null;
+  scheduled_delivery_json: string | null;
+  mailboxes_json: string | null;
   worktree_root: string | null;
   worktree_max_per_project: number | null;
   worktree_disk_floor_gb: number | null;
@@ -270,6 +278,8 @@ function rowToSettings(r: Row): AppSettings {
     firstRunDoneAt: r.first_run_done_at ?? null,
     securityAlertsProjectId: r.security_alerts_project_id ?? null,
     topicsCheck: r.topics_check_json ?? null,
+    scheduledDelivery: r.scheduled_delivery_json ?? null,
+    mailboxes: r.mailboxes_json ?? null,
     worktreeRoot: r.worktree_root ?? null,
     worktreeMaxPerProject: r.worktree_max_per_project ?? null,
     worktreeDiskFloorGb: r.worktree_disk_floor_gb ?? null,
@@ -305,7 +315,7 @@ export function readAppSettings(): AppSettings {
                 calendar_enabled, calendar_feed_url,
                 calendar_refresh_minutes, calendar_horizon_days,
                 browser_store_cache_reap_enabled, browser_store_reap_enabled,
-                browser_store_reap_after_days, first_run_done_at, security_alerts_project_id, topics_check_json,
+                browser_store_reap_after_days, first_run_done_at, security_alerts_project_id, topics_check_json, scheduled_delivery_json, mailboxes_json,
                 worktree_root, worktree_max_per_project, worktree_disk_floor_gb,
                 cargo_target_mode, gc_foreign, worktree_abandon_days, claude_worktree_hooks,
                 worktree_quarantine_days
@@ -361,6 +371,8 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   firstRunDoneAt: "first_run_done_at",
   securityAlertsProjectId: "security_alerts_project_id",
   topicsCheck: "topics_check_json",
+  scheduledDelivery: "scheduled_delivery_json",
+  mailboxes: "mailboxes_json",
   worktreeRoot: "worktree_root",
   worktreeMaxPerProject: "worktree_max_per_project",
   worktreeDiskFloorGb: "worktree_disk_floor_gb",

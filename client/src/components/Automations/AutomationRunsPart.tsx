@@ -53,7 +53,7 @@ function CronRunRow({ r, now, clock }: { r: CronRun; now: number; clock: Clock }
   return (
     <details className="group border-t border-app-border-subtle first:border-t-0" data-testid="automation-run-row" data-outcome={r.outcome ?? 'none'}>
       <summary className={`${RUN} cursor-pointer list-none`}>{head}</summary>
-      <div className="mb-2 ml-[22px] flex flex-col gap-1.5" data-testid="automation-run-more">
+      <div className="mb-2 ml-5.5 flex flex-col gap-1.5" data-testid="automation-run-more">
         {r.output && <div><span className="text-app-text-muted">{tr('auto.run.output')}</span><pre className={PRE}>{noIds(r.output, true)}</pre></div>}
         {r.error && <div><span className={DANGER_TEXT}>{tr('auto.run.errorFull')}</span><pre className={PRE} data-testid="automation-run-error">{noIds(r.error, true)}</pre></div>}
         {r.report && <div><span className="text-app-text-muted">{tr('auto.run.report')} <i className="font-mono not-italic text-app-text-faint">{r.report.path}</i></span><pre className={PRE} data-testid="automation-run-report">{r.report.text}</pre></div>}

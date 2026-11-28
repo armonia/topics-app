@@ -94,7 +94,11 @@ export async function runProviderTurn(turn: ChatTurnScope): Promise<Response | u
     // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
     // Use undefined runId initially: the turn has no run id yet.
     turn.topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-    const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; slashContext?: string; resetFallbackSlashContext?: string; fastMode?: boolean; rowId?: string; messageRows?: number; turnId?: string } = { rowId: partialMsg.id, ...(turnId ? { turnId } : {}) };
+    const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; slashContext?: string; resetFallbackSlashContext?: string; fastMode?: boolean; rowId?: string; messageRows?: number; turnId?: string; continuation?: boolean } = { rowId: partialMsg.id, ...(turnId ? { turnId } : {}) };
+    // A turn that only continues work already started (`chat.ts`) says so:
+    // the native engine leaves an agent's compaction ceiling out of it, so the
+    // request it continues stays (CHAT-COMPACT-06).
+    if (turn.continuation) sendOptions.continuation = true;
     if (payload.slashContext !== undefined) sendOptions.slashContext = payload.slashContext;
     if (overrideModel) sendOptions.model = overrideModel;
     // The answers carried in front of the person's words are rows of

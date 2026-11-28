@@ -36,7 +36,7 @@ export function TerminalCover({ copy, ref }: { copy: TerminalScreenCopy | null; 
         className="pointer-events-none absolute inset-0 overflow-hidden"
         style={{ padding: TERMINAL_PADDING_PX }}
       >
-        <SkeletonRows count={6} rowClassName="flex h-[21px] items-center" glyph={0} />
+        <SkeletonRows count={6} rowClassName="flex h-5.25 items-center" glyph={0} />
       </div>
     );
   }

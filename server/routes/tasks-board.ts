@@ -15,6 +15,7 @@ import { findDuplicateGroups } from "../../shared/task-similarity";
 import { landedOnMain } from "./tasks-ci-phase";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { answerRoutedAsk, pendingRoutedAsk, DEAD_QUESTION_LINE, type AskRoutingDeps } from "../services/board-ask-routing";
+import { answerPendingMailFromThread } from "../lib/outbound-mail-ledger";
 import { isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
@@ -766,6 +767,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     if (bMove && method === "POST") {
       const body = (await readJSON(req)) as any;
       try {
+        // A card that is only queued drops its queue entry (grace timer, chip) before
+        // leaving; it re-enters todo on the new board below.
+        if (dispatcher && svc.get(bMove.taskId)?.task?.dispatchState === "queued") dispatcher.onLeaveTodo(bMove.taskId);
         const task = svc.moveToProject({
           taskId: bMove.taskId,
           projectId: bMove.projectId,
@@ -1303,6 +1307,12 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           const target = root?.id ?? bComments.taskId;
           const answerTo = typeof body?.answerTo === "string" ? body.answerTo : undefined;
           const open = pendingRoutedAsk(target);
+          // A MAIL WAITING IN THE REGISTER is answered from its row: after a
+          // restart nobody polls for this question any more, and the yes still
+          // belongs to the message it was asked about (lib/outbound-mail-ledger.ts).
+          if (!open && answerPendingMailFromThread(answerTo, typeof body?.content === "string" ? body.content : "")) {
+            return json({ ...comment, delivery: 'answered' });
+          }
           if (!open && answerTo) {
             deadQuestionClick = pressedADeadQuickReply(
               svc.get(bComments.taskId, { projectId: bComments.projectId })?.comments,

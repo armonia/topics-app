@@ -49,6 +49,7 @@
         // it picks between being the server and being the ai-bridge daemon.
         "server/sidecar-entry.ts!",
         "server/ai-bridge.mjs!", // spawned as a detached daemon
+        "scripts/mail-adapters/gmail-gws.ts!", // the reference mailbox adapter: a command the person writes in the mailbox setting
         "server/pty-bridge.mjs!", // idem
         "server/lib/serial-queue-survivor.ts", // spawned as a child process by serial-queue.test.ts
         "cli/topics.ts!", // the `topics` CLI binary
@@ -182,6 +183,10 @@
         // glob, per la stessa ragione delle famiglie qui sopra.
         "scripts/layer-growth.ts",
         "scripts/mem-growth.ts",
+        // The same curve with a declared limit and an exit code, narrowed to
+        // the app's renderer: `bun run check:renderer-growth`. It ships as a
+        // check, hence the `!`.
+        "scripts/renderer-growth-check.ts!",
         "scripts/event-loop-lag.ts",
         // `bun scripts/prompt-ab.ts` — il banco A/B sul prompt del giudice: si
         // lancia a mano quando si vuole rimisurare quale formulazione declassa
@@ -234,6 +239,8 @@
         // imported except by its own bench.
         "scripts/test-junit.ts",
     "scripts/disk-report.ts",        // `bun run report:disk`
+    "scripts/primary.ts",            // `bun run primary switch <machine>`: hands the primary over
+    "scripts/primary-switch-probe.ts", // `bun scripts/primary-switch-probe.ts --db <copy>`: the switch bar on a copy of a real DB
     "scripts/disk-budget-check.ts!", // `bun run check:disk-budget`, also run every night by the `disk-budget-check` launchd job: it ships, so `!`
         // Read-only run of the landing audit over a whole board:
         // `bun run scripts/landing-audit-probe.ts --db <topics.db>`.
@@ -534,7 +541,7 @@
   // signs nothing but api.anthropic.com. It is preinstalled on macOS and on ubuntu-latest.
   // `xcode-select` and `swiftc` are run by server/reasoning-translation/apple-adapter.ts on macOS only,
   // to build and probe the on-device translation helper; both ship with the Mac, not with the repo.
-  "ignoreBinaries": ["xcode-select", "swiftc", "pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat", "mkfifo", "trash", "openssl", "age-keygen"],
+  "ignoreBinaries": ["xcode-select", "swiftc", "pkill", "pgrep", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat", "mkfifo", "trash", "openssl", "age-keygen", "age"],
   // NON è un import: è il primo argomento di
   // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
   // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la

@@ -1,6 +1,6 @@
 /**
  * The bar of a delivery planted from another machine (`node-delivery-meter.ts`):
- * measured on a throwaway checkout, only when the bar is made of CI rows, and
+ * measured on a throwaway checkout, CI rows and local commands alike, and
  * followed by the offer to the automatic land.
  *
  * @covers LAND-05
@@ -38,7 +38,7 @@ function meter(over: {
     },
     recapture: async () => { events.push("recapture"); },
     tryLand: async () => { events.push("land"); },
-    note: (_taskId, text) => { notes.push(text); },
+    note: (_id, text) => { notes.push(text); },
     legMs: 1,
     existsSync: over.existsSync ?? (() => true),
   });
@@ -59,20 +59,39 @@ describe("node delivery meter", () => {
     expect(events.at(-1)).toBe("land");
   });
 
-  test("a bar with a local command is NOT measured on a bare checkout: nothing runs, nothing lands, and the card says why", async () => {
-    const { m, events, notes } = meter({ checks: [{ name: "typecheck", cmd: "bun run typecheck" }] });
+  test("a bar mixing CI and a local command is measured on the checkout too (card dcdee50e)", async () => {
+    const { m, events } = meter({
+      checks: [{ name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd }, { name: "typecheck", cmd: "bun run typecheck" }],
+    });
     await m.measure(TASK);
-    expect(events).toEqual([]);
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain("comandi locali");
+    expect(events).toEqual(["checkout", "gate@abc1234", "release", "recapture", "land"]);
   });
 
-  test("no checkout dependency on this server: nothing runs, the card says why", async () => {
-    const { m, events, notes } = meter({ noCheckoutDep: true });
+  test("a bar made entirely of local commands is measured on the checkout too", async () => {
+    const { m, events } = meter({ checks: [{ name: "typecheck", cmd: "bun run typecheck" }] });
+    await m.measure(TASK);
+    expect(events).toEqual(["checkout", "gate@abc1234", "release", "recapture", "land"]);
+  });
+
+  test("no checkout to measure on: nothing runs, nothing lands, and the card says why", async () => {
+    const { m, events, notes } = meter({ lease: false });
     await m.measure(TASK);
     expect(events).toEqual([]);
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain("nessun checkout disponibile");
+    expect(notes).toEqual(["nessun checkout su cui misurare"]);
+  });
+
+  test("no checkout function on this server: the card says why instead of staying mute", async () => {
+    const notes: string[] = [];
+    const m = createNodeDeliveryMeter({
+      readTask: () => inReview,
+      declaredChecks: () => [{ name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd }],
+      runGate: async () => ({ ok: true, comment: "ok" } as unknown as ChecksLeg),
+      recapture: async () => {},
+      tryLand: async () => {},
+      note: (_id, text) => { notes.push(text); },
+    });
+    await m.measure(TASK);
+    expect(notes).toEqual(["nessun checkout disponibile su questo server per misurare una consegna di nodo"]);
   });
 
   test("the checkout came back empty: nothing runs, nothing lands, and the card says why", async () => {
@@ -124,5 +143,35 @@ describe("node delivery meter", () => {
     // The first lease is released once the retry comes back empty; no leg ever runs.
     expect(events).toEqual(["checkout", "release"]);
     expect(events.some((e) => e.startsWith("gate"))).toBe(false);
+  });
+});
+
+describe("node delivery meter parallelism", () => {
+  test("measures wait for CI side by side up to the cap, the next one queues", async () => {
+    const started: string[] = [];
+    const gates = new Map<string, () => void>();
+    const m = createNodeDeliveryMeter({
+      readTask: () => inReview,
+      declaredChecks: () => [{ name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd }],
+      checkout: async () => ({ cwd: "/tmp/wt", head: async () => "abc1234", release: async () => undefined }),
+      runGate: async (id) => {
+        started.push(id);
+        await new Promise<void>((resolve) => gates.set(id, resolve));
+        return { ok: true, comment: "" } as unknown as ChecksLeg;
+      },
+      recapture: async () => undefined,
+      tryLand: async () => undefined,
+      legMs: 1,
+      maxParallel: 3,
+      existsSync: () => true,
+    });
+    const all = ["a", "b", "c", "d"].map((id) => m.measure(id));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(started).toEqual(["a", "b", "c"]);
+    gates.get("a")!();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(started).toEqual(["a", "b", "c", "d"]);
+    for (const id of ["b", "c", "d"]) gates.get(id)!();
+    await Promise.all(all);
   });
 });

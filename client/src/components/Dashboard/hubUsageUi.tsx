@@ -8,14 +8,14 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { tokenParts } from '../../lib/hubUsage';
 
 export const CARD = 'rounded-lg border border-app-border bg-surface';
-export const LINE = 'flex h-[34px] items-center gap-2 border-t border-app-border-subtle px-3 first:border-t-0';
-export const BUTTON = 'inline-flex h-[26px] flex-none items-center gap-[5px] whitespace-nowrap rounded-sm border border-app-border-light bg-elevated px-2.5 text-mini text-app-text hover:bg-app-hover disabled:opacity-50 @max-2xl:h-9 @max-2xl:flex-1 @max-2xl:justify-center @max-2xl:text-compact';
-export const CHIP = 'inline-flex h-[18px] flex-none items-center whitespace-nowrap rounded-xs px-1.5 text-mini';
+export const LINE = 'flex h-8.5 items-center gap-2 border-t border-app-border-subtle px-3 first:border-t-0';
+export const BUTTON = 'inline-flex h-6.5 flex-none items-center gap-1.25 whitespace-nowrap rounded-sm border border-app-border-light bg-elevated px-2.5 text-mini text-app-text hover:bg-app-hover disabled:opacity-50 @max-2xl:h-9 @max-2xl:flex-1 @max-2xl:justify-center @max-2xl:text-compact';
+export const CHIP = 'inline-flex h-4.5 flex-none items-center whitespace-nowrap rounded-xs px-1.5 text-mini';
 /** The name column and the figure column of a box row: the same widths in every box, so the bars line up. */
-export const NAME_COL = 'w-[112px] flex-none truncate text-mini';
-export const FIGURE_COL = 'w-[86px] flex-none text-right text-mini text-app-text-muted';
+export const NAME_COL = 'w-28 flex-none truncate text-mini';
+export const FIGURE_COL = 'w-21.5 flex-none text-right text-mini text-app-text-muted';
 
-const BOX_HEAD = 'flex items-center gap-[7px] border-b border-app-border-subtle px-3 py-[9px]';
+const BOX_HEAD = 'flex items-center gap-1.75 border-b border-app-border-subtle px-3 py-2.25';
 const BOX_TITLE = 'flex-1 text-compact font-semibold text-app-text';
 
 export function Box({ testId, icon, title, meta, children, foot }: { testId: string; icon: ReactNode; title: string; meta: string; children: ReactNode; foot?: ReactNode }) {
@@ -36,14 +36,14 @@ export function Bar({ pct, hot = false, tone, cap }: { pct: number; hot?: boolea
   return (
     <span className="relative h-1.5 min-w-0 flex-1 rounded-full bg-app-hover">
       <i className={`block h-full rounded-full ${tone ?? (hot ? 'bg-amber-500 dark:bg-amber-400' : 'bg-primary')}`} style={{ width: `${Math.max(pct > 0 ? 2 : 0, Math.min(100, pct))}%` }} />
-      {cap != null && <u aria-hidden="true" className="absolute -top-[3px] h-3 w-0.5 rounded-[1px] bg-app-text-secondary" style={{ left: `${Math.min(100, cap)}%` }} />}
+      {cap != null && <u aria-hidden="true" className="absolute -top-0.75 h-3 w-0.5 rounded-[1px] bg-app-text-secondary" style={{ left: `${Math.min(100, cap)}%` }} />}
     </span>
   );
 }
 
 export function Tokens({ n, locale, unit }: { n: number; locale: string; unit: string }) {
   const t = tokenParts(n, locale);
-  return <>{t.value}<small className="ml-[3px] text-mini font-normal text-app-text-muted">{t.unit ? `${t.unit} ${unit}` : unit}</small></>;
+  return <>{t.value}<small className="ml-0.75 text-mini font-normal text-app-text-muted">{t.unit ? `${t.unit} ${unit}` : unit}</small></>;
 }
 
 

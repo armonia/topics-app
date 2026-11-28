@@ -18,13 +18,14 @@
  * with a fake node, a fake clock and no repository at all
  * (`task-dispatcher-remote-node.test.ts`).
  */
+import { basename } from "node:path";
 import { isModelUnavailable, MODEL_SKIP_MS } from "./dispatch-overflow";
 import { wakeBreaker, hangBreaker } from "./wake-breaker";
 import { awaitsHuman } from "../../shared/workflow";
 import { NODE_UNREACHABLE_ERROR } from "../../shared/board";
 import type { Task, TaskService } from "./tasks";
 import { returnEmptyNodeRunToTodo } from "./task-dispatcher-remote-node-empty";
-import { isNodeError, type BundleResult, type CreateRunBody, type NodeRunBinding, type NodeRunReport } from "./node-client";
+import { isNodeError, type BundleResult, type CreateRunBody, type NodeRunBinding, type NodeRunComment, type NodeRunReport } from "./node-client";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -36,6 +37,7 @@ import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } fro
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
 import { createRunWithBundle } from "./node-bundle-ladder";
+import { type LaunchEntry, launchesInFlight, type ParkDeps, parkRun, runsOn } from "./task-dispatcher-remote-node-park";
 
 /**
  * THE REMOTE LANE'S HOST CAPABILITY: how this board talks to a paired node, and
@@ -59,6 +61,8 @@ export interface NodeDeps {
   }) => Promise<{ runId: string }>;
   readRun: (input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }) => Promise<NodeRunReport>;
   fetchBundle: (input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }) => Promise<BundleResult>;
+  /** One attachment's bytes, by the exact path the node's own comment declared. Absent on an older node: media never mirrors. */
+  fetchMedia?: (input: { baseUrl: string; token: string; runId: string; path: string; delegation?: NodeRunBinding }) => Promise<Uint8Array | null>;
   cancelRun: (input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }) => Promise<void>;
   /** Where that machine answers, `null` when it is not a paired node. */
   baseUrlOf: (machineId: string) => string | null;
@@ -145,6 +149,8 @@ export interface NodeSlot {
   retireFails?: number;
   /** Consecutive polls answered with a cloud account error (see `NODE_SETUP_POLLS`). Reset by any answer. */
   setupFails?: number;
+  /** Consecutive EXCEPTION failures of a comment's attachment fetch, by comment id (see `NODE_MEDIA_RETRY_POLLS`). */
+  mediaRetries?: Map<string, number>;
 }
 
 /**
@@ -203,6 +209,14 @@ export const NODE_SETUP_POLLS = 3;
 export const NODE_RETIRE_TRIES = 5;
 
 /**
+ * Consecutive polls a comment's attachment may fail with an EXCEPTION (a
+ * timeout, a 5xx) before it is mirrored anyway, missing that attachment.
+ * `fetchMedia` answering `null` is not counted here at all: that is the
+ * node telling us the file is gone for good, not a hiccup to retry.
+ */
+export const NODE_MEDIA_RETRY_POLLS = 3;
+
+/**
  * Polls a run may sit in review with no branch, and no reason for it, before the
  * card lands empty. On the node the system delivery writes the status and then
  * the branch, about half a second apart: on 26/10 a poll that fell in between
@@ -256,6 +270,14 @@ export interface RemoteNodeHost {
   captureDelivery?: (taskId: string) => Promise<boolean>;
   /** Measure the planted branch's bar and offer the card to the automatic land (fire and forget). */
   measureDelivery?: (taskId: string) => Promise<void>;
+  /**
+   * Land one of the node's own attachments under THIS machine's media, and hand
+   * back the local path. `null` = could not be saved (fetch failed, nowhere to
+   * write it): the comment then mirrors without that attachment, never blocking
+   * on it. Absent host = media never mirrors, same as an older node without
+   * `client.fetchMedia`.
+   */
+  saveNodeMedia?: (input: { taskId: string; commentId: string; nodePath: string; bytes: Uint8Array }) => string | null;
   log: (msg: string, err?: unknown) => void;
   /** Broadcast the updated task so live boards move the chip. */
   emit: (task: Task) => void;
@@ -313,6 +335,17 @@ export interface RemoteNodeLane {
   /** Cancel one confined remote run without touching another slot. */
   /** null = not remote, false = remote cancellation still unconfirmed, true = stopped. */
   cancelTask(taskId: string): Promise<boolean | null>;
+  /** The runs in flight on one node: what a primary switch to that node has to wait for. */
+  runsOn(machineId: string): Array<{ taskId: string; sessionKey: string }>;
+  /** The launches on their way to ANY machine whose node has not named the run yet: a switch parks them all. */
+  launchesInFlight(): Array<{ taskId: string; sessionKey: string }>;
+  /**
+   * Stop one remote run for good and put its card back in the queue with the note:
+   * the run is cancelled on the node (best effort, the node is about to restart
+   * anyway) and `node_run_id` is cleared, so no card stays tied to a run that is gone.
+   * null = not a remote slot.
+   */
+  parkRun(taskId: string, note: string): Promise<boolean | null>;
 }
 
 export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
@@ -350,8 +383,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     return next;
   }
 
-  /** Cards whose launch this process started and has not finished yet (see `remoteLaunch`). */
-  const launching = new Set<string>();
+  /**
+   * Cards whose launch this process started and has not finished yet (see `remoteLaunch`), with the
+   * machine each one is launching on (see `LaunchEntry`): a switch to that machine has to see the
+   * launch from the moment it starts, not from the moment the node answers. One object per launch,
+   * so a launch that outlives its park never clears the entry of the next one.
+   */
+  const launching = new Map<string, LaunchEntry>();
 
   /**
    * Consecutive STARTS of a task answered with a cloud account error
@@ -451,6 +489,8 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * `returnEmptyNodeRunToTodo`.
    */
   function parkNodeCard(task: Task, reason: string): void {
+    // A primary switch already put the card back in the queue: parking it here would overwrite that requeue.
+    if (launching.get(task.id)?.parked) return;
     try { releaseAndEmit({ taskId: task.id, requeue: false, parkState: CHIP_BLOCKED, reason }); }
     catch (err) { log(`nodo: parcheggio della card ${task.id} non riuscito`, err); return; }
     if (task.overflowedAt) {
@@ -470,6 +510,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   async function launchOnNode(
     task: Task,
     settings: { effort: string; model?: string; timeoutMin: number },
+    launch: LaunchEntry,
   ): Promise<void> {
     const node = host.client!;
     const machineId = task.machineId!;
@@ -577,6 +618,8 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         return;
       }
     }
+    // Parked by a primary switch while it was still looking up origin or pushing the branch.
+    if (launch.parked) return;
     // A node key from the first instant, before the node has named its run:
     // every local census reads the key, and an empty one counted this run as a
     // turn of THIS machine while the hook and `createRun` were still answering.
@@ -605,6 +648,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         log(`nodo: l'hook node-run per ${task.id} non si è avviato`, err);
         return { ok: true };
       });
+      // Parked by a primary switch while the hook was answering: the card is already back in the
+      // queue, so neither a veto nor a run born now has an owner to act for.
+      if (!host.ownsRun(task.id, runNo)) return;
       if (!verdict.ok) {
         host.endRun(task.id, runNo);
         wakeBreaker.failure(machineId);
@@ -677,15 +723,31 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       }
       const { runId } = created;
       startSetupFails.delete(task.id);
-      lastNodeRun.set(task.id, runId);
+      const cancelCreated = async (): Promise<boolean> => {
+        try {
+          await node.cancelRun({ baseUrl, token, runId, delegation: policy ? {
+            capabilityId: policy.id,
+            subjectPersonId: policy.initiatorPersonId,
+            subjectDeviceId: policy.initiatorDeviceId,
+          } : undefined });
+          return true;
+        } catch { return false; /* best-effort */ }
+      };
+      try {
+        lastNodeRun.set(task.id, runId);
+      } catch (err) {
+        // The write is refused (the primary fence turns the DB read-only): the run is born over
+        // there and nothing here points at it, so it is cancelled now or it works orphaned.
+        await cancelCreated();
+        throw err;
+      }
       if (!host.ownsRun(task.id, runNo)) {
         // Superseded while the node was answering: the run we just created has
         // no owner here, and leaving it alive is the two-deliveries defect.
-        try { await node.cancelRun({ baseUrl, token, runId, delegation: policy ? {
-          capabilityId: policy.id,
-          subjectPersonId: policy.initiatorPersonId,
-          subjectDeviceId: policy.initiatorDeviceId,
-        } : undefined }); } catch { /* best-effort */ }
+        if (await cancelCreated()) {
+          // Gone for good: the card must not point at it (a park cleared the link before this one was written).
+          try { if (lastNodeRun.get(task.id) === runId) lastNodeRun.delete(task.id); } catch { /* the next dispatch cancels it: 404 is fine */ }
+        }
         return;
       }
       host.bindRunSession(task.id, runNo, nodeSessionKey(machineId, runId));
@@ -758,6 +820,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         });
       } catch { /* best-effort: the note never blocks the dispatch */ }
     } catch (err) {
+      // Parked by a primary switch while the node was answering: the card is already back in the
+      // queue, and a deferral here would overwrite the park's note and wait.
+      if (!host.ownsRun(task.id, runNo)) { log(`nodo: lancio di ${task.id} interrotto da un passaggio del principale`, err); return; }
       host.endRun(task.id, runNo);
       if (nodeFailureReason(err) === "no_such_repo") {
         parkNodeCard(
@@ -866,8 +931,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // launched it a second time, the two pushes of the same ref collided, and
     // the loser parked the card in backlog while the winner's run went on
     // working on the node (91a42e8f, a5906c31, 841c6eac on 2026-11-03).
-    launching.add(taskId);
-    return launchOnNode(claimedTask, settings).finally(() => { launching.delete(taskId); });
+    const entry: LaunchEntry = { machineId: claimedTask.machineId, parked: false };
+    launching.set(taskId, entry);
+    return launchOnNode(claimedTask, settings, entry).finally(() => { if (launching.get(taskId) === entry) launching.delete(taskId); });
   }
 
   /**
@@ -977,7 +1043,44 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * The anchor is read from the CARD and not only from memory, which is what
    * makes the rule survive a restart of this process.
    */
-  function mirrorNodeReport(taskId: string, node: NodeSlot, report: NodeRunReport): void {
+  /**
+   * One attachment of `c`, fetched from the node and landed under this
+   * machine's own media (KANBAN-76 follow-up). `fetchMedia` answering `null`
+   * is a DEFINITIVE absence (the node's own doc: gone, or never there) —
+   * that path is dropped from `media` and listed in `missingPaths`, and the
+   * comment still lands. Only an EXCEPTION (a timeout, a 5xx) sets `retry`:
+   * the caller must not mark the comment seen in that case, or a single
+   * network hiccup loses the image for good — the comment never comes up for
+   * a retry again, because `anchored` (built from what is already mirrored)
+   * would then skip it even though it was never actually written (card
+   * 9a850b73, 2026-11-26, and the follow-up on the same card: treating
+   * `null` like an exception meant a mirror that never had the file in the
+   * first place retried it forever and its delivery never reached review).
+   */
+  async function mirroredMedia(
+    taskId: string, node: NodeSlot, c: NodeRunComment,
+  ): Promise<{ media: string[] | undefined; missingPaths: string[]; retryPaths: string[] }> {
+    const client = host.client;
+    if (!c.media?.length || !client?.fetchMedia || !host.saveNodeMedia) {
+      return { media: undefined, missingPaths: [], retryPaths: [] };
+    }
+    const landed: string[] = [];
+    const missingPaths: string[] = [];
+    const retryPaths: string[] = [];
+    for (const nodePath of c.media) {
+      try {
+        const bytes = await client.fetchMedia({
+          baseUrl: node.baseUrl, token: node.token, runId: node.runId, path: nodePath, delegation: node.delegation,
+        });
+        if (bytes === null) { missingPaths.push(nodePath); continue; }
+        const local = host.saveNodeMedia({ taskId, commentId: c.id, nodePath, bytes });
+        if (local) landed.push(local); else retryPaths.push(nodePath);
+      } catch (err) { retryPaths.push(nodePath); log(`nodo: allegato ${nodePath} del commento ${c.id} non scaricato su ${taskId}`, err); }
+    }
+    return { media: landed.length ? landed : undefined, missingPaths, retryPaths };
+  }
+
+  async function mirrorNodeReport(taskId: string, node: NodeSlot, report: NodeRunReport): Promise<void> {
     const got = svc.get(taskId);
     if (!got) return;
     if (report.dispatchState && report.dispatchState !== got.task.dispatchState) {
@@ -1008,6 +1111,25 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       if (!c.id || node.seen.has(c.id) || anchored.has(c.id)) continue;
       const fromAgent = isAgentAuthor(c.author);
       try {
+        const { media, missingPaths, retryPaths } = await mirroredMedia(taskId, node, c);
+        let gaveUpPaths: string[] = [];
+        if (retryPaths.length) {
+          // An exception (not a definitive `null`): retried whole on the next
+          // poll, up to NODE_MEDIA_RETRY_POLLS, instead of landing forever
+          // without its image on the first hiccup.
+          const tries = (node.mediaRetries?.get(c.id) ?? 0) + 1;
+          if (tries < NODE_MEDIA_RETRY_POLLS) {
+            node.mediaRetries ??= new Map();
+            node.mediaRetries.set(c.id, tries);
+            continue;
+          }
+          gaveUpPaths = retryPaths;
+        }
+        node.mediaRetries?.delete(c.id);
+        const absentPaths = [...missingPaths, ...gaveUpPaths];
+        const content = absentPaths.length
+          ? `${c.content}\n\n_Il nodo non ha più ${absentPaths.length === 1 ? "questo allegato" : "questi allegati"}: ${absentPaths.map((p) => basename(p)).join(", ")}._`
+          : c.content;
         svc.addComment({
           taskId,
           // THE AGENT KEEPS ITS VOICE. On the node an agent signs `agent:<id>`,
@@ -1022,7 +1144,8 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           // comments and nothing else). An agent's comment stays a comment;
           // what the node's own machinery wrote stays bookkeeping.
           kind: c.kind === "delivery" ? "delivery" : fromAgent && c.kind === "comment" ? "comment" : "service",
-          content: c.content,
+          content,
+          media,
           messageId: c.id,
         });
         node.seen.add(c.id);
@@ -1378,7 +1501,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         }
         continue;
       }
-      mirrorNodeReport(taskId, node, report);
+      await mirrorNodeReport(taskId, node, report);
       // The node parked the run ITSELF (`backlog` + `failed`/`blocked`: its own
       // dispatch ran out of road, e.g. no runtime for the model). It will never
       // come back no matter how many more times this polls it, and mirroring
@@ -1717,5 +1840,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     return true;
   }
 
-  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask };
+  const parkDeps: ParkDeps = { host, launching, lastNodeRun };
+
+  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask, runsOn: (machineId) => runsOn(parkDeps, machineId), launchesInFlight: () => launchesInFlight(parkDeps), parkRun: (taskId, note) => parkRun(parkDeps, taskId, note) };
 }

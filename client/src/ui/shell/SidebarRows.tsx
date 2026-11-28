@@ -209,7 +209,7 @@ export function ChatRow({ chat, focused, depth = 1, copy, onClick }: { chat: Sid
 /** A pinned chat at the top of the sidebar: a resting card, like a pinned tile. */
 export function PinnedChatRow({ chat, onClick }: { chat: SidebarChatModel; onClick?: () => void }) {
   return (
-    <div {...pressable(onClick)} className={`${onClick ? `${FOCUS_RING} ` : ''}${ROW_CARD} mx-1.5 my-[3px] flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} ${TAB_LABEL_TYPE} cursor-pointer select-none rounded-lg bg-black/[0.05] text-app-text hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.10]`}>
+    <div {...pressable(onClick)} className={`${onClick ? `${FOCUS_RING} ` : ''}${ROW_CARD} mx-1.5 my-0.75 flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} ${TAB_LABEL_TYPE} cursor-pointer select-none rounded-lg bg-black/[0.05] text-app-text hover:bg-black/[0.08] dark:bg-white/[0.06] dark:hover:bg-white/[0.10]`}>
       <span className={ROW_GLYPH_SLOT}><MessageSquare size={ROW_GLYPH} aria-hidden="true" /></span>
       <span className="min-w-0 flex-1 truncate">{chat.title}</span>
     </div>

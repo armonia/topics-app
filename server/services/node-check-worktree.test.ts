@@ -30,6 +30,9 @@ import { tmpdir } from "os";
 import { basename, join } from "path";
 import { createNodeCheckWorktrees, nodeCheckRoot, openNodeCheckWorktree } from "./node-check-worktree";
 import { createTaskAutoMerge } from "./task-automerge";
+import { awaitCiEvidence, githubPort } from "./ci-evidence";
+import { fakeClock, fakePort, run } from "./ci-evidence.testkit";
+import { E2E_CI_CHECK } from "../../shared/board";
 import type { DiscardGit } from "../lib/worktree-discard";
 import { slackMs } from "../../tests/helpers/time-slack";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
@@ -89,22 +92,9 @@ function deleteHalf(tree: string): void {
   files.forEach((f, i) => { if (i % 2 === 0) unlinkSync(join(tree, f)); });
 }
 
-/** Every worktree git still lists on the card branch, with what `git status` says in it. */
-function branchTrees(repo: string): Array<{ path: string; dirt: string }> {
-  const out: Array<{ path: string; dirt: string }> = [];
-  let path = "";
-  for (const line of git(repo, "worktree", "list", "--porcelain").split("\n")) {
-    if (line.startsWith("worktree ")) path = line.slice("worktree ".length).trim();
-    else if (line.trim() === `branch refs/heads/${BRANCH}` && existsSync(path)) {
-      out.push({ path, dirt: git(path, "status", "--porcelain").trim() });
-    }
-  }
-  return out;
-}
-
 async function measureThenCut(repo: string, checks: string, cutGit: DiscardGit, cutDelete?: (p: string) => Promise<void>) {
   const lease = await openNodeCheckWorktree({
-    git: cutGit, repoPath: repo, branch: BRANCH, root: checks, taskId: "8e9c2873-test",
+    git: cutGit, repoPath: repo, commit: git(repo, "rev-parse", BRANCH).trim(), root: checks, taskId: "8e9c2873-test",
     resolveHead: async (cwd) => git(cwd, "rev-parse", "HEAD").trim(),
     discard: cutDelete ? { deleteTree: cutDelete } : undefined,
   });
@@ -133,7 +123,7 @@ describe("a node check checkout cut by a shutdown does not block the land", () =
 
     await measureThenCut(repo, checks, cut);
 
-    for (const t of branchTrees(repo)) expect(t.dirt).toBe("");
+    expect(listed(repo)).toHaveLength(1);
     const res = await land(repo);
     expect(res.status).toBe("merged");
     expect(git(repo, "merge-base", "--is-ancestor", BRANCH, "main")).toBe("");
@@ -145,7 +135,7 @@ describe("a node check checkout cut by a shutdown does not block the land", () =
 
     await measureThenCut(repo, checks, realGit, killed);
 
-    expect(branchTrees(repo)).toEqual([]);
+    expect(listed(repo)).toHaveLength(1);
     const res = await land(repo);
     expect(res.status).toBe("merged");
     // A card that lands is never measured again: nothing reopens its run
@@ -168,7 +158,111 @@ describe("a node check checkout cut by a shutdown does not block the land", () =
 
     const res = await land(repo);
     expect(res.status).toBe("merged");
-    for (const t of branchTrees(repo)) expect(t.dirt).toBe("");
+    expect(listed(repo)).toHaveLength(1);
+  }, WITH_REAL_GIT);
+});
+
+describe("the measure is pinned to the delivered commit, not to the branch tip", () => {
+  test("HEAD stays on the delivered commit even if the branch advances during the measure", async () => {
+    const { repo, checks } = repoWithNodeBranch();
+    const deliveredCommit = git(repo, "rev-parse", BRANCH).trim();
+
+    const lease = await openNodeCheckWorktree({
+      git: realGit, repoPath: repo, commit: deliveredCommit, root: checks, taskId: "race-test",
+      resolveHead: async (cwd) => git(cwd, "rev-parse", "HEAD").trim(),
+    });
+    expect(lease).not.toBeNull();
+
+    // The branch moves on while the measure is in flight: a new delivery, or the land's own realign.
+    git(repo, "switch", "-q", BRANCH);
+    writeFileSync(join(repo, "server", "second-delivery.txt"), "second delivery\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "second node delivery");
+    git(repo, "switch", "-q", "main");
+    expect(git(repo, "rev-parse", BRANCH).trim()).not.toBe(deliveredCommit);
+
+    expect(await lease!.head()).toBe(deliveredCommit);
+    expect(existsSync(join(lease!.cwd, "server", "second-delivery.txt"))).toBe(false);
+    await lease!.release();
+  }, WITH_REAL_GIT);
+});
+
+describe("the meter recreates the checkout from the planted branch when the commit itself is unresolvable", () => {
+  test("a commit this checkout cannot resolve falls back to the branch tip (90cd0fcd)", async () => {
+    const { repo, checks } = repoWithNodeBranch();
+
+    const lease = await openNodeCheckWorktree({
+      git: realGit, repoPath: repo, commit: "0".repeat(40), branch: BRANCH, root: checks, taskId: "90cd0fcd-test",
+      resolveHead: async (cwd) => git(cwd, "rev-parse", "HEAD").trim(),
+    });
+
+    expect(lease).not.toBeNull();
+    expect(await lease!.head()).toBe(git(repo, "rev-parse", BRANCH).trim());
+    await lease!.release();
+  }, WITH_REAL_GIT);
+
+  test("without a branch to fall back on, an unresolvable commit still gives up", async () => {
+    const { repo, checks } = repoWithNodeBranch();
+
+    const lease = await openNodeCheckWorktree({
+      git: realGit, repoPath: repo, commit: "0".repeat(40), root: checks, taskId: "90cd0fcd-test",
+      resolveHead: async (cwd) => git(cwd, "rev-parse", "HEAD").trim(),
+    });
+
+    expect(lease).toBeNull();
+  }, WITH_REAL_GIT);
+});
+
+describe("a planted branch already checked out elsewhere does not stop the node check", () => {
+  test("the main checkout sitting on the branch does not block a detached measure", async () => {
+    const { repo, checks } = repoWithNodeBranch();
+    // The planted branch is already checked out in the project's own checkout:
+    // `git worktree add <branch>` would refuse this, but a detached checkout on
+    // the delivered COMMIT never claims the branch, so it is never refused.
+    git(repo, "switch", "-q", BRANCH);
+    const commit = git(repo, "rev-parse", BRANCH).trim();
+
+    const lease = await openNodeCheckWorktree({
+      git: realGit, repoPath: repo, commit, root: checks, taskId: "90cd0fcd-test",
+      resolveHead: async (cwd) => git(cwd, "rev-parse", "HEAD").trim(),
+    });
+
+    expect(lease).not.toBeNull();
+    expect(git(lease!.cwd, "rev-parse", "HEAD").trim()).toBe(commit);
+    await lease!.release();
+  }, WITH_REAL_GIT);
+});
+
+describe("a detached node check checkout still reaches a measured CI row", () => {
+  test("awaitCiEvidence falls back to the planted branch instead of NOT MEASURED", async () => {
+    const { repo, checks } = repoWithNodeBranch();
+    const commit = git(repo, "rev-parse", BRANCH).trim();
+
+    const lease = await openNodeCheckWorktree({
+      git: realGit, repoPath: repo, commit, root: checks, taskId: "awaitci-test",
+      resolveHead: async (cwd) => git(cwd, "rev-parse", "HEAD").trim(),
+    });
+    expect(lease).not.toBeNull();
+    // The checkout is really detached: the symbolic-ref githubPort().branch
+    // uses finds nothing on its own, same as the production reader.
+    expect(await githubPort().branch(lease!.cwd)).toEqual({ ok: false, error: expect.any(String) });
+
+    // A fake `branch` that answers "topics/card" regardless of `cwd` would
+    // never notice a missing fallback: the real git reader is the one that
+    // actually fails on a detached HEAD, same as production.
+    const { port, calls } = fakePort({
+      branch: (cwd) => githubPort().branch(cwd),
+      runs: async () => ({ ok: true, value: [run({ head_sha: commit })] }),
+    });
+    const row = (await awaitCiEvidence(
+      { cwd: lease!.cwd, sha: commit, taskId: "awaitci-test", checks: [E2E_CI_CHECK], branch: BRANCH },
+      { port, ...fakeClock(), stopping: () => false },
+    ))[0]!;
+
+    expect(row.notMeasured).toBeFalsy();
+    expect(row.ok).toBe(true);
+    expect(calls.push).toEqual([{ sha: commit, branch: BRANCH, lease: undefined }]);
+    await lease!.release();
   }, WITH_REAL_GIT);
 });
 
@@ -238,7 +332,7 @@ describe("no node check checkout outlives the server that opened it", () => {
 
     // A node delivery reported right after boot: the measure opens while the sweep runs.
     const [lease, gone] = await Promise.all([
-      pool.open({ repoPath: repo, branch: BRANCH, taskId: "8e9c2873-test" }),
+      pool.open({ repoPath: repo, commit: git(repo, "rev-parse", BRANCH).trim(), taskId: "8e9c2873-test" }),
       pool.sweep(),
     ]);
 
@@ -262,8 +356,8 @@ describe("no node check checkout outlives the server that opened it", () => {
     const pool = createNodeCheckWorktrees({ git: realGit, root: checks, resolveHead: headOf });
 
     const [first, second] = await Promise.all([
-      pool.open({ repoPath: repo, branch: BRANCH, taskId: "3d189f49-test" }),
-      pool.open({ repoPath: repo, branch: BRANCH, taskId: "3d189f49-test" }),
+      pool.open({ repoPath: repo, commit: git(repo, "rev-parse", BRANCH).trim(), taskId: "3d189f49-test" }),
+      pool.open({ repoPath: repo, commit: git(repo, "rev-parse", BRANCH).trim(), taskId: "3d189f49-test" }),
     ]);
 
     expect(first).not.toBeNull();
@@ -302,7 +396,7 @@ describe("no node check checkout outlives the server that opened it", () => {
     const pool = createNodeCheckWorktrees({ git: traced, root: checks, resolveHead: headOf });
 
     const swept = pool.sweep();
-    const opened = pool.open({ repoPath: repo, branch: BRANCH, taskId: "8e9c2873-test" });
+    const opened = pool.open({ repoPath: repo, commit: git(repo, "rev-parse", BRANCH).trim(), taskId: "8e9c2873-test" });
     for (let i = 0; i < 20; i++) await Promise.resolve();
     expect(events).not.toContain("start worktree add");
     openGate();
@@ -324,7 +418,7 @@ describe("no node check checkout outlives the server that opened it", () => {
         // SIGKILL mid-checkout: half the files written, and the registration
         // still "locked initializing", which git removes only when the add ends.
         killed = true;
-        const tree = args[args.length - 2]!;
+        const tree = args.find((a, i) => i >= 2 && !a.startsWith("-"))!;
         deleteHalf(tree);
         writeFileSync(join(repo, ".git", "worktrees", basename(tree), "locked"), "initializing\n");
         return { code: 137 };
@@ -333,11 +427,11 @@ describe("no node check checkout outlives the server that opened it", () => {
     };
     const pool = createNodeCheckWorktrees({ git: killAdd, root: checks, resolveHead: headOf });
 
-    expect(await pool.open({ repoPath: repo, branch: BRANCH, taskId: "082df06d-test" })).toBeNull();
+    expect(await pool.open({ repoPath: repo, commit: git(repo, "rev-parse", BRANCH).trim(), taskId: "082df06d-test" })).toBeNull();
 
     expect(readdirSync(checks)).toEqual([]);
     expect(listed(repo)).toHaveLength(1);
-    const again = await pool.open({ repoPath: repo, branch: BRANCH, taskId: "082df06d-test" });
+    const again = await pool.open({ repoPath: repo, commit: git(repo, "rev-parse", BRANCH).trim(), taskId: "082df06d-test" });
     expect(again).not.toBeNull();
     expect(git(again!.cwd, "status", "--porcelain").trim()).toBe("");
     await again!.release();
@@ -353,7 +447,7 @@ describe("no node check checkout outlives the server that opened it", () => {
     expect(e2eRoot).not.toBe(prodRoot);
 
     const prod = createNodeCheckWorktrees({ git: realGit, root: prodRoot, resolveHead: headOf });
-    const lease = await prod.open({ repoPath: repo, branch: BRANCH, taskId: "8e9c2873-test" });
+    const lease = await prod.open({ repoPath: repo, commit: git(repo, "rev-parse", BRANCH).trim(), taskId: "8e9c2873-test" });
     expect(lease).not.toBeNull();
 
     const e2e = createNodeCheckWorktrees({ git: realGit, root: e2eRoot, resolveHead: headOf });

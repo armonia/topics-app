@@ -81,7 +81,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
   // System level and lives here, hub or not (HUBBR-12).
   const projectUsage = (
     <section data-testid="dashboard-project-usage" className="bg-surface border border-app-border rounded-lg">
-      <div className="flex items-center gap-[7px] border-b border-app-border-subtle px-3 py-[9px]">
+      <div className="flex items-center gap-1.75 border-b border-app-border-subtle px-3 py-2.25">
         <Coins size={13} className="text-app-text-muted" aria-hidden="true" />
         <h2 className="m-0 flex-1 text-compact font-semibold text-app-text">{tr('usage.perProject')}</h2>
       </div>

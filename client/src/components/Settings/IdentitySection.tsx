@@ -439,7 +439,7 @@ export function IdentitySection({ onOrgChange }: {
             <button
               key={g.id}
               onClick={() => setScelto(g.id)}
-              className={`max-w-[14rem] truncate rounded border px-2 py-1 text-compact ${
+              className={`max-w-56 truncate rounded border px-2 py-1 text-compact ${
                 g.id === scelto
                   ? 'border-primary bg-app-hover text-app-text'
                   : 'border-app-border text-app-text-secondary hover:bg-app-hover'

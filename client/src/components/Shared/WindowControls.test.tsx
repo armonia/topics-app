@@ -95,7 +95,7 @@ describe('WindowControls on Windows', () => {
     const html = renderToStaticMarkup(<WindowControls visible />);
     const root = html.slice(0, html.indexOf('<button'));
     expect(root).toContain('absolute');
-    expect(root).toContain('left-[6px]');
+    expect(root).toContain('left-1.5');
     // `w-0` was the old dodge for a group that DID take part in the flow. An
     // absolute box reserves nothing, so if that class comes back it means the
     // group is back in the row.

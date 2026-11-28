@@ -33,7 +33,7 @@ export function CollectionTree({ collections, selectedId, copy, expandedCollecti
   phone?: boolean;
 }) {
   return (
-    <nav aria-label={copy.knowledge.collections} className={clsx(phone ? 'max-h-[50dvh] w-full overflow-y-auto border-b' : 'h-full w-[230px] shrink-0 overflow-y-auto border-r', 'border-app-border px-2.5 py-3')}>
+    <nav aria-label={copy.knowledge.collections} className={clsx(phone ? 'max-h-[50dvh] w-full overflow-y-auto border-b' : 'h-full w-57.5 shrink-0 overflow-y-auto border-r', 'border-app-border px-2.5 py-3')}>
       <SectionLabel className="mb-2 px-1">{copy.knowledge.collections}</SectionLabel>
       <ul className="space-y-1">
         {collections.map((c) => {

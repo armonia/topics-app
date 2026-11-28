@@ -9,7 +9,7 @@
  * Two widths (375 and 1440) because the chip and the menu are the only
  * surface a human has to approve by eye.
  *
- * @covers KANBAN-126
+ * @covers KANBAN-127
  */
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";

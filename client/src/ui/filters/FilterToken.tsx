@@ -74,7 +74,7 @@ export function FilterToken({ token, copy, fields, valuesOf, onChange, onRemove,
       {trigger('value', copy.editValue(token.fieldLabel), (
         <>
           {ValueIcon && <ValueIcon size={s.icon - 2} className="shrink-0" aria-hidden="true" />}
-          <span className="max-w-[12rem] truncate">{token.valueLabel}</span>
+          <span className="max-w-48 truncate">{token.valueLabel}</span>
         </>
       ))}
       <button

@@ -2,6 +2,7 @@
  * The tasks router and the process detection and presence that start with it.
  */
 import { basename } from "path";
+import { cpus, loadavg } from "node:os";
 import { teardownArchivedTaskBrowserState } from "../services/task-tab-teardown";
 import { getClaudeSessionsForDetection, countBusyAgentTerminals } from "../routes/terminal";
 import { pushMainToOrigin } from "../services/main-on-origin";
@@ -16,7 +17,8 @@ import { realMainCiPort } from "../services/main-ci-watch";
 import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
 import { classifyWorktreeSource } from "../services/worktree-manager";
 import { tryGetProvider } from "../providers";
-import { startProcessDetection, stopCardCommandProcesses, stopTopicCommandProcesses } from "../routes/processes";
+import { startProcessDetection, stopCardCommandProcesses } from "../routes/processes";
+import { stopTopicProcessesAndPreview } from "./chat-preview";
 import { createTasksRouter, ownBranchFiles, runGitCap } from "../routes/tasks";
 import { landingFiles, referencedByTheJudge } from "../services/landing-files";
 import { defaultLifecycleHooks } from "../services/lifecycle-hooks";
@@ -55,7 +57,7 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     },
     landings: landingQueue,
     stopCardProcesses: stopCardCommandProcesses,
-    stopTopicProcesses: stopTopicCommandProcesses,
+    stopTopicProcesses: stopTopicProcessesAndPreview,
     repoRootFor: repoRootForCard,
     workspaceDir: DISPATCH_WORKSPACE_DIR,
     // Il titolo leggibile di una card dettata (`services/task-title.ts`). Si
@@ -165,10 +167,14 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     },
     // A throwaway checkout of a branch planted from another machine, so its bar
     // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
+    // Detached on the DELIVERED COMMIT, not on the branch tip: the branch can
+    // move (a land, a new delivery) while the measure is running, and a
+    // checkout attached to it would follow HEAD without updating its files.
     nodeDeliveryCheckout: async (taskId) => {
       const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
-      if (!ref) return null;
-      return nodeChecks.open({ repoPath: ref.repoPath, branch: ref.branch, taskId });
+      const commit = dispatcherSvc.get(taskId)?.task.deliveryCommit;
+      if (!ref || !commit) return null;
+      return nodeChecks.open({ repoPath: ref.repoPath, commit, branch: ref.branch, taskId });
     },
     onAutoLand: (api) => {
       late.misuraConsegnaNodo = api.measureNodeDelivery;
@@ -274,7 +280,13 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
       late.resumeHeldDelivery = (taskId) => hooks.settleDelivery(taskId);
     },
     // The e2e row of a delivery is read from the pull request CI, never run here.
-    ciEvidence: ({ onCiWait, ...input }) => awaitCiEvidence(input, { onCiWait }),
+    // The planted delivery branch is handed in as a fallback: a node-check
+    // checkout is detached on the delivered commit (`openNodeCheckWorktree`),
+    // so `git symbolic-ref` inside it finds nothing on its own.
+    ciEvidence: async ({ onCiWait, ...input }) => {
+      const ref = await resolveDeliveryBranch(deliveryBranchDeps(), input.taskId).catch(() => null);
+      return awaitCiEvidence({ ...input, branch: ref?.branch ?? null }, { onCiWait });
+    },
     // A round on a new branch ends the pull requests of the card's earlier rounds.
     supersedeEarlierRounds: ({ cwd, taskId }) => supersedeEarlierRounds(githubPort(), { cwd, taskId, baseBranch: CI_BASE_BRANCH }),
     // The review sweep asks whether a green card's pull request still merges into main.
@@ -292,7 +304,7 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     // row, so moving it in the panel takes effect on the next round. It used to be
     // `DISPATCH_MEM_FLOOR_NATIVE_GB` — the floor for admitting an AGENT, three
     // times the heaviest check command ever measured on this machine.
-    checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: () => dispatcherSvc.getChecksMemFloorGB() },
+    checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: () => dispatcherSvc.getChecksMemFloorGB(), loadPerCore: () => loadavg()[0]! / Math.max(1, cpus().length) },
     // Same union the dispatcher resolves against — but trimmed to the dirs that
     // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
     // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config

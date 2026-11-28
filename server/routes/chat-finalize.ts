@@ -23,6 +23,7 @@ import { attachMediaOfTurn } from "../lib/attach-media-of-turn";
 import { resolveTurnCheckpointsEnabled } from "../services/app-settings";
 import { captureTurnCheckpoint } from "../services/turn-checkpoints";
 import type { ChatTurnScope } from "./chat-turn-scope";
+import { onChatTurnEnd } from "../boot/chat-preview";
 
 /** Builds `finalizeStream`, the one place a streamed turn ends. */
 export function createFinalizeStream(turn: ChatTurnScope): void {
@@ -599,6 +600,9 @@ export function createFinalizeStream(turn: ChatTurnScope): void {
         lastAssistantText: turn.fullContent,
       };
       setTimeout(() => {
+        // A chat in its own worktree gets a live preview when the turn touched
+        // the interface (board turns have their own, at review).
+        if (matchedTopic && !dispatched) onChatTurnEnd(matchedTopic.id, { clean: goalTurn.end === "end_turn" && !goalTurn.discarded && !turnError });
         // The turn's last word, fixed BEFORE the goal loop can write
         // anything: the hook's verdict is about this turn, not a later one.
         const hookTurn = hooks && turn.topicProvider?.name === "topics"

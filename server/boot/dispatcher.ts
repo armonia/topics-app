@@ -2,10 +2,11 @@
  * The task dispatcher itself.
  */
 import { basename, join } from "path";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { countAttachedTerminalSessions } from "../routes/terminal";
 import { createAgentWorktree, worktreeReadyMs } from "../services/worktree-for-agent";
 import { mainRedStop, realMainCiPort } from "../services/main-ci-watch";
+import { AGENT_COST_FLOOR_MEM_GB } from "../../shared/board";
 import { createTaskDispatcher } from "../services/task-dispatcher";
 import { dispatcherLogLine } from "../services/task-dispatcher-support";
 import { budgetSample, computeDispatchCapacity } from "../services/dispatch-capacity";
@@ -48,11 +49,27 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
   const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, scheduleEngine, tickScheduledCards, announceTick, releaseWakingCards, taskAttemptStore, turniInVolo, worktreeGc } = scope;
   // Before the first tick: a node whose breaker was open stays out after the restart every land of server/ causes.
   persistNodeBreakers(join(ctx.STATE_DIR, NODE_BREAKERS_FILE));
+  // Where a node's own attachments (a screenshot, a clip) land once fetched
+  // back (KANBAN-76 follow-up): the node's path is useless on this machine, so
+  // the mirror needs a file of its OWN before the comment can point at one.
+  const NODE_MEDIA_DIR = join(ctx.APP_DATA_DIR, "media", "node-delivery");
+  const saveNodeMedia = ({ taskId, commentId, nodePath, bytes }: { taskId: string; commentId: string; nodePath: string; bytes: Uint8Array }): string | null => {
+    try {
+      mkdirSync(NODE_MEDIA_DIR, { recursive: true });
+      const local = join(NODE_MEDIA_DIR, `${taskId.slice(0, 8)}-${commentId.slice(0, 8)}-${basename(nodePath)}`);
+      writeFileSync(local, bytes);
+      return local;
+    } catch (err) {
+      console.warn(`[node-media] ${nodePath} non salvato su ${taskId}`, err);
+      return null;
+    }
+  };
   const taskDispatcher = createTaskDispatcher({
     isActive: isThisServerPrimary,
     stopCardProcesses: stopCardCommandProcesses,
     captureDelivery: (taskId) => late.capturaConsegna ? late.capturaConsegna(taskId) : Promise.resolve(false),
     measureDelivery: (taskId) => late.misuraConsegnaNodo ? late.misuraConsegnaNodo(taskId) : Promise.resolve(),
+    saveNodeMedia,
     uncommittedInWorktree: (taskId) =>
       late.sondaLavoroNonCommittato ? late.sondaLavoroNonCommittato(taskId) : Promise.resolve(null),
     svc: dispatcherSvc,
@@ -377,6 +394,8 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       createRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.createRun(input) : nodeClient.createRun(input),
       readRun: remoteNodeRoad.readRun,
       fetchBundle: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.fetchBundle(input) : nodeClient.fetchBundle(input),
+      // The Claude cloud has no thread of its own comments to attach to: a paired Topics only.
+      fetchMedia: (input) => isCloudBaseUrl(input.baseUrl) ? Promise.resolve(null) : nodeClient.fetchMedia(input),
       cancelRun: remoteNodeRoad.cancelRun,
       baseUrlOf: remoteNodeRoad.baseUrlOf,
       tokenOf: remoteNodeRoad.tokenOf,
@@ -508,6 +527,13 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     broadcast: ctx.broadcastToAll,
   });
   late.taskDispatcher = taskDispatcher;
+  // A chat preview asks the same floor as a card, priced as one more card.
+  const chatPreviewFloor = createDispatchResourceBlockFromInputs({
+    worktreesPath: () => ctx.worktreeManager.worktreesDir(),
+    inputs: dispatchMemoryInputs,
+    memoryOwners: () => memoryOwners.latest(),
+  });
+  late.resourceBlock = () => chatPreviewFloor({ cardGB: AGENT_COST_FLOOR_MEM_GB, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: true }).reason;
 
   // The wake-at release has to run on every beat too, not just at boot: it does not
   // call scheduleEngine.tick() a second time, it only adds the backlog -> todo sweep

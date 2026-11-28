@@ -86,6 +86,8 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // gws: the Google Workspace CLI the reference Gmail mailbox adapter calls (`server/mail/inbox/gmail-adapter.ts`); it is a command name, not a word.
+  "gws",
   // unsubscribe: the name every subscribe/unsubscribe pair in the client stores uses (`client/src/lib/keyedListeners.ts`); the dictionary lacks it.
   "unsubscribe",
   // symlink: the filesystem term for a symbolic link (`server/services/worktree-root-gc.ts` tells a linked checkout from a folder); the dictionary lacks it.

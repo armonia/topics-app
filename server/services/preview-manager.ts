@@ -33,6 +33,7 @@
 
 import { join } from "path";
 import net from "net";
+import { chatSourceId, createChatPreviews, isChatSource, CHAT_SOURCE_PREFIX } from "./preview-chat";
 import { holdsOwnEvidence, isDurablePreviewEvidence } from "./preview-own-evidence";
 
 /**
@@ -47,6 +48,7 @@ import { holdsOwnEvidence, isDurablePreviewEvidence } from "./preview-own-eviden
  * instead of stacking another, which is why all four messages start with it,
  * the failures included.
  */
+export { chatSourceId };
 export const PREVIEW_NOTE_PREFIX = "Anteprima:";
 
 /**
@@ -126,6 +128,20 @@ export interface PreviewManagerDeps {
   /** Resolve the task's branch worktree, or null (no worktree ⇒ no preview). */
   worktreeOf(taskId: string): PreviewWorktree | null;
   /**
+   * The worktree a CHAT works in, or null (no worktree, or the chat works in the
+   * live checkout: there the real app is already the preview). Optional: absent
+   * ⇒ chat previews are off.
+   */
+  worktreeOfTopic?(topicId: string): PreviewWorktree | null;
+  /**
+   * True when the chat's worktree diff touches interface files. Only asked for
+   * the automatic start at the end of a turn; the button skips it. Absent ⇒ the
+   * automatic start never fires.
+   */
+  touchesInterface?(wt: PreviewWorktree): Promise<boolean>;
+  /** A service message in the chat (outcome of a chat preview). Absent ⇒ silent. */
+  postChatMessage?(topicId: string, args: { content: string; media?: string[] }): void;
+  /**
    * Decide HOW to start the preview for this worktree: argv + deep-link path.
    * null ⇒ this project can't be previewed (no start script / no override) —
    * the manager then skips spin-up and only enforces the no-prod-url guard.
@@ -189,6 +205,12 @@ export interface PreviewManagerDeps {
   emptyAppShell?(url: string): Promise<boolean>;
   /** Render a PNG of `url` at `width` px to `outPath`. Best-effort → boolean. */
   screenshot(url: string, outPath: string, opts: { width: number }): Promise<boolean>;
+  /**
+   * Why the last capture produced nothing, in one line. A machine with no
+   * browser installed failed mute, and the card reached review with no photo
+   * and no reason: a board that requires one then parks it for ever.
+   */
+  screenshotFailure?(): string | null;
   /** The task's current output_url (to detect a prod URL we must not keep). */
   currentOutputUrl(taskId: string): string | null;
   setOutputUrl(taskId: string, url: string | null): void;
@@ -259,6 +281,12 @@ export interface PreviewManagerDeps {
   ensureMediaDir(): void;
   /** [low, high] inclusive pool. Default [3400, 3450]. */
   portRange?: [number, number];
+  /** Idle time after which a chat's preview is switched off, ms. Default 30 minutes. */
+  chatIdleMs?: number;
+  /** Cap on live chat previews (cards are not counted). Default 2. */
+  maxChatPreviews?: number;
+  /** Same admission as the cards (memory floor): a sentence when a new chat preview must not start, else null. */
+  admitChatPreview?(): string | null;
   /** Ms to wait for the server to answer before giving up. Default 40000. */
   readyTimeoutMs?: number;
   /** Poll interval while waiting for readiness. Default 500. */
@@ -271,6 +299,7 @@ export interface PreviewManagerDeps {
 }
 
 interface LivePreview {
+  /** The source id (task or chat), kept under its historical name for `list()`. */
   taskId: string;
   port: number;
   url: string;
@@ -290,6 +319,11 @@ export interface PrepareOptions {
   explain?: boolean;
 }
 
+export interface ChatPreviewOptions {
+  /** Started by the end of a turn, not by the button: gated on interface files and silent on "no". */
+  auto?: boolean;
+}
+
 export interface PreviewManager {
   /**
    * Full delivery flow: (re)use or boot the preview, set output_url to the local
@@ -297,6 +331,14 @@ export interface PreviewManager {
    * no-prod-url guard when no preview is possible. Best-effort — never throws.
    */
   prepareForReview(taskId: string, opts?: PrepareOptions): Promise<void>;
+  /**
+   * Same flow for a chat that works in its own worktree. The outcome (link and
+   * screenshot, or why it did not start) goes to the chat as a service message.
+   * Best-effort, never throws.
+   */
+  ensureForChat(topicId: string, opts?: ChatPreviewOptions): Promise<void>;
+  /** Restarts the idle clock of the chat's preview (call at every turn end). */
+  noteChatTurn(topicId: string): void;
   /** Boot (or reuse) a preview server for the task. null ⇒ couldn't. */
   ensurePreview(taskId: string): Promise<{ url: string; port: number } | null>;
   /** Kill + forget the task's preview server. Idempotent, never throws. */
@@ -308,8 +350,10 @@ export interface PreviewManager {
    * Torna le porte ripulite. Idempotente, non lancia mai.
    */
   sweepOrphans(): Promise<number[]>;
-  /** Introspection (tests / status). */
+  /** Introspection (tests / status): the previews of TASKS. */
   list(): { taskId: string; port: number; url: string }[];
+  /** The previews of chats. */
+  listChats(): { topicId: string; port: number; url: string }[];
 }
 
 const DEFAULT_RANGE: [number, number] = [3400, 3450];
@@ -372,6 +416,19 @@ export function isPlaceholderPage(body: string): boolean {
 export function isEvidencePage(page: { status: number; body: string }): boolean {
   if (page.status >= 400) return false;
   return !isPlaceholderPage(page.body);
+}
+
+/**
+ * True when the url points at the root and nothing else — `http://localhost:3402/`.
+ * In this app that is the shell with no topic open: an address that names no page.
+ */
+export function namesNoPage(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.pathname === "/" && u.search === "" && u.hash === "";
+  } catch {
+    return false;
+  }
 }
 
 /** Porta di un url locale, o null se non si legge. */
@@ -498,6 +555,11 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
    * era solo la consegna (che sul niente tace); quando a chiedere è una persona,
    * «non è stato possibile» senza il perché non è una risposta.
    */
+  function worktreeFor(sourceId: string): PreviewWorktree | null {
+    if (isChatSource(sourceId)) return deps.worktreeOfTopic?.(sourceId.slice(CHAT_SOURCE_PREFIX.length)) ?? null;
+    return deps.worktreeOf(sourceId);
+  }
+
   async function bootPreview(taskId: string): Promise<{ preview: { url: string; port: number } | null; reason: string | null; attempted: boolean }> {
     // `attempted` = we really tried to start something. It tells a project with
     // no interface (no command: silence is right) from one that has one and did
@@ -513,8 +575,8 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       try { deps.unregisterProcess?.(taskId); } catch { /* ignore */ }
     }
 
-    const wt = deps.worktreeOf(taskId);
-    if (!wt) return no("il task non ha un worktree (nessuna cartella da cui avviare un'anteprima)");
+    const wt = worktreeFor(taskId);
+    if (!wt) return no(isChatSource(taskId) ? "la chat non lavora in un worktree suo (nel checkout vivo l'app vera è già l'anteprima)" : "il task non ha un worktree (nessuna cartella da cui avviare un'anteprima)");
     if (wt.mode !== "branch") return no(`il worktree del task è in modalità \`${wt.mode}\`, non \`branch\`: non c'è un checkout da avviare`);
 
     const command = deps.resolveCommand(taskId, wt);
@@ -585,7 +647,10 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       }
       if (owns === "unknown") log(`[preview] owner of :${port} unverified for ${taskId} (child alive — accepting)`);
 
-      let deepLink = command.deepLinkPath && command.deepLinkPath.startsWith("/") ? command.deepLinkPath : "/";
+      const fallbackPath = command.deepLinkPath && command.deepLinkPath.startsWith("/") ? command.deepLinkPath : "/";
+      let deepLink = fallbackPath;
+      let announced = false;
+      const promised = Boolean(deepLinkFile && deps.readDeepLink);
       if (deepLinkFile && deps.readDeepLink) {
         // The command writes the file once its data is seeded, so waiting for it
         // is the real "ready to be photographed": the server answering only says
@@ -594,10 +659,30 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
         for (;;) {
           let found: string | null = null;
           try { found = deps.readDeepLink(deepLinkFile); } catch { found = null; }
-          if (found && found.startsWith("/")) { deepLink = found; break; }
+          if (found && found.startsWith("/")) { deepLink = found; announced = true; break; }
           if (!proc.alive() || now() >= until) break;
           await sleep(readyPollMs);
         }
+      }
+      // Which page we are about to call the preview, and who chose it: the only
+      // line that makes the next blank photo readable in the log.
+      log(`[preview] deep link for ${taskId} on :${port}: ${deepLink} (${announced ? "announced by the command" : promised ? "fallback, never announced" : "declared by the project"})`);
+
+      // A COMMAND THAT PROMISED A PAGE AND NEVER NAMED ONE HAS NOTHING TO SHOW.
+      //
+      // The bare `/` of this app is the shell with no topic open. Photographing
+      // it produced exactly the delivery that opened this card: a shot the
+      // empty-shell gate retires, on a card whose live preview was up, over four
+      // attempts — because the url was cached in `live` and every later attempt
+      // reused the same page. So the boot FAILS here, with the reason, and the
+      // next attempt starts a fresh server that seeds again.
+      if (promised && !announced && fallbackPath === "/") {
+        log(`[preview] no page announced for ${taskId} on :${port} — refusing to photograph the bare home`);
+        await spegniAlbero(proc, taskId);
+        return no(
+          `l'anteprima è partita su :${port} ma non ha mai annunciato la pagina da fotografare entro ${Math.round(DEEP_LINK_WAIT_MS / 1000)}s ` +
+          "(i dati di esempio non sono stati creati): fotografare la `/` nuda darebbe l'app senza nessun topic aperto, cioè un'evidenza falsa",
+        );
       }
       const url = `http://localhost:${port}${deepLink}`;
       live.set(taskId, { taskId, port, url, proc, worktreePath: wt.absPath, startedAt: now() });
@@ -614,13 +699,21 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     return (await bootPreview(taskId)).preview;
   }
 
+  /** True when this task's project announces the page to photograph (deep-link file). */
+  function announcesItsPage(taskId: string): boolean {
+    if (!deps.readDeepLink) return false;
+    const wt = deps.worktreeOf(taskId);
+    if (!wt || wt.mode !== "branch") return false;
+    try { return Boolean(deps.resolveCommand(taskId, wt)?.deepLinkFile); } catch { return false; }
+  }
+
   /** L'url che risponde è davvero dell'anteprima di QUESTO task? */
   async function reusable(taskId: string, url: string): Promise<boolean> {
     const mine = live.get(taskId);
     if (mine && mine.url === url && mine.proc.alive()) return true;
     const port = portOf(url);
     if (port == null) return false;
-    const cwd = deps.worktreeOf(taskId)?.absPath ?? null;
+    const cwd = worktreeFor(taskId)?.absPath ?? null;
     const owns = await ownership(port, { pid: mine?.proc.pid ?? null, cwd });
     if (owns !== "own") {
       log(`[preview] refusing to reuse ${url} for ${taskId}: listener is ${owns} (not this task's preview)`);
@@ -651,7 +744,15 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       let bootFailure: string | null = null;
       let bootAttempted = false;
       if (cur && isLocalUrl(cur) && (await deps.probe(cur))) {
-        if (await reusable(taskId, cur)) url = cur;
+        if (announcesItsPage(taskId) && namesNoPage(cur)) {
+          // A SAVED URL THAT NAMES NO PAGE IS THE SCAR OF THE OLD BUG.
+          //
+          // `output_url` outlives the server, so the bare `/` written by a boot
+          // whose seed never spoke came back on every later attempt and got the
+          // same shot retired, for ever. The project announces its page: an
+          // address without one is not reused, it is replaced by a fresh boot.
+          log(`[preview] ${cur} for ${taskId} names no page — not reusing it, booting a fresh preview`);
+        } else if (await reusable(taskId, cur)) url = cur;
         else refusedLocal = true;
       }
       // Chi ha scelto questo indirizzo? Cambia il PESO di ciò che si dice dopo:
@@ -811,8 +912,9 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
           });
         }
       } else {
+        const why = deps.screenshotFailure?.() ?? null;
         deps.addReviewNote(taskId, {
-          content: `${PREVIEW_NOTE_PREFIX} viva su ${url}, screenshot non catturato.`,
+          content: `${PREVIEW_NOTE_PREFIX} viva su ${url}, screenshot non catturato${why ? `. Motivo: ${why}` : ""}.`,
           replaces: PREVIEW_NOTE_SLOT,
         });
       }
@@ -844,6 +946,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     const p = live.get(taskId);
     if (!p) return;
     live.delete(taskId);
+    chats.clearIdle(taskId);
     // L'ALBERO, non il wrapper, e PRIMA di lui. `deps.spawn` lancia
     // `bun run dev`: il processo che ASCOLTA e' un suo discendente, e segnalare
     // solo il padre lo lasciava vivo con la porta occupata per sempre.
@@ -917,9 +1020,13 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     return cleared;
   }
 
+  const chats = createChatPreviews({
+    deps, live, log, teardown, bootPreview, worktreeFor, isEvidencePage, notePrefix: PREVIEW_NOTE_PREFIX,
+  });
+
   function listPreviews() {
-    return Array.from(live.values()).map((p) => ({ taskId: p.taskId, port: p.port, url: p.url }));
+    return Array.from(live.values()).filter((p) => !isChatSource(p.taskId)).map((p) => ({ taskId: p.taskId, port: p.port, url: p.url }));
   }
 
-  return { prepareForReview, ensurePreview, teardown, teardownAll, sweepOrphans, list: listPreviews };
+  return { prepareForReview, ensureForChat: chats.ensureForChat, noteChatTurn: chats.noteChatTurn, ensurePreview, teardown, teardownAll, sweepOrphans, list: listPreviews, listChats: chats.listChats };
 }

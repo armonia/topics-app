@@ -31,13 +31,31 @@ import { readdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { ASIDE_MARK, discardWorktree, worktreeRepoOf, type DiscardDeps, type DiscardGit } from "../lib/worktree-discard";
+import { installWorktreeDeps } from "../lib/worktree-install-deps";
 import { scratchDir } from "./worktree-scratch";
 import type { NodeDeliveryCheckout } from "./node-delivery-meter";
 
 export interface NodeCheckWorktreeInput {
   git: DiscardGit;
   repoPath: string;
-  branch: string;
+  /**
+   * The delivered commit to measure, NOT the branch tip. A checkout attached
+   * to the branch moves with it: if a land or a new delivery advances the
+   * branch while the measure is running, HEAD jumps to the new commit but the
+   * working tree is still the old one, and the verdict lands on the wrong
+   * sha. Detaching HEAD on this commit pins the checkout to exactly what is
+   * being measured, however the branch moves meanwhile.
+   */
+  commit: string;
+  /**
+   * The planted branch, when the caller knows its name. A fallback only: the
+   * detach above always targets `commit` first. It exists for the case the
+   * commit itself is not resolvable on this checkout yet (90cd0fcd, 2026-11-25:
+   * the branch `topics/splendid-hummingbird` was there, the commit the card
+   * carried was not, and the meter gave up for 15 hours instead of using what
+   * the branch actually had).
+   */
+  branch?: string | null;
   /** Folder holding one checkout per run (`nodeCheckRoot()`). */
   root: string;
   taskId: string;
@@ -68,14 +86,28 @@ function checkPath(root: string, taskId: string, runId: string): string {
 }
 
 export async function openNodeCheckWorktree(input: NodeCheckWorktreeInput): Promise<NodeDeliveryCheckout | null> {
-  const { git, repoPath, branch } = input;
+  const { git, repoPath, commit } = input;
   const runId = input.runId ?? randomBytes(4).toString("hex");
   const path = checkPath(input.root, input.taskId, runId);
   await discardWorktree(git, repoPath, path, input.discard);
-  // `--force`: a second run of the same card checks out the same branch at
-  // its own path while the first one's checkout is still alive, and git's
-  // own "already used by worktree" safeguard would otherwise refuse it.
-  const added = await git(repoPath, ["worktree", "add", "--force", path, branch]);
+  // `--detach` on the delivered COMMIT, never on the branch: a branch ref can
+  // already be checked out elsewhere (the project's own checkout, or a
+  // worktree a cut release never got to discard), which git refuses as
+  // "already used by worktree at …" (90cd0fcd, 2026-11-25: "no checkout to
+  // measure on", repeated for 15 hours while the branch sat there, planted
+  // and unread) — detaching on the commit never claims the branch, so it
+  // never hits that refusal, and it also pins the checkout to exactly the
+  // commit being measured even if the branch moves on meanwhile. A detach
+  // never needs `--force` either, for the same reason.
+  let added = await git(repoPath, ["worktree", "add", "--detach", path, commit]);
+  // The commit itself can be unresolvable here (a stale `deliveryCommit`, or
+  // an object store view that has not caught up with the plant yet) while the
+  // branch the node planted is right there: retry on the branch tip instead
+  // of giving up on a checkout the branch can still provide.
+  if (added.code !== 0 && input.branch) {
+    await discardWorktree(git, repoPath, path, input.discard);
+    added = await git(repoPath, ["worktree", "add", "--detach", path, input.branch]);
+  }
   if (added.code !== 0) {
     // An add that fails or hits its deadline half-way leaves its partial tree
     // (and, killed by SIGKILL, a locked registration): it goes now, not at the
@@ -83,6 +115,11 @@ export async function openNodeCheckWorktree(input: NodeCheckWorktreeInput): Prom
     await discardWorktree(git, repoPath, path, input.discard);
     return null;
   }
+  // A LOCAL CHECK (typecheck, lint, unit tests) needs `node_modules`, which
+  // `git worktree add` never materialises (shared with the agent worktrees,
+  // `worktree-manager.ts`). Best-effort: a failed install must not stop the
+  // measure, the gate the install was for goes red on its own instead.
+  await installWorktreeDeps(path).catch((err) => console.warn(`[node-check-worktree] deps not installed in ${path}:`, err));
   return {
     cwd: path,
     head: () => input.resolveHead(path),
@@ -91,19 +128,19 @@ export async function openNodeCheckWorktree(input: NodeCheckWorktreeInput): Prom
 }
 
 export interface NodeCheckWorktrees {
-  open(input: { repoPath: string; branch: string; taskId: string }): Promise<NodeDeliveryCheckout | null>;
+  open(input: { repoPath: string; commit: string; branch?: string | null; taskId: string }): Promise<NodeDeliveryCheckout | null>;
   /** Discard every checkout of the root this process does not hold. Returns the card folders it discarded. */
   sweep(): Promise<string[]>;
 }
 
 /** The checkouts of one server: it opens them and knows which are leased, so its boot sweep spares them. */
-export function createNodeCheckWorktrees(deps: Omit<NodeCheckWorktreeInput, "repoPath" | "branch" | "taskId" | "runId">): NodeCheckWorktrees {
+export function createNodeCheckWorktrees(deps: Omit<NodeCheckWorktreeInput, "repoPath" | "commit" | "taskId" | "runId">): NodeCheckWorktrees {
   // A path is unique per call (its own run id), so two opens of the same card
   // never share a key here: one's release can never drop the other's entry.
   const leased = new Set<string>();
   let sweeping: Promise<unknown> = Promise.resolve();
 
-  async function open(input: { repoPath: string; branch: string; taskId: string }): Promise<NodeDeliveryCheckout | null> {
+  async function open(input: { repoPath: string; commit: string; branch?: string | null; taskId: string }): Promise<NodeDeliveryCheckout | null> {
     // Its own run id, drawn fresh on every call: never `deps.runId` (that one is
     // only for the bare `openNodeCheckWorktree` a test calls directly).
     const runId = randomBytes(4).toString("hex");

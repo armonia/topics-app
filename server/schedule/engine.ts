@@ -53,6 +53,8 @@ export interface EngineOptions {
   now?: () => Date;
   /** Cap on command and agent runs open at once (R10). */
   maxConcurrent?: () => number;
+  /** Called at the end of every tick: delivery of finished runs and failure alerts hang here (R22 to R24). */
+  onTick?: (instant: Date) => void;
 }
 
 export function createScheduleEngine(db: Database, options: EngineOptions) {
@@ -60,6 +62,8 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
   const maxConcurrent = options.maxConcurrent ?? (() => DEFAULT_MAX_CONCURRENT);
   let startsPaused = false;
   let timer: ReturnType<typeof setInterval> | null = null;
+  /** Only the primary decides; `start` wires the real question, until then every tick may run (tests, boot). */
+  let active: () => boolean = () => true;
   let lastPruneAt = 0;
 
   const readJob = (id: string) => {
@@ -86,6 +90,10 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
     return parseRun(db.query("SELECT * FROM scheduled_job_runs WHERE id = ?").get(id) as RunRow);
   }
 
+  function awaitingOwner(jobId: string): boolean {
+    return (db.query("SELECT awaiting_owner FROM scheduled_jobs WHERE id = ?").get(jobId) as { awaiting_owner: number } | null)?.awaiting_owner === 1;
+  }
+
   /** The runs of this job that are still open. */
   function hasOpenRun(jobId: string): boolean {
     return db.query("SELECT 1 FROM scheduled_job_runs WHERE job_id = ? AND status IN ('pending','starting','running') LIMIT 1").get(jobId) !== null;
@@ -105,6 +113,11 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
     const executor = job ? options.executors[job.action.kind] : undefined;
     if (job && (job.deletedAt || (!job.enabled && job.schedule.kind !== "at"))) {
       finish(run.id, "cancelled", at, "The job was turned off or deleted before the run started.");
+      return null;
+    }
+    // R26: a job an agent made waits for a person; no door, a manual run included, starts it before that.
+    if (job && awaitingOwner(job.id)) {
+      finish(run.id, "cancelled", at, "The job waits for the owner to turn it on.");
       return null;
     }
     if (!job || !executor) {
@@ -251,7 +264,8 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
 
   function tick(): TickResult {
     const out: TickResult = { created: [], skipped: [], started: [] };
-    if (startsPaused) return out;
+    // Every caller asks the role, not only the timer: a run that closes calls tick too.
+    if (startsPaused || !active()) return out;
     const instant = now();
     const previousTick = lastTickAt();
     writeHeartbeat(instant);
@@ -270,6 +284,7 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
       }
     }
     advancePending(instant, out);
+    try { options.onTick?.(instant); } catch (error) { console.warn("[schedule] after-tick hook failed:", error); }
     return out;
   }
 
@@ -304,7 +319,7 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
   /** R5: `run now` has its own key and never moves `next_run_at`. */
   function runNow(jobId: string): ScheduledRun | null {
     const job = readJob(jobId);
-    if (!job || job.deletedAt) return null;
+    if (!job || job.deletedAt || awaitingOwner(jobId)) return null;
     const at = now();
     const run = insertRun(job, `manual:${crypto.randomUUID()}`, at, "pending", {}, at);
     if (!run) return null;
@@ -313,6 +328,12 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
   }
 
   /** Runs that hold a slot: what a shutdown or a planned restart has to wait for (R28). */
+  /** The runs that hold a slot, one by one: what a primary switch waits for or parks. */
+  function inFlightRuns(): Array<{ runId: string; jobId: string }> {
+    return (db.query("SELECT id, job_id FROM scheduled_job_runs WHERE status IN ('starting','running') ORDER BY id").all() as { id: string; job_id: string }[])
+      .map((r) => ({ runId: r.id, jobId: r.job_id }));
+  }
+
   function inFlight(): number {
     return (db.query("SELECT COUNT(*) AS n FROM scheduled_job_runs WHERE status IN ('starting','running')").get() as { n: number }).n;
   }
@@ -324,13 +345,15 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
     cancelOpenRuns,
     runNow,
     inFlight,
+    inFlightRuns,
     /** R28: no occurrence starts while paused. Shutdown calls it before anything else. */
     pauseStarts() { startsPaused = true; },
     resumeStarts() { startsPaused = false; },
     isPaused: () => startsPaused,
     /** Starts the 15 s timer. `active` is asked at every beat: only the primary server decides. */
-    start(active: () => boolean, onResult?: (result: TickResult) => void) {
+    start(isActive: () => boolean, onResult?: (result: TickResult) => void) {
       if (timer) return timer;
+      active = isActive;
       timer = setInterval(() => {
         if (!active()) return;
         try { onResult?.(tick()); } catch (error) { console.warn("[scheduled-jobs] tick failed:", error); }

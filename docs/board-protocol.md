@@ -47,6 +47,20 @@ equivalente, le parole esatte di qualcuno) la riga finisce con
 `allow-italian: <perche>`. Per leggere il debito di un file:
 `bun run scripts/check-comment-language.ts --list <path>`.
 
+**«Già su main» è un fatto di git, non un'impressione (dal 27/11/2026).**
+`MAIN_CLAIM_RULE` chiede all'agente la prova PRIMA della frase: `git fetch origin
+main && git merge-base --is-ancestor <commit> origin/main` (exit 0 = sì, exit 1 =
+no), col comando e il suo esito nella consegna. Misurato il 27/11: due consegne
+nella stessa ora hanno scritto «già su main» o «si chiude senza land» per un
+commit che `origin/main` non aveva, portando lavoro vero (138 e 381 righe) — la
+worktree dell'agente, partita dal ramo di un'altra card, viene scambiata per
+main. Al passaggio in review il server riusa lo stesso controllo del ripasso a
+orario (`falseMainClaims`, nessun secondo rilevatore) sulle ultime parole
+dell'agente: se la consegna nega il land per un commit che main non ha, la card
+riceve una nota di sistema col numero di commit e di file propri
+(`mainClaimReviewNote`, in `noteFalseMainClaim`, `server/routes/tasks-ci-phase.ts`).
+L'approvazione resta possibile: la nota avvisa, non blocca.
+
 **La suite unit intera la fa girare la BOARD, non l'agente (dal 04/09/2026).**
 L'envelope chiede all'agente `bun test <i file toccati e i test che li importano>`;
 il `bun run test:unit` completo parte alla consegna, nel suo worktree, e l'esito

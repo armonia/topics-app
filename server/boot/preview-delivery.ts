@@ -1,7 +1,9 @@
 /**
  * Card previews, auto-merge, worktree cleanup and the delivery references a card's branch is read through.
  */
-import { join } from "path";
+import { basename, join } from "path";
+import { AUTO_PREVIEW_DIR } from "../../shared/media-kind";
+import { worktreeTouchesInterface } from "../services/chat-preview-diff";
 import { mkdirSync, readFileSync, statSync, readlinkSync, realpathSync } from "fs";
 import { createTaskAutoMerge, declaredDeliveryFor, worktreeRealDirt } from "../services/task-automerge";
 import { imageShape, isBlankLikeImage } from "../services/image-shape";
@@ -12,7 +14,8 @@ import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees
 import { killProcessTree } from "../lib/process-tree";
 import { resolvePreviewCommand } from "../services/preview-command";
 import { branchExistsInRepo, resolveCommit, worktreeDiffStat } from "../services/branch-status";
-import { deliveryPointer } from "../services/own-commits";
+import { deliveryPointer, resolveMainRef } from "../services/own-commits";
+import { resolveDeliveryReference } from "../services/task-delivery-reference";
 import { collectCardOwnBranches } from "../services/card-own-branches";
 import { subagentBranchesOf } from "../lib/subagent-store";
 import { getDatabase } from "../db";
@@ -25,6 +28,12 @@ import { keepDeliveryCommit } from "../services/delivery-ref-keep";
 import { auditOneLanding as auditOneLandingPass, type AuditWiring } from "../services/landing-audit-pass";
 import type { AfterQuiescence } from "./scope";
 import { late } from "./late";
+
+/** Cap on live chat previews: TOPICS_MAX_CHAT_PREVIEWS, default 2. */
+function chatPreviewCap(): number {
+  const n = Number(process.env.TOPICS_MAX_CHAT_PREVIEWS);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 2;
+}
 
 export function bootPreviewDelivery(scope: AfterQuiescence) {
   const { DISPATCH_WORKSPACE_DIR, broadcastToAll, ctx, dispatchExtraPaths, dispatcherSvc, scheduledCardsTimer, taskAttemptStore, worktreeOfTask } = scope;
@@ -78,6 +87,28 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       const wt = worktreeOfTask(taskId);
       if (!wt) return null;
       return { id: wt.id, absPath: wt.absPath, branchName: wt.branchName, projectId: wt.projectId, mode: wt.mode };
+    },
+    // A chat's worktree: only a chat that works in its own branch checkout. In
+    // the live checkout the real app is already the preview.
+    worktreeOfTopic: (topicId) => {
+      const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
+      const wt = worktreeId ? ctx.worktreeStore.get(worktreeId) : null;
+      if (!wt) return null;
+      return { id: wt.id, absPath: wt.absPath, branchName: wt.branchName, projectId: wt.projectId, mode: wt.mode };
+    },
+    maxChatPreviews: chatPreviewCap(),
+    // Same memory floor as the cards; `ourWorkRunning` so the one-card exemption does not apply.
+    admitChatPreview: () => late.resourceBlock?.() ?? null,
+    touchesInterface: (wt) => worktreeTouchesInterface(wt.absPath),
+    postChatMessage: (topicId, { content, media }) => {
+      const topic = ctx.getTopicById(topicId);
+      if (!topic?.sessionKey) return;
+      // The screenshot is served from the media folder the card previews use.
+      const image = (media ?? []).map((m) => `\n\n![Anteprima](/media/${AUTO_PREVIEW_DIR}/${basename(m)})`).join("");
+      const text = content + image;
+      const stored = ctx.appendLocalMessage(topic.sessionKey, "assistant", text);
+      ctx.broadcastToAll({ type: "message", sessionKey: topic.sessionKey, message: { id: stored.id, role: "assistant", content: text, timestamp: stored.timestamp } });
+      ctx.broadcastToAll({ type: "message:new", topicId, sessionKey: topic.sessionKey, role: "assistant", messageId: stored.id, content: text, preview: content.slice(0, 100) });
     },
     // How the command is chosen (env override, preview:worktree, package.json
     // heuristic) lives in `resolvePreviewCommand`. The server honours PORT (injected
@@ -179,6 +210,7 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
     // and an image taller than `PREVIEW_CARD_MAX_RATIO` (0.70) times its width
     // gets CROPPED instead of scaled — 1440×760 = 0.528 fits with margin.
     screenshot: (url, outPath, opts) => previewBrowser.screenshot(url, outPath, opts),
+    screenshotFailure: () => previewBrowser.lastFailure(),
     currentOutputUrl: (taskId) => dispatcherSvc.get(taskId)?.task.outputUrl ?? null,
     currentPreviewImage: (taskId) => dispatcherSvc.get(taskId)?.task.previewImage ?? null,
     setOutputUrl: (taskId, url) => {
@@ -387,32 +419,12 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       // già su main da una settimana. Registrarla avrebbe fatto leggere al
       // reviewer il diff sbagliato e all'audit un «atterrato» falso, che è
       // esattamente il guasto per cui l'audit esiste.
-      const pointer = await deliveryPointer(ref.repoPath, ref.branch, { ownRefs: cardOwnBranches(taskId) }).catch(() => null);
-      if (!pointer) return null;
-      // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
       //
-      // La colonna review chiedeva «Approva» senza dire cosa si approvasse: il
-      // diff esisteva solo dietro l'apertura del drawer, una card alla volta.
-      // Calcolarlo nel feed sarebbe stato tre comandi git per card a ogni push
-      // WebSocket; calcolarlo alla consegna è una volta sola, quando il fatto
-      // accade. `worktreeDiffStat` misura dal PADRE del commit più vecchio SUO,
-      // cioè lo stesso perimetro di `deliveryPointer`: non eredita il lavoro di
-      // chi stava parcheggiato sul checkout condiviso.
-      //
-      // Senza cartella si misura dal checkout del progetto: la domanda è tutta sui
-      // ref, che i worktree di un repo condividono, e l'albero di lavoro non entra
-      // nella risposta (`worktreeDiffStat` confronta due commit).
-      //
-      // Best-effort come tutto il resto di questa funzione: se git inciampa la
-      // consegna passa lo stesso, senza misura (NULL, che non è zero).
-      const stat = await worktreeDiffStat(ref.worktreePath ?? ref.repoPath, { branch: ref.branch }).catch(() => null);
-      // `repoPath` travels with the snapshot because the capture plants
-      // `refs/consegne/<taskId>` on the delivered sha before writing the column
-      // (`services/delivery-ref-keep.ts`): the land squashes and then deletes the
-      // branch, and without that ref the commit is reachable from nowhere.
-      return stat
-        ? { ...pointer, repoPath: ref.repoPath, filesChanged: stat.filesChanged, insertions: stat.insertions, deletions: stat.deletions }
-        : { ...pointer, repoPath: ref.repoPath };
+      // The actual composition (resolve mainRef, ask for the own pointer, ask
+      // for the diffstat — all against THAT mainRef) lives in
+      // `resolveDeliveryReference`, which a test can reach directly: see
+      // `services/task-delivery-reference.test.ts`.
+      return resolveDeliveryReference({ resolveMainRef, deliveryPointer, worktreeDiffStat, cardOwnBranches }, ref, taskId);
   };
 
 
@@ -474,6 +486,7 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       buildProjectCandidates,
       deliveryBranchDeps,
       resolveDeliveryBranch,
+      resolveMainRef,
       deliveryPointer,
       worktreeDiffStat,
       keepDeliveryCommit,
