@@ -138,6 +138,8 @@ export function bellGroups(model: { waiting: readonly InboxItem[]; finished: rea
       key: 'broken',
       entries: [
         ...hub.failed.map((job): BellEntry => ({ source: 'failed', key: `job:${job.key}`, job })),
+        // A scheduled job that broke three times in a row (R24) sits with the other failures.
+        ...model.finished.filter((item) => item.kind === 'job').map((item): BellEntry => ({ source: 'topics', key: item.subject, item })),
         ...hub.services.map((service): BellEntry => ({ source: 'service', key: `service:${service.id}`, service })),
         ...hub.machines.filter((m) => m.machine === 'pc').map((machine): BellEntry => ({ source: 'machine', key: `machine:${machine.machine}`, machine })),
       ],
@@ -160,7 +162,7 @@ export function bellGroups(model: { waiting: readonly InboxItem[]; finished: rea
         ...hub.contradictions.map((item): BellEntry => ({ source: 'contradiction', key: item.id, item })),
       ],
     },
-    { key: 'finished', entries: model.finished.map((item): BellEntry => ({ source: 'topics', key: item.subject, item })) },
+    { key: 'finished', entries: model.finished.filter((item) => item.kind !== 'job').map((item): BellEntry => ({ source: 'topics', key: item.subject, item })) },
   ];
   return groups.filter((g) => g.entries.length > 0);
 }
