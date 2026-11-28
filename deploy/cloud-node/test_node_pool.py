@@ -12,15 +12,20 @@ loader.exec_module(np)
 
 
 class R:
-    def __init__(self, rc): self.returncode = rc
+    def __init__(self, rc, out=""): self.returncode, self.stdout = rc, out
 
 
-class Drain(unittest.TestCase):
+class Realign(unittest.TestCase):
+    """The node never loses slots to a realign: it restarts at zero turns, or at once when lossless."""
     def setUp(self):
-        self.busy, self.ssh_rc, self.cmds, self.patches = 1, 0, [], []
-        self.queued = 0
-        np.slot_busy = lambda m, running_only=False: self.busy + (0 if running_only else self.queued)
-        np.ssh = lambda ip, cmd, timeout=120, inp=None: (self.cmds.append(cmd), R(self.ssh_rc))[1]
+        self.busy, self.lossless, self.ssh_rc, self.cmds, self.patches = 1, False, 0, [], []
+        np.slot_busy = lambda m, running_only=False: self.busy
+        def fake_ssh(ip, cmd, timeout=120, inp=None):
+            self.cmds.append(cmd)
+            if "healthz" in cmd:
+                return R(0, '{"losslessRestart":%s}' % ("true" if self.lossless else "false"))
+            return R(self.ssh_rc)
+        np.ssh = fake_ssh
         np.mac = lambda method, path, body=None, timeout=30: self.patches.append(body["slots"])
         self.sl = {"machine_id": "m1", "aligned": "old", "slots": 4}
 
@@ -29,42 +34,44 @@ class Drain(unittest.TestCase):
 
     def restarts(self): return [c for c in self.cmds if "systemctl restart" in c]
 
-    def test_a_behind_and_busy_drains_without_restart(self):
-        self.run_at(1000)
-        self.run_at(1000 + np.BEHIND_S)
-        self.assertEqual(self.patches, [0])
-        self.assertTrue(self.sl["draining"])
+    def test_busy_and_not_lossless_waits_without_touching_slots(self):
+        for i in range(5):
+            self.run_at(1000 + i * 3600)   # 4 h behind, under the cap
+        self.assertEqual(self.patches, [])
         self.assertEqual(self.restarts(), [])
 
-    def test_b_then_free_realigns_and_restores(self):
-        self.run_at(1000); self.run_at(1000 + np.BEHIND_S)
+    def test_free_node_realigns(self):
         self.busy = 0
-        self.run_at(1000 + np.BEHIND_S + 60)
+        self.run_at(1000)
         self.assertEqual(len(self.restarts()), 1)
         self.assertEqual(self.sl["aligned"], "new")
-        self.assertEqual(self.patches, [0, 4])
-        self.assertFalse(self.sl["draining"])
+        self.assertEqual(self.patches, [])
 
-    def test_c_failed_realign_restores_and_marks_failed(self):
-        self.run_at(1000); self.run_at(1000 + np.BEHIND_S)
+    def test_lossless_restarts_with_turns_in_flight(self):
+        self.lossless = True
+        self.run_at(1000)
+        self.assertEqual(len(self.restarts()), 1)
+        self.assertEqual(self.patches, [])
+
+    def test_failed_realign_marks_failed_and_does_not_retry(self):
         self.busy, self.ssh_rc = 0, 1
-        self.run_at(1000 + np.BEHIND_S + 60)
-        self.assertEqual(self.patches, [0, 4])
+        self.run_at(1000)
         self.assertEqual(self.sl["align_failed"], "new")
         n = len(self.cmds)
-        self.run_at(1000 + np.BEHIND_S + 120)
+        self.run_at(1060)
         self.assertEqual(len(self.cmds), n, "no retry on the same commit")
 
-    def test_draining_says_until_when(self):
-        self.run_at(1000); self.run_at(1000 + np.BEHIND_S)
-        self.assertEqual(self.sl["drain_until"], 1000 + np.BEHIND_S + np.DRAIN_MAX_S)
+    def test_old_drain_state_gives_the_slots_back(self):
+        self.sl.update({"draining": True, "slots": 0})
+        self.run_at(1000)
+        self.assertEqual(len(self.patches), 1)
+        self.assertGreater(self.patches[0], 0)
+        self.assertFalse(self.sl["draining"])
 
     def test_a_later_success_clears_an_old_failure(self):
         self.sl["align_failed"] = "older"
-        self.run_at(1000)
-        self.run_at(1000 + np.BEHIND_S)
         self.busy = 0
-        self.run_at(1000 + np.BEHIND_S + 60)
+        self.run_at(1000)
         self.assertEqual(self.sl["aligned"], "new")
         self.assertNotIn("align_failed", self.sl)
 
@@ -73,31 +80,78 @@ class Drain(unittest.TestCase):
         self.run_at(1000)
         self.assertNotIn("align_failed", self.sl)
 
-    def test_d_under_threshold_no_drain(self):
-        self.run_at(1000); self.run_at(1000 + np.BEHIND_S - 1)
-        self.assertEqual(self.patches, [])
-        self.assertFalse(self.sl.get("draining"))
-        self.assertEqual(self.restarts(), [])
+    def test_continuous_queue_non_lossless_realigns_within_the_cap(self):
+        """43 cards queued, 2 slots that never free together, main moving: new cards stop after the cap."""
+        self.sl["slots"] = 2
+        self.busy = 2
+        realigned_at = None
+        for i in range(0, 60):
+            t = 1000 + i * 1800
+            if t - 1000 >= np.BEHIND_S + 4 * 3600 and self.busy == 2:
+                self.busy = 1   # a card ends
+            if t - 1000 >= np.BEHIND_S + 6 * 3600:
+                self.busy = 0
+            self.run_at(t, c=f"c{i}")
+            if self.restarts() and realigned_at is None:
+                realigned_at = t - 1000
+        self.assertIsNotNone(realigned_at, "never realigned")
+        self.assertLessEqual(realigned_at, np.BEHIND_S + 7 * 3600)
+        self.assertNotIn(0, self.patches)
+        self.assertIn(1, self.patches)
 
-    def test_e_moving_commit_does_not_reset_the_clock(self):
-        for i in range(6):
-            self.run_at(1000 + i * 600, c=f"c{i}")
-        self.run_at(1000 + np.BEHIND_S, c="c6")
-        self.assertEqual(self.patches, [0])
-        self.assertTrue(self.sl["draining"])
+    def test_main_moves_every_30_min_and_a_4h_card_never_zeroes_the_node(self):
+        """Bar case: slots stay up through 8 h of a moving main and a card that runs 4 h."""
+        zero_since, worst = None, 0
+        for i in range(16):
+            t = 1000 + i * 1800
+            self.busy = 1 if i < 8 else 0   # the card ends after 4 h
+            self.run_at(t, c=f"c{i}")
+            zeroed = bool(self.patches) and self.patches[-1] == 0
+            if zeroed:
+                zero_since = zero_since or t
+                worst = max(worst, t - zero_since)
+            else:
+                zero_since = None
+        self.assertEqual(worst, 0)
+        self.assertNotIn(0, self.patches)
 
-    def test_f_draining_ignores_queued_cards(self):
-        self.run_at(1000); self.run_at(1000 + np.BEHIND_S)
-        self.busy, self.queued = 0, 2
-        self.run_at(1000 + np.BEHIND_S + 60)
-        self.assertEqual(len(self.restarts()), 1)
-        self.assertEqual(self.patches, [0, 4])
 
-    def test_drain_cap_gives_up(self):
-        self.run_at(1000); t = 1000 + np.BEHIND_S; self.run_at(t)
-        self.run_at(t + np.DRAIN_MAX_S)
-        self.assertEqual(self.patches, [0, 4])
-        self.assertEqual(self.restarts(), [])
+class DrainIgnoresCardsWithoutATurn(unittest.TestCase):
+    """A card waiting on a human answer or a condition has no turn in flight: it must not hold the drain."""
+    def count(self, state):
+        import sqlite3
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "t.db")
+        db = sqlite3.connect(path)
+        db.execute("create table tasks (machine_id text, status text, dispatch_state text)")
+        db.execute("insert into tasks values ('m1', 'in_progress', ?)", (state,))
+        db.commit(); db.close()
+        mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("node_pool_db", importlib.machinery.SourceFileLoader("node_pool_db", os.path.join(HERE, "node-pool"))))
+        mod.__spec__.loader.exec_module(mod)
+        mod.MAC_DB = path
+        return mod.slot_busy("m1", running_only=True)
+
+    def test_needs_input_card_does_not_count(self): self.assertEqual(self.count("needs_input"), 0)
+
+    def test_waiting_card_does_not_count(self): self.assertEqual(self.count("waiting"), 0)
+
+    def test_running_card_counts(self): self.assertEqual(self.count("running"), 1)
+
+
+class PermanentNodeGetsTheGovernor(unittest.TestCase):
+    def test_all_three_files_are_copied(self):
+        calls = []
+        real = np.subprocess.run
+        np.subprocess.run = lambda cmd, **kw: calls.append(cmd)
+        try:
+            np.push_permanent_files("1.2.3.4", "/dev/null")
+        finally:
+            np.subprocess.run = real
+        dests = [c[-1] for c in calls]
+        for f in ("ci-runners.sh", "ci-governor.py", "ci-governor.service"):
+            self.assertIn(f"root@1.2.3.4:/root/{f}", dests)
+            self.assertTrue(os.path.exists(os.path.join(HERE, "..", "permanent-node", f)))
 
 
 class DeleteForgetsMachine(unittest.TestCase):
@@ -116,7 +170,7 @@ class DeleteForgetsMachine(unittest.TestCase):
         np.subprocess.run = self._run
 
     def state(self, **slot):
-        return {"slots": {"2": {"n": 2, **slot}}, "lives": []}
+        return {"slots": {"2": {"n": 2, **slot}}}
 
     def test_hourly_server_row_is_deleted(self):
         s = self.state(server_id=7, machine_id="m2", ip="1.2.3.4", name="x")

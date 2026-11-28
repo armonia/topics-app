@@ -767,6 +767,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     if (bMove && method === "POST") {
       const body = (await readJSON(req)) as any;
       try {
+        // A card that is only queued drops its queue entry (grace timer, chip) before
+        // leaving; it re-enters todo on the new board below.
+        if (dispatcher && svc.get(bMove.taskId)?.task?.dispatchState === "queued") dispatcher.onLeaveTodo(bMove.taskId);
         const task = svc.moveToProject({
           taskId: bMove.taskId,
           projectId: bMove.projectId,

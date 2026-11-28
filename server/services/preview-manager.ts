@@ -189,6 +189,12 @@ export interface PreviewManagerDeps {
   emptyAppShell?(url: string): Promise<boolean>;
   /** Render a PNG of `url` at `width` px to `outPath`. Best-effort → boolean. */
   screenshot(url: string, outPath: string, opts: { width: number }): Promise<boolean>;
+  /**
+   * Why the last capture produced nothing, in one line. A machine with no
+   * browser installed failed mute, and the card reached review with no photo
+   * and no reason: a board that requires one then parks it for ever.
+   */
+  screenshotFailure?(): string | null;
   /** The task's current output_url (to detect a prod URL we must not keep). */
   currentOutputUrl(taskId: string): string | null;
   setOutputUrl(taskId: string, url: string | null): void;
@@ -372,6 +378,19 @@ export function isPlaceholderPage(body: string): boolean {
 export function isEvidencePage(page: { status: number; body: string }): boolean {
   if (page.status >= 400) return false;
   return !isPlaceholderPage(page.body);
+}
+
+/**
+ * True when the url points at the root and nothing else — `http://localhost:3402/`.
+ * In this app that is the shell with no topic open: an address that names no page.
+ */
+export function namesNoPage(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.pathname === "/" && u.search === "" && u.hash === "";
+  } catch {
+    return false;
+  }
 }
 
 /** Porta di un url locale, o null se non si legge. */
@@ -585,7 +604,10 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       }
       if (owns === "unknown") log(`[preview] owner of :${port} unverified for ${taskId} (child alive — accepting)`);
 
-      let deepLink = command.deepLinkPath && command.deepLinkPath.startsWith("/") ? command.deepLinkPath : "/";
+      const fallbackPath = command.deepLinkPath && command.deepLinkPath.startsWith("/") ? command.deepLinkPath : "/";
+      let deepLink = fallbackPath;
+      let announced = false;
+      const promised = Boolean(deepLinkFile && deps.readDeepLink);
       if (deepLinkFile && deps.readDeepLink) {
         // The command writes the file once its data is seeded, so waiting for it
         // is the real "ready to be photographed": the server answering only says
@@ -594,10 +616,30 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
         for (;;) {
           let found: string | null = null;
           try { found = deps.readDeepLink(deepLinkFile); } catch { found = null; }
-          if (found && found.startsWith("/")) { deepLink = found; break; }
+          if (found && found.startsWith("/")) { deepLink = found; announced = true; break; }
           if (!proc.alive() || now() >= until) break;
           await sleep(readyPollMs);
         }
+      }
+      // Which page we are about to call the preview, and who chose it: the only
+      // line that makes the next blank photo readable in the log.
+      log(`[preview] deep link for ${taskId} on :${port}: ${deepLink} (${announced ? "announced by the command" : promised ? "fallback, never announced" : "declared by the project"})`);
+
+      // A COMMAND THAT PROMISED A PAGE AND NEVER NAMED ONE HAS NOTHING TO SHOW.
+      //
+      // The bare `/` of this app is the shell with no topic open. Photographing
+      // it produced exactly the delivery that opened this card: a shot the
+      // empty-shell gate retires, on a card whose live preview was up, over four
+      // attempts — because the url was cached in `live` and every later attempt
+      // reused the same page. So the boot FAILS here, with the reason, and the
+      // next attempt starts a fresh server that seeds again.
+      if (promised && !announced && fallbackPath === "/") {
+        log(`[preview] no page announced for ${taskId} on :${port} — refusing to photograph the bare home`);
+        await spegniAlbero(proc, taskId);
+        return no(
+          `l'anteprima è partita su :${port} ma non ha mai annunciato la pagina da fotografare entro ${Math.round(DEEP_LINK_WAIT_MS / 1000)}s ` +
+          "(i dati di esempio non sono stati creati): fotografare la `/` nuda darebbe l'app senza nessun topic aperto, cioè un'evidenza falsa",
+        );
       }
       const url = `http://localhost:${port}${deepLink}`;
       live.set(taskId, { taskId, port, url, proc, worktreePath: wt.absPath, startedAt: now() });
@@ -612,6 +654,14 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
 
   async function ensurePreview(taskId: string): Promise<{ url: string; port: number } | null> {
     return (await bootPreview(taskId)).preview;
+  }
+
+  /** True when this task's project announces the page to photograph (deep-link file). */
+  function announcesItsPage(taskId: string): boolean {
+    if (!deps.readDeepLink) return false;
+    const wt = deps.worktreeOf(taskId);
+    if (!wt || wt.mode !== "branch") return false;
+    try { return Boolean(deps.resolveCommand(taskId, wt)?.deepLinkFile); } catch { return false; }
   }
 
   /** L'url che risponde è davvero dell'anteprima di QUESTO task? */
@@ -651,7 +701,15 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       let bootFailure: string | null = null;
       let bootAttempted = false;
       if (cur && isLocalUrl(cur) && (await deps.probe(cur))) {
-        if (await reusable(taskId, cur)) url = cur;
+        if (announcesItsPage(taskId) && namesNoPage(cur)) {
+          // A SAVED URL THAT NAMES NO PAGE IS THE SCAR OF THE OLD BUG.
+          //
+          // `output_url` outlives the server, so the bare `/` written by a boot
+          // whose seed never spoke came back on every later attempt and got the
+          // same shot retired, for ever. The project announces its page: an
+          // address without one is not reused, it is replaced by a fresh boot.
+          log(`[preview] ${cur} for ${taskId} names no page — not reusing it, booting a fresh preview`);
+        } else if (await reusable(taskId, cur)) url = cur;
         else refusedLocal = true;
       }
       // Chi ha scelto questo indirizzo? Cambia il PESO di ciò che si dice dopo:
@@ -811,8 +869,9 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
           });
         }
       } else {
+        const why = deps.screenshotFailure?.() ?? null;
         deps.addReviewNote(taskId, {
-          content: `${PREVIEW_NOTE_PREFIX} viva su ${url}, screenshot non catturato.`,
+          content: `${PREVIEW_NOTE_PREFIX} viva su ${url}, screenshot non catturato${why ? `. Motivo: ${why}` : ""}.`,
           replaces: PREVIEW_NOTE_SLOT,
         });
       }

@@ -16,7 +16,15 @@ import { projectIsPaused } from "../project-pause";
 import { isNodeChildRun } from "../node-child-run";
 import { checksMemFloorGB } from "../../../shared/checks-memory-floor";
 
-export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "countRunningOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "projectPaused" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend" | "agentSpendClearsAt"> {
+/**
+ * A run that holds no seat on its machine: in progress, and its chip says it
+ * declared a wait (`waiting`) or asks a person (`needs_input`). No turn runs
+ * there. A card in Todo with the `waiting` chip (a silent node's deferral) is
+ * not this: it waits for a seat, so it keeps counting.
+ */
+const RESTING_RUN_SQL = "(status = 'in_progress' AND COALESCE(dispatch_state, '') IN ('waiting', 'needs_input'))";
+
+export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "countRunningOnMachine" | "restingOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "projectPaused" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend" | "agentSpendClearsAt"> {
   const {
     agentAskOnThread,
     annotateDeliveryClaims,
@@ -943,7 +951,10 @@ overflowToMachine({ taskId, machineId, localMachineId }): Task | null {
 // condition elsewhere) releases the seat at once instead of holding it
 // until the deferral window elapses. 26/11: a card closed on the primary
 // but still carrying `machine_id` counted as busy on a node that had
-// nothing left running for it.
+// nothing left running for it. A run at work there that rests on a declared
+// wait or a question (`RESTING_RUN_SQL`) gives its seat back as well. A card
+// claimed for it (chip `starting`) holds its seat before its run opens: it is
+// in no live slot until `beginRun`, so without this a launch counts nowhere.
 countOnMachine(machineId: string): number {
       const row = db.prepare(
         `SELECT COUNT(*) AS n FROM tasks
@@ -951,17 +962,27 @@ countOnMachine(machineId: string): number {
             AND (COALESCE(dispatch_state, '') != 'waiting' OR COALESCE(wait_source, 'agent') = 'machine')
             AND (
               (status = 'in_progress' AND node_run_open = 1)
+              OR (status = 'in_progress' AND node_run_open = 0 AND dispatch_state = 'starting')
               OR (status = 'todo' AND node_run_open = 0)
-            )`,
+            )
+            AND NOT (${RESTING_RUN_SQL})`,
       ).get(machineId) as { n: number } | null;
       return row?.n ?? 0;
     },
 
 countRunningOnMachine(machineId: string, exceptTaskId?: string): number {
       const row = db.prepare(
-        "SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status = 'in_progress' AND archived = 0 AND id != ?",
+        `SELECT COUNT(*) AS n FROM tasks WHERE machine_id = ? AND status = 'in_progress' AND archived = 0 AND id != ?
+           AND NOT (${RESTING_RUN_SQL})`,
       ).get(machineId, exceptTaskId ?? "") as { n: number } | null;
       return row?.n ?? 0;
+    },
+
+restingOnMachine(machineId: string): string[] {
+      const rows = db.prepare(
+        `SELECT id FROM tasks WHERE machine_id = ? AND archived = 0 AND ${RESTING_RUN_SQL}`,
+      ).all(machineId) as Array<{ id: string }>;
+      return rows.map((r) => r.id);
     },
 
 claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption, remote }): Task | null {

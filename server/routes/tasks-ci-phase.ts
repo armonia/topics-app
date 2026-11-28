@@ -17,7 +17,8 @@ import { measureIntegration } from "../services/integration-measure";
 import { describeMainRed, MAIN_RED_MODEL, mainRedKey, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
 import { personPlace, scheduledReviewCmd } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
-import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict, scheduledBounceMessage } from "../services/red-bounce";
+import { MAIN_RED_NOTE, MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict, scheduledBounceMessage } from "../services/red-bounce";
+import { claimedMainShas, commitsSinceMain, deliveryClaimWords, landIsDeniedInWords, falseMainClaims, mainClaimReviewNote } from "../services/scheduled-review-sense";
 import { formatChecksComment } from "../services/review-checks";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { Task, TaskService } from "../services/tasks";
@@ -495,11 +496,18 @@ export function createCiPhase(deps: CiPhaseDeps) {
         `Tre giri di CI rossa dopo il land senza uscirne: ${why.split("\n")[0]!.slice(0, 200)}. Il lavoro è già su main: lascia riprovare l'agente rispondendo qui, oppure annulla il land con \`git revert -m 1 <commit>\` (il commit è nella riga «Mergiato su main» di questa card).`);
       return;
     }
+    // Kept as its OWN comment, starting with MAIN_RED_NOTE, so `reopenedByMainRed` can find it: prefixing
+    // the bounce message itself would hide it behind RED_BOUNCE_NOTE and break `bouncesSinceHuman`'s count.
+    const mainRedMark = `${MAIN_RED_NOTE}: il lavoro di questa card è già su main, il compito è un commit di correzione sopra, sul passo rosso nominato qui sotto.`;
     const message = redBounceMessage(done + 1, why) + "\n\n" +
+      "Il compito è un commit di correzione SOPRA main sul passo rosso nominato qui sopra: " +
+      "controlla il passo rosso nominato su origin/main di adesso: se è ancora rosso, correggi in avanti con un commit nuovo; " +
+      "se è verde (riparato altrove), dillo con il link della run e rimetti in review senza commit. " +
       "ATTENZIONE: il tuo lavoro è GIÀ SU MAIN (la riga «Mergiato su main» di questa card dice il commit) e il tuo ramo è stato rimosso. " +
       "Parti dal main aggiornato (`git fetch origin main`, ramo nuovo da `origin/main`), correggi IN AVANTI con un commit nuovo, niente revert. " +
       "Quando rimetti in review atterra da sola, senza passare da una persona.";
     try {
+      deps.svc.addComment({ taskId, author: "system", kind: "service", content: mainRedMark });
       deps.svc.addComment({ taskId, author: "system", content: message });
       // Fresh from the queue: the worktree the old session ran in is gone, the thread carries the context.
       const queued = deps.svc.update({ taskId, actor: "human", by: "system", projectId, patch: { status: "todo" }, statusReason: "la CI su main è rossa dopo il land" });
@@ -717,11 +725,46 @@ export function createCiPhase(deps: CiPhaseDeps) {
   }
 
   /**
+   * Reuses the scheduled review's own check (`falseMainClaims`, no second detector) right as a card
+   * enters review, instead of waiting for the next clock pass: the delivery's last words named a
+   * commit as "already on main" that `origin/main` does not have. The approval stays as always — this
+   * only warns a human about to read "already on main" and believe it (card 8b958524, 27/11: two
+   * deliveries in one hour said so for a commit that in fact carried real, unlanded work).
+   *
+   * A denial with no sha ("no new commits, closing without landing") names nothing `falseMainClaims`
+   * can look up, so it is checked on words alone (`landIsDeniedInWords`) and trusted only when the
+   * delivery named no sha claim at all; a sha claim that resolves true still wins (no note), exactly as
+   * before.
+   */
+  async function noteFalseMainClaim(projectId: string, taskId: string): Promise<void> {
+    const got = deps.svc.get(taskId, { projectId });
+    const commit = got?.task.deliveryCommit;
+    if (!got || !commit) return;
+    const repo = await deps.integrationRepo?.(taskId).catch(() => null);
+    if (!repo) return;
+    const words = deliveryClaimWords(got.comments);
+    let claims: string[] = [];
+    let wordOnlyDenial = false;
+    if (claimedMainShas(words).length > 0) {
+      const shaClaims = await falseMainClaims(repo, words).catch(() => null);
+      if (!shaClaims || shaClaims.length === 0) return;
+      claims = shaClaims;
+    } else {
+      wordOnlyDenial = landIsDeniedInWords(words);
+      if (!wordOnlyDenial) return;
+    }
+    const counts = await commitsSinceMain(repo, commit).catch(() => null);
+    if (!counts || counts.commits === 0) return;
+    deps.svc.addComment({ taskId, author: "system", kind: "service", content: mainClaimReviewNote(claims, counts.commits, counts.files) });
+  }
+
+  /**
    * After a delivery enters review: a card someone already decided to land
    * goes back to the CI phase by itself (`returnToCiPhase`); any other card, and an
    * automatic decision, is offered to the automatic land.
    */
   async function afterDelivery(projectId: string, taskId: string): Promise<void> {
+    await noteFalseMainClaim(projectId, taskId).catch(() => {});
     const r = await returnToCiPhase(projectId, taskId);
     if (r === "ci" || r === "person") return;
     await deps.tryAutoLand(projectId, taskId);

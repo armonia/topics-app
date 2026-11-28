@@ -803,6 +803,25 @@ difetto: una verifica che conferma ciò che non ha esaminato.
 - **AND** un lookup incompleto o il superamento del limite non produce un falso
   rilievo
 
+#### Scenario: una consegna che nega il land per un commit assente da origin/main viene notata all'ingresso in review
+
+- **GIVEN** un rapporto di consegna che scrive "già su main" o "nessun commit
+  nuovo" per il commit di consegna del ramo
+- **AND** `origin/main` non contiene quel commit, e il ramo porta commit propri
+- **WHEN** il task entra in `review` (riuso di `falseMainClaims`, lo stesso
+  controllo del ripasso a orario, nessun secondo rilevatore)
+- **THEN** la card riceve una nota di sistema che nomina il numero di commit e
+  di file che il ramo porta
+- **AND** l'approvazione resta possibile comunque: la nota è informativa, non
+  un blocco
+
+#### Scenario: una consegna che nega il land per un commit presente su origin/main non viene notata
+
+- **GIVEN** lo stesso rapporto, ma il commit di consegna è già un antenato di
+  `origin/main`
+- **WHEN** il task entra in `review`
+- **THEN** nessuna nota di sistema viene prodotta
+
 ### Requirement: KANBAN-12 — La topbar della board ha UNA linea in meno e UNA porta sola
 
 Tre vincoli sulla barra in cima alla board Kanban. Due sono **rimozioni**, ed è
@@ -6107,3 +6126,32 @@ A board with the setting on SHALL, once per half-day slot, read each backlog car
 - **GIVEN** three backlog cards: one workable, one needing a human decision, one that looks done but has no verified proof
 - **WHEN** the triage runs
 - **THEN** the first SHALL move to todo, the second SHALL move to review with its question, and the third SHALL stay in backlog
+
+### Requirement: KANBAN-126 — No announced page, no photo
+
+The deep link is the contract between a preview command and the manager: it
+names the page worth photographing. The command SHALL announce that page as soon
+as there is one, BEFORE any optional content, so that a failure in the content
+cannot cost the announcement. When a command that declares a deep-link file never
+announces a page, the manager SHALL NOT photograph the bare `/` of the app, which
+is the shell with no topic open: it SHALL fail the boot with that reason, tear its
+server down so the next attempt seeds again, and SHALL NOT reuse a saved
+`output_url` that names no page. A machine whose capture browser is missing SHALL
+download it once, and when that fails the reason SHALL reach the card instead of
+leaving it in review with no photo and no explanation.
+
+#### Scenario: the page is announced before the optional content
+- **GIVEN** a preview seed whose example messages are all refused by the server
+- **THEN** the page of the created topic SHALL still have been announced
+
+#### Scenario: the bare home is refused, with the reason
+- **GIVEN** a command that declares a deep-link file and never writes one
+- **THEN** the boot SHALL fail saying no page was ever announced, and the server SHALL be torn down
+
+#### Scenario: a saved address that names no page is not reused
+- **GIVEN** a task whose saved `output_url` is the bare `/` of its own live preview
+- **THEN** the manager SHALL boot a fresh preview and land on the announced page
+
+#### Scenario: a machine with no capture browser
+- **GIVEN** a launch that answers that the browser executable does not exist
+- **THEN** the browser SHALL be downloaded once, and a failed download SHALL leave a one-line reason for the card
