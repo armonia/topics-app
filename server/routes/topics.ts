@@ -111,6 +111,8 @@ export function createTopicsRouter(
      */
     paneWaitMs?: number;
     stopTopicProcesses?: (topicId: string) => void;
+    /** Starts the live preview of a chat that works in its own worktree (the chat preview button). */
+    ensureChatPreview?: (topicId: string) => Promise<void>;
   } = {},
 ): RouteHandler {
   const {
@@ -1364,6 +1366,15 @@ export function createTopicsRouter(
       if (editResp) return editResp;
       const forkResp = await forkRouter(req, url, pathname, method);
       if (forkResp) return forkResp;
+      // The outcome (link, screenshot or the reason) comes back as a service
+      // message in the chat, so the answer here is only "started".
+      const previewParams = method === "POST" ? ctx.matchRoute(pathname, "/api/topics/:id/preview") : null;
+      if (previewParams) {
+        if (!ctx.getTopicById(previewParams.id)) return ctx.json({ error: "topic not found" }, 404);
+        if (!extra.ensureChatPreview) return ctx.json({ error: "preview unavailable" }, 501);
+        void extra.ensureChatPreview(previewParams.id);
+        return ctx.json({ ok: true, started: true }, 202);
+      }
     }
 
     // Switch-branch (POST /api/messages/:id/switch-branch) lives in server/routes/branches.ts now.

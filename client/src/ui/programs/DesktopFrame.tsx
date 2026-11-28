@@ -58,7 +58,7 @@ function Field({ f }: { f: MaskFieldModel }) {
   const style = { ...BOX, ...(f.active || focused ? ACTIVE : {}) };
   return (
     <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-      <span className="shrink-0 text-mini sm:w-[110px]" style={{ color: '#333' }}>{f.label}</span>
+      <span className="shrink-0 text-mini sm:w-27.5" style={{ color: '#333' }}>{f.label}</span>
       {f.onChange ? (
         <input
           type={f.secret ? 'password' : 'text'}
@@ -89,9 +89,9 @@ export function MaskWindow({ mask, width }: { mask: MaskModel; width?: number })
   const twoColumns = col1.length > 0;
   return (
     <DrawnWindow program={mask.program} title={mask.title} width={width}>
-      <div className="flex min-h-[300px] flex-col p-4 sm:min-h-[340px] sm:p-5">
+      <div className="flex min-h-75 flex-col p-4 sm:min-h-85 sm:p-5">
         {mask.menu ? (
-          <ul className="max-w-[260px] space-y-0.5 text-mini" aria-hidden="true">
+          <ul className="max-w-65 space-y-0.5 text-mini" aria-hidden="true">
             {mask.menu.items.map((it, i) => (
               <li key={it} className="rounded-sm px-2 py-1.5" style={i === mask.menu?.highlight ? { backgroundColor: '#c026d322', boxShadow: 'inset 0 0 0 2px #c026d3' } : { color: '#444' }}>{it}</li>
             ))}

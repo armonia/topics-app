@@ -13,9 +13,11 @@ import {
   type EnvMap,
   type MailAccount,
 } from "../lib/outbound-config";
-import { resolveCliPath, runCli, CLI_SEARCH_DIRS } from "../lib/outbound-cli";
+import { resolveCliPath, runCli } from "../lib/outbound-cli";
 import { confirmOutbound, findWaitingToolRow, type ConfirmOutcome, type OutboundGateDeps } from "../lib/outbound-gate";
-import { discardStaging, freezeAttachments, OutboundStagingError, verifyFrozen, type FrozenAttachments } from "../lib/outbound-staging";
+import { MAIL_DELIVERY_KIND, mailDeliveryKey, type MailLedger, type MailPayload } from "../lib/outbound-mail-ledger";
+import { childEnv, createMailSend, shortSubject } from "./outbound-mail-send";
+import { discardStaging, freezeAttachments, OutboundStagingError, type FrozenAttachments } from "../lib/outbound-staging";
 import { announcedCut, decodeRawMail, gmailSendsMail, googleWriteSummary } from "../lib/outbound-summary";
 import { flushTurnBody } from "../lib/turn-body-flush";
 import { deliverAnswer } from "../lib/ask-user-bridge";
@@ -53,8 +55,6 @@ const CLI_TIMEOUT_MS = 120_000;
 /** Bounds a leg the way the ask bridge does: short enough for any socket. */
 const DEFAULT_LEG_MS = 25_000;
 
-/** The subject line is quoted in the card trace; a book is not a subject. */
-const SUBJECT_TRACE_CHARS = 120;
 
 /**
  * How much of the body the person reads BEFORE deciding.
@@ -86,6 +86,8 @@ export interface OutboundRouterOptions {
    * written.
    */
   comment?: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string; quiet?: boolean }) => string | null;
+  /** The register of the sends. Defaults to the app database; a test passes one on a real SQLite file. */
+  ledger?: MailLedger;
 }
 
 /**
@@ -153,34 +155,7 @@ function humanBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** A one-line quote of a subject: enough to recognise it, not enough to repeat it. */
-function shortSubject(subject: string): string {
-  const flat = subject.replace(/\s+/g, " ").trim();
-  return flat.length > SUBJECT_TRACE_CHARS ? `${flat.slice(0, SUBJECT_TRACE_CHARS)}...` : flat;
-}
 
-/**
- * The minimal environment a child gets. Not `process.env`: a CLI that reaches
- * the network has no business reading the server's tokens, and a short explicit
- * list is the only form of that promise anyone can check.
- *
- * `USER` IS IN THE LIST BECAUSE IT WAS MEASURED, not to be safe. Both CLIs read
- * their credentials from the macOS Keychain, and with `env -i` plus PATH and
- * HOME the lookup never returns: `gws drive files list` printed "Using keyring
- * backend: keyring" and then hung past 25s, twice. With `USER` present the same
- * call answered in a second (probed 2026-09-16 on this machine). A hang is the
- * worst shape this could have taken: it looks like a slow network, it burns the
- * whole CLI deadline, and it would have been discovered only in production.
- * `TMPDIR` was probed separately and changes nothing, so it is not here.
- */
-function childEnv(extra: Record<string, string> = {}): Record<string, string> {
-  return {
-    PATH: CLI_SEARCH_DIRS.join(":"),
-    HOME: process.env.HOME ?? "",
-    USER: process.env.USER ?? "",
-    ...extra,
-  };
-}
 
 export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOptions = {}): RouteHandler {
   const { json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, updateToolCallFields } = ctx;
@@ -349,48 +324,15 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
     return { files };
   };
 
-  /** The argv of one message, per transport. Arrays only: never a shell string. */
-  const mailArgv = (account: MailAccount, message: {
-    to: string;
-    subject: string;
-    body: string;
-    cc?: string;
-    attachments: string[];
-  }): string[] => {
-    if (account.transport === "exchange") {
-      // The Exchange box is driven through its MCP-shaped CLI: one tool name and
-      // one JSON argument. `confirm` is true here because the human gate above
-      // is the confirmation that CLI is asking for.
-      const payload = {
-        to: message.to,
-        subject: message.subject,
-        text: message.body,
-        ...(message.cc ? { cc: message.cc } : {}),
-        ...(message.attachments.length ? { attachments: message.attachments.map((path) => ({ path })) } : {}),
-        confirm: true,
-      };
-      return ["mail_send", JSON.stringify(payload)];
-    }
-    const argv = [
-      account.name,
-      "gmail",
-      "+send",
-      "--to",
-      message.to,
-      "--subject",
-      message.subject,
-      "--body",
-      message.body,
-    ];
-    if (message.cc) argv.push("--cc", message.cc);
-    for (const path of message.attachments) argv.push("--attach", path);
-    return argv;
-  };
 
   const refuse = (sessionKey: string, line: string, reason: string) => {
     trace(sessionKey, line);
     return json({ refused: true, reason });
   };
+
+  const { ledger, answerKnown, sendConfirmed } = createMailSend({
+    db: ctx.db, ledger: options.ledger, env, searchDirs: options.searchDirs, cliTimeoutMs, trace, json,
+  });
 
   return async function outboundRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     // POST /api/sessions/:sessionKey/outbound/mail
@@ -408,6 +350,14 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         const cc = typeof body?.cc === "string" && body.cc.trim() ? body.cc.trim() : undefined;
         if (!to || !subject.trim() || !text.trim()) {
           return json({ error: "to, subject and body are required", code: "invalid_message" }, 400);
+        }
+        // A KEY ALREADY DECIDED IS ANSWERED FROM THE REGISTER, before anything
+        // else runs: the retry of a call whose answer was lost, or the first leg
+        // after a restart, must not open a second question for the same mail.
+        const deliveryKey = mailDeliveryKey(body?.key);
+        if (deliveryKey) {
+          const known = ledger.registry.get(deliveryKey);
+          if (known && known.state !== "pending") return answerKnown(deliveryKey, holdToken(body?.hold));
         }
 
         let roster;
@@ -449,7 +399,6 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           throw err;
         }
 
-        const attachedPaths = frozen.files.map((f) => f.path);
         // The identity of the message includes the FINGERPRINT of every
         // attachment, not its path: swapped bytes are a different message, so
         // they get a different question instead of riding the previous yes.
@@ -476,6 +425,15 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           preview,
         ].join("\n");
 
+        // THE ROW IS WRITTEN BEFORE ANYBODY IS ASKED, and it holds the message:
+        // a restart between now and the answer keeps both the question and what
+        // it is about. A key that exists already is this call's own earlier leg.
+        const payload: MailPayload = { sessionKey, account: account.name, to, subject, body: text, ...(cc ? { cc } : {}), frozen };
+        if (deliveryKey) {
+          const known = ledger.registry.payloadOf<MailPayload>(deliveryKey);
+          if (!ledger.registry.hold(deliveryKey, MAIL_DELIVERY_KIND, payload) && known) payload.askId = known.askId;
+        }
+
         let outcome: ConfirmOutcome;
         try {
           outcome = await confirmOutbound(gateDeps, {
@@ -490,14 +448,27 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         } catch (err) {
           discardStaging(frozen.dir);
           const reason = err instanceof Error ? err.message : String(err);
+          if (deliveryKey) ledger.registry.drop(deliveryKey, reason);
           return refuse(sessionKey, `Invio NON partito (${account.name} a ${to}, oggetto "${quoted}"): ${reason}`, reason);
         }
         // `pending` KEEPS the copies: the next leg re-reads the same bytes,
         // lands on the same staging directory and asks the same question. What
         // a server killed mid-confirmation leaves behind is swept by age.
-        if (outcome.state === "pending") return json({ pending: true, hold: outcome.hold });
+        if (outcome.state === "pending") {
+          // The thread row goes into the register row: it is how a click on it
+          // finds this message once nobody is polling any more.
+          if (deliveryKey && outcome.askId && outcome.askId !== payload.askId) {
+            ledger.registry.updatePayload(deliveryKey, { ...payload, askId: outcome.askId });
+          }
+          // A click after a restart may have sent it from the row meanwhile.
+          if (deliveryKey && ledger.registry.get(deliveryKey)?.state !== "pending") return answerKnown(deliveryKey, holdToken(body?.hold));
+          return json({ pending: true, hold: outcome.hold });
+        }
         if (outcome.state === "refused") {
           discardStaging(frozen.dir);
+          if (deliveryKey) {
+            if (!ledger.registry.drop(deliveryKey, outcome.reason)) return answerKnown(deliveryKey, holdToken(body?.hold));
+          }
           return refuse(
             sessionKey,
             `Invio NON partito (${account.name} a ${to}, oggetto "${quoted}"): ${outcome.reason}`,
@@ -505,84 +476,14 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           );
         }
 
-        // THE COPIES ARE READ AGAIN, after the yes and before anything is
-        // spawned. The staging directory belongs to the user the server runs
-        // as, which is the user the agents run as too: what keeps the bytes
-        // honest is not the mode of that directory but this check, which turns
-        // the window from "the minutes a person spends reading" into "one
-        // process start". IT DOES NOT CLOSE IT: that remainder was reproduced,
-        // and `/dev/fd/N` does not close it either - this CLI refuses the
-        // descriptor twice over, at the path containment check and at the read.
-        // The two measures and their exact text are in the header of
-        // `outbound-staging.ts`.
-        try {
-          verifyFrozen(frozen);
-        } catch (err) {
-          discardStaging(frozen.dir);
-          const reason = err instanceof Error ? err.message : String(err);
-          return refuse(sessionKey, `Invio NON partito (${account.name} a ${to}, oggetto "${quoted}"): ${reason}`, reason);
+        if (deliveryKey) {
+          // ONE YES, ONE SEND. `pending` to `delivering` is the conditional
+          // update both roads go through: a click on the question after a
+          // restart and this leg cannot both win it.
+          if (!ledger.registry.start(deliveryKey)) return answerKnown(deliveryKey, holdToken(body?.hold));
         }
-
-        let file: string;
-        try {
-          file = resolveCliPath(
-            account.cli,
-            account.transport === "exchange" ? "TOPICS_MAIL_EDM_CLI" : "TOPICS_MAIL_CLI",
-            { searchDirs: options.searchDirs },
-          );
-        } catch (err) {
-          if (err instanceof OutboundConfigError) {
-            // PAST THE YES. The person confirmed and nothing left: that is the
-            // same fact as a CLI exiting non-zero, and OUTBOUND-05 asks for the
-            // same line. Without it a confirmed send that never happened exists
-            // only in the agent's own message.
-            discardStaging(frozen.dir);
-            trace(sessionKey, `Invio FALLITO (${account.name} a ${to}, oggetto "${quoted}"): ${err.message}`);
-            return json({ error: err.message, code: "outbound_not_configured", variable: err.variable }, 400);
-          }
-          throw err;
-        }
-
-        const run = await runCli({
-          file,
-          argv: mailArgv(account, { to, subject, body: text, cc, attachments: attachedPaths }),
-          env: childEnv(),
-          // THE CHILD RUNS WHERE THE COPIES ARE, and this is not tidiness.
-          // Measured on the real `gws` (`+send --dry-run`, nothing sent): an
-          // `--attach` whose path resolves OUTSIDE the current directory comes
-          // back "resolves to '...' which is outside the current directory",
-          // code 400, reason `validationError`. The frozen copies live under
-          // `~/.topics` while the server's own cwd is wherever launchd started
-          // it, so without this line no confirmed attachment could ever have
-          // left - the person said yes and the CLI refused the file.
-          //
-          // The paths stay ABSOLUTE: `gws` canonicalises them anyway, and a
-          // relative name would be one more thing that means something
-          // different depending on where the process stands.
-          ...(frozen.dir ? { cwd: frozen.dir } : {}),
-          timeoutMs: cliTimeoutMs,
-        });
-        // The CLI has read them, whichever way it went: nothing is waiting for
-        // these bytes any more.
-        discardStaging(frozen.dir);
-        const failure = run.timedOut
-          ? `the CLI did not answer within ${Math.round(cliTimeoutMs / 1000)}s`
-          : run.exitCode !== 0
-            ? `the CLI exited ${run.exitCode}: ${(run.stderr || run.stdout).trim().slice(0, 400)}`
-            : "";
-        if (failure) {
-          trace(sessionKey, `Invio FALLITO (${account.name} a ${to}, oggetto "${quoted}"): ${failure}`);
-          return json({ error: failure, code: "send_failed" }, 502);
-        }
-        // THE TRACE SAYS WHAT WAS CONFIRMED, and names it by its fingerprint.
-        // It is not a proof of the bytes the CLI read - between the last
-        // re-read and the CLI's own `open` there is a whole process start, and
-        // an attacker inside this uid can win it (see `outbound-staging.ts`).
-        // Writing the short sha is what makes the line CHECKABLE later instead
-        // of a claim: the same eight characters the person read in the question.
-        const attachedNames = frozen.files.map((f) => `${f.name} (sha256 ${f.shortSha})`).join(", ");
-        const traced = trace(sessionKey, `Mail inviata: da ${account.name} a ${to}, oggetto "${quoted}"${attachedNames ? `, allegati confermati: ${attachedNames}` : ""} - riuscito`);
-        return json({ sent: true, account: account.name, to, subject: quoted, traced });
+        const sent = await sendConfirmed(payload, account, deliveryKey);
+        return json(sent.body, sent.status);
       }
     }
 

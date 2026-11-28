@@ -1,8 +1,9 @@
 import { createECDH } from "crypto";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import { join, dirname } from "path";
+import { chmodSync, copyFileSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { dirname, join } from "path";
 import { getDatabase } from "./db";
-import { resolveStateDir } from "./lib/data-dir";
+import { resolveStateDir, stateDirTarget } from "./lib/data-dir";
+import { instanceEntryPath, VAPID_KEYS } from "./lib/instance-files";
 import { DEFAULT_WHEN_OPEN, parseWhenOpen } from "./push-devices";
 import { deliverableSubscriptions } from "./push-recipients";
 import { deliverPush, type VapidDetails } from "./push-delivery";
@@ -14,14 +15,47 @@ interface VapidKeys {
 }
 
 let vapidKeys: VapidKeys | null = null;
+let configuredStateDir: string | null = null;
 
-export function initVapid(): VapidKeys {
+/**
+ * Where the keys live: the state folder of the instance (`ctx.STATE_DIR`), the
+ * same one the primary switch collects them from and restores them into. The
+ * boot names it; without it the default is the one `createAppContext` resolves
+ * from the repo root, never the `server/` folder this module sits in.
+ */
+export function vapidKeysPath(stateDir: string = configuredStateDir ?? resolveStateDir(dirname(import.meta.dir))): string {
+  return instanceEntryPath(VAPID_KEYS, { stateDir });
+}
+
+/** Where releases before the state folder kept the keys: the module's own folder, unless a data folder is set. */
+export function legacyVapidKeysPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(stateDirTarget(import.meta.dir, env), "vapid-keys.json");
+}
+
+/**
+ * The keys of an installation that kept them under `server/` are copied once
+ * to the state folder: a browser subscription is bound to the key that signed
+ * it, so the file is never regenerated. The old file stays where it was, so a
+ * release that still reads it there (a revert, a rollback) signs with the same
+ * key instead of minting a new one and losing every phone.
+ */
+export function adoptLegacyVapidKeys(keysPath: string, legacy: string = legacyVapidKeysPath()): void {
+  if (legacy === keysPath || existsSync(keysPath) || !existsSync(legacy)) return;
+  mkdirSync(dirname(keysPath), { recursive: true });
+  copyFileSync(legacy, keysPath);
+  chmodSync(keysPath, 0o600);
+  console.log("[Push] Copied the VAPID keys into the state folder");
+}
+
+export function initVapid(stateDir?: string): VapidKeys {
+  if (stateDir) configuredStateDir = stateDir;
   if (vapidKeys) return vapidKeys;
 
   // Written on first run when absent → must go to a writable dir, not the
   // read-only app bundle (the file is gitignored and NOT staged, so a fresh
   // download always hits the generate+write path).
-  const keysPath = join(resolveStateDir(import.meta.dir), "vapid-keys.json");
+  const keysPath = vapidKeysPath();
+  adoptLegacyVapidKeys(keysPath);
 
   if (existsSync(keysPath)) {
     vapidKeys = JSON.parse(readFileSync(keysPath, "utf-8"));

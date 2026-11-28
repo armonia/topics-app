@@ -129,7 +129,7 @@ export function BringGroup({ title, count, children }: { title: string; count?: 
 export function BringItem({ label, detail, action }: { label: string; detail?: string; action?: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-app-border py-1.5 first:border-t-0">
-      <span className="min-w-[140px] flex-1 text-prose leading-5 text-app-text">{label}</span>
+      <span className="min-w-35 flex-1 text-prose leading-5 text-app-text">{label}</span>
       {detail && <span className="shrink-0 text-compact tabular-nums text-app-text-tertiary">{detail}</span>}
       {action}
     </div>

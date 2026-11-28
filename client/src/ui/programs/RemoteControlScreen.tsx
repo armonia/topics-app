@@ -90,7 +90,7 @@ export function RemoteControlScreen({
           </DrawnWindow>
         )}
         {status === 'live' && live && (
-          <div className="flex w-full max-w-[380px] flex-col items-stretch gap-3">
+          <div className="flex w-full max-w-95 flex-col items-stretch gap-3">
             <DrawnWindow program={d.app} title={d.kind} width={380}>
               <div className="flex items-center gap-3 p-4">
                 <ShieldCheck size={18} style={{ color: '#1f9d55' }} aria-hidden="true" />
@@ -103,7 +103,7 @@ export function RemoteControlScreen({
           </div>
         )}
         {status !== 'asked' && status !== 'live' && (
-          <p className="max-w-[320px] rounded-md bg-black/25 px-3 py-2 text-center text-prose text-white">
+          <p className="max-w-80 rounded-md bg-black/25 px-3 py-2 text-center text-prose text-white">
             {status === 'ended' ? r.desktopEnded : r.desktopIdle}
           </p>
         )}
@@ -183,7 +183,7 @@ export function RemoteControlScreen({
       <PaneHeader leading={<BackButton label={backLabel} onClick={onBack} copy={copy} />} crumbs={[{ label: r.root }]} />
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8">
         <h1 className="mb-6 text-center text-headline font-semibold tracking-[-0.01em] text-app-text">{r.title}</h1>
-        <div className={clsx('mx-auto grid max-w-[1180px] gap-6', phone ? 'grid-cols-1' : 'grid-cols-[minmax(0,5fr)_minmax(0,6fr)]')}>
+        <div className={clsx('mx-auto grid max-w-295 gap-6', phone ? 'grid-cols-1' : 'grid-cols-[minmax(0,5fr)_minmax(0,6fr)]')}>
           {left}
           {right}
         </div>

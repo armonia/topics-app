@@ -6,6 +6,10 @@ export default {
   ],
   theme: {
     extend: {
+      spacing: {
+        // The sidebar's half step: 3px, the rhythm between rows and chips.
+        half: '3px',
+      },
       colors: {
         primary: 'var(--primary)',
         'primary-hover': 'var(--primary-hover)',

@@ -39,6 +39,7 @@ import { join } from "path";
 import { gitChangeDebouncer, gitPathAffectsStatus, refPathAffectsStatus, refreshGitStatus, watchGitDir, unwatchGitDir } from "./git-watcher";
 import type { AppContext } from "./types";
 import { gitEnv } from "../tests/setup/bun-test-preload";
+import { slackMs } from "../tests/helpers/time-slack";
 import { gitStatusGeneration, invalidateGitCache, readGitStatusCache } from "./lib/git-status-cache";
 
 /** `git` with the machine's own config (hooks, signing) kept out — see the preload. */
@@ -54,7 +55,7 @@ function git(cwd: string, ...args: string[]): { code: number; out: string; err: 
 type Envelope = { type: string; projectPath: string; status: { branch: string; ahead: number; behind: number; files: { path: string; status: string }[] }; worktreeId?: string };
 
 /** Wait for a condition instead of a fixed sleep: the debounce is 500 ms, load is not. */
-async function until(cond: () => boolean, budgetMs = 6000): Promise<boolean> {
+async function until(cond: () => boolean, budgetMs = slackMs(6000)): Promise<boolean> {
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
     if (cond()) return true;

@@ -36,7 +36,7 @@ const TEXT = {
   },
 };
 
-const SELECT = 'max-w-[9rem] shrink-0 rounded border border-app-border bg-transparent px-1 py-0.5';
+const SELECT = 'max-w-36 shrink-0 rounded border border-app-border bg-transparent px-1 py-0.5';
 const SECONDARY = 'rounded-md bg-black/5 px-2 py-1 text-app-text-secondary hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10';
 
 /**
