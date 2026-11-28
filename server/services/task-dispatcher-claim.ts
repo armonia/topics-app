@@ -52,10 +52,13 @@ export function createClaim(ctx: DispatcherCtx) {
       if (t.stayLocal && t.machineId) {
         const localId = (() => { try { return deps.node?.localMachineId?.() ?? null; } catch { return null; } })();
         if (localId !== null && t.machineId !== localId) {
+          // The run left on the node dies first (same road as `launchOnNode`), or the node keeps
+          // a mirror in review for ever and a buried run keeps working next to the local one.
           try {
+            if (!(await ctx.runs.remote.retirePreviousRun(t))) continue;
             ctx.queue.emit(deps.svc.update({ taskId: t.id, actor: "agent", by: "dispatcher", patch: { machineId: null } }));
             t.machineId = null;
-          } catch { /* the card stays as it was: the pin is read again next tick */ }
+          } catch { continue; /* the card stays on its node and the pin is read again next tick */ }
         }
       }
       const delegated = delegatedPolicy(t);
