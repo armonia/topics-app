@@ -8,6 +8,8 @@
  * uses must not reach the agents' commands.
  */
 export function withoutGatewayToken(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const { GATEWAY_TOKEN: _token, ...rest } = env;
+  // The secret store no longer reads its age identity from the env, but a stale
+  // export of it must not reach a child either.
+  const { GATEWAY_TOKEN: _token, TOPICS_SECRET_AGE_IDENTITY: _identity, ...rest } = env;
   return rest;
 }
