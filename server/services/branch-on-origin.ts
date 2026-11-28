@@ -51,6 +51,7 @@ export const BRANCH_NOWHERE_REASON = "il ramo non c'è né qui né su origin";
 export const UNPLANTED_DELIVERY_COMMIT = "0".repeat(40);
 
 export type BranchOnOrigin = { ok: true } | { ok: false; reason: string };
+export type BundleReach = number | "whole";
 
 /** The real git: bounded, no prompt for credentials (a prompt nobody answers is a hang). */
 export const branchGit: GitRunner = (cwd, args) =>
@@ -133,7 +134,7 @@ export async function bundleBranch(
   run: GitRunner = branchGit,
   // How far behind the sender's origin/HEAD the receiver's checkout may be: 0 = the receiver
   // has fetched at least as recently as the sender (the card lane's assumption).
-  marginCommits = 0,
+  marginCommits: BundleReach = 0,
 ): Promise<Uint8Array | null> {
   if (!repoPath || !isPlainBranchName(branch)) return null;
   const dir = await mkdtemp(join(tmpdir(), "topics-carry-"));
@@ -148,9 +149,9 @@ export async function bundleBranch(
     const hasOriginHead = (await run(repoPath, ["rev-parse", "--verify", "-q", "refs/remotes/origin/HEAD"])).code === 0;
     // A margin leaves out only what origin's default held `marginCommits` back, so a node that
     // has not fetched the newest commits still has every prerequisite.
-    const marginBase = marginCommits > 0 ? await originHeadAncestor(repoPath, marginCommits, run) : null;
+    const marginBase = typeof marginCommits === "number" && marginCommits > 0 ? await originHeadAncestor(repoPath, marginCommits, run) : null;
     const thin = [["--not", "refs/remotes/origin/HEAD"], ["--not", `${ref}~1`], []];
-    const attempts = !hasOriginHead
+    const attempts = marginCommits === "whole" ? [[]] : !hasOriginHead
       ? [[]]
       : marginCommits === 0
         ? thin
@@ -181,15 +182,16 @@ export async function bundleBranchForNode(
   repoPath: string | null | undefined,
   branch: string,
   run: GitRunner = branchGit,
+  reach: BundleReach = 0,
 ): Promise<Uint8Array | null> {
   if (!repoPath || !isPlainBranchName(branch)) return null;
   const ref = `refs/heads/${branch}`;
-  if ((await run(repoPath, ["rev-parse", "--verify", "-q", ref])).code === 0) return bundleBranch(repoPath, branch, run);
+  if ((await run(repoPath, ["rev-parse", "--verify", "-q", ref])).code === 0) return bundleBranch(repoPath, branch, run, reach);
   const fetched = await run(repoPath, ["fetch", "--no-tags", "-q", "origin", `${ref}:${ref}`]);
   if (fetched.code !== 0) return null;
   const borrowed = (await run(repoPath, ["rev-parse", "--verify", "-q", ref])).stdout.trim();
   try {
-    return await bundleBranch(repoPath, branch, run);
+    return await bundleBranch(repoPath, branch, run, reach);
   } finally {
     if (borrowed) await run(repoPath, ["update-ref", "-d", ref, borrowed]);
   }

@@ -1,5 +1,136 @@
 [
   {
+    "version": "2.5.22",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a null attachment is gone for good, not a hiccup to retry forever",
+          "scope": "node-mirror"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.21",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "the agent's ceiling is checked when a turn starts; a lightened argument stays as it was",
+          "scope": "native"
+        },
+        {
+          "text": "an agent's ceiling never clips fresh tool results; token-audit bounds the markers too",
+          "scope": "native"
+        },
+        {
+          "text": "an agent's ceiling applies only on a turn a person opened; a resume keeps its request",
+          "scope": "native"
+        },
+        {
+          "text": "the ceiling skips a continuation, not every turn nobody typed in the composer",
+          "scope": "native"
+        },
+        {
+          "text": "a wake is a continuation too; one list of machine marks for continuation and sentByPerson",
+          "scope": "native"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.20",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [
+        {
+          "text": "an agent's chats compact at an absolute token ceiling",
+          "scope": "native"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "move the spawn allowlist entry to where the install call now lives",
+          "scope": "node-delivery"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.19",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "record task-dispatcher-remote-node.test.ts growth with a live exception",
+          "scope": "gates"
+        },
+        {
+          "text": "drop unused nodeTokenPath re-export flagged by deadcode-prod",
+          "scope": "gates"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.18",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "declare untraced test coverage, split node-client under bloat threshold",
+          "scope": "gates"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.17",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "split node-client.ts under the bloat threshold, name the reason for a declined remote claim",
+          "scope": "dispatch"
+        },
+        {
+          "text": "widen the install-call slice after the checkout revert's extra comments",
+          "scope": "node-delivery"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.5.16",
+    "date": "2026-11-27",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "pack refuses to write when the secrets file exists but did not decrypt",
+          "scope": "secrets"
+        },
+        {
+          "text": "read and unpack swallow only the decryption failure",
+          "scope": "secrets"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.5.14",
     "date": "2026-11-27",
     "sections": {
@@ -22,6 +153,10 @@
         {
           "text": "fall back to the planted branch when the delivered commit is not resolvable yet",
           "scope": "node-meter"
+        },
+        {
+          "text": "long timeout for createRun, dedupe the silent remote-claim log line",
+          "scope": "dispatch"
         }
       ],
       "perf": []
@@ -68,6 +203,10 @@
           "scope": "gates"
         },
         {
+          "text": "free a node seat a waiting run holds forever, log the silent remote claim, cap node calls with a deadline",
+          "scope": "dispatch"
+        },
+        {
           "text": "templateChunks back inside ui-language-scan.ts's 800-line budget",
           "scope": "gates"
         },
@@ -90,6 +229,10 @@
         }
       ],
       "fixes": [
+        {
+          "text": "retry failed attachments, test previewImage, extract delivery mainRef wiring",
+          "scope": "nodes"
+        },
         {
           "text": "read the clock once per render in the load gauge",
           "scope": "board"
@@ -131,6 +274,10 @@
         {
           "text": "ci-impact fixtures no longer read as the file's own @covers",
           "scope": "gates"
+        },
+        {
+          "text": "say why on the card, and lock the install call with a test",
+          "scope": "node-delivery"
         }
       ],
       "perf": []
@@ -189,6 +336,14 @@
         {
           "text": "give each run its own checkout folder",
           "scope": "node-checks"
+        },
+        {
+          "text": "measure node deliveries whose bar mixes CI and local checks",
+          "scope": "node-delivery"
+        },
+        {
+          "text": "carry node attachments to the primary, read delivery commits against origin/main",
+          "scope": "nodes"
         }
       ],
       "perf": []

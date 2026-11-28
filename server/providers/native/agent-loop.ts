@@ -203,6 +203,13 @@ export interface AgentTurnOptions {
   /** Measured chars-per-token, owned by the CALLER like `history`. */
   calibration?: Calibration;
   /**
+   * The prompt size, in tokens, past which this chat compacts at the start of
+   * a turn even when the model's window is far larger (`compactionThresholds`).
+   * Absent = the window's own threshold, as before. Set per agent in
+   * `agent-engine.json`, and left out of a continuation (a resume, a nudge).
+   */
+  compactAtTokens?: number | null;
+  /**
    * A line appended, as its own text block, to the person's message and to
    * every round of tool results: the last thing the model reads before it
    * writes. The chat passes the language here (`languageReminder`), because
@@ -1077,8 +1084,17 @@ export async function runAgentTurn(
     // the token window is anywhere near full. See `enforceImageHistoryBudget`.
     const budgeted = enforceImageHistoryBudget(opts.history);
     if (budgeted !== opts.history) { opts.history.length = 0; opts.history.push(...budgeted); }
+    // The agent's ceiling is checked when the turn STARTS, never mid-turn.
+    // The provider leaves it out of a continuation (a resume, a nudge), so at
+    // round 0 the turn's request is the last message, inside the tail that
+    // compaction never cuts. Later in a tool-heavy turn the tail is the turn's
+    // own work, the ceiling's target sits under it, and every round would
+    // compact again, rewriting the cache and eventually cutting the request
+    // itself (review of PR #1779, reproduced). Mid-turn the window guards.
     compactedThisRound = compactIfNeeded({
-      history: opts.history, windowTokens, overheadChars, calibration, sessionId: opts.sessionId, handler,
+      history: opts.history, windowTokens, overheadChars, calibration,
+      capTokens: i === 0 ? opts.compactAtTokens : undefined,
+      sessionId: opts.sessionId, handler,
     }) || compactedThisRound;
 
     // Taken BEFORE the request: with the count the API reports, they give the

@@ -328,21 +328,6 @@ export function useProjectFamilyLabel(projectId: string, enabled = true): Projec
   }, [index, links, projectId]);
 }
 
-/**
- * The ids a cross-project view has to resolve a NAME for: every visible
- * task's project, plus every project the index already knows. A family label
- * («Sito Armonia · Nuvola») needs the PARENT's name too, and a parent with no
- * task of its own in the current filter never shows up among `taskProjectIds`
- * — without the index's ids added in, that parent falls back to its raw board
- * id instead of its name.
- */
-export function projectNameIndexIds(
-  taskProjectIds: readonly string[],
-  index: BoardProjectRef[] | null,
-): string[] {
-  return [...new Set([...taskProjectIds, ...(index ?? []).map((p) => p.projectId)])];
-}
-
 export function resolveProjectRefs(
   ids: readonly string[],
   index: BoardProjectRef[] | null,
@@ -358,4 +343,18 @@ export function resolveProjectRefs(
       return { projectId: id, name: unregisteredProjectName(id), path: '' };
     })
     .sort(byName);
+}
+
+/**
+ * Display names for the group headers of a board: the projects of the loaded
+ * cards PLUS the parents they are merged under. A parent with no card of its
+ * own among the loaded ones still heads its group, and must read as a name.
+ */
+export function projectNamesForBoard(
+  cardProjectIds: readonly string[],
+  parentIds: Iterable<string>,
+  index: BoardProjectRef[] | null,
+): Map<string, string> {
+  const ids = [...new Set([...cardProjectIds, ...parentIds])];
+  return new Map(resolveProjectRefs(ids, index).map((p) => [p.projectId, p.name]));
 }

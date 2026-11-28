@@ -65,7 +65,7 @@ import { ownerLabel } from './ownerChip';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
-import { projectNameIndexIds, resolveProjectRefs, useBoardFamilies, useBoardProjectLabels } from '../../lib/boardProjectsStore';
+import { projectNamesForBoard, useBoardFamilies, useBoardProjectLabels } from '../../lib/boardProjectsStore';
 import { mergedParentMap } from '../../../../shared/project-family';
 import { MergedBoardsContext } from './mergedBoards';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
@@ -851,8 +851,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // of its own in this view never shows up in `tasks` — so the id set to
   // resolve is every known project (the index), not just the visible ones.
   const projectNameById = useMemo(
-    () => new Map<string, string>(resolveProjectRefs(projectNameIndexIds(tasks.map((t) => t.projectId), projectIndex), projectIndex).map((p) => [p.projectId, p.name])),
-    [tasks, projectIndex],
+    () => projectNamesForBoard(tasks.map((t) => t.projectId), projectParent.values(), projectIndex),
+    [tasks, projectIndex, projectParent],
   );
   // Where the composer's ghost sits: in its project's group when the first level is the project, above the groups otherwise.
   const draftPlacement = useMemo(

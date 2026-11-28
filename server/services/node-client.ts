@@ -17,13 +17,18 @@
  * sends the person to the wrong machine, and that is the defect MACHINE-02 is
  * written against.
  */
-import * as nodeFs from "node:fs";
-import { join } from "node:path";
 import type { ProvidersSnapshot } from "../../shared/types";
 import { CLAUDE_CODING_PROVIDERS } from "../../shared/task-coding-models";
 import { getPrimaryRole } from "../lib/primary-role";
 import type { WorktreePlanEntryPayload } from "../../shared/worktree-plan";
 import type { WorktreePolicy, WorktreeSummary } from "../../shared/worktree-summary";
+export {
+  readNodeToken,
+  readDelegatedNodeToken,
+  writeNodeToken,
+  writeDelegatedNodeToken,
+  removeDelegatedNodeToken,
+} from "./node-client-token";
 
 export type NodeFailureReason =
   | "unreachable"
@@ -59,6 +64,17 @@ export const NODE_SESSION_COOKIE = "topics_device";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
+/**
+ * A node that accepts the connection and never answers (a hung tunnel, a
+ * frozen process) must not hold a call for ever: every call to a node carries
+ * a deadline. Short for status and poll - the common case, every 10s - and
+ * long for the two calls that move bytes before answering: pulling a
+ * finished delivery's branch, and creating a run, which plants a carried
+ * branch bundle or runs `git fetch` before the node responds.
+ */
+export const NODE_CALL_TIMEOUT_MS = 15_000;
+export const NODE_DELIVERY_TIMEOUT_MS = 120_000;
+
 export interface NodeClientDeps {
   fetch: FetchLike;
   now: () => number;
@@ -69,6 +85,10 @@ export interface NodeClientDeps {
   hostname: string;
   /** Between two status polls while the node has not answered yet. */
   pollIntervalMs?: number;
+  /** Overrides `NODE_CALL_TIMEOUT_MS` (tests only: production never has a reason to shorten it). */
+  timeoutMs?: number;
+  /** Overrides `NODE_DELIVERY_TIMEOUT_MS` (tests only). */
+  deliveryTimeoutMs?: number;
 }
 
 export interface PairRequestResult {
@@ -156,6 +176,8 @@ export interface NodeRunComment {
   content: string;
   kind: string;
   createdAt: string;
+  /** Absolute paths on the NODE's own disk. Fetched back by `fetchMedia`, one at a time. */
+  media?: string[];
 }
 
 export interface NodeRunReport {
@@ -226,6 +248,8 @@ export interface NodeClient {
     delegation?: NodeRunBinding;
   }): Promise<NodeRunReport>;
   fetchBundle(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<BundleResult>;
+  /** One attachment's bytes, by the exact path the node's own comment declared. `null` = the node has nothing there (gone, or never had it). */
+  fetchMedia(input: { baseUrl: string; token: string; runId: string; path: string; delegation?: NodeRunBinding }): Promise<Uint8Array | null>;
   cancelRun(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<void>;
   /** The Claude ids the node's ready Claude coding runtimes list: what its cards can run. */
   codingModels(input: { baseUrl: string; token: string }): Promise<string[]>;
@@ -384,11 +408,15 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
   const delegatedHeaders = (delegation: NodeRunBinding | undefined): Record<string, string> =>
     delegation ? { "X-Topics-Delegated-Capability": delegation.capabilityId } : {};
 
+  /** A deadline on `init.signal`, unless the caller already set one of its own. */
+  const withDeadline = (init: RequestInit, timeoutMs: number): RequestInit =>
+    init.signal ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) };
+
   /** One request, with the thrown-vs-answered split applied once for everybody. */
-  const call = async (url: string, init: RequestInit, what: string): Promise<Response> => {
+  const call = async (url: string, init: RequestInit, what: string, timeoutMs = deps.timeoutMs ?? NODE_CALL_TIMEOUT_MS): Promise<Response> => {
     let res: Response;
     try {
-      res = await deps.fetch(url, init);
+      res = await deps.fetch(url, withDeadline(init, timeoutMs));
     } catch (err) {
       throw new NodeError(reasonFromThrown(err), `${what}: ${messageOf(err)}`);
     }
@@ -396,8 +424,8 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     return res;
   };
 
-  const callJson = async <T>(url: string, init: RequestInit, what: string): Promise<T> => {
-    const res = await call(url, init, what);
+  const callJson = async <T>(url: string, init: RequestInit, what: string, timeoutMs = deps.timeoutMs ?? NODE_CALL_TIMEOUT_MS): Promise<T> => {
+    const res = await call(url, init, what, timeoutMs);
     try {
       return (await res.json()) as T;
     } catch (err) {
@@ -539,6 +567,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
           body: payload,
         },
         "create run",
+        deps.deliveryTimeoutMs ?? NODE_DELIVERY_TIMEOUT_MS,
       ).catch((err: unknown) => {
         if (isNodeError(err) && err.reason === "payload_too_large") {
           const bytes = new TextEncoder().encode(payload).length;
@@ -563,7 +592,14 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         status: typeof out.status === "string" ? out.status : "unknown",
         dispatchState: typeof out.dispatchState === "string" ? out.dispatchState : null,
         dispatchError: typeof out.dispatchError === "string" ? out.dispatchError : null,
-        comments: Array.isArray(out.comments) ? out.comments : [],
+        comments: Array.isArray(out.comments)
+          ? out.comments.map((c) => ({
+              ...c,
+              media: Array.isArray((c as { media?: unknown }).media)
+                ? (c as { media: unknown[] }).media.filter((p): p is string => typeof p === "string")
+                : undefined,
+            }))
+          : [],
         deliveryBranch: typeof out.deliveryBranch === "string" ? out.deliveryBranch : null,
         deliveryCommit: typeof out.deliveryCommit === "string" ? out.deliveryCommit : null,
         baseSha: typeof out.baseSha === "string" ? out.baseSha : null,
@@ -582,6 +618,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
           ...delegatedHeaders(delegation),
         }) },
         "fetch bundle",
+        deps.deliveryTimeoutMs ?? NODE_DELIVERY_TIMEOUT_MS,
       );
       // "Nothing to deliver" is a JSON answer, the branch is raw bytes: the
       // content type is what tells them apart, not the length (an empty bundle
@@ -599,6 +636,20 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
       }
       const bytes = new Uint8Array(await res.arrayBuffer());
       return { empty: false, bytes };
+    },
+
+    async fetchMedia({ baseUrl, token, runId, path, delegation }) {
+      try {
+        const res = await call(
+          `${runUrl(baseUrl, runId, !!delegation)}/media?path=${encodeURIComponent(path)}`,
+          { method: "GET", headers: headersFor(token, delegatedHeaders(delegation)) },
+          "fetch media",
+        );
+        return new Uint8Array(await res.arrayBuffer());
+      } catch (err) {
+        if (isNodeError(err) && (err.status === 403 || err.status === 404)) return null;
+        throw err;
+      }
     },
 
     async cancelRun({ baseUrl, token, runId, delegation }) {
@@ -667,109 +718,6 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
       return [...new Set(ready.flatMap((p) => (Array.isArray(p.models) ? p.models.filter((m) => typeof m === "string") : [])))];
     },
   };
-}
-
-// ── The token file ──────────────────────────────────────────────────────────
-
-/** The subset of `node:fs` the token helpers touch, so a test can watch it. */
-export interface TokenFs {
-  existsSync: (p: string) => boolean;
-  readFileSync: (p: string, enc: "utf8") => string;
-  writeFileSync: (p: string, data: string, opts: { mode: number }) => void;
-  mkdirSync: (p: string, opts: { recursive: true; mode: number }) => unknown;
-  chmodSync: (p: string, mode: number) => void;
-  unlinkSync?: (p: string) => void;
-}
-
-const MACHINE_ID_SHAPE = /^[A-Za-z0-9_-]{1,128}$/;
-
-/** `<stateDir>/nodes/<machineId>.token`; a machine id that is not a plain name is refused, it is a file name. */
-export function nodeTokenPath(stateDir: string, machineId: string): string {
-  if (!MACHINE_ID_SHAPE.test(machineId)) throw new Error(`nodeTokenPath: machine id "${machineId}" is not a file name`);
-  return join(stateDir, "nodes", `${machineId}.token`);
-}
-
-/** A confined pairing token never overwrites or reuses the machine owner's token. */
-export function delegatedNodeTokenPath(stateDir: string, machineId: string, capabilityId: string): string {
-  if (!MACHINE_ID_SHAPE.test(machineId) || !MACHINE_ID_SHAPE.test(capabilityId)) {
-    throw new Error("delegatedNodeTokenPath: machine and capability ids must be file names");
-  }
-  return join(stateDir, "nodes", "delegated", machineId, `${capabilityId}.token`);
-}
-
-/** `null` = never paired, or the file was tampered into a shape no cookie has. */
-export function readNodeToken(stateDir: string, machineId: string, fs: TokenFs = nodeFs): string | null {
-  const f = nodeTokenPath(stateDir, machineId);
-  try {
-    if (!fs.existsSync(f)) return null;
-    const v = fs.readFileSync(f, "utf8").trim();
-    return /^[A-Za-z0-9_.-]{16,1024}$/.test(v) ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-export function readDelegatedNodeToken(
-  stateDir: string,
-  machineId: string,
-  capabilityId: string,
-  fs: TokenFs = nodeFs,
-): string | null {
-  const file = delegatedNodeTokenPath(stateDir, machineId, capabilityId);
-  try {
-    if (!fs.existsSync(file)) return null;
-    const value = fs.readFileSync(file, "utf8").trim();
-    return /^[A-Za-z0-9_.-]{16,1024}$/.test(value) ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Same discipline as `relay-secret` (server/services/relay-config.ts): a file
- * of its own, `0600`, in a `0700` folder. The `chmod` after the write is not
- * redundant: `writeFileSync`'s mode applies only when the file is CREATED, so
- * a re-pairing over an old file left at a wider mode would keep that mode.
- */
-export function writeNodeToken(stateDir: string, machineId: string, token: string, fs: TokenFs = nodeFs): string {
-  const f = nodeTokenPath(stateDir, machineId);
-  const dir = join(stateDir, "nodes");
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  fs.chmodSync(dir, 0o700);
-  fs.writeFileSync(f, token + "\n", { mode: 0o600 });
-  fs.chmodSync(f, 0o600);
-  return f;
-}
-
-export function writeDelegatedNodeToken(
-  stateDir: string,
-  machineId: string,
-  capabilityId: string,
-  token: string,
-  fs: TokenFs = nodeFs,
-): string {
-  const file = delegatedNodeTokenPath(stateDir, machineId, capabilityId);
-  const dir = join(stateDir, "nodes", "delegated", machineId);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  fs.chmodSync(dir, 0o700);
-  fs.writeFileSync(file, token + "\n", { mode: 0o600 });
-  fs.chmodSync(file, 0o600);
-  return file;
-}
-
-export function removeDelegatedNodeToken(
-  stateDir: string,
-  machineId: string,
-  capabilityId: string,
-  fs: TokenFs = nodeFs,
-): void {
-  const file = delegatedNodeTokenPath(stateDir, machineId, capabilityId);
-  try {
-    if (fs.existsSync(file)) (fs.unlinkSync ?? nodeFs.unlinkSync)(file);
-  } catch {
-    // Revocation in the database is authoritative. A stale file contains a
-    // credential the node has already invalidated and is retried on reissue.
-  }
 }
 
 /** The usage block of a run report; anything that is not three finite numbers reads as unknown. */

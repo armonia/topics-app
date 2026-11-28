@@ -447,6 +447,57 @@ describe("nodes routes: ingress of a mirrored card", () => {
     expect(sinceLater.comments).toEqual([]);
   });
 
+  test("GET .../media: 200 su un path davvero allegato, 403 su un path non dichiarato, 404 se il file è sparito", async () => {
+    const { body } = await mirror("origin-task-media");
+    const runId = body.runId as string;
+    const { createTaskService } = await import("../../server/services/tasks");
+    const svc = createTaskService(ctx.db);
+    const attached = join(ROOT, "screenshot-media.png");
+    writeFileSync(attached, "fake png bytes");
+    const missing = join(ROOT, "screenshot-gone.png");
+    svc.addComment({ taskId: runId, author: "agent", content: "screenshot", media: [attached, missing] });
+
+    const ok = await call("GET", `/api/nodes/runs/${runId}/media?path=${encodeURIComponent(attached)}`);
+    expect(ok.status).toBe(200);
+    expect(await ok.text()).toBe("fake png bytes");
+
+    const unauthorized = await call("GET", `/api/nodes/runs/${runId}/media?path=${encodeURIComponent(join(ROOT, "etc-passwd"))}`);
+    expect(unauthorized.status).toBe(403);
+    expect(await unauthorized.json()).toMatchObject({ code: "forbidden" });
+
+    const gone = await call("GET", `/api/nodes/runs/${runId}/media?path=${encodeURIComponent(missing)}`);
+    expect(gone.status).toBe(404);
+  });
+
+  test("GET .../delegated-runs/:id/media regge lo stesso contratto del path owner", async () => {
+    const original = ctx.requestIdentity;
+    ctx.requestIdentity = () => ({
+      role: "guest", deviceId: null, delegatedAuthorizationId: "node-auth-confined",
+      delegatedCapabilityId: DELEGATED_CAPABILITY,
+    });
+    try {
+      const created = await call("POST", "/api/nodes/delegated-runs", delegatedBody({ originTaskId: "origin-task-media-delegated" }), DELEGATED_HEADERS);
+      expect(created.status).toBe(201);
+      const { runId } = await created.json() as { runId: string };
+      const { createTaskService } = await import("../../server/services/tasks");
+      const svc = createTaskService(ctx.db);
+      const attached = join(ROOT, "screenshot-media-delegated.png");
+      writeFileSync(attached, "fake delegated png bytes");
+      svc.addComment({ taskId: runId, author: "agent", content: "screenshot", media: [attached] });
+
+      const ok = await call("GET", `/api/nodes/delegated-runs/${runId}/media?path=${encodeURIComponent(attached)}`, undefined, DELEGATED_HEADERS);
+      expect(ok.status).toBe(200);
+      expect(await ok.text()).toBe("fake delegated png bytes");
+
+      const unauthorized = await call(
+        "GET", `/api/nodes/delegated-runs/${runId}/media?path=${encodeURIComponent(join(ROOT, "not-attached.png"))}`, undefined, DELEGATED_HEADERS,
+      );
+      expect(unauthorized.status).toBe(403);
+    } finally {
+      ctx.requestIdentity = original;
+    }
+  });
+
   test("il bundle passa git bundle verify e pianta il ramo in un secondo clone", async () => {
     const { body } = await mirror("origin-task-bundle");
     const { createTaskService } = await import("../../server/services/tasks");

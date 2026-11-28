@@ -1,6 +1,7 @@
 /**
  * Landing a task on main: the queue, the auto lander, the land itself, deploy and publish.
  */
+import { REVIEWER_ANSWER_NOTE } from "../services/red-bounce";
 import { isAgentWorking } from "../../shared/board";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { landFallout } from "../services/task-automerge";
@@ -26,7 +27,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { inspectDelivery } from "../services/scheduled-review-inspect";
-import { buildSensePrompt, deliveryDiff, diffIsClipped, newSenseNonce, falseMainClaims, isOnMain, runSense, senseModelFor } from "../services/scheduled-review-sense";
+import { buildSensePrompt, deliveryClaimWords, deliveryDiff, diffIsClipped, newSenseNonce, falseMainClaims, isOnMain, runSense, senseModelFor } from "../services/scheduled-review-sense";
 import { reviewScheduled, scheduledReviewDue, type ScheduledReviewCard, type ScheduledReviewOutcome } from "../services/scheduled-review";
 
 /** `unmeasuredStop`'s reason when the bar is `running`: a verdict is coming, not a missing one. */
@@ -290,7 +291,6 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   const scheduledMinutes = (projectId: string): number => {
     try { return readWorkflowRules(db, projectId).scheduledReviewMinutes; } catch { return 0; }
   };
-  const NOT_A_WRITER = new Set(["user", "guest", "system", "dispatcher", "verifier"]);
 
   function startScheduledPass(t: Task): void {
     const minutes = scheduledMinutes(t.projectId);
@@ -331,10 +331,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       files: async (c) => (opts?.deliveryFiles ? opts.deliveryFiles(c.id, c.deliveryCommit!) : null),
       personPaths: (projectId) => readWorkflowRules(db, projectId).personPaths,
       inspect: doors.inspect ?? ((c, files) => inspectDelivery(repo, c.id, c.deliveryCommit!, files)),
-      falseMainClaims: doors.falseMainClaims ?? (async () => {
-        const words = thread().filter((c) => !NOT_A_WRITER.has(commentAuthorLabel(c.author).kind)).slice(-3).map((c) => c.content).join("\n");
-        return falseMainClaims(repo, words);
-      }),
+      falseMainClaims: doors.falseMainClaims ?? (async () => falseMainClaims(repo, deliveryClaimWords(thread()))),
       onMain: doors.onMain ?? ((c) => isOnMain(repo, c.deliveryCommit!)),
       bouncedBefore: () => {
         const earlier = thread().filter((c) => c.content.includes(marker)).pop();
@@ -360,7 +357,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       turnIsLive: () => cardTurnIsLive(t),
       bounce: (c, why) => ciPhase.bounceWithReason(c.projectId, c.id, why, { as: "scheduled" }),
       // The question stays on the card until the send-back happened: the review decision clears it, a refusal leaves it with the person.
-      answer: (c, text) => ciPhase.bounceWithReason(c.projectId, c.id, `Risposta del revisore alla tua domanda: ${text}`, { as: "answer" }),
+      answer: (c, text) => ciPhase.bounceWithReason(c.projectId, c.id, `${REVIEWER_ANSWER_NOTE}: ${text}`, { as: "answer" }),
       close: (c, proof) => {
         const got = svc.get(c.id, { projectId: c.projectId });
         if (!got) return false;

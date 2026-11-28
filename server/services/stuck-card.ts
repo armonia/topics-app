@@ -13,6 +13,15 @@ import { effectiveSlots, MODEL_SKIP_MS, type OverflowMachine } from "./dispatch-
 /** How long a card may sit without a legible reason before the system speaks. */
 export const STUCK_AFTER_MS = 60 * 60_000;
 
+/**
+ * A card pinned to a machine that stays full this long (every seat held by a
+ * run that is itself stuck - `waiting` for an external condition, hours on
+ * end) stops waiting for a seat there and goes back to the general queue
+ * instead: the machine being full is right to refuse NEW work, but it must
+ * not starve a card already assigned to it forever.
+ */
+export const FULL_REQUEUE_AFTER_MS = 4 * 60 * 60_000;
+
 /** Opening of the one note per card: also the marker that keeps the sweep idempotent. */
 export const STUCK_NOTE_PREFIX = "Ferma da"; // allow-italian: user-facing board comment
 
@@ -38,14 +47,25 @@ export interface StuckVerdict {
 /** Waiting reasons that already explain themselves, so the system adds nothing. */
 const LEGIBLE_QUEUE_KINDS = new Set(["slot", "unknown", "no_agent"]);
 
+/**
+ * A wait on THIS machine's memory floor or load. Every queued card reads the board's current block
+ * as its reason (`shared-task-mapping.ts`), a card pinned to a node too, and the overflow pins cards
+ * to nodes exactly while this machine is blocked: counted as legible, the sweep never spoke for them
+ * and the full-machine requeue never fired (27/11, card 4876378e). A full disk or the spend cap stop
+ * the remote lane as well (`task-dispatcher-claim.ts`), so they stay a reason.
+ */
+function ownMachineWait(q: NonNullable<Task["queueReason"]>): boolean {
+  return q.kind === "resource_pressure" || (q.kind === "resource_floor" && q.key.startsWith("board.queue.memory"));
+}
+
 function sinceOf(card: Task): number {
   const stamp = card.status === "in_progress" ? (card.inProgressAt ?? card.updatedAt) : card.updatedAt;
   const ms = Date.parse(stamp);
   return Number.isFinite(ms) ? ms : Number.NaN;
 }
 
-/** True when the card already carries a reason a reader can see. */
-export function hasLegibleReason(card: Task): boolean {
+/** True when the card already carries a reason a reader can see. `pinnedElsewhere`: its machine is a node, not this one. */
+export function hasLegibleReason(card: Task, pinnedElsewhere = false): boolean {
   if (card.dispatchError && card.dispatchError.trim()) return true;
   if (card.waitReason && card.waitReason.trim()) return true;
   if (card.dispatchState === "waiting" || card.dispatchState === "parked") return true;
@@ -54,6 +74,7 @@ export function hasLegibleReason(card: Task): boolean {
   // it would undo that choice.
   if (card.status === "in_progress" && card.dispatchState) return true;
   const q = card.queueReason;
+  if (pinnedElsewhere && q && ownMachineWait(q)) return false;
   return !!q && !LEGIBLE_QUEUE_KINDS.has(q.kind);
 }
 
@@ -67,10 +88,11 @@ export function diagnoseStuckCard(card: Task, ctx: StuckContext): StuckVerdict |
   if (!Number.isFinite(since)) return null;
   const minutes = Math.floor((ctx.nowMs - since) / 60_000);
   if (ctx.nowMs - since < STUCK_AFTER_MS) return null;
-  if (ctx.busy(card.id) || hasLegibleReason(card)) return null;
+  // `machines` lists the nodes and clouds only: a match means the card is pinned away from this machine.
+  const machine = card.machineId ? ctx.machines.find((m) => m.id === card.machineId) : undefined;
+  if (ctx.busy(card.id) || hasLegibleReason(card, !!machine)) return null;
 
   const head = `${STUCK_NOTE_PREFIX} ${minutes} min`;
-  const machine = card.machineId ? ctx.machines.find((m) => m.id === card.machineId) : undefined;
   if (card.machineId && machine && !machine.online && !machine.wakeable) {
     return {
       note: `${head}: la macchina «${machine.name}» a cui è assegnata non risponde. Rimessa in coda su un'altra.`, // allow-italian: user-facing board comment
@@ -89,6 +111,13 @@ export function diagnoseStuckCard(card: Task, ctx: StuckContext): StuckVerdict |
     const seats = effectiveSlots(machine);
     const load = ctx.loadOf(machine.id);
     if (load >= seats) {
+      if (ctx.nowMs - since >= FULL_REQUEUE_AFTER_MS) {
+        return {
+          note: `${head}: la macchina «${machine.name}» resta piena da ore (${load} card su ${seats} posti). Rimessa in coda su un'altra.`, // allow-italian: user-facing board comment
+          requeue: true,
+          skipMachineId: machine.id,
+        };
+      }
       return {
         note: `${head}: la macchina «${machine.name}» è piena (${load} card su ${seats} posti). Parte quando si libera un posto.`, // allow-italian: user-facing board comment
         requeue: false,
@@ -138,7 +167,13 @@ export function sweepStuckCards(deps: StuckSweepDeps): Array<{ id: string; reque
     const verdict = diagnoseStuckCard(card, deps);
     if (!verdict) continue;
     const thread = deps.svc.get(card.id);
-    if (!thread || thread.comments.some((c) => c.kind === "service" && c.content.startsWith(STUCK_NOTE_PREFIX))) continue;
+    if (!thread) continue;
+    // The one-note-ever rule only covers the NOTE: a card already told "the
+    // machine is full" must still be free to escalate to a requeue once it
+    // has stayed full past `FULL_REQUEUE_AFTER_MS` - the verdict changes kind,
+    // so a prior note of the same kind is the only thing it skips.
+    const alreadySpoke = thread.comments.some((c) => c.kind === "service" && c.content.startsWith(STUCK_NOTE_PREFIX));
+    if (alreadySpoke && !verdict.requeue) continue;
     if (verdict.requeue) {
       if (!deps.requeue(card.id, verdict.skipMachineId, verdict.note)) continue;
       spoke.push({ id: card.id, requeued: true });
