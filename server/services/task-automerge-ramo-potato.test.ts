@@ -265,7 +265,8 @@ describe("squash gia' su main, ramo vivo", () => {
       // Add real work to the branch via a side worktree, keeping the checkout on main.
       const wt = mkdtempSync(join(tmpdir(), "land-squash-wt-"));
       git(repo, "worktree", "add", "-q", "-f", wt, branch);
-      commit(wt, "c.txt", "new work\n", "work c");
+      // The branch edits the file the shared checkout has dirty, so the overlap rule stops the land.
+      commit(wt, "tracked.txt", "branch edit\n", "work c");
       git(repo, "worktree", "remove", "--force", wt);
       const res = await land(repo, branch).tryMerge("t-sq-3", "Card squashata");
       expect(res.status).toBe("skipped");
