@@ -518,18 +518,17 @@ class NodeWasCleaned(Base):
 class NodePoolSide(unittest.TestCase):
     def test_spend_daily_for_the_current_month_with_the_fixed_cost(self):
         t0 = time.mktime((2026, 11, 3, 23, 30, 0, 0, 0, -1))
-        lives = [{"created": t0, "ended": t0 + 90 * 60, "eur_h": 0.5}]
-        sd = np.spend_daily(lives, None, time.mktime((2026, 11, 5, 12, 0, 0, 0, 0, -1)))
+        sd = np.spend_daily({"created": t0, "eur_h": 0.5}, t0 + 90 * 60)
         d = {x["day"]: x["eur"] for x in sd}
         self.assertEqual(list(d)[0], "2026-11-01")
         self.assertEqual(d["2026-11-03"], 0.5, "la prima ora comincia il 3")
         self.assertEqual(d["2026-11-04"], 0.5, "la seconda ora comincia il 4")
-        self.assertEqual(round(sum(d.values()), 4), np.month_spend(lives, t0 + 7200))
+        self.assertEqual(round(sum(d.values()), 4), 1.0)
 
     def test_fixed_cost_stops_at_the_monthly_price(self):
         now = time.mktime((2026, 11, 20, 12, 0, 0, 0, 0, -1))
         fixed = {"created": time.mktime((2026, 10, 10, 0, 0, 0, 0, 0, -1)), "eur_h": 0.0476, "eur_month": 29.49}
-        sd = np.spend_daily([], fixed, now)
+        sd = np.spend_daily(fixed, now)
         self.assertEqual(round(sum(x["eur"] for x in sd), 2), 29.49 if 0.0476 * 24 * 20 > 29.49 else round(0.0476 * 24 * 19.5, 2))
         self.assertTrue(all(set(x) == {"day", "eur"} for x in sd))
 
