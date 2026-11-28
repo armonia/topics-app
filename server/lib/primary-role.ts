@@ -158,6 +158,15 @@ function staleResponse(current: number, presented: number): Response {
   );
 }
 
+/** File next to primary-state.json that carries this server's own machine id, for tools outside the server (node-pool). */
+export const LOCAL_MACHINE_ID_FILE = "primary-local-id.json";
+
+/** The id the server itself compares against primaryMachineId, so no outside reader has to guess it from the hostname. */
+export function writeLocalMachineId(dir: string, machineId: string): void {
+  mkdirSync(dir, { recursive: true });
+  writeFileAtomic(`${dir}/${LOCAL_MACHINE_ID_FILE}`, JSON.stringify({ machineId }));
+}
+
 export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
   const now = deps.now ?? (() => new Date().toISOString());
   // Read once: a hostname change must not turn this server into a secondary in silence.

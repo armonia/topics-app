@@ -8,7 +8,7 @@ import { createAppContext } from "../utils";
 import { setUploadRootsProvider } from "../browser-tool-dispatcher";
 import { uploadAllowedRoots, parseExtraRoots } from "../lib/upload-allowlist";
 import { homedir } from "os";
-import { initPrimaryRole } from "../lib/primary-role";
+import { initPrimaryRole, writeLocalMachineId } from "../lib/primary-role";
 import { bootPrimaryChange, holdRetiredRole } from "../lib/primary-fence";
 import type { BaseScope } from "./scope";
 
@@ -24,6 +24,8 @@ export function bootCore(scope: BaseScope) {
     stateFile: join(ctx.APP_DATA_DIR, "primary-state.json"),
     localMachineId: () => ctx.machineStore.upsertLocal().id,
   });
+  // node-pool reads this file instead of guessing the id from the hostname: it must be the id the role compares.
+  writeLocalMachineId(ctx.APP_DATA_DIR, ctx.machineStore.upsertLocal().id);
   // A server that sent its switch commit stays a secondary, whatever its epoch file says.
   holdRetiredRole(primaryRole);
   if (!primaryRole.isPrimary()) {

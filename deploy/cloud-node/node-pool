@@ -820,44 +820,66 @@ def run_harness_sync(targets, force=False):
 #   -L <api_port> here            -> the primary's main server, on its loopback: drives the pairing
 #   -L <hub_port> here            -> the primary's model hub, so ANTHROPIC_BASE_URL keeps its local address
 # Everything that varies between installations lives in UPLINK_CONF (absent = off):
-#   {"ssh": "<ssh destination>", "listener_port": N, "key": "...", "node_port": 3302, "api_port": 3402,
+#   {"ssh": "<ssh destination>", "listener_port": N, "key": "...", "node_port": 3302, "api_port": 3502,
 #    "api_remote_port": 3333, "api_scheme": "https|http", "listener_scheme": "http|https",
 #    "hub_port": N, "hub_remote_port": N, "slots": N, "name": "..."}
 
 UPLINK_CONF = os.environ.get("NODE_POOL_UPLINK", os.path.join(ST, "uplink.json"))
-UPLINK_DEFAULTS = {"node_port": 3302, "api_port": 3402, "api_remote_port": 3333, "listener_scheme": "http"}
+# api_port stays out of 3400-3450, the preview pool: a preview server there would pass for the tunnel.
+UPLINK_DEFAULTS = {"node_port": 3302, "api_port": 3502, "api_remote_port": 3333, "listener_scheme": "http"}
 
 
 def local_machine_id():
-    """This computer's row in its own DB: the one upsertLocal keeps, by hostname and without a base_url."""
-    import socket, sqlite3
-    db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
+    """The id the server itself compares with primaryMachineId, written by the server next to primary-state.json
+    (server/lib/primary-role.ts writeLocalMachineId). Never guessed from the hostname: a switch leaves rows
+    with a base_url and several hostnames, and only the server knows which row is its own."""
     try:
-        r = db.execute("select id from machines where hostname=? and base_url is null", (socket.gethostname(),)).fetchone()
-        return r[0] if r else None
-    finally:
-        db.close()
+        with open(os.path.join(APP_DATA, "primary-local-id.json")) as f:
+            return (json.load(f) or {}).get("machineId") or None
+    except Exception:
+        return None
+
+
+def has_primary_channel():
+    """True when this server holds a channel to another primary (primary_state.channel_machine_id set, written
+    when it was paired as a secondary). None = the DB cannot say."""
+    import sqlite3
+    try:
+        db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
+        try:
+            r = db.execute("select channel_machine_id from primary_state where id = 1").fetchone()
+        finally:
+            db.close()
+    except sqlite3.OperationalError as e:
+        # A server older than the roles has no such table: it is the sole primary it always was.
+        return False if "no such table" in str(e) else None
+    except Exception:
+        return None
+    return bool(r and r[0])
 
 
 def local_role():
     """'primary', 'secondary' or 'unknown', from the files the server writes first
-    (server/lib/primary-role.ts, server/lib/primary-switch-markers.ts). No choice ever made = primary,
-    as for the server itself; anything unreadable = unknown, and unknown manages nothing."""
+    (server/lib/primary-role.ts, server/lib/primary-switch-markers.ts). No choice made = primary only while
+    this server has no channel to another primary (the server's own rule is the same file, but a node that was
+    never switched to is still a secondary of the primary it is paired with); anything unreadable = unknown,
+    and unknown manages nothing."""
     if os.path.exists(os.path.join(APP_DATA, "primary-retired.json")):
         return "secondary"
+    chosen = None
     try:
         with open(os.path.join(APP_DATA, "primary-state.json")) as f:
             chosen = (json.load(f) or {}).get("primaryMachineId")
     except FileNotFoundError:
-        return "primary"
+        pass
     except Exception:
         return "unknown"
     if not chosen:
-        return "primary"
-    try:
-        here = local_machine_id()
-    except Exception:
-        return "unknown"
+        channel = has_primary_channel()
+        if channel is None:
+            return "unknown"
+        return "secondary" if channel else "primary"
+    here = local_machine_id()
     if not here:
         return "unknown"
     return "primary" if chosen == here else "secondary"
@@ -893,6 +915,7 @@ def uplink_argv(c, hub):
         argv += ["-i", c["key"], "-o", "IdentitiesOnly=yes"]
     argv += ["-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15",
              "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=accept-new",
+             "-o", f"UserKnownHostsFile={os.path.join(ST, 'uplink_known_hosts')}",
              "-R", f"127.0.0.1:{c['node_port']}:127.0.0.1:{c['listener_port']}",
              "-L", f"127.0.0.1:{c['api_port']}:127.0.0.1:{c['api_remote_port']}"]
     if hub:
@@ -910,14 +933,44 @@ def pid_alive(pid):
         return False
 
 
+def listening_pids(port):
+    """Pids holding a loopback listener on the port (lsof, else ss), the same on macOS and Linux. Empty = unknown."""
+    import re
+    for argv in (["lsof", "-t", "-nP", f"-iTCP@127.0.0.1:{port}", "-sTCP:LISTEN"],
+                 ["ss", "-H", "-ltnp", f"sport = :{port}"]):
+        try:
+            out = subprocess.run(argv, capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if argv[0] == "ss":
+            pids = {int(x) for x in re.findall(r"pid=(\d+)", out)}
+        else:
+            pids = {int(x) for x in out.split() if x.isdigit()}
+        if pids:
+            return pids
+    return set()
+
+
 def uplink_alive(up, c):
-    return pid_alive(up.get("pid")) and port_open(c["api_port"])
+    """Alive = our ssh is running and it is the one listening on the api port: any other listener there is an
+    impostor (it would receive the pairing request), and counts as a dead tunnel."""
+    pid = up.get("pid")
+    return pid_alive(pid) and pid in listening_pids(c["api_port"])
+
+
+def is_ssh(pid):
+    """The saved pid is still our ssh, not a recycled number."""
+    try:
+        out = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return os.path.basename(out.strip()) == "ssh"
 
 
 def close_uplink(up):
     pid = up.pop("pid", None)
     up.pop("hub", None)
-    if pid_alive(pid):
+    if pid_alive(pid) and is_ssh(pid):
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:
@@ -1026,6 +1079,8 @@ def uplink_giro(role):
 def giro():
     sweep_stale_bundles()
     role = local_role()
+    if role != "primary":
+        log(f"ruolo {role}: il pool non viene gestito da questo computer")
     try:
         uplink_giro(role)
     except Exception as e:
